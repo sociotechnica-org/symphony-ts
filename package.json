@@ -1,0 +1,37 @@
+{
+  "name": "@sociotechnica/symphony-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "symphony": "./dist/bin/symphony.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "dev": "tsx watch bin/symphony.ts"
+  },
+  "dependencies": {
+    "effect": "^3.19.6",
+    "liquidjs": "^10.24.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.1",
+    "@typescript-eslint/parser": "^8.46.1",
+    "eslint": "^9.36.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.20.0"
+}

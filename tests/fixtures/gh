@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$1" == "pr" && "$2" == "create" ]]; then
+  shift 2
+  TITLE=""
+  BODY=""
+  BASE="main"
+  HEAD=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --title)
+        TITLE="$2"
+        shift 2
+        ;;
+      --body)
+        BODY="$2"
+        shift 2
+        ;;
+      --base)
+        BASE="$2"
+        shift 2
+        ;;
+      --head)
+        HEAD="$2"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/prs" \
+    -H 'content-type: application/json' \
+    -d "{\"title\":\"${TITLE}\",\"body\":\"${BODY}\",\"head\":\"${HEAD}\",\"base\":\"${BASE}\"}" >/dev/null
+  echo "https://example.test/pr/1"
+  exit 0
+fi
+
+if [[ "$1" == "auth" && "$2" == "token" ]]; then
+  printf '%s\n' "${GH_TOKEN:-test-token}"
+  exit 0
+fi
+
+echo "mock-gh: unsupported command $*" >&2
+exit 1
