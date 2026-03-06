@@ -110,6 +110,109 @@ By default, the checked-in `WORKFLOW.md` targets:
 - tracker: GitHub bootstrap adapter
 - runner: local Codex CLI
 
+## How to Use Symphony to Build Symphony
+
+This is the recursive local setup: Symphony runs against the `symphony-ts` GitHub repo and works `symphony-ts` issues by opening PRs back to that same repo.
+
+### 1. Prepare the local machine
+
+Make sure these are installed and configured:
+
+- `pnpm`
+- `git`
+- `gh auth login`
+- `codex`
+
+Then install repo dependencies:
+
+```bash
+pnpm install
+```
+
+### 2. Confirm the workflow targets this repo
+
+The checked-in `WORKFLOW.md` should point at:
+
+- `tracker.repo: sociotechnica-org/symphony-ts`
+- `workspace.repo_url: git@github.com:sociotechnica-org/symphony-ts.git`
+- `agent.command: codex exec --dangerously-bypass-approvals-and-sandbox -C . -`
+
+That means the local orchestrator will poll the real `symphony-ts` GitHub repo and create issue branches inside local workspaces cloned from that same repository.
+
+### 3. Create a real GitHub issue in `symphony-ts`
+
+Open an issue in:
+
+- <https://github.com/sociotechnica-org/symphony-ts/issues>
+
+Describe the task normally. Then add the label:
+
+- `symphony:ready`
+
+That label is the dispatch signal.
+
+### 4. Start Symphony locally
+
+Run one poll cycle:
+
+```bash
+pnpm tsx bin/symphony.ts run --once
+```
+
+Or run the worker continuously:
+
+```bash
+pnpm tsx bin/symphony.ts run
+```
+
+In continuous mode, Symphony will keep polling for additional ready issues.
+
+### 5. Watch the issue lifecycle
+
+When Symphony picks up the issue, it should:
+
+1. replace `symphony:ready` with `symphony:running`
+2. create or reuse a local workspace under `./.tmp/workspaces/`
+3. create branch `symphony/<issue-number>`
+4. run Codex with the rendered issue prompt
+5. push the branch
+6. open a PR against `main`
+
+If the run succeeds, Symphony will comment on the issue and close it.
+
+If the run fails, Symphony will either:
+
+- retry it by restoring `symphony:ready`, or
+- mark it `symphony:failed`
+
+### 6. Review and merge the PR
+
+Once the PR exists, review it like any other change:
+
+- wait for CI
+- wait for Greptile review
+- address follow-up comments if needed
+- merge once the PR is ready
+
+That merged PR becomes the new version of Symphony that will work the next issue.
+
+### 7. Repeat
+
+Create the next `symphony-ts` issue, label it `symphony:ready`, and run Symphony again.
+
+That is the self-hosting loop:
+
+1. Symphony works a `symphony-ts` issue
+2. Symphony opens a PR into `symphony-ts`
+3. the PR merges
+4. the improved Symphony is used on the next `symphony-ts` issue
+
+### Practical notes
+
+- Run only one local Symphony instance against this repo at a time in Phase 0.
+- If you want to inspect a failed run, set `workspace.cleanup_on_success: false` temporarily or inspect the workspace before the next retry.
+- Use `--once` when you want tight control over one issue at a time.
+
 ## WORKFLOW.md
 
 `WORKFLOW.md` is the runtime contract for a repository.
