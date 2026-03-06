@@ -202,6 +202,81 @@ describe("GitHubBootstrapTracker", () => {
     expect(refreshed.kind).toBe("ready");
   });
 
+  it("does not auto-resolve human review threads after a follow-up push", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    const botThreadId = server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: "greptile[bot]",
+      body: "Bot feedback",
+      path: "src/index.ts",
+      line: 12,
+    });
+    const humanThreadId = server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      body: "Human feedback",
+      path: "src/index.ts",
+      line: 14,
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("needs-follow-up");
+    expect(lifecycle.unresolvedThreadIds).toEqual([botThreadId]);
+    expect(lifecycle.actionableReviewFeedback).toHaveLength(2);
+
+    const refreshed = await tracker.reconcileSuccessfulRun(
+      "symphony/7",
+      lifecycle,
+    );
+
+    expect(server.isReviewThreadResolved(botThreadId)).toBe(true);
+    expect(server.isReviewThreadResolved(humanThreadId)).toBe(false);
+    expect(refreshed.kind).toBe("needs-follow-up");
+  });
+
+  it("preserves no-check stabilization for other branches when an issue completes", async () => {
+    const tracker = createTracker(server);
+
+    server.seedIssue({
+      number: 8,
+      title: "Second task",
+      body: "Do another thing",
+      labels: ["symphony:running"],
+    });
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    await server.recordPullRequest({
+      title: "PR for issue 8",
+      body: "",
+      head: "symphony/8",
+      base: "main",
+    });
+
+    const first = await tracker.inspectIssueHandoff("symphony/8");
+    expect(first.kind).toBe("awaiting-review");
+
+    await tracker.completeIssue(7);
+
+    const second = await tracker.inspectIssueHandoff("symphony/8");
+    expect(second.kind).toBe("ready");
+  });
+
   it("deduplicates concurrent ensureLabels calls", async () => {
     const tracker = createTracker(server);
 

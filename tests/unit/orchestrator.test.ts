@@ -141,7 +141,7 @@ class SequencedTracker implements Tracker {
   readonly completed: number[] = [];
   readonly retried: Array<{ issueNumber: number; reason: string }> = [];
   readonly failed: Array<{ issueNumber: number; reason: string }> = [];
-  readonly resolvedThreadBatches: readonly string[][] = [];
+  readonly resolvedThreadBatches: string[][] = [];
   ensureLabelsCalls = 0;
 
   constructor(options: {
@@ -211,9 +211,7 @@ class SequencedTracker implements Tracker {
     lifecycle: PullRequestLifecycle | null,
   ): Promise<PullRequestLifecycle> {
     if (lifecycle !== null && lifecycle.unresolvedThreadIds.length > 0) {
-      (this.resolvedThreadBatches as string[][]).push([
-        ...lifecycle.unresolvedThreadIds,
-      ]);
+      this.resolvedThreadBatches.push([...lifecycle.unresolvedThreadIds]);
     }
     return await this.inspectIssueHandoff(branchName);
   }

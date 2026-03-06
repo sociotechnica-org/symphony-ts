@@ -347,6 +347,10 @@ export class GitHubBootstrapTracker implements Tracker {
     const latestCommitAt =
       reviewStateData.commits.nodes[0]?.commit.committedDate ?? null;
 
+    const reviewBotLogins = new Set(
+      this.#config.reviewBotLogins.map((login) => login.toLowerCase()),
+    );
+
     const unresolvedThreads = reviewStateData.reviewThreads.nodes
       .filter((thread) => !thread.isResolved && !thread.isOutdated)
       .map((thread) => {
@@ -370,9 +374,6 @@ export class GitHubBootstrapTracker implements Tracker {
         return feedback;
       });
 
-    const reviewBotLogins = new Set(
-      this.#config.reviewBotLogins.map((login) => login.toLowerCase()),
-    );
     const actionableBotComments =
       reviewBotLogins.size === 0
         ? []
@@ -408,6 +409,13 @@ export class GitHubBootstrapTracker implements Tracker {
       .filter((check) => check.status === "failure")
       .map((check) => check.name);
     const unresolvedThreadIds = unresolvedThreads
+      .filter((feedback) => {
+        const authorLogin = feedback.authorLogin;
+        if (!authorLogin) {
+          return false;
+        }
+        return reviewBotLogins.has(authorLogin.toLowerCase());
+      })
       .map((feedback) => feedback.threadId)
       .filter((threadId): threadId is string => threadId !== null);
 
@@ -546,12 +554,10 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async completeIssue(issueNumber: number): Promise<void> {
-    this.#noCheckObservations.clear();
     await this.#completeIssue(await this.getIssue(issueNumber));
   }
 
   async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
-    this.#noCheckObservations.clear();
     const issue = await this.getIssue(issueNumber);
     const nextLabels = issue.labels.filter(
       (label) =>
