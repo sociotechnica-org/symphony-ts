@@ -214,7 +214,10 @@ export class LocalIssueLeaseManager {
       return snapshot;
     }
 
-    if (snapshot.kind === "stale-owner-runner" && snapshot.runnerPid !== null) {
+    if (
+      (snapshot.kind === "stale-owner-runner" || snapshot.kind === "invalid") &&
+      snapshot.runnerPid !== null
+    ) {
       await this.#terminateRunner(issueNumber, snapshot.runnerPid);
     }
 
@@ -260,11 +263,11 @@ export class LocalIssueLeaseManager {
       const raw = await fs.readFile(this.#recordFile(lockDir), "utf8");
       return JSON.parse(raw) as ActiveRunLeaseRecord;
     } catch (error) {
-      const systemError = error as NodeJS.ErrnoException;
-      if (isStaleLeaseError(systemError.code)) {
+      if (error instanceof SyntaxError) {
         return null;
       }
-      if (systemError.name === "SyntaxError") {
+      const systemError = error as NodeJS.ErrnoException;
+      if (isStaleLeaseError(systemError.code)) {
         return null;
       }
       throw error;

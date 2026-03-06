@@ -170,7 +170,7 @@ export class LocalRunner implements Runner {
           );
         });
       });
-      child.on("close", (exitCode, signal) => {
+      child.on("close", (exitCode) => {
         finish(() => {
           const finishedAt = new Date().toISOString();
           if (spawnError !== null) {
@@ -181,7 +181,7 @@ export class LocalRunner implements Runner {
             reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
             return;
           }
-          if (signal === "SIGTERM" && timedOut) {
+          if (timedOut) {
             reject(
               new RunnerError(
                 `Runner timed out after ${this.#config.timeoutMs}ms`,

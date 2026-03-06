@@ -105,4 +105,22 @@ describe("LocalRunner", () => {
     expect(spawnedPid).toBeGreaterThan(0);
     await waitForExit(spawnedPid);
   });
+
+  it("reports a timeout even when the runner must be SIGKILLed", async () => {
+    const runner = new LocalRunner(
+      {
+        command:
+          "node -e \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\"",
+        promptTransport: "stdin",
+        timeoutMs: 50,
+        env: {},
+      },
+      new JsonLogger(),
+    );
+    const session = createSession();
+
+    await expect(runner.run(session)).rejects.toMatchObject({
+      message: "Runner timed out after 50ms",
+    });
+  });
 });

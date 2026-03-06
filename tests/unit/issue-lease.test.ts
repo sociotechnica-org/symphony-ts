@@ -128,4 +128,51 @@ describe("LocalIssueLeaseManager", () => {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("reconciles an invalid lease by terminating the orphaned runner and clearing the lock", async () => {
+    const tempRoot = await createTempDir("symphony-lease-invalid-");
+    const manager = new LocalIssueLeaseManager(tempRoot, new JsonLogger());
+    const orphan = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      {
+        stdio: "ignore",
+      },
+    );
+
+    try {
+      const lockDir = path.join(tempRoot, ".symphony-locks", "24");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), "not-a-pid\n", "utf8");
+      await fs.writeFile(
+        path.join(lockDir, "run.json"),
+        JSON.stringify(
+          {
+            issueNumber: 24,
+            issueIdentifier: "sociotechnica-org/symphony-ts#24",
+            branchName: "symphony/24",
+            runSessionId: "sociotechnica-org/symphony-ts#24/attempt-1/orphaned",
+            attempt: 1,
+            ownerPid: 999999,
+            runnerPid: orphan.pid,
+            acquiredAt: new Date().toISOString(),
+            runnerStartedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const snapshot = await manager.reconcile(24);
+      expect(snapshot.kind).toBe("invalid");
+
+      await waitForExit(orphan.pid!);
+      expect((await manager.inspect(24)).kind).toBe("missing");
+    } finally {
+      orphan.kill("SIGKILL");
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
