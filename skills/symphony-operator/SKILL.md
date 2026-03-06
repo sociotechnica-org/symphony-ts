@@ -31,6 +31,8 @@ Use this skill when acting as the operator for the local Symphony factory.
 - Treat `symphony:running` with no live worker or no live agent child as an orphaned run and repair it.
 - Prefer detached worker sessions that survive outside the current interactive shell.
 - Use an isolated checkout when fixing PR branches so local operator-only modifications do not leak into tracked work.
+- The factory owns PR follow-up by default. If a fresh actionable review batch lands and the factory does not pick it up, debug the miss as a factory/runtime problem before taking over the branch manually.
+- Do not silently replace the worker on an active PR just because the next fix is obvious. Operator PR intervention is for stalled or broken factory behavior, not the normal path.
 
 ## Factory Fix Rule
 
