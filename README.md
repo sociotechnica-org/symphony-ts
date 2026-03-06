@@ -1,16 +1,90 @@
 # symphony-ts
 
-TypeScript implementation of the Symphony spec.
+TypeScript implementation of the [Symphony spec](https://github.com/openai/symphony).
 
-Current objective: complete Phase 0 so Symphony can build Symphony.
+This repository is the new clean-room implementation. The previous scaffolded attempt lives at [`sociotechnica-org/symphony-ts-opus`](https://github.com/sociotechnica-org/symphony-ts-opus).
 
-## Local Bootstrap Usage
+## Status
 
-Prerequisites:
+Phase 0 is implemented.
 
-1. `gh auth login`
-2. `codex` installed locally
-3. GitHub issue labels `symphony:ready`, `symphony:running`, and `symphony:failed`
+Today, `symphony-ts` can:
+
+- poll real GitHub issues labeled `symphony:ready`
+- claim one of those issues locally
+- create or reuse a deterministic per-issue git workspace
+- run Codex against that workspace using the rendered `WORKFLOW.md` prompt
+- verify that a pull request exists for the issue branch
+- close the issue and leave a success comment
+- retry failed runs locally
+
+This is already being used to build `symphony-ts` itself.
+
+## How It Works
+
+The Phase 0 runtime is a narrow vertical slice:
+
+1. `bin/symphony.ts` starts the CLI.
+2. `src/config/workflow.ts` loads and validates `WORKFLOW.md`.
+3. `src/tracker/github-bootstrap.ts` polls GitHub and manages labels/comments/state.
+4. `src/workspace/local.ts` clones and resets per-issue workspaces.
+5. `src/runner/local.ts` launches Codex as a subprocess.
+6. `src/orchestrator/service.ts` ties the loop together.
+
+The default issue lifecycle is:
+
+1. an issue gets the `symphony:ready` label
+2. Symphony changes it to `symphony:running`
+3. Symphony prepares branch `symphony/<issue-number>`
+4. Codex implements the issue and opens a PR
+5. Symphony confirms the PR exists
+6. Symphony comments on the issue and closes it
+
+If a run fails, Symphony either:
+
+- re-labels the issue as `symphony:ready` and retries later, or
+- marks it `symphony:failed` after retries are exhausted
+
+## Repository Map
+
+```text
+bin/
+  symphony.ts                CLI entry point
+src/
+  cli/                       CLI wiring
+  config/                    WORKFLOW.md parsing and prompt rendering
+  domain/                    Shared runtime types and errors
+  observability/             Structured logging
+  orchestrator/              Polling, retries, dispatch
+  runner/                    Codex subprocess execution
+  tracker/                   GitHub bootstrap tracker
+  workspace/                 Local git workspace management
+tests/
+  unit/                      Small contract tests
+  integration/               Adapter and fixture tests
+  e2e/                       Full mock-GitHub runtime tests
+docs/
+  architecture.md            Layer boundaries
+  golden-principles.md       Implementation rules
+  plans/                     Issue-specific implementation plans
+  adrs/                      Architecture decision records
+```
+
+## Prerequisites
+
+- Node.js 20+
+- `pnpm`
+- `git`
+- `gh` authenticated against GitHub
+- `codex` installed locally
+
+You also need these labels in the target repository:
+
+- `symphony:ready`
+- `symphony:running`
+- `symphony:failed`
+
+## Quick Start
 
 Install dependencies:
 
@@ -30,4 +104,97 @@ Run continuously:
 pnpm tsx bin/symphony.ts run
 ```
 
-Issues labeled `symphony:ready` in `sociotechnica-org/symphony-ts` are eligible for dispatch.
+By default, the checked-in `WORKFLOW.md` targets:
+
+- repo: `sociotechnica-org/symphony-ts`
+- tracker: GitHub bootstrap adapter
+- runner: local Codex CLI
+
+## WORKFLOW.md
+
+`WORKFLOW.md` is the runtime contract for a repository.
+
+It contains:
+
+- YAML front matter for tracker, polling, workspace, hooks, and agent config
+- a Liquid template used to render the issue prompt
+
+Key fields in the current workflow:
+
+- `tracker.repo`: GitHub repository to poll
+- `polling.interval_ms`: poll interval
+- `polling.max_concurrent_runs`: local concurrency cap
+- `workspace.root`: local workspace root
+- `workspace.branch_prefix`: issue branch prefix
+- `agent.command`: subprocess command used to run Codex
+
+The checked-in default runner command is:
+
+```bash
+codex exec --dangerously-bypass-approvals-and-sandbox -C . -
+```
+
+## Development
+
+Install dependencies:
+
+```bash
+pnpm install
+```
+
+Run the full local gate:
+
+```bash
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+
+Useful commands:
+
+```bash
+pnpm dev
+pnpm build
+```
+
+## Testing Strategy
+
+The repo uses three layers of verification:
+
+- unit tests for pure config, logger, runner, and orchestrator behavior
+- integration tests for GitHub adapter and CLI fixtures
+- end-to-end tests that exercise the full runtime against an in-process mock GitHub server and a real temporary git remote
+
+Phase 0 also includes real smoke testing against the live `sociotechnica-org/symphony-ts` repository.
+
+## Current Constraints
+
+- The Phase 0 GitHub bootstrap tracker is intended for a single local Symphony instance.
+- Issue claiming is label-based and not atomic across multiple independent orchestrators.
+- Remote execution backends are not implemented yet.
+- Beads is not integrated yet.
+
+## Documentation
+
+Start here:
+
+- [docs/architecture.md](docs/architecture.md)
+- [docs/golden-principles.md](docs/golden-principles.md)
+- [AGENTS.md](AGENTS.md)
+
+Plans and ADRs live in:
+
+- [`docs/plans/`](docs/plans/)
+- [`docs/adrs/`](docs/adrs/)
+
+## References
+
+- Symphony spec: <https://github.com/openai/symphony>
+- Symphony spec document: <https://github.com/openai/symphony/blob/main/SPEC.md>
+- Harness Engineering post: <https://openai.com/index/harness-engineering/>
+- Main project issue: <https://github.com/sociotechnica-org/company/issues/34>
+- Phase 0 issue: <https://github.com/sociotechnica-org/company/issues/35>
+- Beads: <https://github.com/steveyegge/beads>
+- Context Library: <https://github.com/sociotechnica-org/context-library>
+- Previous implementation attempt: <https://github.com/sociotechnica-org/symphony-ts-opus>
