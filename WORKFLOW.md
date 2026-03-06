@@ -61,7 +61,7 @@ Rules:
 1. Read `AGENTS.md`, `README.md`, and the relevant docs before making changes.
 2. Work only inside this repository clone.
 3. Create or reuse the issue branch for this work.
-4. For implementation issues, read `skills/symphony-plan/SKILL.md` and use it to create or update `docs/plans/<issue-number>-<task-name>/plan.md` before substantial code changes.
+4. Read `skills/symphony-plan/SKILL.md` and use it to create or update `docs/plans/<issue-number>-<task-name>/plan.md` before substantial code changes.
 5. Comment on the GitHub issue when the plan is ready for review.
 6. If explicitly instructed not to wait for human feedback, continue directly from plan into implementation.
 7. Implement the issue completely, including docs and tests required by the repo process.
