@@ -65,8 +65,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     request: WorkspacePreparationRequest,
   ): Promise<PreparedWorkspace> {
     const issue = request.issue;
-    const workspaceKey = sanitize(issue.identifier);
-    const workspacePath = path.join(this.#config.root, workspaceKey);
+    const workspacePath = this.#workspacePathForIssue(issue.identifier);
     const branchName = `${this.#config.branchPrefix}${issue.number}`;
     const exists = await fs
       .stat(workspacePath)
@@ -128,7 +127,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     });
 
     return {
-      key: workspaceKey,
+      key: sanitize(issue.identifier),
       path: workspacePath,
       branchName,
       createdNow: !exists,
@@ -138,5 +137,20 @@ export class LocalWorkspaceManager implements WorkspaceManager {
   async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
     this.#logger.info("Cleaning workspace", { workspacePath: workspace.path });
     await fs.rm(workspace.path, { recursive: true, force: true });
+  }
+
+  async cleanupWorkspaceForIssue(
+    request: WorkspacePreparationRequest,
+  ): Promise<void> {
+    await this.cleanupWorkspace({
+      key: sanitize(request.issue.identifier),
+      path: this.#workspacePathForIssue(request.issue.identifier),
+      branchName: `${this.#config.branchPrefix}${request.issue.number}`,
+      createdNow: false,
+    });
+  }
+
+  #workspacePathForIssue(issueIdentifier: string): string {
+    return path.join(this.#config.root, sanitize(issueIdentifier));
   }
 }

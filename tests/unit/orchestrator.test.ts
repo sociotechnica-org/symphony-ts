@@ -188,10 +188,11 @@ class SequencedTracker implements Tracker {
     return claimed;
   }
 
-  async inspectIssueHandoff(
-    issueNumber: number,
-    _branchName: string,
-  ): Promise<PullRequestLifecycle> {
+  async inspectIssueHandoff(branchName: string): Promise<PullRequestLifecycle> {
+    const issueNumber = Number(branchName.split("/").at(-1));
+    if (Number.isNaN(issueNumber)) {
+      throw new Error(`Invalid branch name ${branchName}`);
+    }
     const sequence = this.lifecycleSequences.get(issueNumber);
     if (!sequence || sequence.length === 0) {
       throw new Error(`No lifecycle configured for issue ${issueNumber}`);
@@ -203,8 +204,7 @@ class SequencedTracker implements Tracker {
   }
 
   async reconcileSuccessfulRun(
-    issueNumber: number,
-    _branchName: string,
+    branchName: string,
     lifecycle: PullRequestLifecycle | null,
   ): Promise<PullRequestLifecycle> {
     if (lifecycle !== null && lifecycle.unresolvedThreadIds.length > 0) {
@@ -212,7 +212,7 @@ class SequencedTracker implements Tracker {
         ...lifecycle.unresolvedThreadIds,
       ]);
     }
-    return await this.inspectIssueHandoff(issueNumber, _branchName);
+    return await this.inspectIssueHandoff(branchName);
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
@@ -255,11 +255,14 @@ class RetryRecordingFailingTracker extends SequencedTracker {
 }
 
 class StaticWorkspaceManager implements WorkspaceManager {
+  readonly prepared: string[] = [];
+
   async prepareWorkspace({
     issue,
   }: {
     readonly issue: RuntimeIssue;
   }): Promise<PreparedWorkspace> {
+    this.prepared.push(`/tmp/workspaces/${issue.number}`);
     return {
       key: `sociotechnica-org_symphony-ts_${issue.number}`,
       path: `/tmp/workspaces/${issue.number}`,
@@ -269,6 +272,19 @@ class StaticWorkspaceManager implements WorkspaceManager {
   }
 
   async cleanupWorkspace(_workspace: PreparedWorkspace): Promise<void> {}
+
+  async cleanupWorkspaceForIssue({
+    issue,
+  }: {
+    readonly issue: RuntimeIssue;
+  }): Promise<void> {
+    await this.cleanupWorkspace({
+      key: `sociotechnica-org_symphony-ts_${issue.number}`,
+      path: `/tmp/workspaces/${issue.number}`,
+      branchName: `symphony/${issue.number}`,
+      createdNow: false,
+    });
+  }
 }
 
 class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
@@ -572,6 +588,7 @@ describe("BootstrapOrchestrator", () => {
 
     expect(runnerCalls).toBe(0);
     expect(tracker.completed).toEqual([81]);
+    expect(workspace.prepared).toEqual([]);
     expect(workspace.cleaned).toEqual(["/tmp/workspaces/81"]);
   });
 

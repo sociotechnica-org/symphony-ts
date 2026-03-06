@@ -77,7 +77,7 @@ describe("GitHubBootstrapTracker", () => {
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
 
-    expect((await tracker.inspectIssueHandoff(7, "symphony/7")).kind).toBe(
+    expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
       "ready",
     );
 
@@ -89,7 +89,7 @@ describe("GitHubBootstrapTracker", () => {
 
   it("reports a missing lifecycle when no PR exists for the branch", async () => {
     const tracker = createTracker(server);
-    const lifecycle = await tracker.inspectIssueHandoff(7, "symphony/7");
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(lifecycle.kind).toBe("missing");
     expect(lifecycle.summary).toMatch(/no open pull request/i);
@@ -108,7 +108,7 @@ describe("GitHubBootstrapTracker", () => {
       { name: "CI", status: "in_progress" },
     ]);
 
-    const lifecycle = await tracker.inspectIssueHandoff(7, "symphony/7");
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(lifecycle.kind).toBe("awaiting-review");
     expect(lifecycle.pendingCheckNames).toEqual(["CI"]);
@@ -124,12 +124,12 @@ describe("GitHubBootstrapTracker", () => {
       base: "main",
     });
 
-    const first = await tracker.inspectIssueHandoff(7, "symphony/7");
+    const first = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(first.kind).toBe("awaiting-review");
     expect(first.summary).toMatch(/waiting for pr checks to appear/i);
 
-    const second = await tracker.inspectIssueHandoff(7, "symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
     expect(second.kind).toBe("ready");
     expect(second.summary).toMatch(/merge-ready/i);
   });
@@ -160,7 +160,7 @@ describe("GitHubBootstrapTracker", () => {
       createdAt: new Date(Date.now() + 1_000).toISOString(),
     });
 
-    const lifecycle = await tracker.inspectIssueHandoff(7, "symphony/7");
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(lifecycle.kind).toBe("needs-follow-up");
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
@@ -176,12 +176,19 @@ describe("GitHubBootstrapTracker", () => {
     ]);
 
     const refreshed = await tracker.reconcileSuccessfulRun(
-      7,
       "symphony/7",
       lifecycle,
     );
     expect(server.isReviewThreadResolved(threadId)).toBe(true);
     expect(refreshed.kind).toBe("ready");
+  });
+
+  it("deduplicates concurrent ensureLabels calls", async () => {
+    const tracker = createTracker(server);
+
+    await Promise.all([tracker.ensureLabels(), tracker.ensureLabels()]);
+
+    expect(server.countRequests("POST labels")).toBe(3);
   });
 
   it("preserves labels added after claim when completing an issue", async () => {

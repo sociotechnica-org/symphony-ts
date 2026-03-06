@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
+import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -27,7 +28,7 @@ interface PromptRenderInput {
     readonly identifier: string;
   };
   readonly attempt: number | null;
-  readonly pullRequest: unknown;
+  readonly pullRequest: PullRequestLifecycle | null;
   readonly config: ResolvedConfig;
 }
 

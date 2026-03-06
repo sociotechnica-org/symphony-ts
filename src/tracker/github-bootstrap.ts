@@ -255,7 +255,7 @@ export class GitHubBootstrapTracker implements Tracker {
   readonly #repoName: string;
   #ensureLabelsPromise: Promise<void> | null = null;
   readonly #noCheckObservations = new Map<
-    number,
+    string,
     { readonly url: string; readonly latestCommitAt: string | null }
   >();
 
@@ -314,18 +314,15 @@ export class GitHubBootstrapTracker implements Tracker {
     const updated = await this.#updateIssue(issueNumber, {
       labels: nextLabels,
     });
-    this.#noCheckObservations.delete(issueNumber);
+    this.#noCheckObservations.clear();
     this.#logger.info("Claimed GitHub issue", { issueNumber });
     return updated;
   }
 
-  async inspectIssueHandoff(
-    issueNumber: number,
-    branchName: string,
-  ): Promise<PullRequestLifecycle> {
+  async inspectIssueHandoff(branchName: string): Promise<PullRequestLifecycle> {
     const pullRequest = await this.#findPullRequest(branchName);
     if (pullRequest === null) {
-      this.#noCheckObservations.delete(issueNumber);
+      this.#noCheckObservations.delete(branchName);
       return {
         kind: "missing",
         branchName,
@@ -413,7 +410,7 @@ export class GitHubBootstrapTracker implements Tracker {
       .filter((threadId): threadId is string => threadId !== null);
 
     if (failingCheckNames.length > 0 || actionableReviewFeedback.length > 0) {
-      this.#noCheckObservations.delete(issueNumber);
+      this.#noCheckObservations.delete(branchName);
       return {
         kind: "needs-follow-up",
         branchName,
@@ -438,7 +435,7 @@ export class GitHubBootstrapTracker implements Tracker {
     }
 
     if (pendingCheckNames.length > 0) {
-      this.#noCheckObservations.delete(issueNumber);
+      this.#noCheckObservations.delete(branchName);
       return {
         kind: "awaiting-review",
         branchName,
@@ -462,11 +459,11 @@ export class GitHubBootstrapTracker implements Tracker {
         url: pullRequest.html_url,
         latestCommitAt,
       };
-      const previousObservation = this.#noCheckObservations.get(issueNumber);
+      const previousObservation = this.#noCheckObservations.get(branchName);
       const sawSameNoCheckLifecycle =
         previousObservation?.url === observation.url &&
         previousObservation.latestCommitAt === observation.latestCommitAt;
-      this.#noCheckObservations.set(issueNumber, observation);
+      this.#noCheckObservations.set(branchName, observation);
 
       if (!sawSameNoCheckLifecycle) {
         return {
@@ -488,7 +485,7 @@ export class GitHubBootstrapTracker implements Tracker {
       }
     }
 
-    this.#noCheckObservations.delete(issueNumber);
+    this.#noCheckObservations.delete(branchName);
 
     return {
       kind: "ready",
@@ -509,7 +506,6 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async reconcileSuccessfulRun(
-    issueNumber: number,
     branchName: string,
     lifecycle: PullRequestLifecycle | null,
   ): Promise<PullRequestLifecycle> {
@@ -517,13 +513,18 @@ export class GitHubBootstrapTracker implements Tracker {
       await this.#resolveReviewThreads(lifecycle.unresolvedThreadIds);
     }
 
-    return await this.inspectIssueHandoff(issueNumber, branchName);
+    return await this.inspectIssueHandoff(branchName);
   }
 
   async #resolveReviewThreads(threadIds: readonly string[]): Promise<void> {
-    for (const threadId of threadIds) {
-      await this.#graphqlRequest(RESOLVE_REVIEW_THREAD_MUTATION, { threadId });
-    }
+    await Promise.all(
+      threadIds.map(
+        async (threadId) =>
+          await this.#graphqlRequest(RESOLVE_REVIEW_THREAD_MUTATION, {
+            threadId,
+          }),
+      ),
+    );
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
@@ -543,12 +544,12 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async completeIssue(issueNumber: number): Promise<void> {
-    this.#noCheckObservations.delete(issueNumber);
+    this.#noCheckObservations.clear();
     await this.#completeIssue(await this.getIssue(issueNumber));
   }
 
   async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
-    this.#noCheckObservations.delete(issueNumber);
+    this.#noCheckObservations.clear();
     const issue = await this.getIssue(issueNumber);
     const nextLabels = issue.labels.filter(
       (label) =>

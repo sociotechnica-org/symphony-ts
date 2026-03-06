@@ -7,12 +7,8 @@ export interface Tracker {
   fetchRunningIssues(): Promise<readonly RuntimeIssue[]>;
   getIssue(issueNumber: number): Promise<RuntimeIssue>;
   claimIssue(issueNumber: number): Promise<RuntimeIssue | null>;
-  inspectIssueHandoff(
-    issueNumber: number,
-    branchName: string,
-  ): Promise<PullRequestLifecycle>;
+  inspectIssueHandoff(branchName: string): Promise<PullRequestLifecycle>;
   reconcileSuccessfulRun(
-    issueNumber: number,
     branchName: string,
     lifecycle: PullRequestLifecycle | null,
   ): Promise<PullRequestLifecycle>;

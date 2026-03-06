@@ -220,14 +220,11 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
-    const lifecycle = await this.#refreshLifecycle(issue.number, branchName);
+    const lifecycle = await this.#refreshLifecycle(branchName);
 
     if (lifecycle.kind === "ready") {
-      const workspace = await this.#workspaceManager.prepareWorkspace({
-        issue,
-      });
       await this.#completeIssue(issue.number);
-      await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
+      await this.#cleanupIssueWorkspaceIfNeeded(issue);
       return;
     }
 
@@ -271,11 +268,9 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     try {
       const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
-        issue.number,
         workspace.branchName,
         pullRequest,
       );
-      this.#state.pullRequestLifecycles.set(issue.number, nextLifecycle);
       this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
 
       if (nextLifecycle.kind === "ready") {
@@ -307,10 +302,24 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #completeIssue(issueNumber: number): Promise<void> {
     await this.#tracker.completeIssue(issueNumber);
-    this.#state.pullRequestLifecycles.delete(issueNumber);
     this.#state.retries.delete(issueNumber);
     this.#state.nextAttemptByIssueNumber.delete(issueNumber);
     this.#logger.info("Issue completed", { issueNumber });
+  }
+
+  async #cleanupIssueWorkspaceIfNeeded(issue: RuntimeIssue): Promise<void> {
+    if (!this.#config.workspace.cleanupOnSuccess) {
+      return;
+    }
+
+    try {
+      await this.#workspaceManager.cleanupWorkspaceForIssue({ issue });
+    } catch (error) {
+      this.#logger.error("Workspace cleanup failed", {
+        issueNumber: issue.number,
+        error: this.#normalizeFailure(error as Error),
+      });
+    }
   }
 
   async #cleanupWorkspaceIfNeeded(
@@ -332,16 +341,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
   }
 
-  async #refreshLifecycle(
-    issueNumber: number,
-    branchName: string,
-  ): Promise<PullRequestLifecycle> {
-    const lifecycle = await this.#tracker.inspectIssueHandoff(
-      issueNumber,
-      branchName,
-    );
-    this.#state.pullRequestLifecycles.set(issueNumber, lifecycle);
-    return lifecycle;
+  async #refreshLifecycle(branchName: string): Promise<PullRequestLifecycle> {
+    return await this.#tracker.inspectIssueHandoff(branchName);
   }
 
   #createRunSession(
@@ -416,7 +417,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
     message: string,
   ): Promise<void> {
-    this.#state.pullRequestLifecycles.delete(issue.number);
     if (attempt < this.#config.polling.retry.maxAttempts) {
       await this.#tracker.recordRetry(issue.number, message);
       this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
