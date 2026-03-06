@@ -573,7 +573,7 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.completed).toEqual([71]);
   });
 
-  it("reclaims a stale issue lease when pid probing returns EPERM", async () => {
+  it("keeps an existing issue lease when pid probing returns EPERM", async () => {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "symphony-stale-lease-eperm-test-"),
     );
@@ -613,7 +613,8 @@ describe("BootstrapOrchestrator", () => {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
 
-    expect(tracker.completed).toEqual([72]);
+    expect(tracker.completed).toEqual([]);
+    expect(tracker.failed).toEqual([]);
   });
 
   it("completes a running PR when the tracker later reports it ready", async () => {

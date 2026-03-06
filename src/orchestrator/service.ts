@@ -25,12 +25,7 @@ interface QueueEntry {
 }
 
 function isStaleLeaseError(code: string | undefined): boolean {
-  return (
-    code === "ENOENT" ||
-    code === "ENOTDIR" ||
-    code === "ESRCH" ||
-    code === "EPERM"
-  );
+  return code === "ENOENT" || code === "ENOTDIR" || code === "ESRCH";
 }
 
 export class BootstrapOrchestrator implements Orchestrator {
@@ -469,27 +464,29 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber.toString(),
     );
     const pidFile = path.join(lockDir, "pid");
-    try {
-      await fs.mkdir(lockDir, { recursive: false });
-      await fs.writeFile(pidFile, `${process.pid}\n`, "utf8");
-      return lockDir;
-    } catch (error) {
-      const systemError = error as NodeJS.ErrnoException;
-      if (systemError.code === "ENOENT") {
-        await fs.mkdir(path.dirname(lockDir), { recursive: true });
-        return await this.#acquireIssueLease(issueNumber);
-      }
-      if (systemError.code === "EEXIST") {
-        if (await this.#isStaleLease(pidFile)) {
-          await fs.rm(lockDir, { recursive: true, force: true });
-          return await this.#acquireIssueLease(issueNumber);
+    for (;;) {
+      try {
+        await fs.mkdir(lockDir, { recursive: false });
+        await fs.writeFile(pidFile, `${process.pid}\n`, "utf8");
+        return lockDir;
+      } catch (error) {
+        const systemError = error as NodeJS.ErrnoException;
+        if (systemError.code === "ENOENT") {
+          await fs.mkdir(path.dirname(lockDir), { recursive: true });
+          continue;
         }
-        this.#logger.info("Issue already leased by another local worker", {
-          issueNumber,
-        });
-        return null;
+        if (systemError.code === "EEXIST") {
+          if (await this.#isStaleLease(pidFile)) {
+            await fs.rm(lockDir, { recursive: true, force: true });
+            continue;
+          }
+          this.#logger.info("Issue already leased by another local worker", {
+            issueNumber,
+          });
+          return null;
+        }
+        throw error;
       }
-      throw error;
     }
   }
 
