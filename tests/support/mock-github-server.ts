@@ -65,6 +65,7 @@ export class MockGitHubServer {
   }
 
   async stop(): Promise<void> {
+    this.#server.closeAllConnections();
     this.#server.close();
     await once(this.#server, "close");
   }

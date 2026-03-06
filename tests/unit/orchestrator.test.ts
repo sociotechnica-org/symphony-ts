@@ -97,6 +97,8 @@ class NullLogger implements Logger {
 class StaticTracker implements Tracker {
   readonly #issues: readonly RuntimeIssue[];
   readonly completed: number[] = [];
+  readonly released: Array<{ issueNumber: number; reason: string }> = [];
+  readonly failed: Array<{ issueNumber: number; reason: string }> = [];
 
   constructor(issues: readonly RuntimeIssue[]) {
     this.#issues = issues;
@@ -120,9 +122,13 @@ class StaticTracker implements Tracker {
     this.completed.push(session.issue.number);
   }
 
-  async releaseIssue(): Promise<void> {}
+  async releaseIssue(issueNumber: number, reason: string): Promise<void> {
+    this.released.push({ issueNumber, reason });
+  }
 
-  async markIssueFailed(): Promise<void> {}
+  async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
+    this.failed.push({ issueNumber, reason });
+  }
 }
 
 class FlakyTracker extends StaticTracker {
@@ -144,15 +150,22 @@ class StaticWorkspaceManager implements WorkspaceManager {
   }): Promise<PreparedWorkspace> {
     return {
       key: `sociotechnica-org_symphony-ts_${issue.number}`,
-      issueId: issue.id,
-      issueIdentifier: issue.identifier,
       path: `/tmp/workspaces/${issue.number}`,
       branchName: `symphony/${issue.number}`,
       createdNow: true,
     };
   }
 
-  async cleanupWorkspace(): Promise<void> {}
+  async cleanupWorkspace(_workspace: PreparedWorkspace): Promise<void> {}
+}
+
+class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
+  readonly cleaned: string[] = [];
+
+  override async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
+    this.cleaned.push(workspace.path);
+    throw new Error("rm failed");
+  }
 }
 
 class ConcurrencyRunner implements Runner {
@@ -245,5 +258,45 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.attempts).toBeGreaterThanOrEqual(2);
     expect(logger.errors).toContain("Poll cycle failed");
     expect(tracker.completed).toEqual([1]);
+  });
+
+  it("does not retry or fail an issue after successful completion if cleanup fails", async () => {
+    const tracker = new StaticTracker([createIssue(1)]);
+    const workspace = new CleanupFailingWorkspaceManager();
+    const logger = new NullLogger();
+    const runner: Runner = {
+      async run(): Promise<RunResult> {
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          cleanupOnSuccess: true,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      logger,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.completed).toEqual([1]);
+    expect(tracker.released).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(workspace.cleaned).toEqual(["/tmp/workspaces/1"]);
+    expect(logger.errors).toContain("Workspace cleanup failed");
   });
 });

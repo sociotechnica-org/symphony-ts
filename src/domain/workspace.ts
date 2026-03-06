@@ -6,8 +6,6 @@ export interface WorkspacePreparationRequest {
 
 export interface PreparedWorkspace {
   readonly key: string;
-  readonly issueId: string;
-  readonly issueIdentifier: string;
   readonly path: string;
   readonly branchName: string;
   readonly createdNow: boolean;

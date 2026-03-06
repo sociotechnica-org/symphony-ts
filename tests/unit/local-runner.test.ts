@@ -31,8 +31,6 @@ describe("LocalRunner", () => {
       },
       workspace: {
         key: "sociotechnica-org_symphony-ts_1",
-        issueId: "1",
-        issueIdentifier: "sociotechnica-org/symphony-ts#1",
         path: process.cwd(),
         branchName: "symphony/1",
         createdNow: false,

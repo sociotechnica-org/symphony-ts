@@ -62,8 +62,6 @@ describe("GitHubBootstrapTracker", () => {
       issue: (await tracker.claimIssue(7))!,
       workspace: {
         key: "sociotechnica-org_symphony-ts_7",
-        issueId: "7",
-        issueIdentifier: "sociotechnica-org/symphony-ts#7",
         path: "/tmp/workspaces/7",
         branchName: "symphony/7",
         createdNow: true,
@@ -115,8 +113,6 @@ describe("GitHubBootstrapTracker", () => {
           issue: claimed,
           workspace: {
             key: "sociotechnica-org_symphony-ts_7",
-            issueId: "7",
-            issueIdentifier: "sociotechnica-org/symphony-ts#7",
             path: "/tmp/workspaces/7",
             branchName: "symphony/7",
             createdNow: true,

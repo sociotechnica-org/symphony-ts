@@ -127,6 +127,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #processIssue(issue: RuntimeIssue, attempt: number): Promise<void> {
     this.#state.runningIssueNumbers.add(issue.number);
     let claimedIssue = issue;
+    let completedWorkspace: RunSession["workspace"] | null = null;
 
     try {
       const claimed = await this.#tracker.claimIssue(issue.number);
@@ -173,9 +174,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
 
-      if (this.#config.workspace.cleanupOnSuccess) {
-        await this.#workspaceManager.cleanupWorkspace(workspace);
-      }
+      completedWorkspace = workspace;
       this.#logger.info("Issue completed", {
         issueNumber: claimed.number,
         branchName: workspace.branchName,
@@ -189,6 +188,21 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
+    }
+
+    if (
+      this.#config.workspace.cleanupOnSuccess &&
+      completedWorkspace !== null
+    ) {
+      try {
+        await this.#workspaceManager.cleanupWorkspace(completedWorkspace);
+      } catch (error) {
+        this.#logger.error("Workspace cleanup failed", {
+          issueNumber: claimedIssue.number,
+          workspacePath: completedWorkspace.path,
+          error: this.#normalizeFailure(error as Error),
+        });
+      }
     }
   }
 

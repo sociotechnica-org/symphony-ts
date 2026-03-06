@@ -134,8 +134,6 @@ export class LocalWorkspaceManager implements WorkspaceManager {
 
     return {
       key: workspaceKey,
-      issueId: issue.id,
-      issueIdentifier: issue.identifier,
       path: workspacePath,
       branchName,
       createdNow: !exists,
