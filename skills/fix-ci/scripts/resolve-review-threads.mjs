@@ -2,7 +2,11 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { fetchReviewThreads, resolveRepoName } from "./fix-ci-lib.mjs";
+import {
+  fetchReviewThreads,
+  normalizeReviewThreads,
+  resolveRepoName,
+} from "./fix-ci-lib.mjs";
 
 const execFileAsync = promisify(execFile);
 const EXIT_UNEXPECTED = 5;
@@ -70,7 +74,9 @@ async function resolveThread(threadId) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const repo = await resolveRepoName(options.repo, execFileAsync);
-  const threads = await fetchReviewThreads(options.pr, repo, execFileAsync);
+  const threads = normalizeReviewThreads(
+    await fetchReviewThreads(options.pr, repo, execFileAsync),
+  );
   const unresolved = threads.filter(
     (thread) => thread.isResolved !== true && thread.isOutdated !== true,
   );

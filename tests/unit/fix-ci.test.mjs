@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  fetchReviewThreads,
   parseRepo,
   nextPollDelayMilliseconds,
+  normalizeChecks,
   normalizeReviewThreads,
   summarizeChecks,
   validateRepoName,
@@ -194,6 +196,96 @@ describe("fix-ci skill", () => {
 
     expect(summary.overall).toBe("success");
     expect(summary.failed).toHaveLength(0);
+  });
+
+  it("normalizes missing check names to empty strings", () => {
+    const checks = normalizeChecks([
+      {
+        name: null,
+        status: "COMPLETED",
+        conclusion: "SUCCESS",
+        detailsUrl: "https://example.test/check",
+        workflowName: "CI",
+      },
+    ]);
+
+    expect(checks[0]?.name).toBe("");
+  });
+
+  it("fetches review threads across multiple pages", async () => {
+    const responses = [
+      {
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  pageInfo: {
+                    hasNextPage: true,
+                    endCursor: "CURSOR_1",
+                  },
+                  nodes: [
+                    {
+                      id: "THREAD_1",
+                      isResolved: false,
+                      isOutdated: false,
+                      comments: { nodes: [] },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }),
+      },
+      {
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  pageInfo: {
+                    hasNextPage: false,
+                    endCursor: "CURSOR_2",
+                  },
+                  nodes: [
+                    {
+                      id: "THREAD_2",
+                      isResolved: true,
+                      isOutdated: false,
+                      comments: { nodes: [] },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }),
+      },
+    ];
+    const calls = [];
+    const execFileAsync = async (_command, args) => {
+      calls.push(args);
+      const response = responses.shift();
+      if (response === undefined) {
+        throw new Error("Unexpected extra fetch");
+      }
+      return response;
+    };
+
+    const threads = await fetchReviewThreads(
+      20,
+      "sociotechnica-org/symphony-ts",
+      execFileAsync,
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(threads.map((thread) => thread.id)).toEqual([
+      "THREAD_1",
+      "THREAD_2",
+    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("after=CURSOR_1");
   });
 
   it("caps the next poll delay at the remaining timeout", () => {

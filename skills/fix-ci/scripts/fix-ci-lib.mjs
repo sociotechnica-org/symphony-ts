@@ -14,11 +14,11 @@ export const FAILED_CONCLUSIONS = new Set([
 ]);
 
 export const REVIEW_THREADS_QUERY =
-  "query=query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100) { nodes { id isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }";
+  "query=query($owner:String!, $repo:String!, $number:Int!, $after:String) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { id isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }";
 
 export function normalizeChecks(statusCheckRollup) {
   return (statusCheckRollup ?? []).map((check) => ({
-    name: check.name,
+    name: check.name ?? "",
     status: check.status ?? "",
     conclusion: check.conclusion ?? "",
     detailsUrl: check.detailsUrl ?? "",
@@ -196,25 +196,47 @@ export async function fetchReviewThreads(
   execFileAsync,
 ) {
   const { owner, name } = parseRepo(repo);
-  const { stdout } = await execFileAsync("gh", [
-    "api",
-    "graphql",
-    "-f",
-    REVIEW_THREADS_QUERY,
-    "-F",
-    `owner=${owner}`,
-    "-F",
-    `repo=${name}`,
-    "-F",
-    `number=${pullRequestNumber}`,
-  ]);
-  const result = JSON.parse(stdout);
+  const reviewThreads = [];
+  let after = null;
 
-  if (Array.isArray(result.errors) && result.errors.length > 0) {
-    throw new Error(
-      `GraphQL error fetching review threads: ${result.errors.map((error) => error.message).join("; ")}`,
-    );
+  while (true) {
+    const args = [
+      "api",
+      "graphql",
+      "-f",
+      REVIEW_THREADS_QUERY,
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `repo=${name}`,
+      "-F",
+      `number=${pullRequestNumber}`,
+    ];
+    if (after !== null) {
+      args.push("-F", `after=${after}`);
+    }
+
+    const { stdout } = await execFileAsync("gh", args);
+    const result = JSON.parse(stdout);
+
+    if (Array.isArray(result.errors) && result.errors.length > 0) {
+      throw new Error(
+        `GraphQL error fetching review threads: ${result.errors.map((error) => error.message).join("; ")}`,
+      );
+    }
+
+    const connection = result.data?.repository?.pullRequest?.reviewThreads;
+    reviewThreads.push(...(connection?.nodes ?? []));
+
+    if (connection?.pageInfo?.hasNextPage !== true) {
+      return reviewThreads;
+    }
+
+    after = connection.pageInfo.endCursor ?? null;
+    if (after === null) {
+      throw new Error(
+        "GraphQL error fetching review threads: missing endCursor for next page",
+      );
+    }
   }
-
-  return result.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
 }
