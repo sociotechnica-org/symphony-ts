@@ -35,8 +35,22 @@ function createReviewState(
           id: "thread-1",
           isResolved: false,
           isOutdated: false,
-          comments: {
-            nodes: comments.map((comment) => ({
+          originComments: {
+            nodes: comments.slice(0, 1).map((comment) => ({
+              id: comment.id,
+              body: comment.body,
+              createdAt: comment.createdAt,
+              url: comment.url,
+              path: comment.path ?? "src/index.ts",
+              line: comment.line ?? 10,
+              author:
+                comment.authorLogin === null
+                  ? null
+                  : { login: comment.authorLogin },
+            })),
+          },
+          latestComments: {
+            nodes: comments.slice(-1).map((comment) => ({
               id: comment.id,
               body: comment.body,
               createdAt: comment.createdAt,

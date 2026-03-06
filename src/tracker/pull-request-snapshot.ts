@@ -43,8 +43,8 @@ export function createPullRequestSnapshot(input: {
   const unresolvedThreads = input.reviewState.reviewThreads.nodes
     .filter((thread) => !thread.isResolved && !thread.isOutdated)
     .map((thread) => {
-      const originComment = thread.comments.nodes[0];
-      const latestComment = thread.comments.nodes.at(-1);
+      const originComment = thread.originComments.nodes[0];
+      const latestComment = thread.latestComments.nodes[0];
       if (!originComment || !latestComment) {
         throw new TrackerError(
           `Pull request review thread ${thread.id} had no comments`,

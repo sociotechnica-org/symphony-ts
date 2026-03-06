@@ -77,7 +77,20 @@ interface PullRequestReviewThreadsConnection {
     readonly id: string;
     readonly isResolved: boolean;
     readonly isOutdated: boolean;
-    readonly comments: {
+    readonly originComments: {
+      readonly nodes: ReadonlyArray<{
+        readonly id: string;
+        readonly body: string;
+        readonly createdAt: string;
+        readonly url: string;
+        readonly path: string | null;
+        readonly line: number | null;
+        readonly author: {
+          readonly login: string;
+        } | null;
+      }>;
+    };
+    readonly latestComments: {
       readonly nodes: ReadonlyArray<{
         readonly id: string;
         readonly body: string;
@@ -164,7 +177,20 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
             id
             isResolved
             isOutdated
-            comments(last: 20) {
+            originComments: comments(first: 1) {
+              nodes {
+                id
+                body
+                createdAt
+                url
+                path
+                line
+                author {
+                  login
+                }
+              }
+            }
+            latestComments: comments(last: 1) {
               nodes {
                 id
                 body
