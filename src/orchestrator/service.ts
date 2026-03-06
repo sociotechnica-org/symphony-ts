@@ -313,8 +313,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     try {
       result = await this.#runner.run(session, {
         signal: abortController.signal,
-        onSpawn: async (event) => {
-          await this.#recordRunnerSpawn(issue.number, lockDir, event);
+        onSpawn: (event) => {
+          this.#recordRunnerSpawn(issue.number, lockDir, event);
         },
       });
     } finally {
@@ -602,12 +602,12 @@ export class BootstrapOrchestrator implements Orchestrator {
       : `${error.name}: ${error.message}`;
   }
 
-  async #recordRunnerSpawn(
+  #recordRunnerSpawn(
     issueNumber: number,
     lockDir: string,
     event: RunSpawnEvent,
-  ): Promise<void> {
-    await this.#leaseManager.recordRunnerSpawn(lockDir, event);
+  ): void {
+    this.#leaseManager.recordRunnerSpawn(lockDir, event);
     this.#logger.info("Runner process attached to active issue", {
       issueNumber,
       runnerPid: event.pid,

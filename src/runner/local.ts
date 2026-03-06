@@ -73,6 +73,7 @@ export class LocalRunner implements Runner {
         clearTimeout(timeout);
         if (forcedKillTimeout !== null) {
           clearTimeout(forcedKillTimeout);
+          forcedKillTimeout = null;
         }
         options?.signal?.removeEventListener("abort", handleAbort);
         callback();
@@ -95,7 +96,9 @@ export class LocalRunner implements Runner {
       };
 
       const handleAbort = (): void => {
-        aborted = true;
+        if (!timedOut) {
+          aborted = true;
+        }
         terminateChild();
       };
 
@@ -177,20 +180,20 @@ export class LocalRunner implements Runner {
       child.on("close", (exitCode) => {
         finish(() => {
           const finishedAt = new Date().toISOString();
-          if (spawnError !== null) {
-            reject(spawnError);
-            return;
-          }
-          if (aborted) {
-            reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
-            return;
-          }
           if (timedOut) {
             reject(
               new RunnerError(
                 `Runner timed out after ${this.#config.timeoutMs}ms`,
               ),
             );
+            return;
+          }
+          if (aborted) {
+            reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
+            return;
+          }
+          if (spawnError !== null) {
+            reject(spawnError);
             return;
           }
           resolve({

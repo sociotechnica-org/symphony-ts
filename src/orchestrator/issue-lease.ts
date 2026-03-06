@@ -1,3 +1,4 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { RunSession, RunSpawnEvent } from "../domain/run.js";
@@ -15,7 +16,7 @@ export interface ActiveRunLeaseRecord {
   readonly attempt: number;
   readonly ownerPid: number;
   readonly runnerPid: number | null;
-  readonly acquiredAt: string;
+  readonly runRecordedAt: string;
   readonly runnerStartedAt: string | null;
   readonly updatedAt: string;
 }
@@ -107,7 +108,7 @@ export class LocalIssueLeaseManager {
       attempt: session.attempt.sequence,
       ownerPid: process.pid,
       runnerPid: null,
-      acquiredAt: new Date().toISOString(),
+      runRecordedAt: new Date().toISOString(),
       runnerStartedAt: null,
       updatedAt: new Date().toISOString(),
     };
@@ -118,11 +119,8 @@ export class LocalIssueLeaseManager {
     );
   }
 
-  async recordRunnerSpawn(
-    lockDir: string,
-    event: RunSpawnEvent,
-  ): Promise<void> {
-    const record = await this.#readRecord(lockDir);
+  recordRunnerSpawn(lockDir: string, event: RunSpawnEvent): void {
+    const record = this.#readRecordSync(lockDir);
     if (record === null) {
       return;
     }
@@ -132,7 +130,7 @@ export class LocalIssueLeaseManager {
       runnerStartedAt: event.spawnedAt,
       updatedAt: event.spawnedAt,
     };
-    await fs.writeFile(
+    fsSync.writeFileSync(
       this.#recordFile(lockDir),
       JSON.stringify(nextRecord, null, 2),
       "utf8",
@@ -222,9 +220,13 @@ export class LocalIssueLeaseManager {
       await this.#terminateRunner(issueNumber, snapshot.runnerPid);
     }
 
-    if (snapshot.lockDir !== null) {
-      await fs.rm(snapshot.lockDir, { recursive: true, force: true });
+    if (snapshot.lockDir === null) {
+      throw new Error(
+        `Invariant violated: non-active lease snapshot for issue ${issueNumber.toString()} had no lockDir`,
+      );
     }
+
+    await fs.rm(snapshot.lockDir, { recursive: true, force: true });
 
     return snapshot;
   }
@@ -262,6 +264,22 @@ export class LocalIssueLeaseManager {
   async #readRecord(lockDir: string): Promise<ActiveRunLeaseRecord | null> {
     try {
       const raw = await fs.readFile(this.#recordFile(lockDir), "utf8");
+      return JSON.parse(raw) as ActiveRunLeaseRecord;
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return null;
+      }
+      const systemError = error as NodeJS.ErrnoException;
+      if (isStaleLeaseError(systemError.code)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  #readRecordSync(lockDir: string): ActiveRunLeaseRecord | null {
+    try {
+      const raw = fsSync.readFileSync(this.#recordFile(lockDir), "utf8");
       return JSON.parse(raw) as ActiveRunLeaseRecord;
     } catch (error) {
       if (error instanceof SyntaxError) {

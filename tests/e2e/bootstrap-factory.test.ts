@@ -313,7 +313,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
           attempt: 1,
           ownerPid: 999999,
           runnerPid: orphan.pid,
-          acquiredAt: new Date().toISOString(),
+          runRecordedAt: new Date().toISOString(),
           runnerStartedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },

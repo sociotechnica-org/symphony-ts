@@ -8,6 +8,10 @@ export async function waitForExit(pid: number): Promise<void> {
       if (systemError.code === "ESRCH") {
         return;
       }
+      if (systemError.code === "EPERM") {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        continue;
+      }
       throw error;
     }
   }
