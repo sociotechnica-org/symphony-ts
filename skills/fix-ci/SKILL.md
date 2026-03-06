@@ -15,6 +15,7 @@ Use this skill when you need to drive a PR to a clean CI/review state without re
 - Exits `0` when all checks succeed or are neutral/skipped.
 - Exits `1` when any completed check fails or any unresolved non-outdated review thread remains.
 - Exits `2` on timeout.
+- Exits `3` when `--once` is used and checks are still pending.
 
 The script is the deterministic detector. The skill itself is the repair loop.
 
@@ -32,7 +33,7 @@ Useful options:
 - `--repo <owner/name>`: GitHub repo override.
 - `--interval <seconds>`: Poll interval. Default: `15`.
 - `--timeout <seconds>`: Max wait time. Default: `1800`.
-- `--once`: Print the current status once and exit immediately.
+- `--once`: Print the current status once and exit immediately. Exits `3` if checks are still pending.
 
 ## Operator use
 

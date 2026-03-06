@@ -2,7 +2,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { summarizeChecks } from "./fix-ci-lib.mjs";
+import { nextPollDelayMilliseconds, summarizeChecks } from "./fix-ci-lib.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -166,6 +166,15 @@ function printSnapshot(pullRequest, summary) {
       );
     }
   }
+
+  if (summary.unknown.length > 0) {
+    console.log(`Unknown completed conclusions: ${summary.unknown.length}`);
+    for (const check of summary.unknown) {
+      console.log(
+        `  - ${check.name}: status=${check.status} conclusion=${check.conclusion || "(empty)"}`,
+      );
+    }
+  }
 }
 
 function sleep(milliseconds) {
@@ -203,13 +212,18 @@ async function main() {
       return;
     }
 
-    if (Date.now() - startedAt >= options.timeoutSeconds * 1000) {
+    const delayMilliseconds = nextPollDelayMilliseconds({
+      startedAt,
+      intervalSeconds: options.intervalSeconds,
+      timeoutSeconds: options.timeoutSeconds,
+    });
+    if (delayMilliseconds <= 0) {
       console.error("Timed out waiting for CI to finish");
       process.exitCode = 2;
       return;
     }
 
-    await sleep(options.intervalSeconds * 1000);
+    await sleep(delayMilliseconds);
   }
 }
 

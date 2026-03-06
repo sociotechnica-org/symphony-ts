@@ -41,6 +41,18 @@ export function summarizeChecks(statusCheckRollup, reviewThreads = []) {
   const unresolvedThreads = threads.filter(
     (thread) => thread.isResolved !== true && thread.isOutdated !== true,
   );
+  const successful = checks.filter((check) =>
+    SUCCESSFUL_CONCLUSIONS.has(check.conclusion),
+  );
+  const failed = checks.filter((check) =>
+    FAILED_CONCLUSIONS.has(check.conclusion),
+  );
+  const unknown = checks.filter(
+    (check) =>
+      check.status === "COMPLETED" &&
+      !SUCCESSFUL_CONCLUSIONS.has(check.conclusion) &&
+      !FAILED_CONCLUSIONS.has(check.conclusion),
+  );
 
   if (checks.length === 0) {
     return {
@@ -51,6 +63,7 @@ export function summarizeChecks(statusCheckRollup, reviewThreads = []) {
       pending: [],
       failed: [],
       successful: [],
+      unknown: [],
     };
   }
 
@@ -62,16 +75,12 @@ export function summarizeChecks(statusCheckRollup, reviewThreads = []) {
       reviewThreads: threads,
       unresolvedThreads,
       pending,
-      failed: [],
-      successful: checks.filter((check) =>
-        SUCCESSFUL_CONCLUSIONS.has(check.conclusion),
-      ),
+      failed,
+      successful,
+      unknown,
     };
   }
 
-  const failed = checks.filter((check) =>
-    FAILED_CONCLUSIONS.has(check.conclusion),
-  );
   if (failed.length > 0) {
     return {
       overall: "failure",
@@ -80,9 +89,21 @@ export function summarizeChecks(statusCheckRollup, reviewThreads = []) {
       unresolvedThreads,
       pending: [],
       failed,
-      successful: checks.filter((check) =>
-        SUCCESSFUL_CONCLUSIONS.has(check.conclusion),
-      ),
+      successful,
+      unknown,
+    };
+  }
+
+  if (unknown.length > 0) {
+    return {
+      overall: "failure",
+      checks,
+      reviewThreads: threads,
+      unresolvedThreads,
+      pending: [],
+      failed: [],
+      successful,
+      unknown,
     };
   }
 
@@ -94,9 +115,8 @@ export function summarizeChecks(statusCheckRollup, reviewThreads = []) {
       unresolvedThreads,
       pending: [],
       failed: [],
-      successful: checks.filter((check) =>
-        SUCCESSFUL_CONCLUSIONS.has(check.conclusion),
-      ),
+      successful,
+      unknown,
     };
   }
 
@@ -107,8 +127,24 @@ export function summarizeChecks(statusCheckRollup, reviewThreads = []) {
     unresolvedThreads,
     pending: [],
     failed: [],
-    successful: checks.filter((check) =>
-      SUCCESSFUL_CONCLUSIONS.has(check.conclusion),
-    ),
+    successful,
+    unknown,
   };
+}
+
+export function nextPollDelayMilliseconds({
+  startedAt,
+  now = Date.now(),
+  intervalSeconds,
+  timeoutSeconds,
+}) {
+  const intervalMilliseconds = intervalSeconds * 1000;
+  const deadline = startedAt + timeoutSeconds * 1000;
+  const remaining = deadline - now;
+
+  if (remaining <= 0) {
+    return 0;
+  }
+
+  return Math.min(intervalMilliseconds, remaining);
 }

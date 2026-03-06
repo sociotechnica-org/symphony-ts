@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { summarizeChecks } from "../../skills/fix-ci/scripts/fix-ci-lib.mjs";
+import {
+  nextPollDelayMilliseconds,
+  summarizeChecks,
+} from "../../skills/fix-ci/scripts/fix-ci-lib.mjs";
 
 describe("fix-ci skill", () => {
   it("treats incomplete checks as pending", () => {
@@ -30,6 +33,43 @@ describe("fix-ci skill", () => {
 
     expect(summary.overall).toBe("failure");
     expect(summary.failed).toHaveLength(1);
+  });
+
+  it("keeps failed checks visible while other checks are still pending", () => {
+    const summary = summarizeChecks([
+      {
+        name: "failed-check",
+        status: "COMPLETED",
+        conclusion: "FAILURE",
+        detailsUrl: "https://example.test/check/failed",
+        workflowName: "CI",
+      },
+      {
+        name: "pending-check",
+        status: "IN_PROGRESS",
+        conclusion: "",
+        detailsUrl: "https://example.test/check/pending",
+        workflowName: "CI",
+      },
+    ]);
+
+    expect(summary.overall).toBe("pending");
+    expect(summary.failed).toHaveLength(1);
+  });
+
+  it("treats unknown completed conclusions as failure", () => {
+    const summary = summarizeChecks([
+      {
+        name: "weird-check",
+        status: "COMPLETED",
+        conclusion: "",
+        detailsUrl: "https://example.test/check",
+        workflowName: "CI",
+      },
+    ]);
+
+    expect(summary.overall).toBe("failure");
+    expect(summary.unknown).toHaveLength(1);
   });
 
   it("treats unresolved review threads as failure once checks are complete", () => {
@@ -84,5 +124,16 @@ describe("fix-ci skill", () => {
 
     expect(summary.overall).toBe("success");
     expect(summary.failed).toHaveLength(0);
+  });
+
+  it("caps the next poll delay at the remaining timeout", () => {
+    const delay = nextPollDelayMilliseconds({
+      startedAt: 1_000,
+      now: 5_500,
+      intervalSeconds: 15,
+      timeoutSeconds: 6,
+    });
+
+    expect(delay).toBe(1_500);
   });
 });
