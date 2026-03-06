@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
-import { RunnerAbortedError, RunnerError } from "../../src/domain/errors.js";
+import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { LocalRunner } from "../../src/runner/local.js";
 import { waitForExit } from "../support/process.js";
@@ -101,7 +101,9 @@ describe("LocalRunner", () => {
       },
     });
 
-    await expect(run).rejects.toBeInstanceOf(RunnerError);
+    await expect(run).rejects.toMatchObject({
+      message: "Failed to record runner spawn: persist failed",
+    });
     expect(spawnedPid).toBeGreaterThan(0);
     await waitForExit(spawnedPid);
   });

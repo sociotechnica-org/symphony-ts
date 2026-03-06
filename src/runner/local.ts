@@ -103,9 +103,13 @@ export class LocalRunner implements Runner {
         if (spawnError !== null) {
           return;
         }
-        spawnError = new RunnerError(`Failed to record runner spawn`, {
-          cause: error as Error,
-        });
+        const reason = error instanceof Error ? error.message : String(error);
+        spawnError = new RunnerError(
+          `Failed to record runner spawn: ${reason}`,
+          {
+            cause: error instanceof Error ? error : new Error(reason),
+          },
+        );
         terminateChild();
       };
 
