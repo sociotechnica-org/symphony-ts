@@ -48,9 +48,13 @@ export async function readRemoteBranchFile(
   filePath: string,
 ): Promise<string> {
   const checkoutDir = await createTempDir("symphony-verify-");
-  await execFileAsync("git", ["clone", remotePath, checkoutDir]);
-  await execFileAsync("git", ["checkout", branchName], { cwd: checkoutDir });
-  return await fs.readFile(path.join(checkoutDir, filePath), "utf8");
+  try {
+    await execFileAsync("git", ["clone", remotePath, checkoutDir]);
+    await execFileAsync("git", ["checkout", branchName], { cwd: checkoutDir });
+    return await fs.readFile(path.join(checkoutDir, filePath), "utf8");
+  } finally {
+    await fs.rm(checkoutDir, { recursive: true, force: true });
+  }
 }
 
 export async function countRemoteBranchCommits(
@@ -58,12 +62,16 @@ export async function countRemoteBranchCommits(
   branchName: string,
 ): Promise<number> {
   const checkoutDir = await createTempDir("symphony-verify-");
-  await execFileAsync("git", ["clone", remotePath, checkoutDir]);
-  await execFileAsync("git", ["checkout", branchName], { cwd: checkoutDir });
-  const result = await execFileAsync(
-    "git",
-    ["rev-list", "--count", branchName, "^origin/main"],
-    { cwd: checkoutDir },
-  );
-  return Number(result.stdout.trim());
+  try {
+    await execFileAsync("git", ["clone", remotePath, checkoutDir]);
+    await execFileAsync("git", ["checkout", branchName], { cwd: checkoutDir });
+    const result = await execFileAsync(
+      "git",
+      ["rev-list", "--count", branchName, "^origin/main"],
+      { cwd: checkoutDir },
+    );
+    return Number(result.stdout.trim());
+  } finally {
+    await fs.rm(checkoutDir, { recursive: true, force: true });
+  }
 }
