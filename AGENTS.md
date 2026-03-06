@@ -31,6 +31,7 @@ Planned top-level structure:
 ```text
 bin/            CLI entry point
 docs/           architecture, principles, plans
+skills/         repo-local skills for operators and agents
 src/config/     WORKFLOW.md loading, parsing, config resolution
 src/observability/  structured logs and operation spans
 src/orchestrator/   poll loop, runtime state, retries, reconciliation
@@ -52,6 +53,7 @@ src/workspace/  workspace lifecycle and hooks
 - Prefer small files and explicit interfaces.
 - Parse external inputs at the boundary.
 - Use structured logging.
+- Keep repo-local operational skills in `skills/` when the behavior should be reused and reviewed.
 - Treat `WORKFLOW.md` as a repository-owned runtime contract.
 - Make the happy path real early; do not fake end-to-end behavior.
 - Preserve a clean separation between workflow/config, tracker, workspace, runner, orchestrator, and observability.
