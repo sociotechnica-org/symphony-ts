@@ -469,44 +469,47 @@ describe("BootstrapOrchestrator", () => {
 
   it("skips a running issue that is already leased by another local worker", async () => {
     const tempRoot = await createTempDir("symphony-lease-test-");
-    const tracker = new SequencedTracker({
-      running: [createIssue(70, "symphony:running")],
-    });
-    tracker.setLifecycleSequence(70, [
-      lifecycle("needs-follow-up", "symphony/70", {
-        failingCheckNames: ["CI"],
-      }),
-    ]);
-    let runnerCalls = 0;
-    const lockDir = path.join(tempRoot, ".symphony-locks", "70");
-    await fs.mkdir(lockDir, { recursive: true });
-    await fs.writeFile(path.join(lockDir, "pid"), `${process.pid}\n`, "utf8");
-    const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
+    try {
+      const tracker = new SequencedTracker({
+        running: [createIssue(70, "symphony:running")],
+      });
+      tracker.setLifecycleSequence(70, [
+        lifecycle("needs-follow-up", "symphony/70", {
+          failingCheckNames: ["CI"],
+        }),
+      ]);
+      let runnerCalls = 0;
+      const lockDir = path.join(tempRoot, ".symphony-locks", "70");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), `${process.pid}\n`, "utf8");
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
         },
-      },
-      staticPromptBuilder,
-      tracker,
-      new StaticWorkspaceManager(),
-      {
-        async run(): Promise<RunResult> {
-          runnerCalls += 1;
-          throw new Error("runner should not be called");
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          async run(): Promise<RunResult> {
+            runnerCalls += 1;
+            throw new Error("runner should not be called");
+          },
         },
-      },
-      new NullLogger(),
-    );
+        new NullLogger(),
+      );
 
-    await orchestrator.runOnce();
-    await fs.rm(tempRoot, { recursive: true, force: true });
+      await orchestrator.runOnce();
 
-    expect(runnerCalls).toBe(0);
-    expect(tracker.completed).toEqual([]);
-    expect(tracker.failed).toEqual([]);
+      expect(runnerCalls).toBe(0);
+      expect(tracker.completed).toEqual([]);
+      expect(tracker.failed).toEqual([]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("reclaims a stale issue lease from a dead worker", async () => {

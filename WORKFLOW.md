@@ -48,12 +48,12 @@ Pull Request State:
 - Pending checks: {{ pull_request.pendingCheckNames | join: ", " }}
 - Failing checks: {{ pull_request.failingCheckNames | join: ", " }}
 - Actionable feedback count: {{ pull_request.actionableReviewFeedback | size }}
-  {% if pull_request.actionableReviewFeedback.size > 0 %}
+  {%- if pull_request.actionableReviewFeedback.size > 0 %}
   Actionable feedback:
-  {% for feedback in pull_request.actionableReviewFeedback %}
+  {%- for feedback in pull_request.actionableReviewFeedback %}
 - [{{ feedback.authorLogin | default: "unknown" }}] {{ feedback.body }} ({{ feedback.url }})
-  {% endfor %}
-  {% endif %}
+  {%- endfor %}
+  {%- endif %}
   {%- endif %}
 
 Rules:
