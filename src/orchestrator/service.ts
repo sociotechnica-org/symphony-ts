@@ -115,6 +115,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
     }
     for (const issue of candidates) {
+      if (!merged.has(issue.number) && this.#state.retries.has(issue.number)) {
+        continue;
+      }
       const existing = merged.get(issue.number);
       merged.set(issue.number, {
         issue,
@@ -235,7 +238,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       workspacePath: session.workspace.path,
       runSessionId: session.id,
     });
-    await this.#scheduleRetryOrFail(session.issue, attempt, message);
+    await this.#scheduleRetryOrFailSafely(session.issue, attempt, message);
   }
 
   async #handleUnexpectedFailure(
@@ -249,7 +252,24 @@ export class BootstrapOrchestrator implements Orchestrator {
       attempt,
       error: message,
     });
-    await this.#scheduleRetryOrFail(issue, attempt, message);
+    await this.#scheduleRetryOrFailSafely(issue, attempt, message);
+  }
+
+  async #scheduleRetryOrFailSafely(
+    issue: RuntimeIssue,
+    attempt: number,
+    message: string,
+  ): Promise<void> {
+    try {
+      await this.#scheduleRetryOrFail(issue, attempt, message);
+    } catch (error) {
+      this.#logger.error("Failure handling failed", {
+        issueNumber: issue.number,
+        attempt,
+        originalError: message,
+        error: this.#normalizeFailure(error as Error),
+      });
+    }
   }
 
   async #scheduleRetryOrFail(

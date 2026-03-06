@@ -99,6 +99,7 @@ class StaticTracker implements Tracker {
   readonly completed: number[] = [];
   readonly released: Array<{ issueNumber: number; reason: string }> = [];
   readonly failed: Array<{ issueNumber: number; reason: string }> = [];
+  claimCalls = 0;
 
   constructor(issues: readonly RuntimeIssue[]) {
     this.#issues = issues;
@@ -115,6 +116,7 @@ class StaticTracker implements Tracker {
   }
 
   async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
+    this.claimCalls += 1;
     return await this.getIssue(issueNumber);
   }
 
@@ -139,6 +141,19 @@ class FlakyTracker extends StaticTracker {
     if (this.attempts === 1) {
       throw new Error("transient label failure");
     }
+  }
+}
+
+class ReleaseFailingTracker extends StaticTracker {
+  releaseAttempts = 0;
+
+  override async releaseIssue(
+    issueNumber: number,
+    reason: string,
+  ): Promise<void> {
+    this.releaseAttempts += 1;
+    await super.releaseIssue(issueNumber, reason);
+    throw new Error("release failed");
   }
 }
 
@@ -298,5 +313,92 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([]);
     expect(workspace.cleaned).toEqual(["/tmp/workspaces/1"]);
     expect(logger.errors).toContain("Workspace cleanup failed");
+  });
+
+  it("does not requeue a retrying issue before its backoff window expires", async () => {
+    const tracker = new StaticTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const runnerCalls: number[] = [];
+    const runner: Runner = {
+      async run(session): Promise<RunResult> {
+        runnerCalls.push(session.attempt.sequence);
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 17,
+          stdout: "",
+          stderr: "simulated failure",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            backoffMs: 60_000,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(runnerCalls).toEqual([1]);
+    expect(tracker.claimCalls).toBe(1);
+    expect(tracker.released).toHaveLength(1);
+    expect(tracker.failed).toEqual([]);
+  });
+
+  it("does not invoke the unexpected failure path when retry scheduling fails", async () => {
+    const tracker = new ReleaseFailingTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const logger = new NullLogger();
+    const runner: Runner = {
+      async run(): Promise<RunResult> {
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 17,
+          stdout: "",
+          stderr: "simulated failure",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      logger,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.releaseAttempts).toBe(1);
+    expect(tracker.released).toHaveLength(1);
+    expect(tracker.failed).toEqual([]);
+    expect(logger.errors).toContain("Issue run failed");
+    expect(logger.errors).toContain("Failure handling failed");
   });
 });
