@@ -35,6 +35,22 @@ describe("GitHubClient", () => {
         requests.push(request.variables);
         const secondPage =
           request.variables.reviewThreadsAfter === "thread-cursor-1";
+        const comments = request.variables.includeComments
+          ? {
+              comments: {
+                nodes: [
+                  {
+                    id: "comment-1",
+                    body: "comment one",
+                    createdAt: "2026-03-06T00:00:00Z",
+                    url: "https://example.com/comment-1",
+                    author: { login: "greptile-apps" },
+                  },
+                ],
+                pageInfo: { hasNextPage: false, endCursor: null },
+              },
+            }
+          : {};
         const payload = secondPage
           ? {
               data: {
@@ -45,18 +61,7 @@ describe("GitHubClient", () => {
                         { commit: { committedDate: "2026-03-06T00:00:00Z" } },
                       ],
                     },
-                    comments: {
-                      nodes: [
-                        {
-                          id: "comment-1",
-                          body: "comment one",
-                          createdAt: "2026-03-06T00:00:00Z",
-                          url: "https://example.com/comment-1",
-                          author: { login: "greptile-apps" },
-                        },
-                      ],
-                      pageInfo: { hasNextPage: false, endCursor: null },
-                    },
+                    ...comments,
                     reviewThreads: {
                       nodes: [
                         {
@@ -93,18 +98,7 @@ describe("GitHubClient", () => {
                         { commit: { committedDate: "2026-03-06T00:00:00Z" } },
                       ],
                     },
-                    comments: {
-                      nodes: [
-                        {
-                          id: "comment-1",
-                          body: "comment one",
-                          createdAt: "2026-03-06T00:00:00Z",
-                          url: "https://example.com/comment-1",
-                          author: { login: "greptile-apps" },
-                        },
-                      ],
-                      pageInfo: { hasNextPage: false, endCursor: null },
-                    },
+                    ...comments,
                     reviewThreads: {
                       nodes: [
                         {

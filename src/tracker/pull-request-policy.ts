@@ -112,9 +112,14 @@ export function evaluatePullRequestLifecycle(
         checks: snapshot.checks,
         pendingCheckNames: snapshot.pendingCheckNames,
         failingCheckNames: snapshot.failingCheckNames,
-        actionableReviewFeedback: [],
+        actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
-        summary: `Waiting for ${snapshot.pendingCheckNames.join(", ")} on ${snapshot.pullRequest.url}`,
+        summary: summarizeLifecycle(
+          snapshot.pullRequest.url,
+          snapshot.failingCheckNames,
+          snapshot.pendingCheckNames,
+          snapshot.actionableReviewFeedback,
+        ),
       },
       nextNoCheckObservation: null,
     };

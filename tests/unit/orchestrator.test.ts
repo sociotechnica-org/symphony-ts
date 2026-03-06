@@ -170,6 +170,13 @@ class SequencedTracker implements Tracker {
     if (lifecycle !== null && lifecycle.unresolvedThreadIds.length > 0) {
       this.resolvedThreadBatches.push([...lifecycle.unresolvedThreadIds]);
     }
+    if (lifecycle === null) {
+      const issueNumber = Number(branchName.split("/").at(-1));
+      const sequence = this.lifecycleSequences.get(issueNumber);
+      if (sequence?.[0]?.kind === "missing") {
+        sequence.shift();
+      }
+    }
     return await this.inspectIssueHandoff(branchName);
   }
 

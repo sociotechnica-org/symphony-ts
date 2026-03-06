@@ -114,4 +114,31 @@ describe("pull-request-policy", () => {
     expect(lifecycle.pendingCheckNames).toEqual(["integration"]);
     expect(lifecycle.failingCheckNames).toEqual(["lint"]);
   });
+
+  it("preserves human review feedback while checks are pending", () => {
+    const feedback = [
+      {
+        id: "human-1",
+        kind: "review-thread" as const,
+        threadId: "thread-1",
+        authorLogin: "jess",
+        body: "please clarify",
+        createdAt: "2026-03-06T00:00:00.000Z",
+        url: "https://example.test/thread/1",
+        path: "src/file.ts",
+        line: 10,
+      },
+    ];
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        pendingCheckNames: ["integration"],
+        actionableReviewFeedback: feedback,
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.pendingCheckNames).toEqual(["integration"]);
+    expect(lifecycle.actionableReviewFeedback).toEqual(feedback);
+  });
 });

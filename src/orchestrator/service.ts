@@ -201,7 +201,11 @@ export class BootstrapOrchestrator implements Orchestrator {
         });
         return;
       }
-      await this.#processClaimedIssue(claimed, attempt);
+      await this.#processClaimedIssue(
+        claimed,
+        attempt,
+        this.#missingLifecycle(claimed.number),
+      );
     });
   }
 
@@ -237,9 +241,11 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #processClaimedIssue(
     issue: RuntimeIssue,
     attempt: number,
+    initialLifecycle?: PullRequestLifecycle,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
-    const lifecycle = await this.#refreshLifecycle(branchName);
+    const lifecycle =
+      initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 
     if (lifecycle.kind === "ready") {
       await this.#completeIssue(issue.number);
@@ -396,6 +402,21 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   #branchName(issueNumber: number): string {
     return `${this.#config.workspace.branchPrefix}${issueNumber.toString()}`;
+  }
+
+  #missingLifecycle(issueNumber: number): PullRequestLifecycle {
+    const branchName = this.#branchName(issueNumber);
+    return {
+      kind: "missing",
+      branchName,
+      pullRequest: null,
+      checks: [],
+      pendingCheckNames: [],
+      failingCheckNames: [],
+      actionableReviewFeedback: [],
+      unresolvedThreadIds: [],
+      summary: `No open pull request found for ${branchName}`,
+    };
   }
 
   async #handleFailure(
