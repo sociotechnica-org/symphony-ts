@@ -5,6 +5,7 @@ import type { RetryState } from "../domain/retry.js";
 export interface FollowUpRuntimeState {
   readonly nextRunSequenceByIssueNumber: Map<number, number>;
   readonly followUpAttemptsByIssueNumber: Map<number, number>;
+  readonly nextFailureRetryAttemptByIssueNumber: Map<number, number>;
 }
 
 export interface FollowUpBudgetDecision {
@@ -17,6 +18,7 @@ export function createFollowUpRuntimeState(): FollowUpRuntimeState {
   return {
     nextRunSequenceByIssueNumber: new Map<number, number>(),
     followUpAttemptsByIssueNumber: new Map<number, number>(),
+    nextFailureRetryAttemptByIssueNumber: new Map<number, number>(),
   };
 }
 
@@ -38,18 +40,31 @@ export function clearFollowUpRuntimeState(
 ): void {
   state.nextRunSequenceByIssueNumber.delete(issueNumber);
   state.followUpAttemptsByIssueNumber.delete(issueNumber);
+  state.nextFailureRetryAttemptByIssueNumber.delete(issueNumber);
+}
+
+export function resolveFailureRetryAttempt(
+  state: FollowUpRuntimeState,
+  issueNumber: number,
+): number {
+  return state.nextFailureRetryAttemptByIssueNumber.get(issueNumber) ?? 1;
 }
 
 export function noteRetryScheduled(
   state: FollowUpRuntimeState,
   issue: RuntimeIssue,
-  attempt: number,
+  runSequence: number,
+  failureRetryAttempt: number,
   backoffMs: number,
   message: string,
 ): RetryState {
-  const nextAttempt = attempt + 1;
+  const nextAttempt = runSequence + 1;
   state.nextRunSequenceByIssueNumber.set(issue.number, nextAttempt);
   state.followUpAttemptsByIssueNumber.delete(issue.number);
+  state.nextFailureRetryAttemptByIssueNumber.set(
+    issue.number,
+    failureRetryAttempt + 1,
+  );
   return {
     issue,
     nextAttempt,

@@ -13,6 +13,7 @@ import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
   noteRetryScheduled,
+  resolveFailureRetryAttempt,
   resolveRunSequence,
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
@@ -317,9 +318,8 @@ export class BootstrapOrchestrator implements Orchestrator {
         this.#config.polling.retry.maxFollowUpAttempts,
       );
       if (decision.kind === "exhausted") {
-        await this.#handleFailure(
-          session,
-          attempt,
+        await this.#failIssue(
+          issue.number,
           this.#followUpFailureMessage(nextLifecycle),
         );
       }
@@ -446,26 +446,35 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #scheduleRetryOrFail(
     issue: RuntimeIssue,
-    attempt: number,
+    runSequence: number,
     message: string,
   ): Promise<void> {
-    if (attempt < this.#config.polling.retry.maxAttempts) {
+    const failureRetryAttempt = resolveFailureRetryAttempt(
+      this.#state.followUp,
+      issue.number,
+    );
+    if (failureRetryAttempt < this.#config.polling.retry.maxAttempts) {
       await this.#tracker.recordRetry(issue.number, message);
       this.#state.retries.set(
         issue.number,
         noteRetryScheduled(
           this.#state.followUp,
           issue,
-          attempt,
+          runSequence,
+          failureRetryAttempt,
           this.#config.polling.retry.backoffMs,
           message,
         ),
       );
       return;
     }
-    this.#state.retries.delete(issue.number);
-    clearFollowUpRuntimeState(this.#state.followUp, issue.number);
-    await this.#tracker.markIssueFailed(issue.number, message);
+    await this.#failIssue(issue.number, message);
+  }
+
+  async #failIssue(issueNumber: number, message: string): Promise<void> {
+    this.#state.retries.delete(issueNumber);
+    clearFollowUpRuntimeState(this.#state.followUp, issueNumber);
+    await this.#tracker.markIssueFailed(issueNumber, message);
   }
 
   #followUpFailureMessage(lifecycle: PullRequestLifecycle): string {

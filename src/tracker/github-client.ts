@@ -430,6 +430,8 @@ export class GitHubClient {
   > {
     let commentsAfter: string | null = null;
     let reviewThreadsAfter: string | null = null;
+    let commentsExhausted = false;
+    let reviewThreadsExhausted = false;
     let pullRequest: NonNullable<
       NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
     > | null = null;
@@ -460,23 +462,29 @@ export class GitHubClient {
         pullRequest = {
           commits: page.commits,
           comments: {
-            nodes: [...page.comments.nodes],
+            nodes: commentsExhausted ? [] : [...page.comments.nodes],
             pageInfo: paginationInfo(page.comments.pageInfo),
           },
           reviewThreads: {
-            nodes: [...page.reviewThreads.nodes],
+            nodes: reviewThreadsExhausted ? [] : [...page.reviewThreads.nodes],
             pageInfo: paginationInfo(page.reviewThreads.pageInfo),
           },
         };
       } else {
-        pullRequest.comments.nodes.push(...page.comments.nodes);
-        pullRequest.reviewThreads.nodes.push(...page.reviewThreads.nodes);
+        if (!commentsExhausted) {
+          pullRequest.comments.nodes.push(...page.comments.nodes);
+        }
+        if (!reviewThreadsExhausted) {
+          pullRequest.reviewThreads.nodes.push(...page.reviewThreads.nodes);
+        }
       }
 
       const commentsPageInfo = paginationInfo(page.comments.pageInfo);
       const reviewThreadsPageInfo = paginationInfo(page.reviewThreads.pageInfo);
       const hasMoreComments: boolean = commentsPageInfo.hasNextPage;
       const hasMoreThreads: boolean = reviewThreadsPageInfo.hasNextPage;
+      commentsExhausted = !hasMoreComments;
+      reviewThreadsExhausted = !hasMoreThreads;
       if (!hasMoreComments && !hasMoreThreads) {
         break;
       }
