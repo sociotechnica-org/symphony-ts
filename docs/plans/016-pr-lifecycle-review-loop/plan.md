@@ -131,6 +131,23 @@ now part of this issue's scope:
 - post-run review resolution must stay behind the tracker contract rather than
   exposing raw review-thread mutations to the orchestrator
 
+### 3.2 Pre-merge architectural refactor
+
+Before merge, the implementation should also be reorganized so the hot review
+paths are explicit and testable:
+
+- split GitHub bootstrap tracking into transport, PR snapshot normalization, and
+  handoff policy modules
+- extract orchestrator follow-up sequencing and follow-up budget tracking into a
+  dedicated runtime-state module
+- extract issue lease acquisition and stale-lease recovery into a focused module
+- replace repeated test setup with shared builders/helpers where the same issue,
+  lifecycle, or temp-root patterns recur
+
+This refactor is in-scope because it preserves the same feature behavior while
+correcting the internal architecture before Phase 2 builds on the wrong
+boundaries.
+
 ### 4. Mock and test harness
 
 Extend the mock GitHub server and fixture `gh` shim so tests can model:

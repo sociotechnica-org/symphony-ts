@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
 import { OrchestratorError } from "../domain/errors.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { PullRequestLifecycle } from "../domain/pull-request.js";
@@ -11,6 +9,13 @@ import type { Logger } from "../observability/logger.js";
 import type { Runner } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
+import {
+  clearFollowUpRuntimeState,
+  noteLifecycleObservation,
+  noteRetryScheduled,
+  resolveRunSequence,
+} from "./follow-up-state.js";
+import { LocalIssueLeaseManager } from "./issue-lease.js";
 import { createOrchestratorState } from "./state.js";
 
 export interface Orchestrator {
@@ -24,10 +29,6 @@ interface QueueEntry {
   readonly source: "ready" | "running";
 }
 
-function isStaleLeaseError(code: string | undefined): boolean {
-  return code === "ENOENT" || code === "ENOTDIR" || code === "ESRCH";
-}
-
 export class BootstrapOrchestrator implements Orchestrator {
   readonly #config: ResolvedConfig;
   readonly #promptBuilder: PromptBuilder;
@@ -37,6 +38,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #logger: Logger;
   readonly #state = createOrchestratorState();
   readonly #instanceId = randomUUID();
+  readonly #leaseManager: LocalIssueLeaseManager;
 
   constructor(
     config: ResolvedConfig,
@@ -52,6 +54,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#workspaceManager = workspaceManager;
     this.#runner = runner;
     this.#logger = logger;
+    this.#leaseManager = new LocalIssueLeaseManager(
+      config.workspace.root,
+      logger,
+    );
   }
 
   async runOnce(): Promise<void> {
@@ -179,18 +185,14 @@ export class BootstrapOrchestrator implements Orchestrator {
     issueNumber: number,
     retryAttempts: ReadonlyMap<number, number>,
   ): number {
-    return (
-      retryAttempts.get(issueNumber) ??
-      this.#state.nextAttemptByIssueNumber.get(issueNumber) ??
-      1
-    );
+    return resolveRunSequence(this.#state.followUp, issueNumber, retryAttempts);
   }
 
   async #processReadyIssue(
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
-    const lease = await this.#acquireIssueLease(issue.number);
+    const lease = await this.#leaseManager.acquire(issue.number);
     if (!lease) {
       return;
     }
@@ -208,7 +210,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
-      await this.#releaseIssueLease(lease);
+      await this.#leaseManager.release(lease);
     }
   }
 
@@ -216,7 +218,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
-    const lease = await this.#acquireIssueLease(issue.number);
+    const lease = await this.#leaseManager.acquire(issue.number);
     if (!lease) {
       return;
     }
@@ -227,7 +229,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
-      await this.#releaseIssueLease(lease);
+      await this.#leaseManager.release(lease);
     }
   }
 
@@ -307,25 +309,20 @@ export class BootstrapOrchestrator implements Orchestrator {
         summary: nextLifecycle.summary,
       });
 
-      if (nextLifecycle.kind === "needs-follow-up") {
-        const nextFollowUpAttempt =
-          (this.#state.followUpAttemptsByIssueNumber.get(issue.number) ?? 0) +
-          1;
-        if (nextFollowUpAttempt >= this.#config.polling.retry.maxAttempts) {
-          await this.#handleFailure(
-            session,
-            attempt,
-            this.#followUpFailureMessage(nextLifecycle),
-          );
-          return;
-        }
-        this.#state.followUpAttemptsByIssueNumber.set(
-          issue.number,
-          nextFollowUpAttempt,
+      const decision = noteLifecycleObservation(
+        this.#state.followUp,
+        issue.number,
+        attempt,
+        nextLifecycle,
+        this.#config.polling.retry.maxAttempts,
+      );
+      if (decision.kind === "exhausted") {
+        await this.#handleFailure(
+          session,
+          attempt,
+          this.#followUpFailureMessage(nextLifecycle),
         );
       }
-
-      this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
     } catch (error) {
       await this.#handleFailure(
         session,
@@ -338,8 +335,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #completeIssue(issueNumber: number): Promise<void> {
     await this.#tracker.completeIssue(issueNumber);
     this.#state.retries.delete(issueNumber);
-    this.#state.nextAttemptByIssueNumber.delete(issueNumber);
-    this.#state.followUpAttemptsByIssueNumber.delete(issueNumber);
+    clearFollowUpRuntimeState(this.#state.followUp, issueNumber);
     this.#logger.info("Issue completed", { issueNumber });
   }
 
@@ -455,71 +451,21 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): Promise<void> {
     if (attempt < this.#config.polling.retry.maxAttempts) {
       await this.#tracker.recordRetry(issue.number, message);
-      this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
-      this.#state.retries.set(issue.number, {
-        issue,
-        nextAttempt: attempt + 1,
-        dueAt: Date.now() + this.#config.polling.retry.backoffMs,
-        lastError: message,
-      });
+      this.#state.retries.set(
+        issue.number,
+        noteRetryScheduled(
+          this.#state.followUp,
+          issue,
+          attempt,
+          this.#config.polling.retry.backoffMs,
+          message,
+        ),
+      );
       return;
     }
     this.#state.retries.delete(issue.number);
-    this.#state.nextAttemptByIssueNumber.delete(issue.number);
-    this.#state.followUpAttemptsByIssueNumber.delete(issue.number);
+    clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
-  }
-
-  async #acquireIssueLease(issueNumber: number): Promise<string | null> {
-    const lockDir = path.join(
-      this.#config.workspace.root,
-      ".symphony-locks",
-      issueNumber.toString(),
-    );
-    const pidFile = path.join(lockDir, "pid");
-    for (;;) {
-      try {
-        await fs.mkdir(lockDir, { recursive: false });
-        await fs.writeFile(pidFile, `${process.pid}\n`, "utf8");
-        return lockDir;
-      } catch (error) {
-        const systemError = error as NodeJS.ErrnoException;
-        if (systemError.code === "ENOENT") {
-          await fs.mkdir(path.dirname(lockDir), { recursive: true });
-          continue;
-        }
-        if (systemError.code === "EEXIST") {
-          if (await this.#isStaleLease(pidFile)) {
-            await fs.rm(lockDir, { recursive: true, force: true });
-            continue;
-          }
-          this.#logger.info("Issue already leased by another local worker", {
-            issueNumber,
-          });
-          return null;
-        }
-        throw error;
-      }
-    }
-  }
-
-  async #releaseIssueLease(lockDir: string): Promise<void> {
-    await fs.rm(lockDir, { recursive: true, force: true });
-  }
-
-  async #isStaleLease(pidFile: string): Promise<boolean> {
-    try {
-      const rawPid = await fs.readFile(pidFile, "utf8");
-      const pid = Number.parseInt(rawPid.trim(), 10);
-      if (!Number.isInteger(pid)) {
-        return true;
-      }
-      process.kill(pid, 0);
-      return false;
-    } catch (error) {
-      const systemError = error as NodeJS.ErrnoException;
-      return isStaleLeaseError(systemError.code);
-    }
   }
 
   #followUpFailureMessage(lifecycle: PullRequestLifecycle): string {

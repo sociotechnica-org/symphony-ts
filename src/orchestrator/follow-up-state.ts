@@ -1,0 +1,94 @@
+import type { RuntimeIssue } from "../domain/issue.js";
+import type { PullRequestLifecycle } from "../domain/pull-request.js";
+import type { RetryState } from "../domain/retry.js";
+
+export interface FollowUpRuntimeState {
+  readonly nextRunSequenceByIssueNumber: Map<number, number>;
+  readonly followUpAttemptsByIssueNumber: Map<number, number>;
+}
+
+export interface FollowUpBudgetDecision {
+  readonly kind: "continue" | "exhausted";
+  readonly nextRunSequence: number;
+  readonly followUpAttempt: number | null;
+}
+
+export function createFollowUpRuntimeState(): FollowUpRuntimeState {
+  return {
+    nextRunSequenceByIssueNumber: new Map<number, number>(),
+    followUpAttemptsByIssueNumber: new Map<number, number>(),
+  };
+}
+
+export function resolveRunSequence(
+  state: FollowUpRuntimeState,
+  issueNumber: number,
+  retryAttempts: ReadonlyMap<number, number>,
+): number {
+  return (
+    retryAttempts.get(issueNumber) ??
+    state.nextRunSequenceByIssueNumber.get(issueNumber) ??
+    1
+  );
+}
+
+export function clearFollowUpRuntimeState(
+  state: FollowUpRuntimeState,
+  issueNumber: number,
+): void {
+  state.nextRunSequenceByIssueNumber.delete(issueNumber);
+  state.followUpAttemptsByIssueNumber.delete(issueNumber);
+}
+
+export function noteRetryScheduled(
+  state: FollowUpRuntimeState,
+  issue: RuntimeIssue,
+  attempt: number,
+  backoffMs: number,
+  message: string,
+): RetryState {
+  const nextAttempt = attempt + 1;
+  state.nextRunSequenceByIssueNumber.set(issue.number, nextAttempt);
+  return {
+    issue,
+    nextAttempt,
+    dueAt: Date.now() + backoffMs,
+    lastError: message,
+  };
+}
+
+export function noteLifecycleObservation(
+  state: FollowUpRuntimeState,
+  issueNumber: number,
+  attempt: number,
+  lifecycle: PullRequestLifecycle,
+  maxFollowUpAttempts: number,
+): FollowUpBudgetDecision {
+  const nextRunSequence = attempt + 1;
+  state.nextRunSequenceByIssueNumber.set(issueNumber, nextRunSequence);
+
+  if (lifecycle.kind !== "needs-follow-up") {
+    return {
+      kind: "continue",
+      nextRunSequence,
+      followUpAttempt: null,
+    };
+  }
+
+  const nextFollowUpAttempt =
+    (state.followUpAttemptsByIssueNumber.get(issueNumber) ?? 0) + 1;
+  if (nextFollowUpAttempt >= maxFollowUpAttempts) {
+    return {
+      kind: "exhausted",
+      nextRunSequence,
+      followUpAttempt: nextFollowUpAttempt,
+    };
+  }
+
+  state.followUpAttemptsByIssueNumber.set(issueNumber, nextFollowUpAttempt);
+  return {
+    kind: "continue",
+    nextRunSequence,
+    followUpAttempt: nextFollowUpAttempt,
+  };
+}

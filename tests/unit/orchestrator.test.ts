@@ -1,12 +1,6 @@
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
-import type {
-  PullRequestLifecycle,
-  ReviewFeedback,
-} from "../../src/domain/pull-request.js";
+import type { PullRequestLifecycle } from "../../src/domain/pull-request.js";
 import type { RunResult, RunSession } from "../../src/domain/run.js";
 import type { PreparedWorkspace } from "../../src/domain/workspace.js";
 import type {
@@ -18,6 +12,10 @@ import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
 import type { WorkspaceManager } from "../../src/workspace/service.js";
+import { createIssue, createLifecycle as lifecycle } from "../support/pull-request.js";
+import { createTempDir } from "../support/git.js";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 function createDeferred<T>(): {
   readonly promise: Promise<T>;
@@ -76,53 +74,6 @@ const staticPromptBuilder: PromptBuilder = {
     });
   },
 };
-
-function createIssue(number: number, label = "symphony:ready"): RuntimeIssue {
-  const timestamp = new Date().toISOString();
-  return {
-    id: String(number),
-    identifier: `sociotechnica-org/symphony-ts#${number}`,
-    number,
-    title: `Issue ${number}`,
-    description: `Description ${number}`,
-    labels: [label],
-    state: "open",
-    url: `https://example.test/issues/${number}`,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
-}
-
-function lifecycle(
-  kind: PullRequestLifecycle["kind"],
-  branchName: string,
-  options?: {
-    failingCheckNames?: readonly string[];
-    pendingCheckNames?: readonly string[];
-    actionableReviewFeedback?: readonly ReviewFeedback[];
-    unresolvedThreadIds?: readonly string[];
-  },
-): PullRequestLifecycle {
-  return {
-    kind,
-    branchName,
-    pullRequest:
-      kind === "missing"
-        ? null
-        : {
-            number: 1,
-            url: `https://example.test/pulls/${branchName}`,
-            branchName,
-            latestCommitAt: new Date().toISOString(),
-          },
-    checks: [],
-    pendingCheckNames: options?.pendingCheckNames ?? [],
-    failingCheckNames: options?.failingCheckNames ?? [],
-    actionableReviewFeedback: options?.actionableReviewFeedback ?? [],
-    unresolvedThreadIds: options?.unresolvedThreadIds ?? [],
-    summary: `${kind} for ${branchName}`,
-  };
-}
 
 class NullLogger implements Logger {
   readonly errors: string[] = [];
@@ -354,9 +305,7 @@ class RecordingRunner implements Runner {
 
 describe("BootstrapOrchestrator", () => {
   it("starts up to maxConcurrentRuns ready issues in parallel", async () => {
-    const tempRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "symphony-parallel-test-"),
-    );
+    const tempRoot = await createTempDir("symphony-parallel-test-");
     try {
       const tracker = new SequencedTracker({
         ready: [createIssue(1), createIssue(2), createIssue(3)],
@@ -409,9 +358,7 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("keeps polling after a transient poll-level failure", async () => {
-    const tempRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "symphony-loop-test-"),
-    );
+    const tempRoot = await createTempDir("symphony-loop-test-");
     const tracker = new FlakyTracker({
       ready: [createIssue(1)],
     });
@@ -497,9 +444,7 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("skips a running issue that is already leased by another local worker", async () => {
-    const tempRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "symphony-lease-test-"),
-    );
+    const tempRoot = await createTempDir("symphony-lease-test-");
     const tracker = new SequencedTracker({
       running: [createIssue(70, "symphony:running")],
     });
@@ -541,9 +486,7 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("reclaims a stale issue lease from a dead worker", async () => {
-    const tempRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "symphony-stale-lease-test-"),
-    );
+    const tempRoot = await createTempDir("symphony-stale-lease-test-");
     try {
       const tracker = new SequencedTracker({
         running: [createIssue(71, "symphony:running")],
@@ -577,9 +520,7 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("keeps an existing issue lease when pid probing returns EPERM", async () => {
-    const tempRoot = await fs.mkdtemp(
-      path.join(os.tmpdir(), "symphony-stale-lease-eperm-test-"),
-    );
+    const tempRoot = await createTempDir("symphony-stale-lease-eperm-test-");
     const tracker = new SequencedTracker({
       running: [createIssue(72, "symphony:running")],
     });
