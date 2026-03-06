@@ -84,8 +84,9 @@ export function summarizeChecks(statusCheckRollup, reviewThreads = []) {
   );
 
   if (checks.length === 0) {
+    const overall = unresolvedThreads.length > 0 ? "failure" : "pending";
     return {
-      overall: "pending",
+      overall,
       checks,
       reviewThreads: threads,
       unresolvedThreads,

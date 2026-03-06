@@ -25,6 +25,31 @@ describe("fix-ci skill", () => {
     expect(summary.pending).toHaveLength(1);
   });
 
+  it("treats unresolved review threads as failure even before checks appear", () => {
+    const summary = summarizeChecks(
+      [],
+      [
+        {
+          id: "THREAD_0",
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            nodes: [
+              {
+                author: { login: "cursor" },
+                body: "Please fix this before merge",
+                path: "skills/fix-ci/scripts/fix-ci-lib.mjs",
+              },
+            ],
+          },
+        },
+      ],
+    );
+
+    expect(summary.overall).toBe("failure");
+    expect(summary.unresolvedThreads).toHaveLength(1);
+  });
+
   it("treats failing completed checks as failure", () => {
     const summary = summarizeChecks([
       {
