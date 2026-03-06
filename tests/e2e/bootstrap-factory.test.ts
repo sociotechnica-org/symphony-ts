@@ -7,6 +7,7 @@ import {
   loadWorkflow,
 } from "../../src/config/workflow.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { LocalRunner } from "../../src/runner/local.js";
 import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
@@ -156,6 +157,20 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "symphony:running",
     );
     expect(server.getPullRequests()).toHaveLength(1);
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.factoryState).toBe("blocked");
+    expect(status.counts.running).toBe(1);
+    expect(status.lastAction?.kind).toBe("awaiting-review");
+    expect(status.activeIssues).toHaveLength(1);
+    expect(status.activeIssues[0]).toMatchObject({
+      issueNumber: 1,
+      status: "awaiting-review",
+      branchName: "symphony/1",
+    });
+    expect(status.activeIssues[0]?.pullRequest?.number).toBe(1);
+    expect(status.activeIssues[0]?.checks.pendingNames).toEqual([]);
 
     server.setPullRequestCheckRuns("symphony/1", [
       { name: "CI", status: "completed", conclusion: "success" },

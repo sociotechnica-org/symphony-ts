@@ -42,6 +42,10 @@ export class GitHubBootstrapTracker implements Tracker {
     return await this.#client.fetchIssuesByLabel(this.#config.runningLabel);
   }
 
+  async fetchFailedIssues(): Promise<readonly RuntimeIssue[]> {
+    return await this.#client.fetchIssuesByLabel(this.#config.failedLabel);
+  }
+
   async getIssue(issueNumber: number): Promise<RuntimeIssue> {
     return await this.#client.getIssue(issueNumber);
   }

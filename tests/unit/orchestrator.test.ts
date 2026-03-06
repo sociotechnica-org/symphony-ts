@@ -96,6 +96,7 @@ class NullLogger implements Logger {
 class SequencedTracker implements Tracker {
   readonly readyIssues = new Map<number, RuntimeIssue>();
   readonly runningIssues = new Map<number, RuntimeIssue>();
+  readonly failedIssues = new Map<number, RuntimeIssue>();
   readonly lifecycleSequences = new Map<number, PullRequestLifecycle[]>();
   readonly completed: number[] = [];
   readonly retried: Array<{ issueNumber: number; reason: string }> = [];
@@ -132,6 +133,10 @@ class SequencedTracker implements Tracker {
 
   async fetchRunningIssues(): Promise<readonly RuntimeIssue[]> {
     return [...this.runningIssues.values()];
+  }
+
+  async fetchFailedIssues(): Promise<readonly RuntimeIssue[]> {
+    return [...this.failedIssues.values()];
   }
 
   async getIssue(issueNumber: number): Promise<RuntimeIssue> {
@@ -196,6 +201,10 @@ class SequencedTracker implements Tracker {
     this.failed.push({ issueNumber, reason });
     this.readyIssues.delete(issueNumber);
     this.runningIssues.delete(issueNumber);
+    this.failedIssues.set(
+      issueNumber,
+      createIssue(issueNumber, "symphony:failed"),
+    );
   }
 }
 
