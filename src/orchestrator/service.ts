@@ -299,14 +299,6 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
 
-      if (
-        nextLifecycle.kind === "needs-follow-up" &&
-        attempt >= this.#config.polling.retry.maxAttempts
-      ) {
-        await this.#handleFailure(session, attempt, nextLifecycle.summary);
-        return;
-      }
-
       this.#logger.info("Issue remains in PR lifecycle", {
         issueNumber: issue.number,
         branchName: workspace.branchName,
@@ -314,6 +306,25 @@ export class BootstrapOrchestrator implements Orchestrator {
         lifecycle: nextLifecycle.kind,
         summary: nextLifecycle.summary,
       });
+
+      if (nextLifecycle.kind === "needs-follow-up") {
+        const nextFollowUpAttempt =
+          (this.#state.followUpAttemptsByIssueNumber.get(issue.number) ?? 0) +
+          1;
+        if (nextFollowUpAttempt >= this.#config.polling.retry.maxAttempts) {
+          await this.#handleFailure(
+            session,
+            attempt,
+            this.#followUpFailureMessage(nextLifecycle),
+          );
+          return;
+        }
+        this.#state.followUpAttemptsByIssueNumber.set(
+          issue.number,
+          nextFollowUpAttempt,
+        );
+      }
+
       this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
     } catch (error) {
       await this.#handleFailure(
@@ -328,6 +339,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#tracker.completeIssue(issueNumber);
     this.#state.retries.delete(issueNumber);
     this.#state.nextAttemptByIssueNumber.delete(issueNumber);
+    this.#state.followUpAttemptsByIssueNumber.delete(issueNumber);
     this.#logger.info("Issue completed", { issueNumber });
   }
 
@@ -454,6 +466,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     this.#state.retries.delete(issue.number);
     this.#state.nextAttemptByIssueNumber.delete(issue.number);
+    this.#state.followUpAttemptsByIssueNumber.delete(issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
   }
 
@@ -507,6 +520,25 @@ export class BootstrapOrchestrator implements Orchestrator {
       const systemError = error as NodeJS.ErrnoException;
       return isStaleLeaseError(systemError.code);
     }
+  }
+
+  #followUpFailureMessage(lifecycle: PullRequestLifecycle): string {
+    if (!this.#hasHumanReviewFeedback(lifecycle)) {
+      return lifecycle.summary;
+    }
+    return `${lifecycle.summary}; human review feedback remains unresolved`;
+  }
+
+  #hasHumanReviewFeedback(lifecycle: PullRequestLifecycle): boolean {
+    const reviewBotLogins = new Set(
+      this.#config.tracker.reviewBotLogins.map((login) => login.toLowerCase()),
+    );
+    return lifecycle.actionableReviewFeedback.some((feedback) => {
+      const authorLogin = feedback.authorLogin;
+      return (
+        authorLogin !== null && !reviewBotLogins.has(authorLogin.toLowerCase())
+      );
+    });
   }
 
   #normalizeFailure(error: Error): string {

@@ -4,6 +4,7 @@ export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
   readonly retries: Map<number, RetryState>;
   readonly nextAttemptByIssueNumber: Map<number, number>;
+  readonly followUpAttemptsByIssueNumber: Map<number, number>;
 }
 
 export function createOrchestratorState(): OrchestratorState {
@@ -11,5 +12,6 @@ export function createOrchestratorState(): OrchestratorState {
     runningIssueNumbers: new Set<number>(),
     retries: new Map<number, RetryState>(),
     nextAttemptByIssueNumber: new Map<number, number>(),
+    followUpAttemptsByIssueNumber: new Map<number, number>(),
   };
 }

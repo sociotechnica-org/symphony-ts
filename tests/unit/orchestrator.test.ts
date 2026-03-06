@@ -544,33 +544,36 @@ describe("BootstrapOrchestrator", () => {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "symphony-stale-lease-test-"),
     );
-    const tracker = new SequencedTracker({
-      running: [createIssue(71, "symphony:running")],
-    });
-    tracker.setLifecycleSequence(71, [lifecycle("ready", "symphony/71")]);
-    const lockDir = path.join(tempRoot, ".symphony-locks", "71");
-    await fs.mkdir(lockDir, { recursive: true });
-    await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+    try {
+      const tracker = new SequencedTracker({
+        running: [createIssue(71, "symphony:running")],
+      });
+      tracker.setLifecycleSequence(71, [lifecycle("ready", "symphony/71")]);
+      const lockDir = path.join(tempRoot, ".symphony-locks", "71");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
 
-    const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
         },
-      },
-      staticPromptBuilder,
-      tracker,
-      new StaticWorkspaceManager(),
-      new RecordingRunner(),
-      new NullLogger(),
-    );
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
 
-    await orchestrator.runOnce();
-    await fs.rm(tempRoot, { recursive: true, force: true });
+      await orchestrator.runOnce();
 
-    expect(tracker.completed).toEqual([71]);
+      expect(tracker.completed).toEqual([71]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps an existing issue lease when pid probing returns EPERM", async () => {
@@ -833,6 +836,70 @@ describe("BootstrapOrchestrator", () => {
         reason: "needs-follow-up for symphony/73",
       },
     ]);
+  });
+
+  it("does not consume the follow-up failure budget while waiting for review", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(74)],
+    });
+    tracker.setLifecycleSequence(74, [
+      lifecycle("missing", "symphony/74"),
+      lifecycle("awaiting-review", "symphony/74", {
+        pendingCheckNames: ["CI"],
+      }),
+      lifecycle("needs-follow-up", "symphony/74", {
+        failingCheckNames: ["CI"],
+        actionableReviewFeedback: [
+          {
+            id: "feedback-1",
+            kind: "review-thread",
+            threadId: "thread-1",
+            authorLogin: "greptile[bot]",
+            body: "Fix this",
+            createdAt: new Date().toISOString(),
+            url: "https://example.test/thread/1",
+            path: "src/index.ts",
+            line: 1,
+          },
+        ],
+        unresolvedThreadIds: ["thread-1"],
+      }),
+      lifecycle("needs-follow-up", "symphony/74", {
+        failingCheckNames: ["CI"],
+        actionableReviewFeedback: [
+          {
+            id: "feedback-2",
+            kind: "review-thread",
+            threadId: "thread-2",
+            authorLogin: "greptile[bot]",
+            body: "Still broken",
+            createdAt: new Date().toISOString(),
+            url: "https://example.test/thread/2",
+            path: "src/index.ts",
+            line: 2,
+          },
+        ],
+        unresolvedThreadIds: ["thread-2"],
+      }),
+      lifecycle("ready", "symphony/74"),
+    ]);
+    const runner = new RecordingRunner();
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(runner.attempts).toEqual([1, 2]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([74]);
   });
 
   it("passes null for the first prompt attempt and the numeric attempt for retries", async () => {

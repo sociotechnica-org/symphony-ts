@@ -47,7 +47,7 @@ Pull Request State:
 - Pending checks: {{ pull_request.pendingCheckNames | join: ", " }}
 - Failing checks: {{ pull_request.failingCheckNames | join: ", " }}
 - Actionable feedback count: {{ pull_request.actionableReviewFeedback | size }}
-  {% endif %}
+  {%- endif %}
 
 Rules:
 
