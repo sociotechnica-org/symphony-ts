@@ -447,7 +447,7 @@ function parsePullRequest(
   filePath: string,
   field: string,
 ): FactoryPullRequestStatus | null {
-  if (value === null) {
+  if (value === null || value === undefined) {
     return null;
   }
   const pullRequest = expectObject(value, filePath, field);

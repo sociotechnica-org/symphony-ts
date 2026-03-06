@@ -179,6 +179,7 @@ describe("factory status helpers", () => {
           {
             ...baseSnapshot.activeIssues[0],
             startedAt: undefined,
+            pullRequest: undefined,
             blockedReason: undefined,
           },
         ],
@@ -194,6 +195,7 @@ describe("factory status helpers", () => {
         activeIssues: [
           {
             startedAt: null,
+            pullRequest: null,
             blockedReason: null,
           },
         ],

@@ -103,14 +103,32 @@ export function upsertActiveIssue(
     runSequence: update.runSequence,
     status: update.status,
     summary: update.summary,
-    workspacePath: update.workspacePath ?? existing?.workspacePath ?? null,
+    workspacePath:
+      update.workspacePath === undefined
+        ? (existing?.workspacePath ?? null)
+        : update.workspacePath,
     branchName: update.branchName,
-    runSessionId: update.runSessionId ?? existing?.runSessionId ?? null,
-    ownerPid: update.ownerPid ?? existing?.ownerPid ?? null,
-    runnerPid: update.runnerPid ?? existing?.runnerPid ?? null,
-    startedAt: update.startedAt ?? existing?.startedAt ?? null,
+    runSessionId:
+      update.runSessionId === undefined
+        ? (existing?.runSessionId ?? null)
+        : update.runSessionId,
+    ownerPid:
+      update.ownerPid === undefined
+        ? (existing?.ownerPid ?? null)
+        : update.ownerPid,
+    runnerPid:
+      update.runnerPid === undefined
+        ? (existing?.runnerPid ?? null)
+        : update.runnerPid,
+    startedAt:
+      update.startedAt === undefined
+        ? (existing?.startedAt ?? null)
+        : update.startedAt,
     updatedAt,
-    pullRequest: update.pullRequest ?? existing?.pullRequest ?? null,
+    pullRequest:
+      update.pullRequest === undefined
+        ? (existing?.pullRequest ?? null)
+        : update.pullRequest,
     checks: update.checks ??
       existing?.checks ?? { pendingNames: [], failingNames: [] },
     review: update.review ??
