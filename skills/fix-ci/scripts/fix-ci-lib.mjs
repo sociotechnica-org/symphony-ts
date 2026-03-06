@@ -25,6 +25,7 @@ export function normalizeChecks(statusCheckRollup) {
 
 export function normalizeReviewThreads(reviewThreads) {
   return (reviewThreads ?? []).map((thread) => ({
+    id: thread.id ?? "",
     isResolved: thread.isResolved === true,
     isOutdated: thread.isOutdated === true,
     comments: (thread.comments?.nodes ?? []).map((comment) => ({

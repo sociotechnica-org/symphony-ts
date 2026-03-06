@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   nextPollDelayMilliseconds,
+  normalizeReviewThreads,
   summarizeChecks,
 } from "../../skills/fix-ci/scripts/fix-ci-lib.mjs";
 
@@ -102,6 +103,21 @@ describe("fix-ci skill", () => {
 
     expect(summary.overall).toBe("failure");
     expect(summary.unresolvedThreads).toHaveLength(1);
+  });
+
+  it("preserves review thread ids for later resolution", () => {
+    const threads = normalizeReviewThreads([
+      {
+        id: "THREAD_123",
+        isResolved: false,
+        isOutdated: false,
+        comments: {
+          nodes: [],
+        },
+      },
+    ]);
+
+    expect(threads[0]?.id).toBe("THREAD_123");
   });
 
   it("treats successful completed checks as success", () => {

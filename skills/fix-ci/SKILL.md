@@ -27,6 +27,12 @@ Run the script:
 node skills/fix-ci/scripts/fix-ci.mjs --pr 17
 ```
 
+Resolve addressed review threads:
+
+```bash
+node skills/fix-ci/scripts/resolve-review-threads.mjs --pr 17 --repo sociotechnica-org/symphony-ts
+```
+
 Useful options:
 
 - `--pr <number>`: PR number to watch. If omitted, the script resolves the PR from the current branch.
@@ -34,6 +40,7 @@ Useful options:
 - `--interval <seconds>`: Poll interval. Default: `15`.
 - `--timeout <seconds>`: Max wait time. Default: `1800`.
 - `--once`: Print the current status once and exit immediately. Exits `3` if checks are still pending.
+- `--dry-run`: For `resolve-review-threads.mjs`, print which threads would be resolved without mutating GitHub.
 
 ## Operator use
 
@@ -45,8 +52,10 @@ Useful options:
   2. fix the branch,
   3. rerun local QA,
   4. push,
-  5. rerun the script,
-  6. repeat until it exits `0`.
+  5. resolve the addressed review threads with `resolve-review-threads.mjs`,
+  6. rerun the script,
+  7. repeat until it exits `0`.
+- Do not leave addressed review threads unresolved. The PR is not clean until the feedback is fixed and the corresponding threads are resolved.
 - If the script times out, treat that as an external blocker and inspect the stuck check directly.
 
 This skill is for closing the loop, not just observing it.

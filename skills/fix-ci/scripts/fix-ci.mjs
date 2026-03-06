@@ -115,7 +115,7 @@ async function fetchReviewThreads(pullRequestNumber, repo) {
       "api",
       "graphql",
       "-f",
-      "query=query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }",
+      "query=query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100) { nodes { id isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }",
       "-F",
       `owner=${owner}`,
       "-F",
@@ -162,7 +162,7 @@ function printSnapshot(pullRequest, summary) {
         .trim()
         .slice(0, 180);
       console.log(
-        `  ${index + 1}. ${author} @ ${path}${body ? ` :: ${body}` : ""}`,
+        `  ${index + 1}. ${author} @ ${path}${body ? ` :: ${body}` : ""} [thread=${thread.id}]`,
       );
     }
   }
