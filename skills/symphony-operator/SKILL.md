@@ -38,8 +38,8 @@ If you change tracked repository files to fix the factory:
 
 1. do the work on a branch,
 2. run local QA,
-3. open or update a PR,
-4. run `/review`,
+3. run `/review` and fix all self-review findings,
+4. open or update a PR,
 5. get the fix merged to `main`,
 6. and restart the factory from the latest `main`.
 
