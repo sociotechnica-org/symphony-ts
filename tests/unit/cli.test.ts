@@ -104,6 +104,15 @@ describe("parseArgs", () => {
       format: "json",
     });
   });
+
+  it("fails when a value flag is missing its argument", () => {
+    expect(() =>
+      parseArgs(["node", "symphony", "status", "--status-file", "--json"]),
+    ).toThrowError("Missing value for --status-file");
+    expect(() =>
+      parseArgs(["node", "symphony", "run", "--workflow"]),
+    ).toThrowError("Missing value for --workflow");
+  });
 });
 
 describe("runCli status", () => {

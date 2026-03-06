@@ -28,9 +28,7 @@ export type CliArgs =
 export function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
   const command = args[0];
-  const workflowIndex = args.findIndex((arg) => arg === "--workflow");
-  const workflowPath =
-    workflowIndex >= 0 ? args[workflowIndex + 1] : "WORKFLOW.md";
+  const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
   const resolvedWorkflowPath = path.resolve(
     process.cwd(),
     workflowPath ?? "WORKFLOW.md",
@@ -45,17 +43,14 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   }
 
   if (command === "status") {
-    const statusFileIndex = args.findIndex((arg) => arg === "--status-file");
+    const statusFilePath = readOptionValue(args, "--status-file");
     return {
       command: "status",
       format: args.includes("--json") ? "json" : "human",
       workflowPath: resolvedWorkflowPath,
       statusFilePath:
-        statusFileIndex >= 0
-          ? path.resolve(
-              process.cwd(),
-              args[statusFileIndex + 1] ?? ".tmp/status.json",
-            )
+        statusFilePath !== null
+          ? path.resolve(process.cwd(), statusFilePath)
           : null,
     };
   }
@@ -126,4 +121,16 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {
   const workflow = await loadWorkflow(workflowPath);
   return deriveStatusFilePath(workflow.config.workspace.root);
+}
+
+function readOptionValue(args: readonly string[], flag: string): string | null {
+  const index = args.findIndex((arg) => arg === flag);
+  if (index < 0) {
+    return null;
+  }
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`Missing value for ${flag}`);
+  }
+  return value;
 }

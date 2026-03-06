@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ObservabilityError } from "../domain/errors.js";
 
 export type FactoryState = "idle" | "running" | "blocked";
 
@@ -116,7 +117,18 @@ export async function readFactoryStatusSnapshot(
   filePath: string,
 ): Promise<FactoryStatusSnapshot> {
   const raw = await fs.readFile(filePath, "utf8");
-  return JSON.parse(raw) as FactoryStatusSnapshot;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new ObservabilityError(
+      `Failed to parse factory status snapshot at ${filePath}`,
+      {
+        cause: error as Error,
+      },
+    );
+  }
+  return parseFactoryStatusSnapshot(parsed, filePath);
 }
 
 export function isProcessAlive(pid: number): boolean {
@@ -246,4 +258,372 @@ export function renderFactoryStatusSnapshot(
   }
 
   return lines.join("\n");
+}
+
+function parseFactoryStatusSnapshot(
+  value: unknown,
+  filePath: string,
+): FactoryStatusSnapshot {
+  const snapshot = expectObject(value, filePath, "snapshot");
+  const version = expectInteger(snapshot.version, filePath, "version");
+  if (version !== 1) {
+    throw new ObservabilityError(
+      `Unsupported factory status snapshot version at ${filePath}: expected 1, received ${version.toString()}`,
+    );
+  }
+
+  return {
+    version: 1,
+    generatedAt: expectString(snapshot.generatedAt, filePath, "generatedAt"),
+    factoryState: expectEnum(
+      snapshot.factoryState,
+      ["idle", "running", "blocked"],
+      filePath,
+      "factoryState",
+    ),
+    worker: parseWorkerSnapshot(snapshot.worker, filePath),
+    counts: parseCountsSnapshot(snapshot.counts, filePath),
+    lastAction: parseLastAction(snapshot.lastAction, filePath),
+    activeIssues: expectArray(
+      snapshot.activeIssues,
+      filePath,
+      "activeIssues",
+      (entry, index) =>
+        parseActiveIssue(entry, filePath, `activeIssues[${index.toString()}]`),
+    ),
+    retries: expectArray(
+      snapshot.retries,
+      filePath,
+      "retries",
+      (entry, index) =>
+        parseRetry(entry, filePath, `retries[${index.toString()}]`),
+    ),
+  };
+}
+
+function parseWorkerSnapshot(
+  value: unknown,
+  filePath: string,
+): FactoryWorkerSnapshot {
+  const worker = expectObject(value, filePath, "worker");
+  return {
+    instanceId: expectString(worker.instanceId, filePath, "worker.instanceId"),
+    pid: expectInteger(worker.pid, filePath, "worker.pid"),
+    startedAt: expectString(worker.startedAt, filePath, "worker.startedAt"),
+    pollIntervalMs: expectInteger(
+      worker.pollIntervalMs,
+      filePath,
+      "worker.pollIntervalMs",
+    ),
+    maxConcurrentRuns: expectInteger(
+      worker.maxConcurrentRuns,
+      filePath,
+      "worker.maxConcurrentRuns",
+    ),
+  };
+}
+
+function parseCountsSnapshot(
+  value: unknown,
+  filePath: string,
+): FactoryStatusCounts {
+  const counts = expectObject(value, filePath, "counts");
+  return {
+    ready: expectInteger(counts.ready, filePath, "counts.ready"),
+    running: expectInteger(counts.running, filePath, "counts.running"),
+    failed: expectInteger(counts.failed, filePath, "counts.failed"),
+    activeLocalRuns: expectInteger(
+      counts.activeLocalRuns,
+      filePath,
+      "counts.activeLocalRuns",
+    ),
+    retries: expectInteger(counts.retries, filePath, "counts.retries"),
+  };
+}
+
+function parseLastAction(
+  value: unknown,
+  filePath: string,
+): FactoryStatusAction | null {
+  if (value === null) {
+    return null;
+  }
+  const action = expectObject(value, filePath, "lastAction");
+  return {
+    kind: expectString(action.kind, filePath, "lastAction.kind"),
+    summary: expectString(action.summary, filePath, "lastAction.summary"),
+    at: expectString(action.at, filePath, "lastAction.at"),
+    issueNumber: expectNullableInteger(
+      action.issueNumber,
+      filePath,
+      "lastAction.issueNumber",
+    ),
+  };
+}
+
+function parseActiveIssue(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryActiveIssueSnapshot {
+  const issue = expectObject(value, filePath, field);
+  return {
+    issueNumber: expectInteger(
+      issue.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
+    issueIdentifier: expectString(
+      issue.issueIdentifier,
+      filePath,
+      `${field}.issueIdentifier`,
+    ),
+    title: expectString(issue.title, filePath, `${field}.title`),
+    source: expectEnum(
+      issue.source,
+      ["ready", "running"],
+      filePath,
+      `${field}.source`,
+    ),
+    runSequence: expectInteger(
+      issue.runSequence,
+      filePath,
+      `${field}.runSequence`,
+    ),
+    status: expectEnum(
+      issue.status,
+      ["queued", "preparing", "running", "awaiting-review", "needs-follow-up"],
+      filePath,
+      `${field}.status`,
+    ),
+    summary: expectString(issue.summary, filePath, `${field}.summary`),
+    workspacePath: expectNullableString(
+      issue.workspacePath,
+      filePath,
+      `${field}.workspacePath`,
+    ),
+    branchName: expectString(issue.branchName, filePath, `${field}.branchName`),
+    runSessionId: expectNullableString(
+      issue.runSessionId,
+      filePath,
+      `${field}.runSessionId`,
+    ),
+    ownerPid: expectNullableInteger(
+      issue.ownerPid,
+      filePath,
+      `${field}.ownerPid`,
+    ),
+    runnerPid: expectNullableInteger(
+      issue.runnerPid,
+      filePath,
+      `${field}.runnerPid`,
+    ),
+    startedAt: expectNullableString(
+      issue.startedAt,
+      filePath,
+      `${field}.startedAt`,
+    ),
+    updatedAt: expectString(issue.updatedAt, filePath, `${field}.updatedAt`),
+    pullRequest: parsePullRequest(
+      issue.pullRequest,
+      filePath,
+      `${field}.pullRequest`,
+    ),
+    checks: parseCheckStatus(issue.checks, filePath, `${field}.checks`),
+    review: parseReviewStatus(issue.review, filePath, `${field}.review`),
+    blockedReason: expectNullableString(
+      issue.blockedReason,
+      filePath,
+      `${field}.blockedReason`,
+    ),
+  };
+}
+
+function parsePullRequest(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryPullRequestStatus | null {
+  if (value === null) {
+    return null;
+  }
+  const pullRequest = expectObject(value, filePath, field);
+  return {
+    number: expectInteger(pullRequest.number, filePath, `${field}.number`),
+    url: expectString(pullRequest.url, filePath, `${field}.url`),
+    latestCommitAt: expectNullableString(
+      pullRequest.latestCommitAt,
+      filePath,
+      `${field}.latestCommitAt`,
+    ),
+  };
+}
+
+function parseCheckStatus(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryCheckStatus {
+  const checks = expectObject(value, filePath, field);
+  return {
+    pendingNames: expectStringArray(
+      checks.pendingNames,
+      filePath,
+      `${field}.pendingNames`,
+    ),
+    failingNames: expectStringArray(
+      checks.failingNames,
+      filePath,
+      `${field}.failingNames`,
+    ),
+  };
+}
+
+function parseReviewStatus(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryReviewStatus {
+  const review = expectObject(value, filePath, field);
+  return {
+    actionableCount: expectInteger(
+      review.actionableCount,
+      filePath,
+      `${field}.actionableCount`,
+    ),
+    unresolvedThreadCount: expectInteger(
+      review.unresolvedThreadCount,
+      filePath,
+      `${field}.unresolvedThreadCount`,
+    ),
+  };
+}
+
+function parseRetry(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryRetrySnapshot {
+  const retry = expectObject(value, filePath, field);
+  return {
+    issueNumber: expectInteger(
+      retry.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
+    issueIdentifier: expectString(
+      retry.issueIdentifier,
+      filePath,
+      `${field}.issueIdentifier`,
+    ),
+    title: expectString(retry.title, filePath, `${field}.title`),
+    nextAttempt: expectInteger(
+      retry.nextAttempt,
+      filePath,
+      `${field}.nextAttempt`,
+    ),
+    dueAt: expectString(retry.dueAt, filePath, `${field}.dueAt`),
+    lastError: expectString(retry.lastError, filePath, `${field}.lastError`),
+  };
+}
+
+function expectObject(
+  value: unknown,
+  filePath: string,
+  field: string,
+): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw invalidSnapshot(filePath, `expected ${field} to be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function expectString(value: unknown, filePath: string, field: string): string {
+  if (typeof value !== "string") {
+    throw invalidSnapshot(filePath, `expected ${field} to be a string`);
+  }
+  return value;
+}
+
+function expectNullableString(
+  value: unknown,
+  filePath: string,
+  field: string,
+): string | null {
+  if (value === null) {
+    return null;
+  }
+  return expectString(value, filePath, field);
+}
+
+function expectInteger(
+  value: unknown,
+  filePath: string,
+  field: string,
+): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw invalidSnapshot(filePath, `expected ${field} to be an integer`);
+  }
+  return value;
+}
+
+function expectNullableInteger(
+  value: unknown,
+  filePath: string,
+  field: string,
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  return expectInteger(value, filePath, field);
+}
+
+function expectStringArray(
+  value: unknown,
+  filePath: string,
+  field: string,
+): readonly string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string")
+  ) {
+    throw invalidSnapshot(filePath, `expected ${field} to be a string array`);
+  }
+  return value;
+}
+
+function expectArray<T>(
+  value: unknown,
+  filePath: string,
+  field: string,
+  parseEntry: (entry: unknown, index: number) => T,
+): readonly T[] {
+  if (!Array.isArray(value)) {
+    throw invalidSnapshot(filePath, `expected ${field} to be an array`);
+  }
+  return value.map((entry, index) => parseEntry(entry, index));
+}
+
+function expectEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  filePath: string,
+  field: string,
+): T {
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw invalidSnapshot(
+      filePath,
+      `expected ${field} to be one of ${allowed.join(", ")}`,
+    );
+  }
+  return value as T;
+}
+
+function invalidSnapshot(
+  filePath: string,
+  message: string,
+): ObservabilityError {
+  return new ObservabilityError(
+    `Invalid factory status snapshot at ${filePath}: ${message}`,
+  );
 }

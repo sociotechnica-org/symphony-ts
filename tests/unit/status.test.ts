@@ -118,6 +118,54 @@ describe("factory status helpers", () => {
     }
   });
 
+  it("fails clearly when the snapshot version is unsupported", async () => {
+    const tempDir = await createTempDir("symphony-status-version-test-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify({ ...createSnapshot(), version: 2 }, null, 2)}\n`,
+        "utf8",
+      );
+
+      await expect(readFactoryStatusSnapshot(filePath)).rejects.toThrowError(
+        `Unsupported factory status snapshot version at ${filePath}: expected 1, received 2`,
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails clearly when required snapshot fields are invalid", async () => {
+    const tempDir = await createTempDir("symphony-status-invalid-test-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(
+          {
+            ...createSnapshot(),
+            worker: {
+              ...createSnapshot().worker,
+              pid: "not-a-pid",
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+
+      await expect(readFactoryStatusSnapshot(filePath)).rejects.toThrowError(
+        `Invalid factory status snapshot at ${filePath}: expected worker.pid to be an integer`,
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("renders a terminal-friendly view from the snapshot", () => {
     const output = renderFactoryStatusSnapshot(createSnapshot(), {
       workerAlive: true,

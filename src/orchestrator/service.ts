@@ -816,6 +816,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber,
       at: event.spawnedAt,
     });
+    // The runner onSpawn callback is synchronous; snapshot persistence is optional.
     void this.#persistStatusSnapshot();
     this.#logger.info("Runner process attached to active issue", {
       issueNumber,
