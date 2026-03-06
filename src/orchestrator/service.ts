@@ -426,26 +426,35 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #reconcileRunningIssueOwnership(
     issues: readonly RuntimeIssue[],
   ): Promise<void> {
-    const recoveries = await Promise.all(
+    const recoveries = await Promise.allSettled(
       issues.map(async (issue) => ({
         issueNumber: issue.number,
         snapshot: await this.#leaseManager.reconcile(issue.number),
       })),
     );
 
-    for (const recovery of recoveries) {
-      if (
-        recovery.snapshot.kind === "missing" ||
-        recovery.snapshot.kind === "active"
-      ) {
+    for (const [index, recovery] of recoveries.entries()) {
+      if (recovery.status === "rejected") {
+        this.#logger.error("Failed to reconcile running issue ownership", {
+          issueNumber: issues[index]?.number,
+          error: this.#normalizeFailure(
+            recovery.reason instanceof Error
+              ? recovery.reason
+              : new Error(String(recovery.reason)),
+          ),
+        });
+        continue;
+      }
+      const { issueNumber, snapshot } = recovery.value;
+      if (snapshot.kind === "missing" || snapshot.kind === "active") {
         continue;
       }
       this.#logger.warn("Recovered stale local run ownership", {
-        issueNumber: recovery.issueNumber,
-        ownershipState: recovery.snapshot.kind,
-        ownerPid: recovery.snapshot.ownerPid,
-        runnerPid: recovery.snapshot.runnerPid,
-        runSessionId: recovery.snapshot.record?.runSessionId ?? null,
+        issueNumber,
+        ownershipState: snapshot.kind,
+        ownerPid: snapshot.ownerPid,
+        runnerPid: snapshot.runnerPid,
+        runSessionId: snapshot.record?.runSessionId ?? null,
       });
     }
   }

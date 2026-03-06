@@ -8,6 +8,7 @@ import type {
   PromptBuilder,
   ResolvedConfig,
 } from "../../src/domain/workflow.js";
+import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
@@ -552,6 +553,60 @@ describe("BootstrapOrchestrator", () => {
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it("keeps processing other work when one running-issue reconciliation fails", async () => {
+    const tempRoot = await createTempDir("symphony-reconcile-failure-test-");
+    const tracker = new SequencedTracker({
+      ready: [createIssue(78)],
+      running: [createIssue(77, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(77, [lifecycle("ready", "symphony/77")]);
+    tracker.setLifecycleSequence(78, [
+      lifecycle("missing", "symphony/78"),
+      lifecycle("ready", "symphony/78"),
+    ]);
+    const logger = new NullLogger();
+    const originalReconcile = LocalIssueLeaseManager.prototype.reconcile;
+    const reconcileSpy = vi
+      .spyOn(LocalIssueLeaseManager.prototype, "reconcile")
+      .mockImplementation(async function mockReconcile(
+        this: LocalIssueLeaseManager,
+        issueNumber,
+      ) {
+        if (issueNumber === 77) {
+          throw new Error("simulated reconcile failure");
+        }
+        return await originalReconcile.call(this, issueNumber);
+      });
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        logger,
+      );
+
+      await orchestrator.runOnce();
+    } finally {
+      reconcileSpy.mockRestore();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+
+    expect(tracker.completed).toEqual(expect.arrayContaining([77, 78]));
+    expect(logger.errors).toContain(
+      "Failed to reconcile running issue ownership",
+    );
+    expect(logger.errors).not.toContain("Poll cycle failed");
   });
 
   it("keeps an existing issue lease when pid probing returns EPERM", async () => {
