@@ -5,6 +5,10 @@ import { promisify } from "node:util";
 import { nextPollDelayMilliseconds, summarizeChecks } from "./fix-ci-lib.mjs";
 
 const execFileAsync = promisify(execFile);
+const EXIT_PR_FAILURE = 1;
+const EXIT_TIMEOUT = 2;
+const EXIT_PENDING = 3;
+const EXIT_UNEXPECTED = 5;
 
 function parseArgs(argv) {
   const options = {
@@ -200,10 +204,10 @@ function sleep(milliseconds) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const startedAt = Date.now();
+  const repo = await resolveRepoName(options.repo);
+  const resolvedOptions = { ...options, repo };
 
   while (true) {
-    const repo = await resolveRepoName(options.repo);
-    const resolvedOptions = { ...options, repo };
     let pullRequest;
     let reviewThreads;
 
@@ -229,12 +233,12 @@ async function main() {
     }
 
     if (summary.overall === "failure") {
-      process.exitCode = 1;
+      process.exitCode = EXIT_PR_FAILURE;
       return;
     }
 
     if (options.once) {
-      process.exitCode = 3;
+      process.exitCode = EXIT_PENDING;
       return;
     }
 
@@ -245,7 +249,7 @@ async function main() {
     });
     if (delayMilliseconds <= 0) {
       console.error("Timed out waiting for CI to finish");
-      process.exitCode = 2;
+      process.exitCode = EXIT_TIMEOUT;
       return;
     }
 
@@ -255,5 +259,5 @@ async function main() {
 
 main().catch((error) => {
   console.error(error.message);
-  process.exitCode = 1;
+  process.exitCode = EXIT_UNEXPECTED;
 });

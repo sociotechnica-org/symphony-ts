@@ -16,6 +16,7 @@ Use this skill when you need to drive a PR to a clean CI/review state without re
 - Exits `1` when any completed check fails or any unresolved non-outdated review thread remains.
 - Exits `2` on timeout.
 - Exits `3` when `--once` is used and checks are still pending.
+- Exits `5` on unexpected script/tooling errors (for example, `gh` failures or invalid responses).
 
 The script is the deterministic detector. The skill itself is the repair loop.
 
@@ -55,6 +56,7 @@ Useful options:
   5. resolve the addressed review threads with `resolve-review-threads.mjs`,
   6. rerun the script,
   7. repeat until it exits `0`.
+- If either script exits `5`, treat that as a tool failure, not PR feedback. Fix the script/runtime problem before attempting another PR repair cycle.
 - Do not leave addressed review threads unresolved. The PR is not clean until the feedback is fixed and the corresponding threads are resolved.
 - If the script times out, treat that as an external blocker and inspect the stuck check directly.
 

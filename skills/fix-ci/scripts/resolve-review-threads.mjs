@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { normalizeReviewThreads } from "./fix-ci-lib.mjs";
 
 const execFileAsync = promisify(execFile);
+const EXIT_UNEXPECTED = 5;
 
 function parseArgs(argv) {
   const options = {
@@ -106,6 +107,13 @@ async function main() {
     return;
   }
 
+  const results = options.dryRun
+    ? unresolved.map(() => ({ status: "fulfilled" }))
+    : await Promise.allSettled(
+        unresolved.map((thread) => resolveThread(thread.id)),
+      );
+
+  let hadFailure = false;
   for (const [index, thread] of unresolved.entries()) {
     const firstComment = thread.comments[0];
     const author = firstComment?.authorLogin || "unknown";
@@ -114,19 +122,29 @@ async function main() {
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 180);
-    const action = options.dryRun ? "Would resolve" : "Resolved";
-
-    if (!options.dryRun) {
-      await resolveThread(thread.id);
-    }
+    const result = results[index];
+    const action = options.dryRun
+      ? "Would resolve"
+      : result?.status === "fulfilled"
+        ? "Resolved"
+        : "Failed to resolve";
 
     console.log(
       `${action} ${index + 1}/${unresolved.length}: ${author} @ ${path}${body ? ` :: ${body}` : ""} [thread=${thread.id}]`,
     );
+
+    if (result?.status === "rejected") {
+      hadFailure = true;
+      console.error(`  Error: ${result.reason?.message ?? result.reason}`);
+    }
+  }
+
+  if (hadFailure) {
+    process.exitCode = EXIT_UNEXPECTED;
   }
 }
 
 main().catch((error) => {
   console.error(error.message);
-  process.exitCode = 1;
+  process.exitCode = EXIT_UNEXPECTED;
 });
