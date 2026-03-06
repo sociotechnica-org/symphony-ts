@@ -316,6 +316,8 @@ export class LocalIssueLeaseManager {
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
+    } else if (sigkillResult === "missing") {
+      return;
     } else if (sigkillResult === "denied") {
       this.#logger.warn(
         "Unable to signal orphaned runner process; clearing lease anyway",

@@ -257,4 +257,78 @@ describe("LocalIssueLeaseManager", () => {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
   });
+
+  it("does not warn when the runner exits before SIGKILL is delivered", async () => {
+    const tempRoot = await createTempDir("symphony-lease-sigkill-missing-");
+    const logger = new CapturingLogger();
+    const manager = new LocalIssueLeaseManager(tempRoot, logger);
+
+    let runnerAliveChecks = 0;
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation((pid, signal) => {
+        if (pid === 999999 && signal === 0) {
+          const error = new Error("missing process") as NodeJS.ErrnoException;
+          error.code = "ESRCH";
+          throw error;
+        }
+
+        if (pid === 4343 && signal === 0) {
+          runnerAliveChecks += 1;
+          if (runnerAliveChecks <= 11) {
+            return true;
+          }
+
+          const error = new Error("missing process") as NodeJS.ErrnoException;
+          error.code = "ESRCH";
+          throw error;
+        }
+
+        if (pid === 4343 && signal === "SIGTERM") {
+          return true;
+        }
+
+        if (pid === 4343 && signal === "SIGKILL") {
+          const error = new Error("missing process") as NodeJS.ErrnoException;
+          error.code = "ESRCH";
+          throw error;
+        }
+
+        throw new Error(`Unexpected kill(${String(pid)}, ${String(signal)})`);
+      });
+
+    try {
+      const lockDir = path.join(tempRoot, ".symphony-locks", "26");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+      await fs.writeFile(
+        path.join(lockDir, "run.json"),
+        JSON.stringify(
+          {
+            issueNumber: 26,
+            issueIdentifier: "sociotechnica-org/symphony-ts#26",
+            branchName: "symphony/26",
+            runSessionId: "sociotechnica-org/symphony-ts#26/attempt-1/orphaned",
+            attempt: 1,
+            ownerPid: 999999,
+            runnerPid: 4343,
+            acquiredAt: new Date().toISOString(),
+            runnerStartedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const snapshot = await manager.reconcile(26);
+      expect(snapshot.kind).toBe("stale-owner-runner");
+      expect(logger.warnings).toEqual([]);
+      expect((await manager.inspect(26)).kind).toBe("missing");
+    } finally {
+      killSpy.mockRestore();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
 });
