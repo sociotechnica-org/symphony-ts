@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { RuntimeIssue } from "../../src/domain/issue.js";
+import type { RunResult, RunSession } from "../../src/domain/run.js";
+import type { PreparedWorkspace } from "../../src/domain/workspace.js";
 import type {
-  AgentConfig,
-  IssueRef,
+  PromptBuilder,
   ResolvedConfig,
-  RunContext,
-  RunResult,
-  WorkflowDefinition,
-  WorkspaceInfo,
-} from "../../src/domain/types.js";
+} from "../../src/domain/workflow.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
@@ -64,7 +62,13 @@ const baseConfig: ResolvedConfig = {
   },
 };
 
-function createIssue(number: number): IssueRef {
+const staticPromptBuilder: PromptBuilder = {
+  async build({ issue }): Promise<string> {
+    return `Issue ${issue.identifier}`;
+  },
+};
+
+function createIssue(number: number): RuntimeIssue {
   const timestamp = new Date().toISOString();
   return {
     id: String(number),
@@ -81,58 +85,110 @@ function createIssue(number: number): IssueRef {
 }
 
 class NullLogger implements Logger {
-  info(): void {}
+  readonly errors: string[] = [];
 
-  error(): void {}
+  info(_message: string, _data?: Record<string, unknown>): void {}
+
+  error(message: string, _data?: Record<string, unknown>): void {
+    this.errors.push(message);
+  }
+}
+
+class CompletionLoggingFailingLogger extends NullLogger {
+  override info(message: string, _data?: Record<string, unknown>): void {
+    if (message === "Issue completed") {
+      throw new Error("logger failed");
+    }
+  }
 }
 
 class StaticTracker implements Tracker {
-  readonly #issues: readonly IssueRef[];
+  readonly #issues: readonly RuntimeIssue[];
   readonly completed: number[] = [];
+  readonly released: Array<{ issueNumber: number; reason: string }> = [];
+  readonly failed: Array<{ issueNumber: number; reason: string }> = [];
+  claimCalls = 0;
 
-  constructor(issues: readonly IssueRef[]) {
+  constructor(issues: readonly RuntimeIssue[]) {
     this.#issues = issues;
   }
 
   async ensureLabels(): Promise<void> {}
 
-  async fetchEligibleIssues(): Promise<readonly IssueRef[]> {
+  async fetchEligibleIssues(): Promise<readonly RuntimeIssue[]> {
     return this.#issues;
   }
 
-  async getIssue(issueNumber: number): Promise<IssueRef> {
+  async getIssue(issueNumber: number): Promise<RuntimeIssue> {
     return this.#issues.find((issue) => issue.number === issueNumber)!;
   }
 
-  async claimIssue(issueNumber: number): Promise<IssueRef | null> {
+  async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
+    this.claimCalls += 1;
     return await this.getIssue(issueNumber);
   }
 
-  async hasPullRequest(): Promise<boolean> {
-    return true;
+  async completeRun(session: RunSession): Promise<void> {
+    this.completed.push(session.issue.number);
   }
 
-  async releaseIssue(): Promise<void> {}
+  async releaseIssue(issueNumber: number, reason: string): Promise<void> {
+    this.released.push({ issueNumber, reason });
+  }
 
-  async markIssueFailed(): Promise<void> {}
+  async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
+    this.failed.push({ issueNumber, reason });
+  }
+}
 
-  async completeIssue(issueNumber: number): Promise<void> {
-    this.completed.push(issueNumber);
+class FlakyTracker extends StaticTracker {
+  attempts = 0;
+
+  override async ensureLabels(): Promise<void> {
+    this.attempts += 1;
+    if (this.attempts === 1) {
+      throw new Error("transient label failure");
+    }
+  }
+}
+
+class ReleaseFailingTracker extends StaticTracker {
+  releaseAttempts = 0;
+
+  override async releaseIssue(
+    issueNumber: number,
+    reason: string,
+  ): Promise<void> {
+    this.releaseAttempts += 1;
+    await super.releaseIssue(issueNumber, reason);
+    throw new Error("release failed");
   }
 }
 
 class StaticWorkspaceManager implements WorkspaceManager {
-  async ensureWorkspace(issue: IssueRef): Promise<WorkspaceInfo> {
+  async prepareWorkspace({
+    issue,
+  }: {
+    readonly issue: RuntimeIssue;
+  }): Promise<PreparedWorkspace> {
     return {
-      issueId: issue.id,
-      issueIdentifier: issue.identifier,
+      key: `sociotechnica-org_symphony-ts_${issue.number}`,
       path: `/tmp/workspaces/${issue.number}`,
       branchName: `symphony/${issue.number}`,
       createdNow: true,
     };
   }
 
-  async cleanupWorkspace(): Promise<void> {}
+  async cleanupWorkspace(_workspace: PreparedWorkspace): Promise<void> {}
+}
+
+class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
+  readonly cleaned: string[] = [];
+
+  override async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
+    this.cleaned.push(workspace.path);
+    throw new Error("rm failed");
+  }
 }
 
 class ConcurrencyRunner implements Runner {
@@ -150,8 +206,8 @@ class ConcurrencyRunner implements Runner {
     this.#finishBarrier.resolve();
   }
 
-  async run(context: RunContext, _config: AgentConfig): Promise<RunResult> {
-    this.startedIssues.push(context.issue.number);
+  async run(session: RunSession): Promise<RunResult> {
+    this.startedIssues.push(session.issue.number);
     this.#active += 1;
     this.maxActive = Math.max(this.maxActive, this.#active);
     if (this.startedIssues.length >= 2) {
@@ -170,6 +226,22 @@ class ConcurrencyRunner implements Runner {
   }
 }
 
+class RecordingRunner implements Runner {
+  readonly sessionIds: string[] = [];
+
+  async run(session: RunSession): Promise<RunResult> {
+    this.sessionIds.push(session.id);
+    const timestamp = new Date().toISOString();
+    return {
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      startedAt: timestamp,
+      finishedAt: timestamp,
+    };
+  }
+}
+
 describe("BootstrapOrchestrator", () => {
   it("starts up to maxConcurrentRuns issues in parallel", async () => {
     const tracker = new StaticTracker([
@@ -180,10 +252,8 @@ describe("BootstrapOrchestrator", () => {
     const workspace = new StaticWorkspaceManager();
     const runner = new ConcurrencyRunner();
     const orchestrator = new BootstrapOrchestrator(
-      {
-        config: baseConfig,
-        promptTemplate: "Issue {{ issue.identifier }}",
-      } satisfies WorkflowDefinition,
+      baseConfig,
+      staticPromptBuilder,
       tracker,
       workspace,
       runner,
@@ -200,5 +270,245 @@ describe("BootstrapOrchestrator", () => {
     await runOnce;
 
     expect(tracker.completed).toEqual([1, 2]);
+  });
+
+  it("keeps polling after a transient poll-level failure", async () => {
+    const tracker = new FlakyTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const runner = new RecordingRunner();
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          intervalMs: 1,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      logger,
+    );
+    const controller = new AbortController();
+    const loop = orchestrator.runLoop(controller.signal);
+
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + 500;
+      const check = () => {
+        if (tracker.completed.length === 1) {
+          controller.abort();
+          resolve();
+          return;
+        }
+        if (Date.now() >= deadline) {
+          controller.abort();
+          reject(
+            new Error("Timed out waiting for the orchestrator to recover"),
+          );
+          return;
+        }
+        setTimeout(check, 1);
+      };
+      check();
+    });
+
+    await loop;
+
+    expect(tracker.attempts).toBeGreaterThanOrEqual(2);
+    expect(logger.errors).toContain("Poll cycle failed");
+    expect(tracker.completed).toEqual([1]);
+  });
+
+  it("does not retry or fail an issue after successful completion if cleanup fails", async () => {
+    const tracker = new StaticTracker([createIssue(1)]);
+    const workspace = new CleanupFailingWorkspaceManager();
+    const logger = new NullLogger();
+    const runner: Runner = {
+      async run(): Promise<RunResult> {
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          cleanupOnSuccess: true,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      logger,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.completed).toEqual([1]);
+    expect(tracker.released).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(workspace.cleaned).toEqual(["/tmp/workspaces/1"]);
+    expect(logger.errors).toContain("Workspace cleanup failed");
+  });
+
+  it("does not requeue a retrying issue before its backoff window expires", async () => {
+    const tracker = new StaticTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const runnerCalls: number[] = [];
+    const runner: Runner = {
+      async run(session): Promise<RunResult> {
+        runnerCalls.push(session.attempt.sequence);
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 17,
+          stdout: "",
+          stderr: "simulated failure",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            backoffMs: 60_000,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(runnerCalls).toEqual([1]);
+    expect(tracker.claimCalls).toBe(1);
+    expect(tracker.released).toHaveLength(1);
+    expect(tracker.failed).toEqual([]);
+  });
+
+  it("does not invoke the unexpected failure path when retry scheduling fails", async () => {
+    const tracker = new ReleaseFailingTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const logger = new NullLogger();
+    const runner: Runner = {
+      async run(): Promise<RunResult> {
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 17,
+          stdout: "",
+          stderr: "simulated failure",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      logger,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.releaseAttempts).toBe(1);
+    expect(tracker.released).toHaveLength(1);
+    expect(tracker.failed).toEqual([]);
+    expect(logger.errors).toContain("Issue run failed");
+    expect(logger.errors).toContain("Failure handling failed");
+  });
+
+  it("generates unique run session ids across orchestrator instances", async () => {
+    const issue = createIssue(1);
+    const runner = new RecordingRunner();
+
+    const first = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      new StaticTracker([issue]),
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+    const second = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      new StaticTracker([issue]),
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await first.runOnce();
+    await second.runOnce();
+
+    expect(runner.sessionIds).toHaveLength(2);
+    expect(runner.sessionIds[0]).toMatch(
+      /^sociotechnica-org\/symphony-ts#1\/attempt-1-/,
+    );
+    expect(runner.sessionIds[1]).toMatch(
+      /^sociotechnica-org\/symphony-ts#1\/attempt-1-/,
+    );
+    expect(new Set(runner.sessionIds).size).toBe(2);
+  });
+
+  it("does not retry or fail an issue if completion logging throws", async () => {
+    const tracker = new StaticTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const runner: Runner = {
+      async run(): Promise<RunResult> {
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      new CompletionLoggingFailingLogger(),
+    );
+
+    await expect(orchestrator.runOnce()).resolves.toBeUndefined();
+    expect(tracker.completed).toEqual([1]);
+    expect(tracker.released).toEqual([]);
+    expect(tracker.failed).toEqual([]);
   });
 });

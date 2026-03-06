@@ -1,7 +1,13 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import type { PullRequestRecord } from "../../src/domain/types.js";
+
+interface PullRequestRecord {
+  readonly title: string;
+  readonly body: string;
+  readonly head: string;
+  readonly base: string;
+}
 
 interface MockIssue {
   id: string;
@@ -45,6 +51,7 @@ export class MockGitHubServer {
   readonly #issues = new Map<number, MockIssue>();
   readonly #labels = new Map<string, MockLabel>();
   readonly #prs: PullRequestRecord[] = [];
+  readonly #requestCounts = new Map<string, number>();
   readonly #server = http.createServer(this.#handle.bind(this));
   #baseUrl = "";
 
@@ -59,6 +66,7 @@ export class MockGitHubServer {
   }
 
   async stop(): Promise<void> {
+    this.#server.closeAllConnections();
     this.#server.close();
     await once(this.#server, "close");
   }
@@ -97,8 +105,21 @@ export class MockGitHubServer {
     return structuredClone(issue);
   }
 
+  setIssueLabels(number: number, labels: readonly string[]): void {
+    const issue = this.#issues.get(number);
+    if (!issue) {
+      throw new Error(`Issue ${number} not found`);
+    }
+    issue.labels = labels.map((name) => ({ name }));
+    issue.updated_at = new Date().toISOString();
+  }
+
   getPullRequests(): readonly PullRequestRecord[] {
     return structuredClone(this.#prs);
+  }
+
+  countRequests(key: string): number {
+    return this.#requestCounts.get(key) ?? 0;
   }
 
   async recordPullRequest(pr: PullRequestRecord): Promise<void> {
@@ -126,6 +147,11 @@ export class MockGitHubServer {
     }
 
     const suffix = pathMatch[3] ?? "";
+    const requestKey = `${method} ${suffix}`;
+    this.#requestCounts.set(
+      requestKey,
+      (this.#requestCounts.get(requestKey) ?? 0) + 1,
+    );
 
     if (method === "GET" && suffix === "labels") {
       json(response, 200, [...this.#labels.values()]);
@@ -179,6 +205,7 @@ export class MockGitHubServer {
       const head = url.searchParams.get("head");
       const state = url.searchParams.get("state") ?? "open";
       const pulls = this.#prs
+        // The mock does not model PR lifecycle; stored PRs are treated as open.
         .filter(() => state === "open" || state === "all")
         .filter((pull) =>
           head ? `${pathMatch[1]}:${pull.head}` === head : true,

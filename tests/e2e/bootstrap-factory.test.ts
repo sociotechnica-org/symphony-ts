@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli } from "../../src/cli/index.js";
-import { loadWorkflow } from "../../src/config/workflow.js";
+import {
+  createPromptBuilder,
+  loadWorkflow,
+} from "../../src/config/workflow.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { LocalRunner } from "../../src/runner/local.js";
@@ -151,11 +154,17 @@ describe("Phase 0 bootstrap factory", () => {
 
     const workflow = await loadWorkflow(workflowPath);
     const logger = new JsonLogger();
+    const promptBuilder = createPromptBuilder(workflow);
     const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
-    const workspace = new LocalWorkspaceManager(logger);
-    const runner = new LocalRunner(logger);
+    const workspace = new LocalWorkspaceManager(
+      workflow.config.workspace,
+      workflow.config.hooks.afterCreate,
+      logger,
+    );
+    const runner = new LocalRunner(workflow.config.agent, logger);
     const orchestrator = new BootstrapOrchestrator(
-      workflow,
+      workflow.config,
+      promptBuilder,
       tracker,
       workspace,
       runner,
@@ -204,11 +213,17 @@ describe("Phase 0 bootstrap factory", () => {
 
     const workflow = await loadWorkflow(workflowPath);
     const logger = new JsonLogger();
+    const promptBuilder = createPromptBuilder(workflow);
     const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
-    const workspace = new LocalWorkspaceManager(logger);
-    const runner = new LocalRunner(logger);
+    const workspace = new LocalWorkspaceManager(
+      workflow.config.workspace,
+      workflow.config.hooks.afterCreate,
+      logger,
+    );
+    const runner = new LocalRunner(workflow.config.agent, logger);
     const orchestrator = new BootstrapOrchestrator(
-      workflow,
+      workflow.config,
+      promptBuilder,
       tracker,
       workspace,
       runner,

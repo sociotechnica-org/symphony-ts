@@ -2,48 +2,53 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { RunnerError } from "../domain/errors.js";
-import type { AgentConfig, RunContext, RunResult } from "../domain/types.js";
+import type { RunResult, RunSession } from "../domain/run.js";
+import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { Runner } from "./service.js";
 
 export class LocalRunner implements Runner {
+  readonly #config: AgentConfig;
   readonly #logger: Logger;
 
-  constructor(logger: Logger) {
+  constructor(config: AgentConfig, logger: Logger) {
+    this.#config = config;
     this.#logger = logger;
   }
 
-  async run(context: RunContext, config: AgentConfig): Promise<RunResult> {
+  async run(session: RunSession): Promise<RunResult> {
     const startedAt = new Date().toISOString();
-    const promptFile = path.join(context.workspace.path, ".symphony-prompt.md");
+    const promptFile = path.join(session.workspace.path, ".symphony-prompt.md");
     const command =
-      config.promptTransport === "file"
-        ? `${config.command} ${JSON.stringify(promptFile)}`
-        : config.command;
+      this.#config.promptTransport === "file"
+        ? `${this.#config.command} ${JSON.stringify(promptFile)}`
+        : this.#config.command;
 
-    if (config.promptTransport === "file") {
-      await fs.writeFile(promptFile, context.prompt, "utf8");
+    if (this.#config.promptTransport === "file") {
+      await fs.writeFile(promptFile, session.prompt, "utf8");
     }
 
     this.#logger.info("Launching runner", {
       command,
-      workspacePath: context.workspace.path,
-      issueIdentifier: context.issue.identifier,
-      attempt: context.attempt,
+      workspacePath: session.workspace.path,
+      issueIdentifier: session.issue.identifier,
+      attempt: session.attempt.sequence,
+      runSessionId: session.id,
     });
 
     return await new Promise<RunResult>((resolve, reject) => {
       const child = spawn("bash", ["-lc", command], {
-        cwd: context.workspace.path,
+        cwd: session.workspace.path,
         env: {
           ...process.env,
-          ...config.env,
-          SYMPHONY_ISSUE_ID: context.issue.id,
-          SYMPHONY_ISSUE_IDENTIFIER: context.issue.identifier,
-          SYMPHONY_ISSUE_NUMBER: String(context.issue.number),
-          SYMPHONY_RUN_ATTEMPT: String(context.attempt),
-          SYMPHONY_BRANCH_NAME: context.workspace.branchName,
-          SYMPHONY_WORKSPACE_PATH: context.workspace.path,
+          ...this.#config.env,
+          SYMPHONY_ISSUE_ID: session.issue.id,
+          SYMPHONY_ISSUE_IDENTIFIER: session.issue.identifier,
+          SYMPHONY_ISSUE_NUMBER: String(session.issue.number),
+          SYMPHONY_RUN_ATTEMPT: String(session.attempt.sequence),
+          SYMPHONY_BRANCH_NAME: session.workspace.branchName,
+          SYMPHONY_WORKSPACE_PATH: session.workspace.path,
+          SYMPHONY_RUN_SESSION_ID: session.id,
         },
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -81,7 +86,7 @@ export class LocalRunner implements Runner {
 
       const timeout = setTimeout(() => {
         child.kill("SIGTERM");
-      }, config.timeoutMs);
+      }, this.#config.timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer | string) => {
         stdout += chunk.toString();
@@ -104,7 +109,9 @@ export class LocalRunner implements Runner {
           const finishedAt = new Date().toISOString();
           if (signal === "SIGTERM") {
             reject(
-              new RunnerError(`Runner timed out after ${config.timeoutMs}ms`),
+              new RunnerError(
+                `Runner timed out after ${this.#config.timeoutMs}ms`,
+              ),
             );
             return;
           }
@@ -118,8 +125,8 @@ export class LocalRunner implements Runner {
         });
       });
 
-      if (config.promptTransport === "stdin") {
-        child.stdin.end(context.prompt);
+      if (this.#config.promptTransport === "stdin") {
+        child.stdin.end(session.prompt);
         return;
       }
       child.stdin.end();

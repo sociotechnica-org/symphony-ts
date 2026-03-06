@@ -1,14 +1,11 @@
 import type {
-  IssueRef,
-  WorkspaceConfig,
-  WorkspaceInfo,
-} from "../domain/types.js";
+  PreparedWorkspace,
+  WorkspacePreparationRequest,
+} from "../domain/workspace.js";
 
 export interface WorkspaceManager {
-  ensureWorkspace(
-    issue: IssueRef,
-    config: WorkspaceConfig,
-    afterCreate: readonly string[],
-  ): Promise<WorkspaceInfo>;
-  cleanupWorkspace(workspace: WorkspaceInfo): Promise<void>;
+  prepareWorkspace(
+    request: WorkspacePreparationRequest,
+  ): Promise<PreparedWorkspace>;
+  cleanupWorkspace(workspace: PreparedWorkspace): Promise<void>;
 }

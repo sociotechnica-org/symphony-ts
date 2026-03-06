@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { TrackerError } from "../domain/errors.js";
-import type { IssueRef, TrackerConfig } from "../domain/types.js";
+import type { RuntimeIssue } from "../domain/issue.js";
+import type { RunResult, RunSession } from "../domain/run.js";
+import type { TrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { Tracker } from "./service.js";
 
@@ -29,7 +31,10 @@ interface GitHubPullRequestResponse {
   };
 }
 
-function toIssueRef(issue: GitHubIssueResponse, repo: string): IssueRef {
+function toRuntimeIssue(
+  issue: GitHubIssueResponse,
+  repo: string,
+): RuntimeIssue {
   return {
     id: String(issue.number),
     identifier: `${repo}#${issue.number}`,
@@ -70,6 +75,7 @@ export class GitHubBootstrapTracker implements Tracker {
   readonly #config: TrackerConfig;
   readonly #logger: Logger;
   readonly #tokenPromise: Promise<string>;
+  #ensureLabelsPromise: Promise<void> | null = null;
 
   constructor(config: TrackerConfig, logger: Logger) {
     this.#config = config;
@@ -78,42 +84,34 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async ensureLabels(): Promise<void> {
-    await this.#ensureLabel(
-      this.#config.readyLabel,
-      "0e8a16",
-      "Issue is ready for Symphony to work on",
-    );
-    await this.#ensureLabel(
-      this.#config.runningLabel,
-      "1d76db",
-      "Issue is currently being worked by Symphony",
-    );
-    await this.#ensureLabel(
-      this.#config.failedLabel,
-      "d73a4a",
-      "Issue failed in Symphony",
-    );
+    if (this.#ensureLabelsPromise === null) {
+      this.#ensureLabelsPromise = this.#doEnsureLabels().catch((error) => {
+        this.#ensureLabelsPromise = null;
+        throw error;
+      });
+    }
+    await this.#ensureLabelsPromise;
   }
 
-  async fetchEligibleIssues(): Promise<readonly IssueRef[]> {
+  async fetchEligibleIssues(): Promise<readonly RuntimeIssue[]> {
     const issues = await this.#request<GitHubIssueResponse[]>(
       "GET",
       this.#issuePath(
         `issues?state=open&labels=${encodeURIComponent(this.#config.readyLabel)}`,
       ),
     );
-    return issues.map((issue) => toIssueRef(issue, this.#config.repo));
+    return issues.map((issue) => toRuntimeIssue(issue, this.#config.repo));
   }
 
-  async getIssue(issueNumber: number): Promise<IssueRef> {
+  async getIssue(issueNumber: number): Promise<RuntimeIssue> {
     const issue = await this.#request<GitHubIssueResponse>(
       "GET",
       this.#issuePath(`issues/${issueNumber}`),
     );
-    return toIssueRef(issue, this.#config.repo);
+    return toRuntimeIssue(issue, this.#config.repo);
   }
 
-  async claimIssue(issueNumber: number): Promise<IssueRef | null> {
+  async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
     const issue = await this.getIssue(issueNumber);
     if (
       !issue.labels.includes(this.#config.readyLabel) ||
@@ -134,7 +132,38 @@ export class GitHubBootstrapTracker implements Tracker {
     return updated;
   }
 
-  async hasPullRequest(headBranch: string): Promise<boolean> {
+  async completeRun(session: RunSession, _result: RunResult): Promise<void> {
+    const hasPullRequest = await this.#hasPullRequest(
+      session.workspace.branchName,
+    );
+    if (!hasPullRequest) {
+      throw new TrackerError(
+        `Runner exited successfully but no pull request was found for ${session.workspace.branchName}`,
+      );
+    }
+    // Re-fetch before closing so we preserve labels added after the issue was claimed.
+    await this.#completeIssue(await this.getIssue(session.issue.number));
+  }
+
+  async #doEnsureLabels(): Promise<void> {
+    await this.#ensureLabel(
+      this.#config.readyLabel,
+      "0e8a16",
+      "Issue is ready for Symphony to work on",
+    );
+    await this.#ensureLabel(
+      this.#config.runningLabel,
+      "1d76db",
+      "Issue is currently being worked by Symphony",
+    );
+    await this.#ensureLabel(
+      this.#config.failedLabel,
+      "d73a4a",
+      "Issue failed in Symphony",
+    );
+  }
+
+  async #hasPullRequest(headBranch: string): Promise<boolean> {
     const [owner] = this.#config.repo.split("/");
     const pulls = await this.#request<GitHubPullRequestResponse[]>(
       "GET",
@@ -179,19 +208,15 @@ export class GitHubBootstrapTracker implements Tracker {
     );
   }
 
-  async completeIssue(
-    issueNumber: number,
-    successComment: string,
-  ): Promise<void> {
-    const issue = await this.getIssue(issueNumber);
+  async #completeIssue(issue: RuntimeIssue): Promise<void> {
     const nextLabels = issue.labels.filter(
       (label) =>
         label !== this.#config.runningLabel &&
         label !== this.#config.readyLabel &&
         label !== this.#config.failedLabel,
     );
-    await this.#createComment(issueNumber, successComment);
-    await this.#updateIssue(issueNumber, {
+    await this.#createComment(issue.number, this.#config.successComment);
+    await this.#updateIssue(issue.number, {
       state: "closed",
       labels: nextLabels,
     });
@@ -208,7 +233,10 @@ export class GitHubBootstrapTracker implements Tracker {
         this.#issuePath(`labels/${encodeURIComponent(name)}`),
       );
     } catch (error) {
-      if (!(error instanceof TrackerError) || !error.message.includes("404")) {
+      if (
+        !(error instanceof TrackerError) ||
+        !error.message.includes(" failed with 404:")
+      ) {
         throw error;
       }
       await this.#request<GitHubLabelResponse>(
@@ -230,13 +258,13 @@ export class GitHubBootstrapTracker implements Tracker {
   async #updateIssue(
     issueNumber: number,
     body: Record<string, unknown>,
-  ): Promise<IssueRef> {
+  ): Promise<RuntimeIssue> {
     const issue = await this.#request<GitHubIssueResponse>(
       "PATCH",
       this.#issuePath(`issues/${issueNumber}`),
       body,
     );
-    return toIssueRef(issue, this.#config.repo);
+    return toRuntimeIssue(issue, this.#config.repo);
   }
 
   async #request<T>(method: string, path: string, body?: unknown): Promise<T> {

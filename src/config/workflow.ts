@@ -4,10 +4,10 @@ import fs from "node:fs/promises";
 import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
 import type {
-  IssueRef,
+  PromptBuilder,
   ResolvedConfig,
   WorkflowDefinition,
-} from "../domain/types.js";
+} from "../domain/workflow.js";
 
 interface RawWorkflow {
   readonly tracker?: Record<string, unknown>;
@@ -21,6 +21,14 @@ const liquid = new Liquid({
   strictFilters: true,
   strictVariables: true,
 });
+
+interface PromptRenderInput {
+  readonly issue: {
+    readonly identifier: string;
+  };
+  readonly attempt: number | null;
+  readonly config: ResolvedConfig;
+}
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
@@ -197,20 +205,36 @@ export async function loadWorkflow(
   };
 }
 
-export async function renderPrompt(
+async function renderPromptTemplate(
   definition: WorkflowDefinition,
-  issue: IssueRef,
-  attempt: number | null,
+  input: PromptRenderInput,
 ): Promise<string> {
   try {
     return await liquid.parseAndRender(definition.promptTemplate, {
-      issue,
-      attempt,
-      config: definition.config,
+      issue: input.issue,
+      attempt: input.attempt,
+      config: input.config,
     });
   } catch (error) {
-    throw new WorkflowError(`Failed to render prompt for ${issue.identifier}`, {
-      cause: error as Error,
-    });
+    throw new WorkflowError(
+      `Failed to render prompt for ${input.issue.identifier}`,
+      {
+        cause: error as Error,
+      },
+    );
   }
+}
+
+export function createPromptBuilder(
+  definition: WorkflowDefinition,
+): PromptBuilder {
+  return {
+    async build(input): Promise<string> {
+      return await renderPromptTemplate(definition, {
+        issue: input.issue,
+        attempt: input.attempt,
+        config: definition.config,
+      });
+    },
+  };
 }
