@@ -38,6 +38,7 @@ export interface IssueLeaseSnapshot {
 
 const RUN_RECORD_FILE = "run.json";
 const PID_FILE = "pid";
+type SignalDelivery = "sent" | "missing" | "denied";
 
 export class LocalIssueLeaseManager {
   readonly #workspaceRoot: string;
@@ -285,7 +286,18 @@ export class LocalIssueLeaseManager {
   }
 
   async #terminateRunner(issueNumber: number, pid: number): Promise<void> {
-    if (!this.#sendSignal(pid, "SIGTERM")) {
+    const sigtermResult = this.#sendSignal(pid, "SIGTERM");
+    if (sigtermResult !== "sent") {
+      if (sigtermResult === "denied") {
+        this.#logger.warn(
+          "Unable to signal orphaned runner process; clearing lease anyway",
+          {
+            issueNumber,
+            runnerPid: pid,
+            signal: "SIGTERM",
+          },
+        );
+      }
       return;
     }
 
@@ -296,13 +308,24 @@ export class LocalIssueLeaseManager {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
 
-    if (this.#sendSignal(pid, "SIGKILL")) {
+    const sigkillResult = this.#sendSignal(pid, "SIGKILL");
+    if (sigkillResult === "sent") {
       for (let attempt = 0; attempt < 10; attempt += 1) {
         if (!this.#isProcessAlive(pid)) {
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
+    } else if (sigkillResult === "denied") {
+      this.#logger.warn(
+        "Unable to signal orphaned runner process; clearing lease anyway",
+        {
+          issueNumber,
+          runnerPid: pid,
+          signal: "SIGKILL",
+        },
+      );
+      return;
     }
 
     this.#logger.warn(
@@ -314,17 +337,17 @@ export class LocalIssueLeaseManager {
     );
   }
 
-  #sendSignal(pid: number, signal: NodeJS.Signals): boolean {
+  #sendSignal(pid: number, signal: NodeJS.Signals): SignalDelivery {
     try {
       process.kill(pid, signal);
-      return true;
+      return "sent";
     } catch (error) {
       const systemError = error as NodeJS.ErrnoException;
       if (isStaleLeaseError(systemError.code)) {
-        return false;
+        return "missing";
       }
       if (systemError.code === "EPERM") {
-        return true;
+        return "denied";
       }
       throw error;
     }

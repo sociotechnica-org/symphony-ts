@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import type { Logger } from "../../src/observability/logger.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { createTempDir } from "../support/git.js";
 import { waitForExit } from "../support/process.js";
@@ -35,6 +36,18 @@ function createSession(issueNumber: number, workspacePath: string): RunSession {
       sequence: 1,
     },
   };
+}
+
+class CapturingLogger implements Logger {
+  readonly warnings: string[] = [];
+
+  info(_message: string, _data?: Record<string, unknown>): void {}
+
+  warn(message: string, _data?: Record<string, unknown>): void {
+    this.warnings.push(message);
+  }
+
+  error(_message: string, _data?: Record<string, unknown>): void {}
 }
 
 describe("LocalIssueLeaseManager", () => {
@@ -172,6 +185,75 @@ describe("LocalIssueLeaseManager", () => {
       expect((await manager.inspect(24)).kind).toBe("missing");
     } finally {
       orphan.kill("SIGKILL");
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("clears a stale runner lease without waiting when signaling is denied", async () => {
+    const tempRoot = await createTempDir("symphony-lease-eperm-");
+    const logger = new CapturingLogger();
+    const manager = new LocalIssueLeaseManager(tempRoot, logger);
+
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation((pid, signal) => {
+        if (pid === 999999 && signal === 0) {
+          const error = new Error("missing process") as NodeJS.ErrnoException;
+          error.code = "ESRCH";
+          throw error;
+        }
+
+        if (pid === 4242 && signal === 0) {
+          return true;
+        }
+
+        if (pid === 4242 && signal === "SIGTERM") {
+          const error = new Error("permission denied") as NodeJS.ErrnoException;
+          error.code = "EPERM";
+          throw error;
+        }
+
+        throw new Error(`Unexpected kill(${String(pid)}, ${String(signal)})`);
+      });
+
+    try {
+      const lockDir = path.join(tempRoot, ".symphony-locks", "25");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+      await fs.writeFile(
+        path.join(lockDir, "run.json"),
+        JSON.stringify(
+          {
+            issueNumber: 25,
+            issueIdentifier: "sociotechnica-org/symphony-ts#25",
+            branchName: "symphony/25",
+            runSessionId: "sociotechnica-org/symphony-ts#25/attempt-1/orphaned",
+            attempt: 1,
+            ownerPid: 999999,
+            runnerPid: 4242,
+            acquiredAt: new Date().toISOString(),
+            runnerStartedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const snapshot = await manager.reconcile(25);
+      expect(snapshot.kind).toBe("stale-owner-runner");
+      expect(killSpy.mock.calls).toEqual([
+        [999999, 0],
+        [4242, 0],
+        [4242, "SIGTERM"],
+      ]);
+      expect(logger.warnings).toContain(
+        "Unable to signal orphaned runner process; clearing lease anyway",
+      );
+      expect((await manager.inspect(25)).kind).toBe("missing");
+    } finally {
+      killSpy.mockRestore();
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
   });
