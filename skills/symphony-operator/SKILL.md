@@ -13,14 +13,16 @@ Use this skill when acting as the operator for the local Symphony factory.
 - Repair broken or stalled execution.
 - Drive PRs through CI and automated review to a mergeable state.
 - Keep GitHub as a thin queue and rely on Symphony's own polling and concurrency.
+- Maintain a persistent local operator notebook in `.ralph/operator-scratchpad.md`.
 
 ## Wake-Up Workflow
 
-1. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
-2. Check the live Symphony worker process and determine whether it is healthy, progressing, stuck, crashed, or misconfigured.
-3. If the factory is unhealthy, fix the concrete problem and restart it.
-4. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-5. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+1. Read `.ralph/operator-scratchpad.md` first so the latest operator context survives session loss and compaction.
+2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
+3. Check the live Symphony worker process and determine whether it is healthy, progressing, stuck, crashed, or misconfigured.
+4. If the factory is unhealthy, fix the concrete problem and restart it.
+5. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
+6. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
 
@@ -35,9 +37,9 @@ Use this skill when acting as the operator for the local Symphony factory.
 If you change tracked repository files to fix the factory:
 
 1. do the work on a branch,
-2. open or update a PR,
-3. run `/review`,
-4. run local QA,
+2. run local QA,
+3. open or update a PR,
+4. run `/review`,
 5. get the fix merged to `main`,
 6. and restart the factory from the latest `main`.
 
@@ -59,6 +61,10 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 
 Before finishing each wake-up:
 
-1. ask whether this cycle revealed something missing or ambiguous in this skill or the operator prompt,
-2. if yes, make the improvement through the normal PR flow when it affects tracked files,
-3. and record the result in the final status summary.
+1. update `.ralph/operator-scratchpad.md` with current state, open risks, and the next operator checks,
+2. ask whether this cycle revealed something missing or ambiguous in this skill or the operator prompt,
+3. distinguish between:
+   - durable process rules or generally correct operator behavior, which belong in this skill or the operator prompt,
+   - transient factory facts, temporary workarounds, and run-specific context, which belong in `.ralph/operator-scratchpad.md`,
+4. if a durable rule needs to change, make the improvement through the normal PR flow,
+5. and record the result in the final status summary.
