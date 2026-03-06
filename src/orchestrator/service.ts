@@ -295,6 +295,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
 
+      if (
+        nextLifecycle.kind === "needs-follow-up" &&
+        attempt >= this.#config.polling.retry.maxAttempts
+      ) {
+        await this.#handleFailure(session, attempt, nextLifecycle.summary);
+        return;
+      }
+
       this.#logger.info("Issue remains in PR lifecycle", {
         issueNumber: issue.number,
         branchName: workspace.branchName,
@@ -451,8 +459,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       ".symphony-locks",
       issueNumber.toString(),
     );
+    const pidFile = path.join(lockDir, "pid");
     try {
       await fs.mkdir(lockDir, { recursive: false });
+      await fs.writeFile(pidFile, `${process.pid}\n`, "utf8");
       return lockDir;
     } catch (error) {
       const systemError = error as NodeJS.ErrnoException;
@@ -461,6 +471,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         return await this.#acquireIssueLease(issueNumber);
       }
       if (systemError.code === "EEXIST") {
+        if (await this.#isStaleLease(pidFile)) {
+          await fs.rm(lockDir, { recursive: true, force: true });
+          return await this.#acquireIssueLease(issueNumber);
+        }
         this.#logger.info("Issue already leased by another local worker", {
           issueNumber,
         });
@@ -472,6 +486,25 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #releaseIssueLease(lockDir: string): Promise<void> {
     await fs.rm(lockDir, { recursive: true, force: true });
+  }
+
+  async #isStaleLease(pidFile: string): Promise<boolean> {
+    try {
+      const rawPid = await fs.readFile(pidFile, "utf8");
+      const pid = Number.parseInt(rawPid.trim(), 10);
+      if (!Number.isInteger(pid)) {
+        return true;
+      }
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      return (
+        systemError.code === "ENOENT" ||
+        systemError.code === "ENOTDIR" ||
+        systemError.code === "ESRCH"
+      );
+    }
   }
 
   #normalizeFailure(error: Error): string {

@@ -357,49 +357,53 @@ describe("BootstrapOrchestrator", () => {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "symphony-parallel-test-"),
     );
-    const tracker = new SequencedTracker({
-      ready: [createIssue(1), createIssue(2), createIssue(3)],
-    });
-    tracker.setLifecycleSequence(1, [
-      lifecycle("missing", "symphony/1"),
-      lifecycle("ready", "symphony/1"),
-    ]);
-    tracker.setLifecycleSequence(2, [
-      lifecycle("missing", "symphony/2"),
-      lifecycle("ready", "symphony/2"),
-    ]);
-    tracker.setLifecycleSequence(3, [
-      lifecycle("missing", "symphony/3"),
-      lifecycle("ready", "symphony/3"),
-    ]);
-    const runner = new ConcurrencyRunner();
-    const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(1), createIssue(2), createIssue(3)],
+      });
+      tracker.setLifecycleSequence(1, [
+        lifecycle("missing", "symphony/1"),
+        lifecycle("ready", "symphony/1"),
+      ]);
+      tracker.setLifecycleSequence(2, [
+        lifecycle("missing", "symphony/2"),
+        lifecycle("ready", "symphony/2"),
+      ]);
+      tracker.setLifecycleSequence(3, [
+        lifecycle("missing", "symphony/3"),
+        lifecycle("ready", "symphony/3"),
+      ]);
+      const runner = new ConcurrencyRunner();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
         },
-      },
-      staticPromptBuilder,
-      tracker,
-      new StaticWorkspaceManager(),
-      runner,
-      new NullLogger(),
-    );
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
 
-    const runOnce = orchestrator.runOnce();
-    await runner.waitForTwoStarts();
+      const runOnce = orchestrator.runOnce();
+      await runner.waitForTwoStarts();
 
-    expect(runner.maxActive).toBe(2);
-    expect(
-      [...runner.startedIssues].sort((left, right) => left - right),
-    ).toEqual([1, 2]);
+      expect(runner.maxActive).toBe(2);
+      expect(
+        [...runner.startedIssues].sort((left, right) => left - right),
+      ).toEqual([1, 2]);
 
-    runner.finish();
-    await runOnce;
+      runner.finish();
+      await runOnce;
 
-    expect(tracker.completed).toEqual([1, 2]);
+      expect(tracker.completed).toEqual([1, 2]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps polling after a transient poll-level failure", async () => {
@@ -503,9 +507,9 @@ describe("BootstrapOrchestrator", () => {
       }),
     ]);
     let runnerCalls = 0;
-    await fs.mkdir(path.join(tempRoot, ".symphony-locks", "70"), {
-      recursive: true,
-    });
+    const lockDir = path.join(tempRoot, ".symphony-locks", "70");
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(path.join(lockDir, "pid"), `${process.pid}\n`, "utf8");
     const orchestrator = new BootstrapOrchestrator(
       {
         ...baseConfig,
@@ -532,6 +536,39 @@ describe("BootstrapOrchestrator", () => {
     expect(runnerCalls).toBe(0);
     expect(tracker.completed).toEqual([]);
     expect(tracker.failed).toEqual([]);
+  });
+
+  it("reclaims a stale issue lease from a dead worker", async () => {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "symphony-stale-lease-test-"),
+    );
+    const tracker = new SequencedTracker({
+      running: [createIssue(71, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(71, [lifecycle("ready", "symphony/71")]);
+    const lockDir = path.join(tempRoot, ".symphony-locks", "71");
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      new RecordingRunner(),
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await fs.rm(tempRoot, { recursive: true, force: true });
+
+    expect(tracker.completed).toEqual([71]);
   });
 
   it("completes a running PR when the tracker later reports it ready", async () => {
@@ -692,6 +729,64 @@ describe("BootstrapOrchestrator", () => {
 
     expect(runner.attempts).toEqual([1, 2]);
     expect(tracker.completed).toEqual([9]);
+  });
+
+  it("marks a running issue failed after capped successful follow-up reruns", async () => {
+    const tracker = new SequencedTracker({
+      running: [createIssue(73, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(73, [
+      lifecycle("needs-follow-up", "symphony/73", {
+        actionableReviewFeedback: [
+          {
+            id: "feedback-1",
+            kind: "review-thread",
+            threadId: "thread-1",
+            authorLogin: "greptile[bot]",
+            body: "Still broken",
+            createdAt: new Date().toISOString(),
+            url: "https://example.test/thread/1",
+            path: "src/index.ts",
+            line: 1,
+          },
+        ],
+        unresolvedThreadIds: ["thread-1"],
+      }),
+      lifecycle("needs-follow-up", "symphony/73", {
+        actionableReviewFeedback: [
+          {
+            id: "feedback-2",
+            kind: "review-thread",
+            threadId: "thread-2",
+            authorLogin: "greptile[bot]",
+            body: "Still broken",
+            createdAt: new Date().toISOString(),
+            url: "https://example.test/thread/2",
+            path: "src/index.ts",
+            line: 2,
+          },
+        ],
+        unresolvedThreadIds: ["thread-2"],
+      }),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      new RecordingRunner(),
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 73,
+        reason: "needs-follow-up for symphony/73",
+      },
+    ]);
   });
 
   it("passes null for the first prompt attempt and the numeric attempt for retries", async () => {
