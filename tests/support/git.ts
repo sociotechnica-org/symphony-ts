@@ -62,7 +62,7 @@ export async function countRemoteBranchCommits(
   await execFileAsync("git", ["checkout", branchName], { cwd: checkoutDir });
   const result = await execFileAsync(
     "git",
-    ["rev-list", "--count", branchName, "^main"],
+    ["rev-list", "--count", branchName, "^origin/main"],
     { cwd: checkoutDir },
   );
   return Number(result.stdout.trim());
