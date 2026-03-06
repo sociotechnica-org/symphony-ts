@@ -133,6 +133,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.runningIssueNumbers.add(issue.number);
     let claimedIssue = issue;
     let completedWorkspace: RunSession["workspace"] | null = null;
+    let completedRunSessionId: string | null = null;
 
     try {
       const claimed = await this.#tracker.claimIssue(issue.number);
@@ -180,11 +181,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
 
       completedWorkspace = workspace;
-      this.#logger.info("Issue completed", {
-        issueNumber: claimed.number,
-        branchName: workspace.branchName,
-        runSessionId: session.id,
-      });
+      completedRunSessionId = session.id;
     } catch (error) {
       await this.#handleUnexpectedFailure(
         claimedIssue,
@@ -193,6 +190,18 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
+    }
+
+    if (completedWorkspace !== null && completedRunSessionId !== null) {
+      try {
+        this.#logger.info("Issue completed", {
+          issueNumber: claimedIssue.number,
+          branchName: completedWorkspace.branchName,
+          runSessionId: completedRunSessionId,
+        });
+      } catch {
+        // Observability must not perturb the completed issue state.
+      }
     }
 
     if (

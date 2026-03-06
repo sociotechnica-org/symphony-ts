@@ -132,4 +132,23 @@ describe("GitHubBootstrapTracker", () => {
       ),
     ).rejects.toThrow(/no pull request/i);
   });
+
+  it("ensures labels only once across concurrent calls", async () => {
+    const tracker = new GitHubBootstrapTracker(
+      {
+        kind: "github-bootstrap",
+        repo: "sociotechnica-org/symphony-ts",
+        apiUrl: server.baseUrl,
+        readyLabel: "symphony:ready",
+        runningLabel: "symphony:running",
+        failedLabel: "symphony:failed",
+        successComment: "done",
+      },
+      logger,
+    );
+
+    await Promise.all([tracker.ensureLabels(), tracker.ensureLabels()]);
+
+    expect(server.countRequests("POST labels")).toBe(3);
+  });
 });

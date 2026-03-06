@@ -75,7 +75,7 @@ export class GitHubBootstrapTracker implements Tracker {
   readonly #config: TrackerConfig;
   readonly #logger: Logger;
   readonly #tokenPromise: Promise<string>;
-  #labelsEnsured = false;
+  #ensureLabelsPromise: Promise<void> | null = null;
 
   constructor(config: TrackerConfig, logger: Logger) {
     this.#config = config;
@@ -84,26 +84,13 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async ensureLabels(): Promise<void> {
-    if (this.#labelsEnsured) {
-      return;
+    if (this.#ensureLabelsPromise === null) {
+      this.#ensureLabelsPromise = this.#doEnsureLabels().catch((error) => {
+        this.#ensureLabelsPromise = null;
+        throw error;
+      });
     }
-
-    await this.#ensureLabel(
-      this.#config.readyLabel,
-      "0e8a16",
-      "Issue is ready for Symphony to work on",
-    );
-    await this.#ensureLabel(
-      this.#config.runningLabel,
-      "1d76db",
-      "Issue is currently being worked by Symphony",
-    );
-    await this.#ensureLabel(
-      this.#config.failedLabel,
-      "d73a4a",
-      "Issue failed in Symphony",
-    );
-    this.#labelsEnsured = true;
+    await this.#ensureLabelsPromise;
   }
 
   async fetchEligibleIssues(): Promise<readonly RuntimeIssue[]> {
@@ -154,7 +141,25 @@ export class GitHubBootstrapTracker implements Tracker {
         `Runner exited successfully but no pull request was found for ${session.workspace.branchName}`,
       );
     }
-    await this.#completeIssue(session.issue.number);
+    await this.#completeIssue(session.issue);
+  }
+
+  async #doEnsureLabels(): Promise<void> {
+    await this.#ensureLabel(
+      this.#config.readyLabel,
+      "0e8a16",
+      "Issue is ready for Symphony to work on",
+    );
+    await this.#ensureLabel(
+      this.#config.runningLabel,
+      "1d76db",
+      "Issue is currently being worked by Symphony",
+    );
+    await this.#ensureLabel(
+      this.#config.failedLabel,
+      "d73a4a",
+      "Issue failed in Symphony",
+    );
   }
 
   async #hasPullRequest(headBranch: string): Promise<boolean> {
@@ -202,16 +207,15 @@ export class GitHubBootstrapTracker implements Tracker {
     );
   }
 
-  async #completeIssue(issueNumber: number): Promise<void> {
-    const issue = await this.getIssue(issueNumber);
+  async #completeIssue(issue: RuntimeIssue): Promise<void> {
     const nextLabels = issue.labels.filter(
       (label) =>
         label !== this.#config.runningLabel &&
         label !== this.#config.readyLabel &&
         label !== this.#config.failedLabel,
     );
-    await this.#createComment(issueNumber, this.#config.successComment);
-    await this.#updateIssue(issueNumber, {
+    await this.#createComment(issue.number, this.#config.successComment);
+    await this.#updateIssue(issue.number, {
       state: "closed",
       labels: nextLabels,
     });

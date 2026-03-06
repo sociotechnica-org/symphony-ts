@@ -51,6 +51,7 @@ export class MockGitHubServer {
   readonly #issues = new Map<number, MockIssue>();
   readonly #labels = new Map<string, MockLabel>();
   readonly #prs: PullRequestRecord[] = [];
+  readonly #requestCounts = new Map<string, number>();
   readonly #server = http.createServer(this.#handle.bind(this));
   #baseUrl = "";
 
@@ -108,6 +109,10 @@ export class MockGitHubServer {
     return structuredClone(this.#prs);
   }
 
+  countRequests(key: string): number {
+    return this.#requestCounts.get(key) ?? 0;
+  }
+
   async recordPullRequest(pr: PullRequestRecord): Promise<void> {
     this.#prs.push(pr);
   }
@@ -133,6 +138,11 @@ export class MockGitHubServer {
     }
 
     const suffix = pathMatch[3] ?? "";
+    const requestKey = `${method} ${suffix}`;
+    this.#requestCounts.set(
+      requestKey,
+      (this.#requestCounts.get(requestKey) ?? 0) + 1,
+    );
 
     if (method === "GET" && suffix === "labels") {
       json(response, 200, [...this.#labels.values()]);

@@ -87,10 +87,18 @@ function createIssue(number: number): RuntimeIssue {
 class NullLogger implements Logger {
   readonly errors: string[] = [];
 
-  info(): void {}
+  info(_message: string, _data?: Record<string, unknown>): void {}
 
-  error(message: string): void {
+  error(message: string, _data?: Record<string, unknown>): void {
     this.errors.push(message);
+  }
+}
+
+class CompletionLoggingFailingLogger extends NullLogger {
+  override info(message: string, _data?: Record<string, unknown>): void {
+    if (message === "Issue completed") {
+      throw new Error("logger failed");
+    }
   }
 }
 
@@ -450,5 +458,35 @@ describe("BootstrapOrchestrator", () => {
       /^sociotechnica-org\/symphony-ts#1\/attempt-1-/,
     );
     expect(new Set(runner.sessionIds).size).toBe(2);
+  });
+
+  it("does not retry or fail an issue if completion logging throws", async () => {
+    const tracker = new StaticTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const runner: Runner = {
+      async run(): Promise<RunResult> {
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      new CompletionLoggingFailingLogger(),
+    );
+
+    await expect(orchestrator.runOnce()).resolves.toBeUndefined();
+    expect(tracker.completed).toEqual([1]);
+    expect(tracker.released).toEqual([]);
+    expect(tracker.failed).toEqual([]);
   });
 });
