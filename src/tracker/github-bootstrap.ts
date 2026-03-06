@@ -1,7 +1,9 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { TrackerError } from "../domain/errors.js";
-import type { IssueRef, TrackerConfig } from "../domain/types.js";
+import type { RuntimeIssue } from "../domain/issue.js";
+import type { RunResult, RunSession } from "../domain/run.js";
+import type { TrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { Tracker } from "./service.js";
 
@@ -29,7 +31,10 @@ interface GitHubPullRequestResponse {
   };
 }
 
-function toIssueRef(issue: GitHubIssueResponse, repo: string): IssueRef {
+function toRuntimeIssue(
+  issue: GitHubIssueResponse,
+  repo: string,
+): RuntimeIssue {
   return {
     id: String(issue.number),
     identifier: `${repo}#${issue.number}`,
@@ -95,25 +100,25 @@ export class GitHubBootstrapTracker implements Tracker {
     );
   }
 
-  async fetchEligibleIssues(): Promise<readonly IssueRef[]> {
+  async fetchEligibleIssues(): Promise<readonly RuntimeIssue[]> {
     const issues = await this.#request<GitHubIssueResponse[]>(
       "GET",
       this.#issuePath(
         `issues?state=open&labels=${encodeURIComponent(this.#config.readyLabel)}`,
       ),
     );
-    return issues.map((issue) => toIssueRef(issue, this.#config.repo));
+    return issues.map((issue) => toRuntimeIssue(issue, this.#config.repo));
   }
 
-  async getIssue(issueNumber: number): Promise<IssueRef> {
+  async getIssue(issueNumber: number): Promise<RuntimeIssue> {
     const issue = await this.#request<GitHubIssueResponse>(
       "GET",
       this.#issuePath(`issues/${issueNumber}`),
     );
-    return toIssueRef(issue, this.#config.repo);
+    return toRuntimeIssue(issue, this.#config.repo);
   }
 
-  async claimIssue(issueNumber: number): Promise<IssueRef | null> {
+  async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
     const issue = await this.getIssue(issueNumber);
     if (
       !issue.labels.includes(this.#config.readyLabel) ||
@@ -134,7 +139,19 @@ export class GitHubBootstrapTracker implements Tracker {
     return updated;
   }
 
-  async hasPullRequest(headBranch: string): Promise<boolean> {
+  async completeRun(session: RunSession, _result: RunResult): Promise<void> {
+    const hasPullRequest = await this.#hasPullRequest(
+      session.workspace.branchName,
+    );
+    if (!hasPullRequest) {
+      throw new TrackerError(
+        `Runner exited successfully but no pull request was found for ${session.workspace.branchName}`,
+      );
+    }
+    await this.#completeIssue(session.issue.number);
+  }
+
+  async #hasPullRequest(headBranch: string): Promise<boolean> {
     const [owner] = this.#config.repo.split("/");
     const pulls = await this.#request<GitHubPullRequestResponse[]>(
       "GET",
@@ -179,10 +196,7 @@ export class GitHubBootstrapTracker implements Tracker {
     );
   }
 
-  async completeIssue(
-    issueNumber: number,
-    successComment: string,
-  ): Promise<void> {
+  async #completeIssue(issueNumber: number): Promise<void> {
     const issue = await this.getIssue(issueNumber);
     const nextLabels = issue.labels.filter(
       (label) =>
@@ -190,7 +204,7 @@ export class GitHubBootstrapTracker implements Tracker {
         label !== this.#config.readyLabel &&
         label !== this.#config.failedLabel,
     );
-    await this.#createComment(issueNumber, successComment);
+    await this.#createComment(issueNumber, this.#config.successComment);
     await this.#updateIssue(issueNumber, {
       state: "closed",
       labels: nextLabels,
@@ -230,13 +244,13 @@ export class GitHubBootstrapTracker implements Tracker {
   async #updateIssue(
     issueNumber: number,
     body: Record<string, unknown>,
-  ): Promise<IssueRef> {
+  ): Promise<RuntimeIssue> {
     const issue = await this.#request<GitHubIssueResponse>(
       "PATCH",
       this.#issuePath(`issues/${issueNumber}`),
       body,
     );
-    return toIssueRef(issue, this.#config.repo);
+    return toRuntimeIssue(issue, this.#config.repo);
   }
 
   async #request<T>(method: string, path: string, body?: unknown): Promise<T> {

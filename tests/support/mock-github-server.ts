@@ -1,7 +1,13 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
-import type { PullRequestRecord } from "../../src/domain/types.js";
+
+interface PullRequestRecord {
+  readonly title: string;
+  readonly body: string;
+  readonly head: string;
+  readonly base: string;
+}
 
 interface MockIssue {
   id: string;

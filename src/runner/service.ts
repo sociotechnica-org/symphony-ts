@@ -1,5 +1,5 @@
-import type { AgentConfig, RunContext, RunResult } from "../domain/types.js";
+import type { RunResult, RunSession } from "../domain/run.js";
 
 export interface Runner {
-  run(context: RunContext, config: AgentConfig): Promise<RunResult>;
+  run(session: RunSession): Promise<RunResult>;
 }

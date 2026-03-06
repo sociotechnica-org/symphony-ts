@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadWorkflow, renderPrompt } from "../../src/config/workflow.js";
+import {
+  createPromptBuilder,
+  loadWorkflow,
+} from "../../src/config/workflow.js";
 import { createTempDir } from "../support/git.js";
 
 describe("workflow config", () => {
@@ -47,9 +50,9 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
     expect(workflow.config.workspace.root).toContain(
       `${path.sep}.tmp${path.sep}ws`,
     );
-    const rendered = await renderPrompt(
-      workflow,
-      {
+    const promptBuilder = createPromptBuilder(workflow);
+    const rendered = await promptBuilder.build({
+      issue: {
         id: "1",
         identifier: "repo#1",
         number: 1,
@@ -61,8 +64,8 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
-      null,
-    );
+      attempt: null,
+    });
     expect(rendered).toContain("repo#1");
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
   });

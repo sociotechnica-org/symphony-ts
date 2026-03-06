@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { RuntimeIssue } from "../../src/domain/issue.js";
+import type { RunResult, RunSession } from "../../src/domain/run.js";
+import type { PreparedWorkspace } from "../../src/domain/workspace.js";
 import type {
-  AgentConfig,
-  IssueRef,
+  PromptBuilder,
   ResolvedConfig,
-  RunContext,
-  RunResult,
-  WorkflowDefinition,
-  WorkspaceInfo,
-} from "../../src/domain/types.js";
+} from "../../src/domain/workflow.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
@@ -64,7 +62,13 @@ const baseConfig: ResolvedConfig = {
   },
 };
 
-function createIssue(number: number): IssueRef {
+const staticPromptBuilder: PromptBuilder = {
+  async build({ issue }): Promise<string> {
+    return `Issue ${issue.identifier}`;
+  },
+};
+
+function createIssue(number: number): RuntimeIssue {
   const timestamp = new Date().toISOString();
   return {
     id: String(number),
@@ -87,43 +91,44 @@ class NullLogger implements Logger {
 }
 
 class StaticTracker implements Tracker {
-  readonly #issues: readonly IssueRef[];
+  readonly #issues: readonly RuntimeIssue[];
   readonly completed: number[] = [];
 
-  constructor(issues: readonly IssueRef[]) {
+  constructor(issues: readonly RuntimeIssue[]) {
     this.#issues = issues;
   }
 
   async ensureLabels(): Promise<void> {}
 
-  async fetchEligibleIssues(): Promise<readonly IssueRef[]> {
+  async fetchEligibleIssues(): Promise<readonly RuntimeIssue[]> {
     return this.#issues;
   }
 
-  async getIssue(issueNumber: number): Promise<IssueRef> {
+  async getIssue(issueNumber: number): Promise<RuntimeIssue> {
     return this.#issues.find((issue) => issue.number === issueNumber)!;
   }
 
-  async claimIssue(issueNumber: number): Promise<IssueRef | null> {
+  async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
     return await this.getIssue(issueNumber);
   }
 
-  async hasPullRequest(): Promise<boolean> {
-    return true;
+  async completeRun(session: RunSession): Promise<void> {
+    this.completed.push(session.issue.number);
   }
 
   async releaseIssue(): Promise<void> {}
 
   async markIssueFailed(): Promise<void> {}
-
-  async completeIssue(issueNumber: number): Promise<void> {
-    this.completed.push(issueNumber);
-  }
 }
 
 class StaticWorkspaceManager implements WorkspaceManager {
-  async ensureWorkspace(issue: IssueRef): Promise<WorkspaceInfo> {
+  async prepareWorkspace({
+    issue,
+  }: {
+    readonly issue: RuntimeIssue;
+  }): Promise<PreparedWorkspace> {
     return {
+      key: `sociotechnica-org_symphony-ts_${issue.number}`,
       issueId: issue.id,
       issueIdentifier: issue.identifier,
       path: `/tmp/workspaces/${issue.number}`,
@@ -150,8 +155,8 @@ class ConcurrencyRunner implements Runner {
     this.#finishBarrier.resolve();
   }
 
-  async run(context: RunContext, _config: AgentConfig): Promise<RunResult> {
-    this.startedIssues.push(context.issue.number);
+  async run(session: RunSession): Promise<RunResult> {
+    this.startedIssues.push(session.issue.number);
     this.#active += 1;
     this.maxActive = Math.max(this.maxActive, this.#active);
     if (this.startedIssues.length >= 2) {
@@ -180,10 +185,8 @@ describe("BootstrapOrchestrator", () => {
     const workspace = new StaticWorkspaceManager();
     const runner = new ConcurrencyRunner();
     const orchestrator = new BootstrapOrchestrator(
-      {
-        config: baseConfig,
-        promptTemplate: "Issue {{ issue.identifier }}",
-      } satisfies WorkflowDefinition,
+      baseConfig,
+      staticPromptBuilder,
       tracker,
       workspace,
       runner,
