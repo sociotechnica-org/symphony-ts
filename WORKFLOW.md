@@ -10,6 +10,8 @@ tracker:
   review_bot_logins:
     - greptile[bot]
     - bugbot[bot]
+    - greptile-apps
+    - cursor
 polling:
   interval_ms: 30000
   max_concurrent_runs: 1
