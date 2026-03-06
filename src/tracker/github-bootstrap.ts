@@ -336,11 +336,10 @@ export class GitHubBootstrapTracker implements Tracker {
       };
     }
 
-    const [checks, reviewState] = await Promise.all([
+    const [checks, reviewStateData] = await Promise.all([
       this.#getChecks(branchName),
       this.#getPullRequestReviewState(pullRequest.number),
     ]);
-    const reviewStateData = reviewState!;
 
     const latestCommitAt =
       reviewStateData.commits.nodes[0]?.commit.committedDate ?? null;
@@ -645,7 +644,9 @@ export class GitHubBootstrapTracker implements Tracker {
   async #getPullRequestReviewState(
     number: number,
   ): Promise<
-    NonNullable<PullRequestReviewStateResponse["repository"]>["pullRequest"]
+    NonNullable<
+      NonNullable<PullRequestReviewStateResponse["repository"]>["pullRequest"]
+    >
   > {
     const response = await this.#graphqlRequest<PullRequestReviewStateResponse>(
       PULL_REQUEST_REVIEW_STATE_QUERY,
