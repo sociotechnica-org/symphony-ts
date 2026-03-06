@@ -228,7 +228,10 @@ export class GitHubBootstrapTracker implements Tracker {
         this.#issuePath(`labels/${encodeURIComponent(name)}`),
       );
     } catch (error) {
-      if (!(error instanceof TrackerError) || !error.message.includes("404")) {
+      if (
+        !(error instanceof TrackerError) ||
+        !error.message.includes(" failed with 404:")
+      ) {
         throw error;
       }
       await this.#request<GitHubLabelResponse>(

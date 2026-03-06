@@ -5,7 +5,6 @@ import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
 import type {
   PromptBuilder,
-  PromptRenderInput,
   ResolvedConfig,
   WorkflowDefinition,
 } from "../domain/workflow.js";
@@ -22,6 +21,14 @@ const liquid = new Liquid({
   strictFilters: true,
   strictVariables: true,
 });
+
+interface PromptRenderInput {
+  readonly issue: {
+    readonly identifier: string;
+  };
+  readonly attempt: number | null;
+  readonly config: ResolvedConfig;
+}
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {

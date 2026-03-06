@@ -53,12 +53,6 @@ export interface WorkflowDefinition {
   readonly promptTemplate: string;
 }
 
-export interface PromptRenderInput {
-  readonly issue: RuntimeIssue;
-  readonly attempt: number | null;
-  readonly config: ResolvedConfig;
-}
-
 export interface PromptBuilder {
   build(input: {
     readonly issue: RuntimeIssue;

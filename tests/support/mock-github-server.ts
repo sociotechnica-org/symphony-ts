@@ -184,9 +184,7 @@ export class MockGitHubServer {
 
     if (method === "GET" && suffix === "pulls") {
       const head = url.searchParams.get("head");
-      const state = url.searchParams.get("state") ?? "open";
       const pulls = this.#prs
-        .filter(() => state === "open" || state === "all")
         .filter((pull) =>
           head ? `${pathMatch[1]}:${pull.head}` === head : true,
         )
