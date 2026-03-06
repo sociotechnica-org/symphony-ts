@@ -73,7 +73,7 @@ async function fetchReviewThreads(pullRequestNumber, repo) {
 }
 
 async function resolveThread(threadId) {
-  await ghJson([
+  const result = await ghJson([
     "api",
     "graphql",
     "-f",
@@ -81,6 +81,17 @@ async function resolveThread(threadId) {
     "-F",
     `threadId=${threadId}`,
   ]);
+
+  if (Array.isArray(result.errors) && result.errors.length > 0) {
+    throw new Error(
+      `Failed to resolve thread ${threadId}: ${result.errors.map((error) => error.message).join("; ")}`,
+    );
+  }
+
+  const resolved = result.data?.resolveReviewThread?.thread?.isResolved;
+  if (resolved !== true) {
+    throw new Error(`Thread ${threadId} was not marked resolved`);
+  }
 }
 
 async function main() {

@@ -97,13 +97,29 @@ async function resolvePullRequest(options) {
   );
 }
 
-function parseRepo(repo) {
-  if (repo === null || !repo.includes("/")) {
-    throw new Error(
-      "A repo in owner/name form is required to inspect review threads",
-    );
+async function resolveRepoName(repo) {
+  if (repo !== null) {
+    return repo;
   }
 
+  const { stdout } = await execFileAsync("gh", [
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
+
+  const inferredRepo = stdout.trim();
+  if (!inferredRepo.includes("/")) {
+    throw new Error("Unable to infer repo in owner/name form");
+  }
+
+  return inferredRepo;
+}
+
+function parseRepo(repo) {
   const [owner, name] = repo.split("/", 2);
   return { owner, name };
 }
@@ -186,11 +202,21 @@ async function main() {
   const startedAt = Date.now();
 
   while (true) {
-    const pullRequest = await resolvePullRequest(options);
-    const reviewThreads = await fetchReviewThreads(
-      pullRequest.number,
-      options.repo,
-    );
+    const repo = await resolveRepoName(options.repo);
+    const resolvedOptions = { ...options, repo };
+    let pullRequest;
+    let reviewThreads;
+
+    if (options.pr !== null) {
+      [pullRequest, reviewThreads] = await Promise.all([
+        resolvePullRequest(resolvedOptions),
+        fetchReviewThreads(options.pr, repo),
+      ]);
+    } else {
+      pullRequest = await resolvePullRequest(resolvedOptions);
+      reviewThreads = await fetchReviewThreads(pullRequest.number, repo);
+    }
+
     const summary = summarizeChecks(
       pullRequest.statusCheckRollup,
       reviewThreads,
