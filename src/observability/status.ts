@@ -348,7 +348,7 @@ function parseLastAction(
   value: unknown,
   filePath: string,
 ): FactoryStatusAction | null {
-  if (value === null) {
+  if (value === null || value === undefined) {
     return null;
   }
   const action = expectObject(value, filePath, "lastAction");
@@ -553,7 +553,7 @@ function expectNullableString(
   filePath: string,
   field: string,
 ): string | null {
-  if (value === null) {
+  if (value === null || value === undefined) {
     return null;
   }
   return expectString(value, filePath, field);
@@ -575,7 +575,7 @@ function expectNullableInteger(
   filePath: string,
   field: string,
 ): number | null {
-  if (value === null) {
+  if (value === null || value === undefined) {
     return null;
   }
   return expectInteger(value, filePath, field);

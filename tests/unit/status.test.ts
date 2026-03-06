@@ -166,6 +166,43 @@ describe("factory status helpers", () => {
     }
   });
 
+  it("treats omitted nullable fields as null while reading the snapshot", async () => {
+    const tempDir = await createTempDir("symphony-status-nullable-test-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      const baseSnapshot = createSnapshot();
+      const snapshot = {
+        ...baseSnapshot,
+        lastAction: undefined,
+        activeIssues: [
+          {
+            ...baseSnapshot.activeIssues[0],
+            startedAt: undefined,
+            blockedReason: undefined,
+          },
+        ],
+      };
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(snapshot, null, 2)}\n`,
+        "utf8",
+      );
+
+      await expect(readFactoryStatusSnapshot(filePath)).resolves.toMatchObject({
+        lastAction: null,
+        activeIssues: [
+          {
+            startedAt: null,
+            blockedReason: null,
+          },
+        ],
+      });
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("renders a terminal-friendly view from the snapshot", () => {
     const output = renderFactoryStatusSnapshot(createSnapshot(), {
       workerAlive: true,

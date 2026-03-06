@@ -5,8 +5,6 @@ import { parseArgs, runCli } from "../../src/cli/index.js";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import { createTempDir } from "../support/git.js";
 
-const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-
 function createWorkflow(rootDir: string): string {
   return path.join(rootDir, "WORKFLOW.md");
 }
@@ -127,13 +125,10 @@ describe("runCli status", () => {
       "utf8",
     );
 
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(((
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
       chunk: string | Uint8Array,
     ) => {
-      return originalStdoutWrite(chunk);
-    }) as typeof process.stdout.write);
-    const chunks: string[] = [];
-    writeSpy.mockImplementation(((chunk: string | Uint8Array) => {
       chunks.push(
         typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
       );
