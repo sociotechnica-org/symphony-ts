@@ -120,6 +120,25 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.pendingCheckNames).toEqual(["CI"]);
   });
 
+  it("reports awaiting-review when a PR has opened but no checks have appeared yet", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+
+    const lifecycle = await tracker.inspectPullRequestLifecycle(
+      7,
+      "symphony/7",
+    );
+
+    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.summary).toMatch(/waiting for pr checks to appear/i);
+  });
+
   it("detects actionable review feedback and resolves addressed review threads", async () => {
     const tracker = createTracker(server);
 

@@ -220,10 +220,20 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
+    const previousLifecycle = this.#state.pullRequestLifecycles.get(
+      issue.number,
+    );
     const lifecycle = await this.#refreshLifecycle(issue.number, branchName);
 
-    if (lifecycle.kind === "ready") {
+    if (
+      lifecycle.kind === "ready" ||
+      this.#shouldTreatNoChecksLifecycleAsReady(previousLifecycle, lifecycle)
+    ) {
+      const workspace = await this.#workspaceManager.prepareWorkspace({
+        issue,
+      });
       await this.#completeIssue(issue.number);
+      await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
       return;
     }
 
@@ -250,7 +260,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const workspace = await this.#workspaceManager.prepareWorkspace({ issue });
     const prompt = await this.#promptBuilder.build({
       issue,
-      attempt,
+      attempt: attempt > 1 ? attempt : null,
       pullRequest,
     });
     const session = this.#createRunSession(issue, workspace, prompt, attempt);
@@ -342,6 +352,25 @@ export class BootstrapOrchestrator implements Orchestrator {
     );
     this.#state.pullRequestLifecycles.set(issueNumber, lifecycle);
     return lifecycle;
+  }
+
+  #shouldTreatNoChecksLifecycleAsReady(
+    previousLifecycle: PullRequestLifecycle | undefined,
+    lifecycle: PullRequestLifecycle,
+  ): boolean {
+    return (
+      previousLifecycle?.kind === "awaiting-review" &&
+      previousLifecycle.checks.length === 0 &&
+      previousLifecycle.pendingCheckNames.length === 0 &&
+      previousLifecycle.pullRequest !== null &&
+      lifecycle.kind === "awaiting-review" &&
+      lifecycle.checks.length === 0 &&
+      lifecycle.pendingCheckNames.length === 0 &&
+      lifecycle.pullRequest !== null &&
+      previousLifecycle.pullRequest.url === lifecycle.pullRequest.url &&
+      previousLifecycle.pullRequest.latestCommitAt ===
+        lifecycle.pullRequest.latestCommitAt
+    );
   }
 
   #createRunSession(

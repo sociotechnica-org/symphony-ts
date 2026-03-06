@@ -309,10 +309,12 @@ class ConcurrencyRunner implements Runner {
 class RecordingRunner implements Runner {
   readonly sessionIds: string[] = [];
   readonly attempts: number[] = [];
+  readonly prompts: string[] = [];
 
   async run(session: RunSession): Promise<RunResult> {
     this.sessionIds.push(session.id);
     this.attempts.push(session.attempt.sequence);
+    this.prompts.push(session.prompt);
     const timestamp = new Date().toISOString();
     return {
       exitCode: 0,
@@ -440,6 +442,45 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.retried).toEqual([]);
   });
 
+  it("treats a running PR with no checks as ready after a second identical observation", async () => {
+    const tracker = new SequencedTracker({
+      running: [createIssue(71, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(71, [
+      lifecycle("awaiting-review", "symphony/71"),
+      lifecycle("awaiting-review", "symphony/71"),
+    ]);
+    const workspace = new CleanupFailingWorkspaceManager();
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          cleanupOnSuccess: true,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      {
+        async run(): Promise<RunResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      logger,
+    );
+
+    await orchestrator.runOnce();
+    expect(tracker.completed).toEqual([]);
+
+    await orchestrator.runOnce();
+
+    expect(tracker.completed).toEqual([71]);
+    expect(workspace.cleaned).toEqual(["/tmp/workspaces/71"]);
+    expect(logger.errors).toContain("Workspace cleanup failed");
+  });
+
   it("reruns a running PR when CI or review feedback is actionable and resolves review threads", async () => {
     const tracker = new SequencedTracker({
       running: [createIssue(8, "symphony:running")],
@@ -491,6 +532,40 @@ describe("BootstrapOrchestrator", () => {
     expect(logger.errors).toContain("Workspace cleanup failed");
   });
 
+  it("cleans up the workspace when a running PR becomes ready without rerunning the agent", async () => {
+    const tracker = new SequencedTracker({
+      running: [createIssue(81, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(81, [lifecycle("ready", "symphony/81")]);
+    const workspace = new CleanupFailingWorkspaceManager();
+    let runnerCalls = 0;
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          cleanupOnSuccess: true,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      {
+        async run(): Promise<RunResult> {
+          runnerCalls += 1;
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runnerCalls).toBe(0);
+    expect(tracker.completed).toEqual([81]);
+    expect(workspace.cleaned).toEqual(["/tmp/workspaces/81"]);
+  });
+
   it("keeps the next run attempt when PR follow-up work appears after the initial PR open", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(9)],
@@ -524,6 +599,48 @@ describe("BootstrapOrchestrator", () => {
 
     expect(runner.attempts).toEqual([1, 2]);
     expect(tracker.completed).toEqual([9]);
+  });
+
+  it("passes null for the first prompt attempt and the numeric attempt for retries", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(13)],
+    });
+    tracker.setLifecycleSequence(13, [
+      lifecycle("missing", "symphony/13"),
+      lifecycle("awaiting-review", "symphony/13", {
+        pendingCheckNames: ["CI"],
+      }),
+      lifecycle("needs-follow-up", "symphony/13", {
+        failingCheckNames: ["CI"],
+      }),
+      lifecycle("ready", "symphony/13"),
+    ]);
+    const runner = new RecordingRunner();
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(runner.attempts).toEqual([1, 2]);
+    expect(runner.prompts).toEqual([
+      JSON.stringify({
+        issue: "sociotechnica-org/symphony-ts#13",
+        attempt: null,
+        pullRequest: null,
+      }),
+      JSON.stringify({
+        issue: "sociotechnica-org/symphony-ts#13",
+        attempt: 2,
+        pullRequest: "needs-follow-up",
+      }),
+    ]);
   });
 
   it("does not requeue a retrying issue before its backoff window expires", async () => {

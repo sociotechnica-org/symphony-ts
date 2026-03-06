@@ -195,6 +195,7 @@ function normalizeCheckStatus(
   readonly conclusion: string | null;
 } {
   const normalizedStatus = status.toLowerCase();
+  const normalizedConclusion = conclusion?.toLowerCase() ?? null;
   if (
     normalizedStatus === "queued" ||
     normalizedStatus === "in_progress" ||
@@ -203,11 +204,9 @@ function normalizeCheckStatus(
   ) {
     return {
       status: "pending",
-      conclusion,
+      conclusion: normalizedConclusion,
     };
   }
-
-  const normalizedConclusion = conclusion?.toLowerCase() ?? null;
   if (
     normalizedStatus === "success" ||
     normalizedConclusion === "success" ||
@@ -578,7 +577,7 @@ export class GitHubBootstrapTracker implements Tracker {
     });
 
     for (const status of statuses.statuses) {
-      const normalized = normalizeCheckStatus(status.state, status.state);
+      const normalized = normalizeCheckStatus(status.state, null);
       checks.push({
         name: status.context,
         status: normalized.status,
