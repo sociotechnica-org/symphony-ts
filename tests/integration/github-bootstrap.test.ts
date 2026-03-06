@@ -365,7 +365,7 @@ describe("GitHubBootstrapTracker", () => {
     expect(second.kind).toBe("ready");
   });
 
-  it("deduplicates concurrent ensureLabels calls", async () => {
+  it("deduplicates two concurrent ensureLabels calls", async () => {
     const tracker = createTracker(server);
 
     await Promise.all([tracker.ensureLabels(), tracker.ensureLabels()]);
