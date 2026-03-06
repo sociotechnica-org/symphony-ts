@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { OrchestratorError } from "../domain/errors.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
@@ -27,6 +28,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #runner: Runner;
   readonly #logger: Logger;
   readonly #state = createOrchestratorState();
+  readonly #instanceId = randomUUID();
 
   constructor(
     config: ResolvedConfig,
@@ -216,7 +218,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
   ): RunSession {
     return {
-      id: `${issue.identifier}/attempt-${attempt}`,
+      id: `${issue.identifier}/attempt-${attempt}-${this.#instanceId}`,
       issue,
       workspace,
       prompt,

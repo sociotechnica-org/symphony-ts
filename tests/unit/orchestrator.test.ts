@@ -218,6 +218,22 @@ class ConcurrencyRunner implements Runner {
   }
 }
 
+class RecordingRunner implements Runner {
+  readonly sessionIds: string[] = [];
+
+  async run(session: RunSession): Promise<RunResult> {
+    this.sessionIds.push(session.id);
+    const timestamp = new Date().toISOString();
+    return {
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      startedAt: timestamp,
+      finishedAt: timestamp,
+    };
+  }
+}
+
 describe("BootstrapOrchestrator", () => {
   it("starts up to maxConcurrentRuns issues in parallel", async () => {
     const tracker = new StaticTracker([
@@ -400,5 +416,39 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([]);
     expect(logger.errors).toContain("Issue run failed");
     expect(logger.errors).toContain("Failure handling failed");
+  });
+
+  it("generates unique run session ids across orchestrator instances", async () => {
+    const issue = createIssue(1);
+    const runner = new RecordingRunner();
+
+    const first = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      new StaticTracker([issue]),
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+    const second = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      new StaticTracker([issue]),
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await first.runOnce();
+    await second.runOnce();
+
+    expect(runner.sessionIds).toHaveLength(2);
+    expect(runner.sessionIds[0]).toMatch(
+      /^sociotechnica-org\/symphony-ts#1\/attempt-1-/,
+    );
+    expect(runner.sessionIds[1]).toMatch(
+      /^sociotechnica-org\/symphony-ts#1\/attempt-1-/,
+    );
+    expect(new Set(runner.sessionIds).size).toBe(2);
   });
 });
