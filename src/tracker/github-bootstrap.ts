@@ -214,7 +214,8 @@ function normalizeCheckStatus(
     normalizedStatus === "success" ||
     normalizedConclusion === "success" ||
     normalizedConclusion === "neutral" ||
-    normalizedConclusion === "skipped"
+    normalizedConclusion === "skipped" ||
+    normalizedConclusion === "stale"
   ) {
     return {
       status: "success",
@@ -317,7 +318,6 @@ export class GitHubBootstrapTracker implements Tracker {
     const updated = await this.#updateIssue(issueNumber, {
       labels: nextLabels,
     });
-    this.#noCheckObservations.clear();
     this.#logger.info("Claimed GitHub issue", { issueNumber });
     return updated;
   }

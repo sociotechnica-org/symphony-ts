@@ -133,6 +133,25 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.pendingCheckNames).toEqual(["Bugbot"]);
   });
 
+  it("treats stale check conclusions as non-actionable", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "stale" },
+    ]);
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("ready");
+    expect(lifecycle.failingCheckNames).toEqual([]);
+  });
+
   it("stabilizes a no-check PR in the tracker before reporting it ready", async () => {
     const tracker = createTracker(server);
 
@@ -277,6 +296,38 @@ describe("GitHubBootstrapTracker", () => {
     expect(first.kind).toBe("awaiting-review");
 
     await tracker.completeIssue(7);
+
+    const second = await tracker.inspectIssueHandoff("symphony/8");
+    expect(second.kind).toBe("ready");
+  });
+
+  it("preserves no-check stabilization for other branches when another issue is claimed", async () => {
+    const tracker = createTracker(server);
+
+    server.seedIssue({
+      number: 8,
+      title: "Second task",
+      body: "Do another thing",
+      labels: ["symphony:ready"],
+    });
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    await server.recordPullRequest({
+      title: "PR for issue 8",
+      body: "",
+      head: "symphony/8",
+      base: "main",
+    });
+
+    const first = await tracker.inspectIssueHandoff("symphony/8");
+    expect(first.kind).toBe("awaiting-review");
+
+    await tracker.claimIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
     expect(second.kind).toBe("ready");
