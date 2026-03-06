@@ -24,6 +24,9 @@ echo "implemented after retry ${SYMPHONY_ISSUE_IDENTIFIER} attempt ${SYMPHONY_RU
 git add .agent-prompt.txt IMPLEMENTED.txt "$STATE_FILE"
 git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} after retry"
 git push origin HEAD:${SYMPHONY_BRANCH_NAME}
+curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/branch-pushes" \
+  -H 'content-type: application/json' \
+  -d "{\"head\":\"${SYMPHONY_BRANCH_NAME}\"}" >/dev/null
 
 gh pr create \
   --title "Implement ${SYMPHONY_ISSUE_IDENTIFIER}" \

@@ -15,12 +15,10 @@ curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/branch-pushes" \
   -H 'content-type: application/json' \
   -d "{\"head\":\"${SYMPHONY_BRANCH_NAME}\"}" >/dev/null
 
-if [[ "${SYMPHONY_RUN_ATTEMPT}" -lt 2 ]]; then
-  exit 0
+if [[ "${SYMPHONY_RUN_ATTEMPT}" -eq 1 ]]; then
+  gh pr create \
+    --title "Implement ${SYMPHONY_ISSUE_IDENTIFIER}" \
+    --body "Automated PR for ${SYMPHONY_ISSUE_IDENTIFIER}" \
+    --base main \
+    --head "${SYMPHONY_BRANCH_NAME}"
 fi
-
-gh pr create \
-  --title "Implement ${SYMPHONY_ISSUE_IDENTIFIER}" \
-  --body "Automated PR for ${SYMPHONY_ISSUE_IDENTIFIER}" \
-  --base main \
-  --head "${SYMPHONY_BRANCH_NAME}"

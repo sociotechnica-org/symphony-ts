@@ -93,36 +93,31 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       branchName,
     );
 
-    if (hasBranch && hasRemoteTrackingBranch) {
-      this.#logger.info("Deleting existing remote issue branch", {
-        workspacePath,
-        branchName,
-        issueIdentifier: issue.identifier,
-      });
-      await execFileAsync("git", ["push", "origin", "--delete", branchName], {
+    if (hasRemoteTrackingBranch) {
+      await execFileAsync("git", ["checkout", "-B", branchName], {
         cwd: workspacePath,
       });
-      await execFileAsync("git", ["fetch", "origin", "--prune"], {
-        cwd: workspacePath,
-      });
-    }
-
-    await execFileAsync("git", ["checkout", "main"], { cwd: workspacePath });
-    await execFileAsync("git", ["reset", "--hard", "origin/main"], {
-      cwd: workspacePath,
-    });
-
-    if (hasBranch) {
-      await execFileAsync("git", ["checkout", branchName], {
-        cwd: workspacePath,
-      });
-      await execFileAsync("git", ["reset", "--hard", "origin/main"], {
+      await execFileAsync("git", ["reset", "--hard", `origin/${branchName}`], {
         cwd: workspacePath,
       });
     } else {
-      await execFileAsync("git", ["checkout", "-b", branchName], {
+      await execFileAsync("git", ["checkout", "main"], { cwd: workspacePath });
+      await execFileAsync("git", ["reset", "--hard", "origin/main"], {
         cwd: workspacePath,
       });
+
+      if (hasBranch) {
+        await execFileAsync("git", ["checkout", branchName], {
+          cwd: workspacePath,
+        });
+        await execFileAsync("git", ["reset", "--hard", "origin/main"], {
+          cwd: workspacePath,
+        });
+      } else {
+        await execFileAsync("git", ["checkout", "-b", branchName], {
+          cwd: workspacePath,
+        });
+      }
     }
 
     this.#logger.info("Workspace ready", {

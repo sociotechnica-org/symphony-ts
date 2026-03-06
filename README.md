@@ -4,7 +4,7 @@ TypeScript implementation of the [Symphony spec](https://github.com/openai/symph
 
 ## Status
 
-Phase 0 is implemented.
+Phase 1.2 is implemented.
 
 Today, `symphony-ts` can:
 
@@ -12,15 +12,17 @@ Today, `symphony-ts` can:
 - claim one of those issues locally
 - create or reuse a deterministic per-issue git workspace
 - run Codex against that workspace using the rendered `WORKFLOW.md` prompt
-- verify that a pull request exists for the issue branch
-- close the issue and leave a success comment
+- observe the pull request associated with the issue branch
+- wait for PR checks and automated review feedback after PR creation
+- re-enter the same workspace branch when CI or review feedback needs follow-up
+- close the issue only after the PR is merge-ready
 - retry failed runs locally
 
 This is already being used to build `symphony-ts` itself.
 
 ## How It Works
 
-The Phase 0 runtime is a narrow vertical slice:
+The current runtime is a narrow vertical slice:
 
 1. `bin/symphony.ts` starts the CLI.
 2. `src/config/workflow.ts` loads and validates `WORKFLOW.md`.
@@ -35,12 +37,13 @@ The default issue lifecycle is:
 2. Symphony changes it to `symphony:running`
 3. Symphony prepares branch `symphony/<issue-number>`
 4. Codex implements the issue and opens a PR
-5. Symphony confirms the PR exists
-6. Symphony comments on the issue and closes it
+5. Symphony keeps the issue in `symphony:running` while PR checks or review feedback are still in flight
+6. Symphony re-enters the same branch if CI fails or actionable review feedback appears
+7. Symphony comments on the issue and closes it only after the PR is green and review feedback is resolved
 
 If a run fails, Symphony either:
 
-- re-labels the issue as `symphony:ready` and retries later, or
+- schedules a retry while keeping the issue in the in-flight factory loop, or
 - marks it `symphony:failed` after retries are exhausted
 
 ## Repository Map
@@ -175,22 +178,26 @@ When Symphony picks up the issue, it should:
 4. run Codex with the rendered issue prompt
 5. push the branch
 6. open a PR against `main`
+7. keep polling that PR for CI and automated review state
+8. push follow-up commits on the same branch until the PR is actually clean
 
-If the run succeeds, Symphony will comment on the issue and close it.
+If the PR reaches a clean merge-ready state, Symphony will comment on the issue and close it.
 
 If the run fails, Symphony will either:
 
-- retry it by restoring `symphony:ready`, or
+- retry it in the running loop, or
 - mark it `symphony:failed`
 
 ### 6. Review and merge the PR
 
-Once the PR exists, review it like any other change:
+Symphony now owns the local PR follow-through loop:
 
-- wait for CI
-- wait for Greptile review
-- address follow-up comments if needed
-- merge once the PR is ready
+- wait for CI and automated review checks
+- detect actionable review feedback
+- push follow-up commits when the PR needs more work
+- stop only when the PR is actually clean
+
+Human merge remains a separate repository action once the PR is ready.
 
 That merged PR becomes the new version of Symphony that will work the next issue.
 
@@ -223,6 +230,7 @@ It contains:
 Key fields in the current workflow:
 
 - `tracker.repo`: GitHub repository to poll
+- `tracker.review_bot_logins`: PR comment authors whose feedback should be treated as actionable bot review
 - `polling.interval_ms`: poll interval
 - `polling.max_concurrent_runs`: local concurrency cap
 - `workspace.root`: local workspace root

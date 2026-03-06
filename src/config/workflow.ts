@@ -27,6 +27,7 @@ interface PromptRenderInput {
     readonly identifier: string;
   };
   readonly attempt: number | null;
+  readonly pullRequest: unknown;
   readonly config: ResolvedConfig;
 }
 
@@ -111,6 +112,13 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         tracker["success_comment"],
         "tracker.success_comment",
       ),
+      reviewBotLogins:
+        tracker["review_bot_logins"] === undefined
+          ? []
+          : requireStringArray(
+              tracker["review_bot_logins"],
+              "tracker.review_bot_logins",
+            ),
     },
     polling: {
       intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
@@ -213,6 +221,7 @@ async function renderPromptTemplate(
     return await liquid.parseAndRender(definition.promptTemplate, {
       issue: input.issue,
       attempt: input.attempt,
+      pull_request: input.pullRequest,
       config: input.config,
     });
   } catch (error) {
@@ -233,6 +242,7 @@ export function createPromptBuilder(
       return await renderPromptTemplate(definition, {
         issue: input.issue,
         attempt: input.attempt,
+        pullRequest: input.pullRequest,
         config: definition.config,
       });
     },

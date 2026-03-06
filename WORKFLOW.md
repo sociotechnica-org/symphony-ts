@@ -7,6 +7,9 @@ tracker:
   running_label: symphony:running
   failed_label: symphony:failed
   success_comment: Symphony completed this issue successfully.
+  review_bot_logins:
+    - greptile[bot]
+    - bugbot[bot]
 polling:
   interval_ms: 30000
   max_concurrent_runs: 1
@@ -36,6 +39,16 @@ Labels: {{ issue.labels | join: ", " }}
 Description:
 {{ issue.description }}
 
+{% if pull_request %}
+Pull Request State:
+
+- Status: {{ pull_request.kind }}
+- URL: {{ pull_request.pullRequest.url }}
+- Pending checks: {{ pull_request.pendingCheckNames | join: ", " }}
+- Failing checks: {{ pull_request.failingCheckNames | join: ", " }}
+- Actionable feedback count: {{ pull_request.actionableReviewFeedback | size }}
+  {% endif %}
+
 Rules:
 
 1. Work only inside this repository clone.
@@ -44,4 +57,6 @@ Rules:
 4. Run the relevant checks before finishing.
 5. Open a pull request against `main` in `{{ config.tracker.repo }}`.
 6. Reference the issue in the PR body.
-7. Leave the workspace in a git state that can be inspected if the run fails.
+7. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
+8. Do not treat "PR opened" as complete; keep going until the PR is green and actionable review feedback is resolved.
+9. Leave the workspace in a git state that can be inspected if the run fails.

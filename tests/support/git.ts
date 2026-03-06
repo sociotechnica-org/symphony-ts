@@ -52,3 +52,18 @@ export async function readRemoteBranchFile(
   await execFileAsync("git", ["checkout", branchName], { cwd: checkoutDir });
   return await fs.readFile(path.join(checkoutDir, filePath), "utf8");
 }
+
+export async function countRemoteBranchCommits(
+  remotePath: string,
+  branchName: string,
+): Promise<number> {
+  const checkoutDir = await createTempDir("symphony-verify-");
+  await execFileAsync("git", ["clone", remotePath, checkoutDir]);
+  await execFileAsync("git", ["checkout", branchName], { cwd: checkoutDir });
+  const result = await execFileAsync(
+    "git",
+    ["rev-list", "--count", branchName, "^main"],
+    { cwd: checkoutDir },
+  );
+  return Number(result.stdout.trim());
+}

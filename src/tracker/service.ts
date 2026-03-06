@@ -1,12 +1,18 @@
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { RunResult, RunSession } from "../domain/run.js";
+import type { PullRequestLifecycle } from "../domain/pull-request.js";
 
 export interface Tracker {
   ensureLabels(): Promise<void>;
-  fetchEligibleIssues(): Promise<readonly RuntimeIssue[]>;
+  fetchReadyIssues(): Promise<readonly RuntimeIssue[]>;
+  fetchRunningIssues(): Promise<readonly RuntimeIssue[]>;
   getIssue(issueNumber: number): Promise<RuntimeIssue>;
   claimIssue(issueNumber: number): Promise<RuntimeIssue | null>;
-  completeRun(session: RunSession, result: RunResult): Promise<void>;
-  releaseIssue(issueNumber: number, reason: string): Promise<void>;
+  inspectPullRequestLifecycle(
+    issueNumber: number,
+    branchName: string,
+  ): Promise<PullRequestLifecycle>;
+  resolveReviewThreads(threadIds: readonly string[]): Promise<void>;
+  recordRetry(issueNumber: number, reason: string): Promise<void>;
+  completeIssue(issueNumber: number): Promise<void>;
   markIssueFailed(issueNumber: number, reason: string): Promise<void>;
 }

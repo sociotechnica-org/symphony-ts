@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { OrchestratorError } from "../domain/errors.js";
 import type { RuntimeIssue } from "../domain/issue.js";
+import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { RetryState } from "../domain/retry.js";
 import type { RunSession } from "../domain/run.js";
 import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import { createOrchestratorState } from "./state.js";
 import type { Runner } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
+import { createOrchestratorState } from "./state.js";
 
 export interface Orchestrator {
   runOnce(): Promise<void>;
@@ -18,6 +19,7 @@ export interface Orchestrator {
 interface QueueEntry {
   readonly issue: RuntimeIssue;
   readonly attempt: number;
+  readonly source: "ready" | "running";
 }
 
 export class BootstrapOrchestrator implements Orchestrator {
@@ -49,13 +51,22 @@ export class BootstrapOrchestrator implements Orchestrator {
   async runOnce(): Promise<void> {
     await this.#tracker.ensureLabels();
     this.#logger.info("Poll started");
-    const candidates = await this.#tracker.fetchEligibleIssues();
+    const [readyCandidates, runningCandidates] = await Promise.all([
+      this.#tracker.fetchReadyIssues(),
+      this.#tracker.fetchRunningIssues(),
+    ]);
     const dueRetries = this.#collectDueRetries();
-    const queue = this.#mergeQueue(candidates, dueRetries);
+    const queue = this.#mergeQueue(
+      readyCandidates,
+      runningCandidates,
+      dueRetries,
+    );
     const availableSlots =
       this.#config.polling.maxConcurrentRuns -
       this.#state.runningIssueNumbers.size;
     this.#logger.info("Poll candidates fetched", {
+      readyCount: readyCandidates.length,
+      runningCount: runningCandidates.length,
       candidateCount: queue.length,
       availableSlots,
     });
@@ -65,14 +76,18 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     const runs: Promise<void>[] = [];
-    for (const issue of queue) {
+    for (const entry of queue) {
       if (runs.length >= availableSlots) {
         break;
       }
-      if (this.#state.runningIssueNumbers.has(issue.issue.number)) {
+      if (this.#state.runningIssueNumbers.has(entry.issue.number)) {
         continue;
       }
-      runs.push(this.#processIssue(issue.issue, issue.attempt));
+      runs.push(
+        entry.source === "ready"
+          ? this.#processReadyIssue(entry.issue, entry.attempt)
+          : this.#processRunningIssue(entry.issue, entry.attempt),
+      );
     }
 
     await Promise.all(runs);
@@ -106,35 +121,70 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #mergeQueue(
-    candidates: readonly RuntimeIssue[],
+    readyCandidates: readonly RuntimeIssue[],
+    runningCandidates: readonly RuntimeIssue[],
     dueRetries: readonly RetryState[],
   ): readonly QueueEntry[] {
-    const merged = new Map<number, QueueEntry>();
+    const retryAttempts = new Map<number, number>();
     for (const retry of dueRetries) {
-      merged.set(retry.issue.number, {
-        issue: retry.issue,
-        attempt: retry.nextAttempt,
-      });
+      retryAttempts.set(retry.issue.number, retry.nextAttempt);
     }
-    for (const issue of candidates) {
-      if (!merged.has(issue.number) && this.#state.retries.has(issue.number)) {
+
+    const merged = new Map<number, QueueEntry>();
+    for (const issue of runningCandidates) {
+      if (
+        !retryAttempts.has(issue.number) &&
+        this.#state.retries.has(issue.number)
+      ) {
         continue;
       }
-      const existing = merged.get(issue.number);
       merged.set(issue.number, {
         issue,
-        attempt: existing?.attempt ?? 1,
+        attempt: this.#resolveAttemptNumber(issue.number, retryAttempts),
+        source: "running",
       });
     }
-    return [...merged.values()].sort((a, b) => a.issue.number - b.issue.number);
+    for (const issue of readyCandidates) {
+      if (
+        !retryAttempts.has(issue.number) &&
+        this.#state.retries.has(issue.number)
+      ) {
+        continue;
+      }
+      if (merged.has(issue.number)) {
+        continue;
+      }
+      merged.set(issue.number, {
+        issue,
+        attempt: this.#resolveAttemptNumber(issue.number, retryAttempts),
+        source: "ready",
+      });
+    }
+
+    return [...merged.values()].sort((left, right) => {
+      if (left.source !== right.source) {
+        return left.source === "running" ? -1 : 1;
+      }
+      return left.issue.number - right.issue.number;
+    });
   }
 
-  async #processIssue(issue: RuntimeIssue, attempt: number): Promise<void> {
-    this.#state.runningIssueNumbers.add(issue.number);
-    let claimedIssue = issue;
-    let completedWorkspace: RunSession["workspace"] | null = null;
-    let completedRunSessionId: string | null = null;
+  #resolveAttemptNumber(
+    issueNumber: number,
+    retryAttempts: ReadonlyMap<number, number>,
+  ): number {
+    return (
+      retryAttempts.get(issueNumber) ??
+      this.#state.nextAttemptByIssueNumber.get(issueNumber) ??
+      1
+    );
+  }
 
+  async #processReadyIssue(
+    issue: RuntimeIssue,
+    attempt: number,
+  ): Promise<void> {
+    this.#state.runningIssueNumbers.add(issue.number);
     try {
       const claimed = await this.#tracker.claimIssue(issue.number);
       if (claimed === null) {
@@ -143,81 +193,155 @@ export class BootstrapOrchestrator implements Orchestrator {
         });
         return;
       }
-      claimedIssue = claimed;
-
-      const workspace = await this.#workspaceManager.prepareWorkspace({
-        issue: claimed,
-      });
-      const prompt = await this.#promptBuilder.build({
-        issue: claimed,
-        attempt: attempt > 1 ? attempt : null,
-      });
-      const session = this.#createRunSession(
-        claimed,
-        workspace,
-        prompt,
-        attempt,
-      );
-      const result = await this.#runner.run(session);
-
-      if (result.exitCode !== 0) {
-        await this.#handleFailure(
-          session,
-          attempt,
-          `Runner exited with ${result.exitCode}\n${result.stderr}`,
-        );
-        return;
-      }
-
-      try {
-        await this.#tracker.completeRun(session, result);
-      } catch (error) {
-        await this.#handleFailure(
-          session,
-          attempt,
-          this.#normalizeFailure(error as Error),
-        );
-        return;
-      }
-
-      completedWorkspace = workspace;
-      completedRunSessionId = session.id;
+      await this.#processClaimedIssue(claimed, attempt);
     } catch (error) {
-      await this.#handleUnexpectedFailure(
-        claimedIssue,
-        attempt,
-        error as Error,
-      );
+      await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
     }
+  }
 
-    if (completedWorkspace !== null && completedRunSessionId !== null) {
-      try {
-        this.#logger.info("Issue completed", {
-          issueNumber: claimedIssue.number,
-          branchName: completedWorkspace.branchName,
-          runSessionId: completedRunSessionId,
-        });
-      } catch {
-        // Observability must not perturb the completed issue state.
-      }
+  async #processRunningIssue(
+    issue: RuntimeIssue,
+    attempt: number,
+  ): Promise<void> {
+    this.#state.runningIssueNumbers.add(issue.number);
+    try {
+      await this.#processClaimedIssue(issue, attempt);
+    } catch (error) {
+      await this.#handleUnexpectedFailure(issue, attempt, error as Error);
+    } finally {
+      this.#state.runningIssueNumbers.delete(issue.number);
+    }
+  }
+
+  async #processClaimedIssue(
+    issue: RuntimeIssue,
+    attempt: number,
+  ): Promise<void> {
+    const branchName = this.#branchName(issue.number);
+    const lifecycle = await this.#refreshLifecycle(issue.number, branchName);
+
+    if (lifecycle.kind === "ready") {
+      await this.#completeIssue(issue.number);
+      return;
     }
 
-    if (
-      this.#config.workspace.cleanupOnSuccess &&
-      completedWorkspace !== null
-    ) {
-      try {
-        await this.#workspaceManager.cleanupWorkspace(completedWorkspace);
-      } catch (error) {
-        this.#logger.error("Workspace cleanup failed", {
-          issueNumber: claimedIssue.number,
-          workspacePath: completedWorkspace.path,
-          error: this.#normalizeFailure(error as Error),
-        });
-      }
+    if (lifecycle.kind === "awaiting-review") {
+      this.#logger.info("Issue remains in PR review", {
+        issueNumber: issue.number,
+        summary: lifecycle.summary,
+      });
+      return;
     }
+
+    await this.#runIssue(
+      issue,
+      attempt,
+      lifecycle.kind === "missing" ? null : lifecycle,
+    );
+  }
+
+  async #runIssue(
+    issue: RuntimeIssue,
+    attempt: number,
+    pullRequest: PullRequestLifecycle | null,
+  ): Promise<void> {
+    const workspace = await this.#workspaceManager.prepareWorkspace({ issue });
+    const prompt = await this.#promptBuilder.build({
+      issue,
+      attempt,
+      pullRequest,
+    });
+    const session = this.#createRunSession(issue, workspace, prompt, attempt);
+    const result = await this.#runner.run(session);
+
+    if (result.exitCode !== 0) {
+      await this.#handleFailure(
+        session,
+        attempt,
+        `Runner exited with ${result.exitCode}\n${result.stderr}`,
+      );
+      return;
+    }
+
+    try {
+      if (pullRequest !== null && pullRequest.unresolvedThreadIds.length > 0) {
+        await this.#tracker.resolveReviewThreads(
+          pullRequest.unresolvedThreadIds,
+        );
+      }
+
+      const nextLifecycle = await this.#refreshLifecycle(
+        issue.number,
+        workspace.branchName,
+      );
+      this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
+
+      if (nextLifecycle.kind === "ready") {
+        await this.#completeIssue(issue.number);
+        await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
+        return;
+      }
+
+      if (nextLifecycle.kind === "missing") {
+        await this.#handleFailure(session, attempt, nextLifecycle.summary);
+        return;
+      }
+
+      this.#logger.info("Issue remains in PR lifecycle", {
+        issueNumber: issue.number,
+        branchName: workspace.branchName,
+        runSessionId: session.id,
+        lifecycle: nextLifecycle.kind,
+        summary: nextLifecycle.summary,
+      });
+    } catch (error) {
+      await this.#handleFailure(
+        session,
+        attempt,
+        this.#normalizeFailure(error as Error),
+      );
+    }
+  }
+
+  async #completeIssue(issueNumber: number): Promise<void> {
+    await this.#tracker.completeIssue(issueNumber);
+    this.#state.pullRequestLifecycles.delete(issueNumber);
+    this.#state.retries.delete(issueNumber);
+    this.#state.nextAttemptByIssueNumber.delete(issueNumber);
+    this.#logger.info("Issue completed", { issueNumber });
+  }
+
+  async #cleanupWorkspaceIfNeeded(
+    workspace: RunSession["workspace"],
+    issueNumber: number,
+  ): Promise<void> {
+    if (!this.#config.workspace.cleanupOnSuccess) {
+      return;
+    }
+
+    try {
+      await this.#workspaceManager.cleanupWorkspace(workspace);
+    } catch (error) {
+      this.#logger.error("Workspace cleanup failed", {
+        issueNumber,
+        workspacePath: workspace.path,
+        error: this.#normalizeFailure(error as Error),
+      });
+    }
+  }
+
+  async #refreshLifecycle(
+    issueNumber: number,
+    branchName: string,
+  ): Promise<PullRequestLifecycle> {
+    const lifecycle = await this.#tracker.inspectPullRequestLifecycle(
+      issueNumber,
+      branchName,
+    );
+    this.#state.pullRequestLifecycles.set(issueNumber, lifecycle);
+    return lifecycle;
   }
 
   #createRunSession(
@@ -235,6 +359,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         sequence: attempt,
       },
     };
+  }
+
+  #branchName(issueNumber: number): string {
+    return `${this.#config.workspace.branchPrefix}${issueNumber.toString()}`;
   }
 
   async #handleFailure(
@@ -288,8 +416,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
     message: string,
   ): Promise<void> {
+    this.#state.pullRequestLifecycles.delete(issue.number);
     if (attempt < this.#config.polling.retry.maxAttempts) {
-      await this.#tracker.releaseIssue(issue.number, message);
+      await this.#tracker.recordRetry(issue.number, message);
+      this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
       this.#state.retries.set(issue.number, {
         issue,
         nextAttempt: attempt + 1,
@@ -298,6 +428,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
       return;
     }
+    this.#state.retries.delete(issue.number);
+    this.#state.nextAttemptByIssueNumber.delete(issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
   }
 

@@ -21,6 +21,8 @@ tracker:
   running_label: symphony:running
   failed_label: symphony:failed
   success_comment: done
+  review_bot_logins:
+    - greptile[bot]
 polling:
   interval_ms: 1000
   max_concurrent_runs: 1
@@ -65,6 +67,7 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
       attempt: null,
+      pullRequest: null,
     });
     expect(rendered).toContain("repo#1");
     expect(rendered).toContain("sociotechnica-org/symphony-ts");

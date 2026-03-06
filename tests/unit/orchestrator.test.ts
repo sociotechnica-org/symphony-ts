@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
+import type {
+  PullRequestLifecycle,
+  ReviewFeedback,
+} from "../../src/domain/pull-request.js";
 import type { RunResult, RunSession } from "../../src/domain/run.js";
 import type { PreparedWorkspace } from "../../src/domain/workspace.js";
 import type {
@@ -15,15 +19,12 @@ import type { WorkspaceManager } from "../../src/workspace/service.js";
 function createDeferred<T>(): {
   readonly promise: Promise<T>;
   resolve(value: T | PromiseLike<T>): void;
-  reject(reason?: unknown): void;
 } {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+  const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
-    reject = rejectPromise;
   });
-  return { promise, resolve, reject };
+  return { promise, resolve };
 }
 
 const baseConfig: ResolvedConfig = {
@@ -36,12 +37,13 @@ const baseConfig: ResolvedConfig = {
     runningLabel: "symphony:running",
     failedLabel: "symphony:failed",
     successComment: "done",
+    reviewBotLogins: ["greptile[bot]"],
   },
   polling: {
     intervalMs: 10,
     maxConcurrentRuns: 2,
     retry: {
-      maxAttempts: 1,
+      maxAttempts: 2,
       backoffMs: 0,
     },
   },
@@ -63,12 +65,16 @@ const baseConfig: ResolvedConfig = {
 };
 
 const staticPromptBuilder: PromptBuilder = {
-  async build({ issue }): Promise<string> {
-    return `Issue ${issue.identifier}`;
+  async build({ issue, attempt, pullRequest }): Promise<string> {
+    return JSON.stringify({
+      issue: issue.identifier,
+      attempt,
+      pullRequest: pullRequest?.kind ?? null,
+    });
   },
 };
 
-function createIssue(number: number): RuntimeIssue {
+function createIssue(number: number, label = "symphony:ready"): RuntimeIssue {
   const timestamp = new Date().toISOString();
   return {
     id: String(number),
@@ -76,11 +82,42 @@ function createIssue(number: number): RuntimeIssue {
     number,
     title: `Issue ${number}`,
     description: `Description ${number}`,
-    labels: ["symphony:ready"],
+    labels: [label],
     state: "open",
     url: `https://example.test/issues/${number}`,
     createdAt: timestamp,
     updatedAt: timestamp,
+  };
+}
+
+function lifecycle(
+  kind: PullRequestLifecycle["kind"],
+  branchName: string,
+  options?: {
+    failingCheckNames?: readonly string[];
+    pendingCheckNames?: readonly string[];
+    actionableReviewFeedback?: readonly ReviewFeedback[];
+    unresolvedThreadIds?: readonly string[];
+  },
+): PullRequestLifecycle {
+  return {
+    kind,
+    branchName,
+    pullRequest:
+      kind === "missing"
+        ? null
+        : {
+            number: 1,
+            url: `https://example.test/pulls/${branchName}`,
+            branchName,
+            latestCommitAt: new Date().toISOString(),
+          },
+    checks: [],
+    pendingCheckNames: options?.pendingCheckNames ?? [],
+    failingCheckNames: options?.failingCheckNames ?? [],
+    actionableReviewFeedback: options?.actionableReviewFeedback ?? [],
+    unresolvedThreadIds: options?.unresolvedThreadIds ?? [],
+    summary: `${kind} for ${branchName}`,
   };
 }
 
@@ -94,74 +131,117 @@ class NullLogger implements Logger {
   }
 }
 
-class CompletionLoggingFailingLogger extends NullLogger {
-  override info(message: string, _data?: Record<string, unknown>): void {
-    if (message === "Issue completed") {
-      throw new Error("logger failed");
+class SequencedTracker implements Tracker {
+  readonly readyIssues = new Map<number, RuntimeIssue>();
+  readonly runningIssues = new Map<number, RuntimeIssue>();
+  readonly lifecycleSequences = new Map<number, PullRequestLifecycle[]>();
+  readonly completed: number[] = [];
+  readonly retried: Array<{ issueNumber: number; reason: string }> = [];
+  readonly failed: Array<{ issueNumber: number; reason: string }> = [];
+  readonly resolvedThreadBatches: readonly string[][] = [];
+  ensureLabelsCalls = 0;
+
+  constructor(options: {
+    ready?: readonly RuntimeIssue[];
+    running?: readonly RuntimeIssue[];
+  }) {
+    for (const issue of options.ready ?? []) {
+      this.readyIssues.set(issue.number, issue);
+    }
+    for (const issue of options.running ?? []) {
+      this.runningIssues.set(issue.number, issue);
     }
   }
-}
 
-class StaticTracker implements Tracker {
-  readonly #issues: readonly RuntimeIssue[];
-  readonly completed: number[] = [];
-  readonly released: Array<{ issueNumber: number; reason: string }> = [];
-  readonly failed: Array<{ issueNumber: number; reason: string }> = [];
-  claimCalls = 0;
-
-  constructor(issues: readonly RuntimeIssue[]) {
-    this.#issues = issues;
+  setLifecycleSequence(
+    issueNumber: number,
+    sequence: readonly PullRequestLifecycle[],
+  ): void {
+    this.lifecycleSequences.set(issueNumber, [...sequence]);
   }
 
-  async ensureLabels(): Promise<void> {}
+  async ensureLabels(): Promise<void> {
+    this.ensureLabelsCalls += 1;
+  }
 
-  async fetchEligibleIssues(): Promise<readonly RuntimeIssue[]> {
-    return this.#issues;
+  async fetchReadyIssues(): Promise<readonly RuntimeIssue[]> {
+    return [...this.readyIssues.values()];
+  }
+
+  async fetchRunningIssues(): Promise<readonly RuntimeIssue[]> {
+    return [...this.runningIssues.values()];
   }
 
   async getIssue(issueNumber: number): Promise<RuntimeIssue> {
-    return this.#issues.find((issue) => issue.number === issueNumber)!;
+    return (this.readyIssues.get(issueNumber) ??
+      this.runningIssues.get(issueNumber))!;
   }
 
   async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
-    this.claimCalls += 1;
-    return await this.getIssue(issueNumber);
+    const issue = this.readyIssues.get(issueNumber);
+    if (!issue) {
+      return null;
+    }
+    this.readyIssues.delete(issueNumber);
+    const claimed = { ...issue, labels: ["symphony:running"] };
+    this.runningIssues.set(issueNumber, claimed);
+    return claimed;
   }
 
-  async completeRun(session: RunSession): Promise<void> {
-    this.completed.push(session.issue.number);
+  async inspectPullRequestLifecycle(
+    issueNumber: number,
+    _branchName: string,
+  ): Promise<PullRequestLifecycle> {
+    const sequence = this.lifecycleSequences.get(issueNumber);
+    if (!sequence || sequence.length === 0) {
+      throw new Error(`No lifecycle configured for issue ${issueNumber}`);
+    }
+    if (sequence.length === 1) {
+      return sequence[0]!;
+    }
+    return sequence.shift()!;
   }
 
-  async releaseIssue(issueNumber: number, reason: string): Promise<void> {
-    this.released.push({ issueNumber, reason });
+  async resolveReviewThreads(threadIds: readonly string[]): Promise<void> {
+    (this.resolvedThreadBatches as string[][]).push([...threadIds]);
+  }
+
+  async recordRetry(issueNumber: number, reason: string): Promise<void> {
+    this.retried.push({ issueNumber, reason });
+  }
+
+  async completeIssue(issueNumber: number): Promise<void> {
+    this.completed.push(issueNumber);
+    this.readyIssues.delete(issueNumber);
+    this.runningIssues.delete(issueNumber);
   }
 
   async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
     this.failed.push({ issueNumber, reason });
+    this.readyIssues.delete(issueNumber);
+    this.runningIssues.delete(issueNumber);
   }
 }
 
-class FlakyTracker extends StaticTracker {
-  attempts = 0;
-
+class FlakyTracker extends SequencedTracker {
   override async ensureLabels(): Promise<void> {
-    this.attempts += 1;
-    if (this.attempts === 1) {
+    await super.ensureLabels();
+    if (this.ensureLabelsCalls === 1) {
       throw new Error("transient label failure");
     }
   }
 }
 
-class ReleaseFailingTracker extends StaticTracker {
-  releaseAttempts = 0;
+class RetryRecordingFailingTracker extends SequencedTracker {
+  retryCalls = 0;
 
-  override async releaseIssue(
+  override async recordRetry(
     issueNumber: number,
     reason: string,
   ): Promise<void> {
-    this.releaseAttempts += 1;
-    await super.releaseIssue(issueNumber, reason);
-    throw new Error("release failed");
+    this.retryCalls += 1;
+    await super.recordRetry(issueNumber, reason);
+    throw new Error("retry bookkeeping failed");
   }
 }
 
@@ -228,9 +308,11 @@ class ConcurrencyRunner implements Runner {
 
 class RecordingRunner implements Runner {
   readonly sessionIds: string[] = [];
+  readonly attempts: number[] = [];
 
   async run(session: RunSession): Promise<RunResult> {
     this.sessionIds.push(session.id);
+    this.attempts.push(session.attempt.sequence);
     const timestamp = new Date().toISOString();
     return {
       exitCode: 0,
@@ -243,19 +325,28 @@ class RecordingRunner implements Runner {
 }
 
 describe("BootstrapOrchestrator", () => {
-  it("starts up to maxConcurrentRuns issues in parallel", async () => {
-    const tracker = new StaticTracker([
-      createIssue(1),
-      createIssue(2),
-      createIssue(3),
+  it("starts up to maxConcurrentRuns ready issues in parallel", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(1), createIssue(2), createIssue(3)],
+    });
+    tracker.setLifecycleSequence(1, [
+      lifecycle("missing", "symphony/1"),
+      lifecycle("ready", "symphony/1"),
     ]);
-    const workspace = new StaticWorkspaceManager();
+    tracker.setLifecycleSequence(2, [
+      lifecycle("missing", "symphony/2"),
+      lifecycle("ready", "symphony/2"),
+    ]);
+    tracker.setLifecycleSequence(3, [
+      lifecycle("missing", "symphony/3"),
+      lifecycle("ready", "symphony/3"),
+    ]);
     const runner = new ConcurrencyRunner();
     const orchestrator = new BootstrapOrchestrator(
       baseConfig,
       staticPromptBuilder,
       tracker,
-      workspace,
+      new StaticWorkspaceManager(),
       runner,
       new NullLogger(),
     );
@@ -273,22 +364,20 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("keeps polling after a transient poll-level failure", async () => {
-    const tracker = new FlakyTracker([createIssue(1)]);
-    const workspace = new StaticWorkspaceManager();
-    const runner = new RecordingRunner();
+    const tracker = new FlakyTracker({
+      ready: [createIssue(1)],
+    });
+    tracker.setLifecycleSequence(1, [
+      lifecycle("missing", "symphony/1"),
+      lifecycle("ready", "symphony/1"),
+    ]);
     const logger = new NullLogger();
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        polling: {
-          ...baseConfig.polling,
-          intervalMs: 1,
-        },
-      },
+      { ...baseConfig, polling: { ...baseConfig.polling, intervalMs: 1 } },
       staticPromptBuilder,
       tracker,
-      workspace,
-      runner,
+      new StaticWorkspaceManager(),
+      new RecordingRunner(),
       logger,
     );
     const controller = new AbortController();
@@ -316,27 +405,68 @@ describe("BootstrapOrchestrator", () => {
 
     await loop;
 
-    expect(tracker.attempts).toBeGreaterThanOrEqual(2);
     expect(logger.errors).toContain("Poll cycle failed");
     expect(tracker.completed).toEqual([1]);
   });
 
-  it("does not retry or fail an issue after successful completion if cleanup fails", async () => {
-    const tracker = new StaticTracker([createIssue(1)]);
+  it("waits when a running PR only has pending checks", async () => {
+    const tracker = new SequencedTracker({
+      running: [createIssue(7, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(7, [
+      lifecycle("awaiting-review", "symphony/7", {
+        pendingCheckNames: ["CI"],
+      }),
+    ]);
+    let runnerCalls = 0;
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        async run(): Promise<RunResult> {
+          runnerCalls += 1;
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runnerCalls).toBe(0);
+    expect(tracker.completed).toEqual([]);
+    expect(tracker.retried).toEqual([]);
+  });
+
+  it("reruns a running PR when CI or review feedback is actionable and resolves review threads", async () => {
+    const tracker = new SequencedTracker({
+      running: [createIssue(8, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(8, [
+      lifecycle("needs-follow-up", "symphony/8", {
+        failingCheckNames: ["CI"],
+        unresolvedThreadIds: ["thread-1"],
+        actionableReviewFeedback: [
+          {
+            id: "comment-1",
+            kind: "review-thread",
+            threadId: "thread-1",
+            authorLogin: "greptile[bot]",
+            body: "Fix this",
+            createdAt: new Date().toISOString(),
+            url: "https://example.test/thread/1",
+            path: "src/index.ts",
+            line: 10,
+          },
+        ],
+      }),
+      lifecycle("ready", "symphony/8"),
+    ]);
+    const runner = new RecordingRunner();
     const workspace = new CleanupFailingWorkspaceManager();
     const logger = new NullLogger();
-    const runner: Runner = {
-      async run(): Promise<RunResult> {
-        const timestamp = new Date().toISOString();
-        return {
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-          startedAt: timestamp,
-          finishedAt: timestamp,
-        };
-      },
-    };
     const orchestrator = new BootstrapOrchestrator(
       {
         ...baseConfig,
@@ -354,16 +484,53 @@ describe("BootstrapOrchestrator", () => {
 
     await orchestrator.runOnce();
 
-    expect(tracker.completed).toEqual([1]);
-    expect(tracker.released).toEqual([]);
-    expect(tracker.failed).toEqual([]);
-    expect(workspace.cleaned).toEqual(["/tmp/workspaces/1"]);
+    expect(runner.attempts).toEqual([1]);
+    expect(tracker.resolvedThreadBatches).toEqual([["thread-1"]]);
+    expect(tracker.completed).toEqual([8]);
+    expect(workspace.cleaned).toEqual(["/tmp/workspaces/8"]);
     expect(logger.errors).toContain("Workspace cleanup failed");
   });
 
+  it("keeps the next run attempt when PR follow-up work appears after the initial PR open", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(9)],
+    });
+    tracker.setLifecycleSequence(9, [
+      lifecycle("missing", "symphony/9"),
+      lifecycle("awaiting-review", "symphony/9", {
+        pendingCheckNames: ["CI"],
+      }),
+      lifecycle("awaiting-review", "symphony/9", {
+        pendingCheckNames: ["CI"],
+      }),
+      lifecycle("needs-follow-up", "symphony/9", {
+        failingCheckNames: ["CI"],
+      }),
+      lifecycle("ready", "symphony/9"),
+    ]);
+    const runner = new RecordingRunner();
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(runner.attempts).toEqual([1, 2]);
+    expect(tracker.completed).toEqual([9]);
+  });
+
   it("does not requeue a retrying issue before its backoff window expires", async () => {
-    const tracker = new StaticTracker([createIssue(1)]);
-    const workspace = new StaticWorkspaceManager();
+    const tracker = new SequencedTracker({
+      ready: [createIssue(10)],
+    });
+    tracker.setLifecycleSequence(10, [lifecycle("missing", "symphony/10")]);
     const runnerCalls: number[] = [];
     const runner: Runner = {
       async run(session): Promise<RunResult> {
@@ -391,7 +558,7 @@ describe("BootstrapOrchestrator", () => {
       },
       staticPromptBuilder,
       tracker,
-      workspace,
+      new StaticWorkspaceManager(),
       runner,
       new NullLogger(),
     );
@@ -400,62 +567,62 @@ describe("BootstrapOrchestrator", () => {
     await orchestrator.runOnce();
 
     expect(runnerCalls).toEqual([1]);
-    expect(tracker.claimCalls).toBe(1);
-    expect(tracker.released).toHaveLength(1);
+    expect(tracker.retried).toHaveLength(1);
     expect(tracker.failed).toEqual([]);
   });
 
-  it("does not invoke the unexpected failure path when retry scheduling fails", async () => {
-    const tracker = new ReleaseFailingTracker([createIssue(1)]);
-    const workspace = new StaticWorkspaceManager();
+  it("does not invoke the unexpected failure path when retry bookkeeping fails", async () => {
+    const tracker = new RetryRecordingFailingTracker({
+      ready: [createIssue(11)],
+    });
+    tracker.setLifecycleSequence(11, [lifecycle("missing", "symphony/11")]);
     const logger = new NullLogger();
-    const runner: Runner = {
-      async run(): Promise<RunResult> {
-        const timestamp = new Date().toISOString();
-        return {
-          exitCode: 17,
-          stdout: "",
-          stderr: "simulated failure",
-          startedAt: timestamp,
-          finishedAt: timestamp,
-        };
-      },
-    };
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        polling: {
-          ...baseConfig.polling,
-          retry: {
-            maxAttempts: 2,
-            backoffMs: 0,
-          },
-        },
-      },
+      baseConfig,
       staticPromptBuilder,
       tracker,
-      workspace,
-      runner,
+      new StaticWorkspaceManager(),
+      {
+        async run(): Promise<RunResult> {
+          const timestamp = new Date().toISOString();
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
       logger,
     );
 
     await orchestrator.runOnce();
 
-    expect(tracker.releaseAttempts).toBe(1);
-    expect(tracker.released).toHaveLength(1);
-    expect(tracker.failed).toEqual([]);
+    expect(tracker.retryCalls).toBe(1);
+    expect(tracker.retried).toHaveLength(1);
     expect(logger.errors).toContain("Issue run failed");
     expect(logger.errors).toContain("Failure handling failed");
   });
 
   it("generates unique run session ids across orchestrator instances", async () => {
-    const issue = createIssue(1);
+    const issue = createIssue(12);
+    const firstTracker = new SequencedTracker({ ready: [issue] });
+    const secondTracker = new SequencedTracker({ ready: [issue] });
+    firstTracker.setLifecycleSequence(12, [
+      lifecycle("missing", "symphony/12"),
+      lifecycle("ready", "symphony/12"),
+    ]);
+    secondTracker.setLifecycleSequence(12, [
+      lifecycle("missing", "symphony/12"),
+      lifecycle("ready", "symphony/12"),
+    ]);
     const runner = new RecordingRunner();
 
     const first = new BootstrapOrchestrator(
       baseConfig,
       staticPromptBuilder,
-      new StaticTracker([issue]),
+      firstTracker,
       new StaticWorkspaceManager(),
       runner,
       new NullLogger(),
@@ -463,7 +630,7 @@ describe("BootstrapOrchestrator", () => {
     const second = new BootstrapOrchestrator(
       baseConfig,
       staticPromptBuilder,
-      new StaticTracker([issue]),
+      secondTracker,
       new StaticWorkspaceManager(),
       runner,
       new NullLogger(),
@@ -474,41 +641,11 @@ describe("BootstrapOrchestrator", () => {
 
     expect(runner.sessionIds).toHaveLength(2);
     expect(runner.sessionIds[0]).toMatch(
-      /^sociotechnica-org\/symphony-ts#1\/attempt-1-/,
+      /^sociotechnica-org\/symphony-ts#12\/attempt-1-/,
     );
     expect(runner.sessionIds[1]).toMatch(
-      /^sociotechnica-org\/symphony-ts#1\/attempt-1-/,
+      /^sociotechnica-org\/symphony-ts#12\/attempt-1-/,
     );
     expect(new Set(runner.sessionIds).size).toBe(2);
-  });
-
-  it("does not retry or fail an issue if completion logging throws", async () => {
-    const tracker = new StaticTracker([createIssue(1)]);
-    const workspace = new StaticWorkspaceManager();
-    const runner: Runner = {
-      async run(): Promise<RunResult> {
-        const timestamp = new Date().toISOString();
-        return {
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-          startedAt: timestamp,
-          finishedAt: timestamp,
-        };
-      },
-    };
-    const orchestrator = new BootstrapOrchestrator(
-      baseConfig,
-      staticPromptBuilder,
-      tracker,
-      workspace,
-      runner,
-      new CompletionLoggingFailingLogger(),
-    );
-
-    await expect(orchestrator.runOnce()).resolves.toBeUndefined();
-    expect(tracker.completed).toEqual([1]);
-    expect(tracker.released).toEqual([]);
-    expect(tracker.failed).toEqual([]);
   });
 });
