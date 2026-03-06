@@ -188,7 +188,7 @@ class SequencedTracker implements Tracker {
     return claimed;
   }
 
-  async inspectPullRequestLifecycle(
+  async inspectIssueHandoff(
     issueNumber: number,
     _branchName: string,
   ): Promise<PullRequestLifecycle> {
@@ -202,8 +202,17 @@ class SequencedTracker implements Tracker {
     return sequence.shift()!;
   }
 
-  async resolveReviewThreads(threadIds: readonly string[]): Promise<void> {
-    (this.resolvedThreadBatches as string[][]).push([...threadIds]);
+  async reconcileSuccessfulRun(
+    issueNumber: number,
+    _branchName: string,
+    lifecycle: PullRequestLifecycle | null,
+  ): Promise<PullRequestLifecycle> {
+    if (lifecycle !== null && lifecycle.unresolvedThreadIds.length > 0) {
+      (this.resolvedThreadBatches as string[][]).push([
+        ...lifecycle.unresolvedThreadIds,
+      ]);
+    }
+    return await this.inspectIssueHandoff(issueNumber, _branchName);
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
@@ -442,13 +451,13 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.retried).toEqual([]);
   });
 
-  it("treats a running PR with no checks as ready after a second identical observation", async () => {
+  it("completes a running PR when the tracker later reports it ready", async () => {
     const tracker = new SequencedTracker({
       running: [createIssue(71, "symphony:running")],
     });
     tracker.setLifecycleSequence(71, [
       lifecycle("awaiting-review", "symphony/71"),
-      lifecycle("awaiting-review", "symphony/71"),
+      lifecycle("ready", "symphony/71"),
     ]);
     const workspace = new CleanupFailingWorkspaceManager();
     const logger = new NullLogger();

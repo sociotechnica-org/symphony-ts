@@ -220,15 +220,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
-    const previousLifecycle = this.#state.pullRequestLifecycles.get(
-      issue.number,
-    );
     const lifecycle = await this.#refreshLifecycle(issue.number, branchName);
 
-    if (
-      lifecycle.kind === "ready" ||
-      this.#shouldTreatNoChecksLifecycleAsReady(previousLifecycle, lifecycle)
-    ) {
+    if (lifecycle.kind === "ready") {
       const workspace = await this.#workspaceManager.prepareWorkspace({
         issue,
       });
@@ -276,16 +270,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     try {
-      if (pullRequest !== null && pullRequest.unresolvedThreadIds.length > 0) {
-        await this.#tracker.resolveReviewThreads(
-          pullRequest.unresolvedThreadIds,
-        );
-      }
-
-      const nextLifecycle = await this.#refreshLifecycle(
+      const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
         issue.number,
         workspace.branchName,
+        pullRequest,
       );
+      this.#state.pullRequestLifecycles.set(issue.number, nextLifecycle);
       this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
 
       if (nextLifecycle.kind === "ready") {
@@ -346,31 +336,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     issueNumber: number,
     branchName: string,
   ): Promise<PullRequestLifecycle> {
-    const lifecycle = await this.#tracker.inspectPullRequestLifecycle(
+    const lifecycle = await this.#tracker.inspectIssueHandoff(
       issueNumber,
       branchName,
     );
     this.#state.pullRequestLifecycles.set(issueNumber, lifecycle);
     return lifecycle;
-  }
-
-  #shouldTreatNoChecksLifecycleAsReady(
-    previousLifecycle: PullRequestLifecycle | undefined,
-    lifecycle: PullRequestLifecycle,
-  ): boolean {
-    return (
-      previousLifecycle?.kind === "awaiting-review" &&
-      previousLifecycle.checks.length === 0 &&
-      previousLifecycle.pendingCheckNames.length === 0 &&
-      previousLifecycle.pullRequest !== null &&
-      lifecycle.kind === "awaiting-review" &&
-      lifecycle.checks.length === 0 &&
-      lifecycle.pendingCheckNames.length === 0 &&
-      lifecycle.pullRequest !== null &&
-      previousLifecycle.pullRequest.url === lifecycle.pullRequest.url &&
-      previousLifecycle.pullRequest.latestCommitAt ===
-        lifecycle.pullRequest.latestCommitAt
-    );
   }
 
   #createRunSession(

@@ -77,9 +77,9 @@ describe("GitHubBootstrapTracker", () => {
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
 
-    expect(
-      (await tracker.inspectPullRequestLifecycle(7, "symphony/7")).kind,
-    ).toBe("ready");
+    expect((await tracker.inspectIssueHandoff(7, "symphony/7")).kind).toBe(
+      "ready",
+    );
 
     await tracker.completeIssue(7);
     const issue = server.getIssue(7);
@@ -89,10 +89,7 @@ describe("GitHubBootstrapTracker", () => {
 
   it("reports a missing lifecycle when no PR exists for the branch", async () => {
     const tracker = createTracker(server);
-    const lifecycle = await tracker.inspectPullRequestLifecycle(
-      7,
-      "symphony/7",
-    );
+    const lifecycle = await tracker.inspectIssueHandoff(7, "symphony/7");
 
     expect(lifecycle.kind).toBe("missing");
     expect(lifecycle.summary).toMatch(/no open pull request/i);
@@ -111,16 +108,13 @@ describe("GitHubBootstrapTracker", () => {
       { name: "CI", status: "in_progress" },
     ]);
 
-    const lifecycle = await tracker.inspectPullRequestLifecycle(
-      7,
-      "symphony/7",
-    );
+    const lifecycle = await tracker.inspectIssueHandoff(7, "symphony/7");
 
     expect(lifecycle.kind).toBe("awaiting-review");
     expect(lifecycle.pendingCheckNames).toEqual(["CI"]);
   });
 
-  it("reports awaiting-review when a PR has opened but no checks have appeared yet", async () => {
+  it("stabilizes a no-check PR in the tracker before reporting it ready", async () => {
     const tracker = createTracker(server);
 
     await server.recordPullRequest({
@@ -130,13 +124,14 @@ describe("GitHubBootstrapTracker", () => {
       base: "main",
     });
 
-    const lifecycle = await tracker.inspectPullRequestLifecycle(
-      7,
-      "symphony/7",
-    );
+    const first = await tracker.inspectIssueHandoff(7, "symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-review");
-    expect(lifecycle.summary).toMatch(/waiting for pr checks to appear/i);
+    expect(first.kind).toBe("awaiting-review");
+    expect(first.summary).toMatch(/waiting for pr checks to appear/i);
+
+    const second = await tracker.inspectIssueHandoff(7, "symphony/7");
+    expect(second.kind).toBe("ready");
+    expect(second.summary).toMatch(/merge-ready/i);
   });
 
   it("detects actionable review feedback and resolves addressed review threads", async () => {
@@ -165,18 +160,12 @@ describe("GitHubBootstrapTracker", () => {
       createdAt: new Date(Date.now() + 1_000).toISOString(),
     });
 
-    const lifecycle = await tracker.inspectPullRequestLifecycle(
-      7,
-      "symphony/7",
-    );
+    const lifecycle = await tracker.inspectIssueHandoff(7, "symphony/7");
 
     expect(lifecycle.kind).toBe("needs-follow-up");
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
     expect(lifecycle.unresolvedThreadIds).toEqual([threadId]);
     expect(lifecycle.actionableReviewFeedback).toHaveLength(2);
-
-    await tracker.resolveReviewThreads(lifecycle.unresolvedThreadIds);
-    expect(server.isReviewThreadResolved(threadId)).toBe(true);
 
     server.recordBranchPush(
       "symphony/7",
@@ -186,10 +175,12 @@ describe("GitHubBootstrapTracker", () => {
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
 
-    const refreshed = await tracker.inspectPullRequestLifecycle(
+    const refreshed = await tracker.reconcileSuccessfulRun(
       7,
       "symphony/7",
+      lifecycle,
     );
+    expect(server.isReviewThreadResolved(threadId)).toBe(true);
     expect(refreshed.kind).toBe("ready");
   });
 

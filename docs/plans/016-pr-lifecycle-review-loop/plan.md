@@ -118,6 +118,18 @@ Refactor `src/orchestrator/service.ts` and runtime state so:
 - running issues are refreshed each poll for PR lifecycle state
 - only issues with actionable follow-up work are rerun
 - pending-only PRs are observed without unnecessary reruns
+- the orchestrator consumes normalized handoff state only and does not embed
+  GitHub-specific PR/check heuristics
+
+### 3.1 Architecture correction
+
+During implementation review, two boundary corrections were identified and are
+now part of this issue's scope:
+
+- no-check stabilization policy must live in tracker normalization rather than
+  orchestrator heuristics
+- post-run review resolution must stay behind the tracker contract rather than
+  exposing raw review-thread mutations to the orchestrator
 
 ### 4. Mock and test harness
 

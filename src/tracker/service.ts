@@ -7,11 +7,15 @@ export interface Tracker {
   fetchRunningIssues(): Promise<readonly RuntimeIssue[]>;
   getIssue(issueNumber: number): Promise<RuntimeIssue>;
   claimIssue(issueNumber: number): Promise<RuntimeIssue | null>;
-  inspectPullRequestLifecycle(
+  inspectIssueHandoff(
     issueNumber: number,
     branchName: string,
   ): Promise<PullRequestLifecycle>;
-  resolveReviewThreads(threadIds: readonly string[]): Promise<void>;
+  reconcileSuccessfulRun(
+    issueNumber: number,
+    branchName: string,
+    lifecycle: PullRequestLifecycle | null,
+  ): Promise<PullRequestLifecycle>;
   recordRetry(issueNumber: number, reason: string): Promise<void>;
   completeIssue(issueNumber: number): Promise<void>;
   markIssueFailed(issueNumber: number, reason: string): Promise<void>;
