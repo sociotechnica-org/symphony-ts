@@ -6,7 +6,7 @@ import type {
 } from "../domain/pull-request.js";
 import type {
   GitHubPullRequestResponse,
-  PullRequestReviewPageResponse,
+  PullRequestReviewState,
 } from "./github-client.js";
 
 export interface PullRequestSnapshot {
@@ -31,9 +31,7 @@ export function createPullRequestSnapshot(input: {
   branchName: string;
   pullRequest: GitHubPullRequestResponse;
   checks: readonly PullRequestCheck[];
-  reviewState: NonNullable<
-    NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
-  >;
+  reviewState: PullRequestReviewState;
   reviewBotLogins: readonly string[];
 }): PullRequestSnapshot {
   const latestCommitAt =

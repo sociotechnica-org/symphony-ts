@@ -565,6 +565,10 @@ export class MockGitHubServer {
                     login: comment.authorLogin,
                   },
                 })),
+                pageInfo: {
+                  hasNextPage: false,
+                  endCursor: null,
+                },
               },
               reviewThreads: {
                 nodes: pullRequest.reviewThreads.map((thread) => ({
@@ -585,6 +589,10 @@ export class MockGitHubServer {
                     })),
                   },
                 })),
+                pageInfo: {
+                  hasNextPage: false,
+                  endCursor: null,
+                },
               },
             },
           },

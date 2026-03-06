@@ -107,10 +107,22 @@ export interface PullRequestReviewPageResponse {
           };
         }>;
       };
-      readonly comments: PullRequestReviewCommentsConnection;
-      readonly reviewThreads: PullRequestReviewThreadsConnection;
+      readonly comments?: PullRequestReviewCommentsConnection;
+      readonly reviewThreads?: PullRequestReviewThreadsConnection;
     } | null;
   } | null;
+}
+
+export interface PullRequestReviewState {
+  readonly commits: {
+    readonly nodes: ReadonlyArray<{
+      readonly commit: {
+        readonly committedDate: string;
+      };
+    }>;
+  };
+  readonly comments: PullRequestReviewCommentsConnection;
+  readonly reviewThreads: PullRequestReviewThreadsConnection;
 }
 
 const PULL_REQUEST_REVIEW_STATE_QUERY = `
@@ -118,6 +130,8 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
     $owner: String!,
     $repo: String!,
     $number: Int!,
+    $includeComments: Boolean!,
+    $includeReviewThreads: Boolean!,
     $commentsAfter: String,
     $reviewThreadsAfter: String
   ) {
@@ -130,7 +144,7 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
             }
           }
         }
-        comments(first: 100, after: $commentsAfter) {
+        comments(first: 100, after: $commentsAfter) @include(if: $includeComments) {
           nodes {
             id
             body
@@ -145,7 +159,7 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
             endCursor
           }
         }
-        reviewThreads(first: 100, after: $reviewThreadsAfter) {
+        reviewThreads(first: 100, after: $reviewThreadsAfter) @include(if: $includeReviewThreads) {
           nodes {
             id
             isResolved
@@ -423,18 +437,12 @@ export class GitHubClient {
 
   async getPullRequestReviewState(
     number: number,
-  ): Promise<
-    NonNullable<
-      NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
-    >
-  > {
+  ): Promise<PullRequestReviewState> {
     let commentsAfter: string | null = null;
     let reviewThreadsAfter: string | null = null;
     let commentsExhausted = false;
     let reviewThreadsExhausted = false;
-    let pullRequest: NonNullable<
-      NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
-    > | null = null;
+    let pullRequest: PullRequestReviewState | null = null;
 
     for (;;) {
       const response: PullRequestReviewPageResponse =
@@ -444,6 +452,8 @@ export class GitHubClient {
             owner: this.#repoOwner,
             repo: this.#repoName,
             number,
+            includeComments: !commentsExhausted,
+            includeReviewThreads: !reviewThreadsExhausted,
             commentsAfter,
             reviewThreadsAfter,
           },
@@ -458,29 +468,38 @@ export class GitHubClient {
         );
       }
 
+      const comments = page.comments ?? {
+        nodes: [],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      };
+      const reviewThreads = page.reviewThreads ?? {
+        nodes: [],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      };
+
       if (pullRequest === null) {
         pullRequest = {
           commits: page.commits,
           comments: {
-            nodes: commentsExhausted ? [] : [...page.comments.nodes],
-            pageInfo: paginationInfo(page.comments.pageInfo),
+            nodes: [...comments.nodes],
+            pageInfo: paginationInfo(comments.pageInfo),
           },
           reviewThreads: {
-            nodes: reviewThreadsExhausted ? [] : [...page.reviewThreads.nodes],
-            pageInfo: paginationInfo(page.reviewThreads.pageInfo),
+            nodes: [...reviewThreads.nodes],
+            pageInfo: paginationInfo(reviewThreads.pageInfo),
           },
         };
       } else {
         if (!commentsExhausted) {
-          pullRequest.comments.nodes.push(...page.comments.nodes);
+          pullRequest.comments.nodes.push(...comments.nodes);
         }
         if (!reviewThreadsExhausted) {
-          pullRequest.reviewThreads.nodes.push(...page.reviewThreads.nodes);
+          pullRequest.reviewThreads.nodes.push(...reviewThreads.nodes);
         }
       }
 
-      const commentsPageInfo = paginationInfo(page.comments.pageInfo);
-      const reviewThreadsPageInfo = paginationInfo(page.reviewThreads.pageInfo);
+      const commentsPageInfo = paginationInfo(comments.pageInfo);
+      const reviewThreadsPageInfo = paginationInfo(reviewThreads.pageInfo);
       const hasMoreComments: boolean = commentsPageInfo.hasNextPage;
       const hasMoreThreads: boolean = reviewThreadsPageInfo.hasNextPage;
       commentsExhausted = !hasMoreComments;

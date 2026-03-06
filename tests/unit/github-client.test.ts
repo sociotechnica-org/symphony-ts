@@ -18,13 +18,21 @@ describe("GitHubClient", () => {
   });
 
   it("does not duplicate exhausted review data while another stream paginates", async () => {
+    const requests: Array<{
+      includeComments: boolean;
+      includeReviewThreads: boolean;
+      reviewThreadsAfter: string | null;
+    }> = [];
     const fetchMock = vi.fn(
       async (_input: string | URL | Request, init?: RequestInit) => {
         const request = JSON.parse(String(init?.body)) as {
           variables: {
+            includeComments: boolean;
+            includeReviewThreads: boolean;
             reviewThreadsAfter: string | null;
           };
         };
+        requests.push(request.variables);
         const secondPage =
           request.variables.reviewThreadsAfter === "thread-cursor-1";
         const payload = secondPage
@@ -151,6 +159,24 @@ describe("GitHubClient", () => {
     const result = await client.getPullRequestReviewState(23);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(
+      requests.map((request) => ({
+        includeComments: request.includeComments,
+        includeReviewThreads: request.includeReviewThreads,
+        reviewThreadsAfter: request.reviewThreadsAfter,
+      })),
+    ).toEqual([
+      {
+        includeComments: true,
+        includeReviewThreads: true,
+        reviewThreadsAfter: null,
+      },
+      {
+        includeComments: false,
+        includeReviewThreads: true,
+        reviewThreadsAfter: "thread-cursor-1",
+      },
+    ]);
     expect(result.comments.nodes.map((comment) => comment.id)).toEqual([
       "comment-1",
     ]);
