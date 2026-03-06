@@ -2,8 +2,6 @@
 
 TypeScript implementation of the [Symphony spec](https://github.com/openai/symphony).
 
-This repository is the new clean-room implementation. The previous scaffolded attempt lives at [`sociotechnica-org/symphony-ts-opus`](https://github.com/sociotechnica-org/symphony-ts-opus).
-
 ## Status
 
 Phase 0 is implemented.
