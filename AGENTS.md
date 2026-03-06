@@ -65,6 +65,22 @@ src/workspace/  workspace lifecycle and hooks
 - Keep coordination infrastructure such as leases, lock recovery, and temp cleanup in focused modules rather than inline branches.
 - Prefer test builders and helpers over repeated ad hoc setup for snapshots, fixtures, temp roots, and cleanup.
 
+## Skills Policy
+
+`WORKFLOW.md`, `AGENTS.md`, and in-repo skills serve different roles.
+
+- `WORKFLOW.md` is the repository runtime contract. It should define the required worker process and completion behavior.
+- `AGENTS.md` is the repository engineering policy. It should define enduring design, testing, review, and architecture expectations.
+- skills are specialized guides for recurring kinds of work. They may add detailed method, but they should not be the only place where required correctness rules live.
+
+Use this rule of thumb:
+
+- if behavior is required for every worker run, put it in `WORKFLOW.md` or `AGENTS.md`
+- if guidance is specialized to a type of task, put it in a skill
+- if behavior is part of runtime correctness, put it in code and tests, not only in prompts
+
+For this repo, skills should stay small in number and high in leverage. Prefer checked-in skills that help Symphony build Symphony without making the repository depend on hidden prompt state.
+
 ## Issue Workflow
 
 For any GitHub issue assigned for implementation:
@@ -126,6 +142,8 @@ Every PR should:
 
 Prefer smaller reviewable slices over oversized PRs when the work can be split without losing end-to-end integrity.
 
+For orchestration-heavy work, prefer splitting large changes into smaller PRs along stable architectural seams rather than combining tracker policy, orchestrator state, runner behavior, test harness changes, and docs into one review surface. Each PR should either complete one usable vertical slice or land inert, well-tested plumbing that reduces risk for the next slice.
+
 ## Related Bugs
 
 If related bugs or correctness issues are discovered while implementing the assigned work, fix them immediately as part of the current effort rather than deferring them by default.
@@ -138,7 +156,7 @@ Implementation work is not complete when the code compiles locally. It is comple
 
 1. plan exists,
 2. implementation is complete,
-3. `/review` has been run and all self-review findings have been fixed,
+3. `codex review --base origin/main` has been run and all self-review findings have been fixed,
 4. formatting, lint, typecheck, and all tests are passing,
 5. a PR is created,
 6. PR CI is watched until it passes,
@@ -160,6 +178,8 @@ After opening a PR:
 5. and repeat until the PR is clear.
 
 Greptile review feedback is part of the required review loop and must be explicitly handled.
+
+If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, treat it as blocked infrastructure rather than silent success. Comment on the issue or PR with the blocked check name and wait for human guidance before proceeding.
 
 ## Execution Bias
 

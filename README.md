@@ -136,7 +136,7 @@ The checked-in `WORKFLOW.md` should point at:
 
 - `tracker.repo: sociotechnica-org/symphony-ts`
 - `workspace.repo_url: git@github.com:sociotechnica-org/symphony-ts.git`
-- `agent.command: codex exec --dangerously-bypass-approvals-and-sandbox -C . -`
+- `agent.command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`
 
 That means the local orchestrator will poll the real `symphony-ts` GitHub repo and create issue branches inside local workspaces cloned from that same repository.
 
@@ -240,7 +240,7 @@ Key fields in the current workflow:
 The checked-in default runner command is:
 
 ```bash
-codex exec --dangerously-bypass-approvals-and-sandbox -C . -
+codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
 ```
 
 ## Development
