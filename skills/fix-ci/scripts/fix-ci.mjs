@@ -2,7 +2,12 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { nextPollDelayMilliseconds, summarizeChecks } from "./fix-ci-lib.mjs";
+import {
+  fetchReviewThreads,
+  nextPollDelayMilliseconds,
+  resolveRepoName,
+  summarizeChecks,
+} from "./fix-ci-lib.mjs";
 
 const execFileAsync = promisify(execFile);
 const EXIT_PR_FAILURE = 1;
@@ -101,54 +106,6 @@ async function resolvePullRequest(options) {
   );
 }
 
-async function resolveRepoName(repo) {
-  if (repo !== null) {
-    return repo;
-  }
-
-  const { stdout } = await execFileAsync("gh", [
-    "repo",
-    "view",
-    "--json",
-    "nameWithOwner",
-    "--jq",
-    ".nameWithOwner",
-  ]);
-
-  const inferredRepo = stdout.trim();
-  if (!inferredRepo.includes("/")) {
-    throw new Error("Unable to infer repo in owner/name form");
-  }
-
-  return inferredRepo;
-}
-
-function parseRepo(repo) {
-  const [owner, name] = repo.split("/", 2);
-  return { owner, name };
-}
-
-async function fetchReviewThreads(pullRequestNumber, repo) {
-  const { owner, name } = parseRepo(repo);
-  const result = await ghJson(
-    [
-      "api",
-      "graphql",
-      "-f",
-      "query=query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100) { nodes { id isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }",
-      "-F",
-      `owner=${owner}`,
-      "-F",
-      `repo=${name}`,
-      "-F",
-      `number=${pullRequestNumber}`,
-    ],
-    null,
-  );
-
-  return result.data.repository.pullRequest.reviewThreads.nodes;
-}
-
 function printSnapshot(pullRequest, summary) {
   console.log(
     `[${new Date().toISOString()}] PR #${pullRequest.number}: ${pullRequest.title}`,
@@ -204,7 +161,7 @@ function sleep(milliseconds) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const startedAt = Date.now();
-  const repo = await resolveRepoName(options.repo);
+  const repo = await resolveRepoName(options.repo, execFileAsync);
   const resolvedOptions = { ...options, repo };
 
   while (true) {
@@ -214,11 +171,15 @@ async function main() {
     if (options.pr !== null) {
       [pullRequest, reviewThreads] = await Promise.all([
         resolvePullRequest(resolvedOptions),
-        fetchReviewThreads(options.pr, repo),
+        fetchReviewThreads(options.pr, repo, execFileAsync),
       ]);
     } else {
       pullRequest = await resolvePullRequest(resolvedOptions);
-      reviewThreads = await fetchReviewThreads(pullRequest.number, repo);
+      reviewThreads = await fetchReviewThreads(
+        pullRequest.number,
+        repo,
+        execFileAsync,
+      );
     }
 
     const summary = summarizeChecks(

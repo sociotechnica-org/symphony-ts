@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseRepo,
   nextPollDelayMilliseconds,
   normalizeReviewThreads,
   summarizeChecks,
+  validateRepoName,
 } from "../../skills/fix-ci/scripts/fix-ci-lib.mjs";
 
 describe("fix-ci skill", () => {
@@ -118,6 +120,22 @@ describe("fix-ci skill", () => {
     ]);
 
     expect(threads[0]?.id).toBe("THREAD_123");
+  });
+
+  it("validates repo names in owner/name form", () => {
+    expect(validateRepoName("sociotechnica-org/symphony-ts")).toBe(
+      "sociotechnica-org/symphony-ts",
+    );
+    expect(() => validateRepoName("badformat")).toThrow(
+      "Repo must be in owner/name form",
+    );
+  });
+
+  it("parses validated repo names", () => {
+    expect(parseRepo("sociotechnica-org/symphony-ts")).toEqual({
+      owner: "sociotechnica-org",
+      name: "symphony-ts",
+    });
   });
 
   it("treats successful completed checks as success", () => {

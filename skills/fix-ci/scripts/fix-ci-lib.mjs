@@ -13,6 +13,9 @@ export const FAILED_CONCLUSIONS = new Set([
   "TIMED_OUT",
 ]);
 
+export const REVIEW_THREADS_QUERY =
+  "query=query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100) { nodes { id isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }";
+
 export function normalizeChecks(statusCheckRollup) {
   return (statusCheckRollup ?? []).map((check) => ({
     name: check.name,
@@ -21,6 +24,20 @@ export function normalizeChecks(statusCheckRollup) {
     detailsUrl: check.detailsUrl ?? "",
     workflowName: check.workflowName ?? "",
   }));
+}
+
+export function validateRepoName(repo) {
+  if (repo === null || !repo.includes("/")) {
+    throw new Error(`Repo must be in owner/name form, got: ${String(repo)}`);
+  }
+
+  return repo;
+}
+
+export function parseRepo(repo) {
+  const validatedRepo = validateRepoName(repo);
+  const [owner, name] = validatedRepo.split("/", 2);
+  return { owner, name };
 }
 
 export function normalizeReviewThreads(reviewThreads) {
@@ -148,4 +165,46 @@ export function nextPollDelayMilliseconds({
   }
 
   return Math.min(intervalMilliseconds, remaining);
+}
+
+export async function resolveRepoName(repo, execFileAsync) {
+  if (repo !== null) {
+    return validateRepoName(repo);
+  }
+
+  const { stdout } = await execFileAsync("gh", [
+    "repo",
+    "view",
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
+
+  return validateRepoName(stdout.trim());
+}
+
+export async function fetchReviewThreads(
+  pullRequestNumber,
+  repo,
+  execFileAsync,
+) {
+  const { owner, name } = parseRepo(repo);
+  const { stdout } = await execFileAsync("gh", [
+    "api",
+    "graphql",
+    "-f",
+    REVIEW_THREADS_QUERY,
+    "-F",
+    `owner=${owner}`,
+    "-F",
+    `repo=${name}`,
+    "-F",
+    `number=${pullRequestNumber}`,
+  ]);
+  const result = JSON.parse(stdout);
+
+  return normalizeReviewThreads(
+    result.data.repository.pullRequest.reviewThreads.nodes,
+  );
 }

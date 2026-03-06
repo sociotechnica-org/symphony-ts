@@ -2,7 +2,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { normalizeReviewThreads } from "./fix-ci-lib.mjs";
+import { fetchReviewThreads, resolveRepoName } from "./fix-ci-lib.mjs";
 
 const execFileAsync = promisify(execFile);
 const EXIT_UNEXPECTED = 5;
@@ -36,9 +36,6 @@ function parseArgs(argv) {
   if (options.pr === null || !Number.isInteger(options.pr) || options.pr <= 0) {
     throw new Error("A positive --pr value is required");
   }
-  if (options.repo === null || !options.repo.includes("/")) {
-    throw new Error("A repo in owner/name form is required");
-  }
 
   return options;
 }
@@ -46,31 +43,6 @@ function parseArgs(argv) {
 async function ghJson(args) {
   const { stdout } = await execFileAsync("gh", args);
   return JSON.parse(stdout);
-}
-
-function parseRepo(repo) {
-  const [owner, name] = repo.split("/", 2);
-  return { owner, name };
-}
-
-async function fetchReviewThreads(pullRequestNumber, repo) {
-  const { owner, name } = parseRepo(repo);
-  const result = await ghJson([
-    "api",
-    "graphql",
-    "-f",
-    "query=query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100) { nodes { id isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }",
-    "-F",
-    `owner=${owner}`,
-    "-F",
-    `repo=${name}`,
-    "-F",
-    `number=${pullRequestNumber}`,
-  ]);
-
-  return normalizeReviewThreads(
-    result.data.repository.pullRequest.reviewThreads.nodes,
-  );
 }
 
 async function resolveThread(threadId) {
@@ -97,7 +69,8 @@ async function resolveThread(threadId) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const threads = await fetchReviewThreads(options.pr, options.repo);
+  const repo = await resolveRepoName(options.repo, execFileAsync);
+  const threads = await fetchReviewThreads(options.pr, repo, execFileAsync);
   const unresolved = threads.filter(
     (thread) => thread.isResolved !== true && thread.isOutdated !== true,
   );
