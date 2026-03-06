@@ -114,6 +114,25 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.pendingCheckNames).toEqual(["CI"]);
   });
 
+  it("treats requested commit statuses as pending handoff state", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestStatuses("symphony/7", [
+      { context: "Bugbot", state: "requested" },
+    ]);
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.pendingCheckNames).toEqual(["Bugbot"]);
+  });
+
   it("stabilizes a no-check PR in the tracker before reporting it ready", async () => {
     const tracker = createTracker(server);
 

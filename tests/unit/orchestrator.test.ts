@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type {
@@ -382,7 +385,10 @@ describe("BootstrapOrchestrator", () => {
     await runner.waitForTwoStarts();
 
     expect(runner.maxActive).toBe(2);
-    expect(runner.startedIssues).toEqual([1, 2]);
+    expect([...runner.startedIssues].sort((left, right) => left - right)).toEqual([
+      1,
+      2,
+    ]);
 
     runner.finish();
     await runOnce;
@@ -391,6 +397,9 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("keeps polling after a transient poll-level failure", async () => {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "symphony-loop-test-"),
+    );
     const tracker = new FlakyTracker({
       ready: [createIssue(1)],
     });
@@ -400,7 +409,14 @@ describe("BootstrapOrchestrator", () => {
     ]);
     const logger = new NullLogger();
     const orchestrator = new BootstrapOrchestrator(
-      { ...baseConfig, polling: { ...baseConfig.polling, intervalMs: 1 } },
+      {
+        ...baseConfig,
+        polling: { ...baseConfig.polling, intervalMs: 1 },
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -431,6 +447,7 @@ describe("BootstrapOrchestrator", () => {
     });
 
     await loop;
+    await fs.rm(tempRoot, { recursive: true, force: true });
 
     expect(logger.errors).toContain("Poll cycle failed");
     expect(tracker.completed).toEqual([1]);
@@ -465,6 +482,50 @@ describe("BootstrapOrchestrator", () => {
     expect(runnerCalls).toBe(0);
     expect(tracker.completed).toEqual([]);
     expect(tracker.retried).toEqual([]);
+  });
+
+  it("skips a running issue that is already leased by another local worker", async () => {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "symphony-lease-test-"),
+    );
+    const tracker = new SequencedTracker({
+      running: [createIssue(70, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(70, [
+      lifecycle("needs-follow-up", "symphony/70", {
+        failingCheckNames: ["CI"],
+      }),
+    ]);
+    let runnerCalls = 0;
+    await fs.mkdir(path.join(tempRoot, ".symphony-locks", "70"), {
+      recursive: true,
+    });
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        async run(): Promise<RunResult> {
+          runnerCalls += 1;
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await fs.rm(tempRoot, { recursive: true, force: true });
+
+    expect(runnerCalls).toBe(0);
+    expect(tracker.completed).toEqual([]);
+    expect(tracker.failed).toEqual([]);
   });
 
   it("completes a running PR when the tracker later reports it ready", async () => {

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { OrchestratorError } from "../domain/errors.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { PullRequestLifecycle } from "../domain/pull-request.js";
@@ -184,6 +186,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
+    const lease = await this.#acquireIssueLease(issue.number);
+    if (!lease) {
+      return;
+    }
     this.#state.runningIssueNumbers.add(issue.number);
     try {
       const claimed = await this.#tracker.claimIssue(issue.number);
@@ -198,6 +204,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
+      await this.#releaseIssueLease(lease);
     }
   }
 
@@ -205,6 +212,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
+    const lease = await this.#acquireIssueLease(issue.number);
+    if (!lease) {
+      return;
+    }
     this.#state.runningIssueNumbers.add(issue.number);
     try {
       await this.#processClaimedIssue(issue, attempt);
@@ -212,6 +223,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
+      await this.#releaseIssueLease(lease);
     }
   }
 
@@ -271,7 +283,6 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspace.branchName,
         pullRequest,
       );
-      this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
 
       if (nextLifecycle.kind === "ready") {
         await this.#completeIssue(issue.number);
@@ -291,6 +302,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         lifecycle: nextLifecycle.kind,
         summary: nextLifecycle.summary,
       });
+      this.#state.nextAttemptByIssueNumber.set(issue.number, attempt + 1);
     } catch (error) {
       await this.#handleFailure(
         session,
@@ -431,6 +443,35 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.retries.delete(issue.number);
     this.#state.nextAttemptByIssueNumber.delete(issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
+  }
+
+  async #acquireIssueLease(issueNumber: number): Promise<string | null> {
+    const lockDir = path.join(
+      this.#config.workspace.root,
+      ".symphony-locks",
+      issueNumber.toString(),
+    );
+    try {
+      await fs.mkdir(lockDir, { recursive: false });
+      return lockDir;
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      if (systemError.code === "ENOENT") {
+        await fs.mkdir(path.dirname(lockDir), { recursive: true });
+        return await this.#acquireIssueLease(issueNumber);
+      }
+      if (systemError.code === "EEXIST") {
+        this.#logger.info("Issue already leased by another local worker", {
+          issueNumber,
+        });
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async #releaseIssueLease(lockDir: string): Promise<void> {
+    await fs.rm(lockDir, { recursive: true, force: true });
   }
 
   #normalizeFailure(error: Error): string {

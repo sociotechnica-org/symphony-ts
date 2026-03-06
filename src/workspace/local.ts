@@ -46,6 +46,19 @@ async function remoteTrackingBranchExists(
   return result.stdout.trim() !== "";
 }
 
+async function branchAheadCount(
+  cwd: string,
+  baseRef: string,
+  branchName: string,
+): Promise<number> {
+  const result = await execFileAsync(
+    "git",
+    ["rev-list", "--count", `${baseRef}..${branchName}`],
+    { cwd },
+  );
+  return Number(result.stdout.trim() || "0");
+}
+
 export class LocalWorkspaceManager implements WorkspaceManager {
   readonly #config: WorkspaceConfig;
   readonly #afterCreate: readonly string[];
@@ -106,6 +119,18 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       });
 
       if (hasBranch) {
+        const aheadCount = await branchAheadCount(
+          workspacePath,
+          "origin/main",
+          branchName,
+        );
+        if (aheadCount > 0) {
+          this.#logger.info("Discarding local-only branch commits", {
+            workspacePath,
+            branchName,
+            aheadCount,
+          });
+        }
         await execFileAsync("git", ["checkout", branchName], {
           cwd: workspacePath,
         });

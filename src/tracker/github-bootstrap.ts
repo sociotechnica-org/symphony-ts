@@ -34,6 +34,7 @@ interface GitHubPullRequestResponse {
   readonly html_url: string;
   readonly head: {
     readonly ref: string;
+    readonly sha: string;
   };
 }
 
@@ -200,7 +201,9 @@ function normalizeCheckStatus(
     normalizedStatus === "queued" ||
     normalizedStatus === "in_progress" ||
     normalizedStatus === "pending" ||
-    normalizedStatus === "expected"
+    normalizedStatus === "expected" ||
+    normalizedStatus === "requested" ||
+    normalizedStatus === "waiting"
   ) {
     return {
       status: "pending",
@@ -337,7 +340,7 @@ export class GitHubBootstrapTracker implements Tracker {
     }
 
     const [checks, reviewStateData] = await Promise.all([
-      this.#getChecks(branchName),
+      this.#getChecks(pullRequest.head.sha),
       this.#getPullRequestReviewState(pullRequest.number),
     ]);
 
@@ -603,15 +606,15 @@ export class GitHubBootstrapTracker implements Tracker {
     return pulls.find((pull) => pull.head.ref === headBranch) ?? null;
   }
 
-  async #getChecks(branchName: string): Promise<readonly PullRequestCheck[]> {
+  async #getChecks(commitRef: string): Promise<readonly PullRequestCheck[]> {
     const [checkRuns, statuses] = await Promise.all([
       this.#request<GitHubCheckRunsResponse>(
         "GET",
-        this.#issuePath(`commits/${encodeURIComponent(branchName)}/check-runs`),
+        this.#issuePath(`commits/${encodeURIComponent(commitRef)}/check-runs`),
       ),
       this.#request<GitHubCommitStatusResponse>(
         "GET",
-        this.#issuePath(`commits/${encodeURIComponent(branchName)}/status`),
+        this.#issuePath(`commits/${encodeURIComponent(commitRef)}/status`),
       ),
     ]);
 

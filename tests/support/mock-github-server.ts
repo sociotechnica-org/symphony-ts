@@ -10,6 +10,7 @@ interface PullRequestRecord {
   readonly base: string;
   readonly html_url: string;
   latestCommitAt: string | null;
+  latestCommitSha: string;
   readonly comments: MockPullRequestComment[];
   readonly reviewThreads: MockReviewThread[];
   checkRuns: MockCheckRun[];
@@ -175,16 +176,6 @@ export class MockGitHubServer {
     }));
   }
 
-  getPullRequestByHead(head: string): PullRequestRecord {
-    const pullRequest = [...this.#prs.values()].find(
-      (entry) => entry.head === head,
-    );
-    if (!pullRequest) {
-      throw new Error(`Pull request for ${head} not found`);
-    }
-    return structuredClone(pullRequest);
-  }
-
   countRequests(key: string): number {
     return this.#requestCounts.get(key) ?? 0;
   }
@@ -213,6 +204,7 @@ export class MockGitHubServer {
       base: pr.base,
       html_url: `${this.#baseUrl}/pulls/${number}`,
       latestCommitAt,
+      latestCommitSha: randomUUID(),
       comments: [],
       reviewThreads: [],
       checkRuns: [],
@@ -227,6 +219,7 @@ export class MockGitHubServer {
     );
     if (pullRequest) {
       pullRequest.latestCommitAt = committedAt;
+      pullRequest.latestCommitSha = randomUUID();
       pullRequest.checkRuns = pullRequest.checkRuns.map((checkRun) => ({
         ...checkRun,
         status: "in_progress",
@@ -439,6 +432,7 @@ export class MockGitHubServer {
           state: "open",
           head: {
             ref: pull.head,
+            sha: pull.latestCommitSha,
           },
         }));
       json(response, 200, pulls);
@@ -448,7 +442,7 @@ export class MockGitHubServer {
     const checkRunsMatch = suffix.match(/^commits\/(.+)\/check-runs$/);
     if (method === "GET" && checkRunsMatch) {
       const head = decodeURIComponent(checkRunsMatch[1] ?? "");
-      const pullRequest = this.#requirePullRequestByHead(head);
+      const pullRequest = this.#requirePullRequestByRef(head);
       json(response, 200, {
         total_count: pullRequest.checkRuns.length,
         check_runs: pullRequest.checkRuns.map((checkRun) => ({
@@ -464,7 +458,7 @@ export class MockGitHubServer {
     const statusMatch = suffix.match(/^commits\/(.+)\/status$/);
     if (method === "GET" && statusMatch) {
       const head = decodeURIComponent(statusMatch[1] ?? "");
-      const pullRequest = this.#requirePullRequestByHead(head);
+      const pullRequest = this.#requirePullRequestByRef(head);
       json(response, 200, {
         state: pullRequest.statuses.some((status) => status.state === "failure")
           ? "failure"
@@ -625,6 +619,16 @@ export class MockGitHubServer {
     );
     if (!pullRequest) {
       throw new Error(`Pull request for ${head} not found`);
+    }
+    return pullRequest;
+  }
+
+  #requirePullRequestByRef(ref: string): PullRequestRecord {
+    const pullRequest = [...this.#prs.values()].find(
+      (entry) => entry.head === ref || entry.latestCommitSha === ref,
+    );
+    if (!pullRequest) {
+      throw new Error(`Pull request for ${ref} not found`);
     }
     return pullRequest;
   }
