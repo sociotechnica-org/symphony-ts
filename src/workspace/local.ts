@@ -34,13 +34,13 @@ async function branchExists(cwd: string, branchName: string): Promise<boolean> {
   return result.stdout.trim() !== "";
 }
 
-async function remoteBranchExists(
+async function remoteTrackingBranchExists(
   cwd: string,
   branchName: string,
 ): Promise<boolean> {
   const result = await execFileAsync(
     "git",
-    ["ls-remote", "--heads", "origin", branchName],
+    ["branch", "--remotes", "--list", `origin/${branchName}`],
     { cwd },
   );
   return result.stdout.trim() !== "";
@@ -77,15 +77,21 @@ export class LocalWorkspaceManager implements WorkspaceManager {
 
     await execFileAsync("git", ["fetch", "origin"], { cwd: workspacePath });
     const hasBranch = await branchExists(workspacePath, branchName);
-    const hasRemoteBranch = await remoteBranchExists(workspacePath, branchName);
+    const hasRemoteTrackingBranch = await remoteTrackingBranchExists(
+      workspacePath,
+      branchName,
+    );
 
-    if (hasRemoteBranch) {
+    if (hasBranch && hasRemoteTrackingBranch) {
       this.#logger.info("Deleting existing remote issue branch", {
         workspacePath,
         branchName,
         issueIdentifier: issue.identifier,
       });
       await execFileAsync("git", ["push", "origin", "--delete", branchName], {
+        cwd: workspacePath,
+      });
+      await execFileAsync("git", ["fetch", "origin", "--prune"], {
         cwd: workspacePath,
       });
     }

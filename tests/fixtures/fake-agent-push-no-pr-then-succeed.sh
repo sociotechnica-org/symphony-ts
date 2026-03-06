@@ -10,7 +10,7 @@ git config user.email "symphony-agent@example.com"
 echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER} attempt ${SYMPHONY_RUN_ATTEMPT}" > IMPLEMENTED.txt
 git add .agent-prompt.txt IMPLEMENTED.txt
 git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} attempt ${SYMPHONY_RUN_ATTEMPT}"
-git push origin HEAD:${SYMPHONY_BRANCH_NAME}
+git push origin "HEAD:${SYMPHONY_BRANCH_NAME}"
 
 if [[ "${SYMPHONY_RUN_ATTEMPT}" -lt 2 ]]; then
   exit 0
