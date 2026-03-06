@@ -97,6 +97,38 @@ async function resolvePullRequest(options) {
   );
 }
 
+function parseRepo(repo) {
+  if (repo === null || !repo.includes("/")) {
+    throw new Error(
+      "A repo in owner/name form is required to inspect review threads",
+    );
+  }
+
+  const [owner, name] = repo.split("/", 2);
+  return { owner, name };
+}
+
+async function fetchReviewThreads(pullRequestNumber, repo) {
+  const { owner, name } = parseRepo(repo);
+  const result = await ghJson(
+    [
+      "api",
+      "graphql",
+      "-f",
+      "query=query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner, name:$repo) { pullRequest(number:$number) { reviewThreads(first: 100) { nodes { isResolved isOutdated comments(first: 20) { nodes { author { login } body path } } } } } } }",
+      "-F",
+      `owner=${owner}`,
+      "-F",
+      `repo=${name}`,
+      "-F",
+      `number=${pullRequestNumber}`,
+    ],
+    null,
+  );
+
+  return result.data.repository.pullRequest.reviewThreads.nodes;
+}
+
 function printSnapshot(pullRequest, summary) {
   console.log(
     `[${new Date().toISOString()}] PR #${pullRequest.number}: ${pullRequest.title}`,
@@ -116,6 +148,24 @@ function printSnapshot(pullRequest, summary) {
       `- ${workflowPrefix}${check.name}: status=${check.status} conclusion=${conclusion}`,
     );
   }
+
+  if (summary.unresolvedThreads.length > 0) {
+    console.log(
+      `Unresolved review threads: ${summary.unresolvedThreads.length}`,
+    );
+    for (const [index, thread] of summary.unresolvedThreads.entries()) {
+      const firstComment = thread.comments[0];
+      const author = firstComment?.authorLogin || "unknown";
+      const path = firstComment?.path || "(general)";
+      const body = (firstComment?.body || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 180);
+      console.log(
+        `  ${index + 1}. ${author} @ ${path}${body ? ` :: ${body}` : ""}`,
+      );
+    }
+  }
 }
 
 function sleep(milliseconds) {
@@ -128,7 +178,14 @@ async function main() {
 
   while (true) {
     const pullRequest = await resolvePullRequest(options);
-    const summary = summarizeChecks(pullRequest.statusCheckRollup);
+    const reviewThreads = await fetchReviewThreads(
+      pullRequest.number,
+      options.repo,
+    );
+    const summary = summarizeChecks(
+      pullRequest.statusCheckRollup,
+      reviewThreads,
+    );
     printSnapshot(pullRequest, summary);
 
     if (summary.overall === "success") {

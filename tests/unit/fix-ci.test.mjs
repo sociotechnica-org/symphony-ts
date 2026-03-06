@@ -32,6 +32,38 @@ describe("fix-ci skill", () => {
     expect(summary.failed).toHaveLength(1);
   });
 
+  it("treats unresolved review threads as failure once checks are complete", () => {
+    const summary = summarizeChecks(
+      [
+        {
+          name: "check",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          detailsUrl: "https://example.test/check",
+          workflowName: "CI",
+        },
+      ],
+      [
+        {
+          isResolved: false,
+          isOutdated: false,
+          comments: {
+            nodes: [
+              {
+                author: { login: "greptile-apps" },
+                body: "Please fix this",
+                path: "src/example.ts",
+              },
+            ],
+          },
+        },
+      ],
+    );
+
+    expect(summary.overall).toBe("failure");
+    expect(summary.unresolvedThreads).toHaveLength(1);
+  });
+
   it("treats successful completed checks as success", () => {
     const summary = summarizeChecks([
       {

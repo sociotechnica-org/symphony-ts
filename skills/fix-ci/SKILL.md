@@ -5,15 +5,18 @@ description: Monitor a GitHub pull request's CI until it completes using a deter
 
 # fix-ci
 
-Use this skill when you need to wait for GitHub PR checks to finish without relying on an LLM watch loop.
+Use this skill when you need to drive a PR to a clean CI/review state without relying on an LLM-only watch loop.
 
 ## What it does
 
 - Polls GitHub PR checks with `gh pr view`.
+- Polls GitHub PR review threads with GraphQL.
 - Waits until all checks are complete.
 - Exits `0` when all checks succeed or are neutral/skipped.
-- Exits `1` when any completed check fails.
+- Exits `1` when any completed check fails or any unresolved non-outdated review thread remains.
 - Exits `2` on timeout.
+
+The script is the deterministic detector. The skill itself is the repair loop.
 
 ## How to use it
 
@@ -33,6 +36,16 @@ Useful options:
 
 ## Operator use
 
-- Prefer this script over ad hoc manual polling when the task is "wait for CI/review checks to finish."
-- If the script exits non-zero because checks failed, inspect the failing checks and fix the PR in the normal branch -> QA -> push loop.
+- Prefer this skill over ad hoc manual polling when the task is "get this PR clean."
+- Run the script first to determine whether there is anything to fix.
+- If the script exits `0`, the PR is clean from a CI/review-thread perspective.
+- If the script exits `1`, do not stop at reporting:
+  1. inspect the failing checks and unresolved review threads it surfaced,
+  2. fix the branch,
+  3. rerun local QA,
+  4. push,
+  5. rerun the script,
+  6. repeat until it exits `0`.
 - If the script times out, treat that as an external blocker and inspect the stuck check directly.
+
+This skill is for closing the loop, not just observing it.
