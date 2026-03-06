@@ -27,7 +27,12 @@ export function normalizeChecks(statusCheckRollup) {
 }
 
 export function validateRepoName(repo) {
-  if (repo === null || !repo.includes("/")) {
+  if (repo === null) {
+    throw new Error(`Repo must be in owner/name form, got: ${String(repo)}`);
+  }
+
+  const segments = repo.split("/");
+  if (segments.length !== 2 || segments[0] === "" || segments[1] === "") {
     throw new Error(`Repo must be in owner/name form, got: ${String(repo)}`);
   }
 

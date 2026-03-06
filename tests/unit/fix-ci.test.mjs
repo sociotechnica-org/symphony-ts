@@ -167,6 +167,12 @@ describe("fix-ci skill", () => {
     expect(() => validateRepoName("badformat")).toThrow(
       "Repo must be in owner/name form",
     );
+    expect(() => validateRepoName("owner/")).toThrow(
+      "Repo must be in owner/name form",
+    );
+    expect(() => validateRepoName("/repo")).toThrow(
+      "Repo must be in owner/name form",
+    );
   });
 
   it("parses validated repo names", () => {
