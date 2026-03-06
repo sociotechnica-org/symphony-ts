@@ -70,8 +70,6 @@ describe("GitHubBootstrapTracker", () => {
       },
       prompt: "prompt",
       attempt: {
-        issueId: "7",
-        issueIdentifier: "sociotechnica-org/symphony-ts#7",
         sequence: 1,
       },
     };
@@ -125,8 +123,6 @@ describe("GitHubBootstrapTracker", () => {
           },
           prompt: "prompt",
           attempt: {
-            issueId: "7",
-            issueIdentifier: "sociotechnica-org/symphony-ts#7",
             sequence: 1,
           },
         },

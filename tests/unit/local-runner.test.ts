@@ -39,8 +39,6 @@ describe("LocalRunner", () => {
       },
       prompt: "x".repeat(10_000_000),
       attempt: {
-        issueId: "1",
-        issueIdentifier: "sociotechnica-org/symphony-ts#1",
         sequence: 1,
       },
     };

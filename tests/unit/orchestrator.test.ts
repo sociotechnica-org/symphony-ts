@@ -85,9 +85,13 @@ function createIssue(number: number): RuntimeIssue {
 }
 
 class NullLogger implements Logger {
+  readonly errors: string[] = [];
+
   info(): void {}
 
-  error(): void {}
+  error(message: string): void {
+    this.errors.push(message);
+  }
 }
 
 class StaticTracker implements Tracker {
@@ -119,6 +123,17 @@ class StaticTracker implements Tracker {
   async releaseIssue(): Promise<void> {}
 
   async markIssueFailed(): Promise<void> {}
+}
+
+class FlakyTracker extends StaticTracker {
+  attempts = 0;
+
+  override async ensureLabels(): Promise<void> {
+    this.attempts += 1;
+    if (this.attempts === 1) {
+      throw new Error("transient label failure");
+    }
+  }
 }
 
 class StaticWorkspaceManager implements WorkspaceManager {
@@ -203,5 +218,32 @@ describe("BootstrapOrchestrator", () => {
     await runOnce;
 
     expect(tracker.completed).toEqual([1, 2]);
+  });
+
+  it("keeps polling after a transient poll-level failure", async () => {
+    const tracker = new FlakyTracker([createIssue(1)]);
+    const workspace = new StaticWorkspaceManager();
+    const runner = new ConcurrencyRunner();
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      runner,
+      logger,
+    );
+    const controller = new AbortController();
+
+    setTimeout(() => {
+      controller.abort();
+      runner.finish();
+    }, 50);
+
+    await orchestrator.runLoop(controller.signal);
+
+    expect(tracker.attempts).toBeGreaterThanOrEqual(2);
+    expect(logger.errors).toContain("Poll cycle failed");
+    expect(tracker.completed).toEqual([1]);
   });
 });

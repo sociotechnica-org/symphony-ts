@@ -2,8 +2,6 @@ import type { RuntimeIssue } from "./issue.js";
 import type { PreparedWorkspace } from "./workspace.js";
 
 export interface RunAttempt {
-  readonly issueId: string;
-  readonly issueIdentifier: string;
   readonly sequence: number;
 }
 

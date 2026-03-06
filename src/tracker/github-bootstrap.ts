@@ -75,6 +75,7 @@ export class GitHubBootstrapTracker implements Tracker {
   readonly #config: TrackerConfig;
   readonly #logger: Logger;
   readonly #tokenPromise: Promise<string>;
+  #labelsEnsured = false;
 
   constructor(config: TrackerConfig, logger: Logger) {
     this.#config = config;
@@ -83,6 +84,10 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async ensureLabels(): Promise<void> {
+    if (this.#labelsEnsured) {
+      return;
+    }
+
     await this.#ensureLabel(
       this.#config.readyLabel,
       "0e8a16",
@@ -98,6 +103,7 @@ export class GitHubBootstrapTracker implements Tracker {
       "d73a4a",
       "Issue failed in Symphony",
     );
+    this.#labelsEnsured = true;
   }
 
   async fetchEligibleIssues(): Promise<readonly RuntimeIssue[]> {

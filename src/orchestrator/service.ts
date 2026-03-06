@@ -78,7 +78,13 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async runLoop(signal?: AbortSignal): Promise<void> {
     while (!signal?.aborted) {
-      await this.runOnce();
+      try {
+        await this.runOnce();
+      } catch (error) {
+        this.#logger.error("Poll cycle failed", {
+          error: this.#normalizeFailure(error as Error),
+        });
+      }
       await new Promise((resolve) =>
         setTimeout(resolve, this.#config.polling.intervalMs),
       );
@@ -145,7 +151,6 @@ export class BootstrapOrchestrator implements Orchestrator {
         prompt,
         attempt,
       );
-      this.#state.activeRuns.set(claimed.number, session);
       const result = await this.#runner.run(session);
 
       if (result.exitCode !== 0) {
@@ -184,7 +189,6 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
-      this.#state.activeRuns.delete(issue.number);
     }
   }
 
@@ -200,8 +204,6 @@ export class BootstrapOrchestrator implements Orchestrator {
       workspace,
       prompt,
       attempt: {
-        issueId: issue.id,
-        issueIdentifier: issue.identifier,
         sequence: attempt,
       },
     };
@@ -219,17 +221,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       workspacePath: session.workspace.path,
       runSessionId: session.id,
     });
-    if (attempt < this.#config.polling.retry.maxAttempts) {
-      await this.#tracker.releaseIssue(session.issue.number, message);
-      this.#state.retries.set(session.issue.number, {
-        issue: session.issue,
-        nextAttempt: attempt + 1,
-        dueAt: Date.now() + this.#config.polling.retry.backoffMs,
-        lastError: message,
-      });
-      return;
-    }
-    await this.#tracker.markIssueFailed(session.issue.number, message);
+    await this.#scheduleRetryOrFail(session.issue, attempt, message);
   }
 
   async #handleUnexpectedFailure(
@@ -243,6 +235,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       attempt,
       error: message,
     });
+    await this.#scheduleRetryOrFail(issue, attempt, message);
+  }
+
+  async #scheduleRetryOrFail(
+    issue: RuntimeIssue,
+    attempt: number,
+    message: string,
+  ): Promise<void> {
     if (attempt < this.#config.polling.retry.maxAttempts) {
       await this.#tracker.releaseIssue(issue.number, message);
       this.#state.retries.set(issue.number, {
