@@ -1,6 +1,6 @@
 ---
 name: fix-ci
-description: Monitor a GitHub pull request's CI until it completes using a deterministic script, then report whether the checks passed or failed. Use this when you want `/fix-ci` style PR check monitoring instead of an LLM-driven watch loop.
+description: Drive a GitHub pull request to a clean CI and review state using a deterministic detector plus an agent repair loop. Use this when you want `/fix-ci` style PR closure instead of an LLM-only watch loop.
 ---
 
 # fix-ci
