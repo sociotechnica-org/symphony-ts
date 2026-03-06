@@ -1,24 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
-import { RunnerAbortedError } from "../../src/domain/errors.js";
+import { RunnerAbortedError, RunnerError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { LocalRunner } from "../../src/runner/local.js";
-
-async function waitForExit(pid: number): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      process.kill(pid, 0);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    } catch (error) {
-      const systemError = error as NodeJS.ErrnoException;
-      if (systemError.code === "ESRCH") {
-        return;
-      }
-      throw error;
-    }
-  }
-  throw new Error(`Timed out waiting for pid ${pid} to exit`);
-}
+import { waitForExit } from "../support/process.js";
 
 function createSession(): RunSession {
   return {
@@ -91,6 +76,31 @@ describe("LocalRunner", () => {
     });
 
     await expect(run).rejects.toBeInstanceOf(RunnerAbortedError);
+    expect(spawnedPid).toBeGreaterThan(0);
+    await waitForExit(spawnedPid);
+  });
+
+  it("terminates the runner child if recording the spawn fails", async () => {
+    const runner = new LocalRunner(
+      {
+        command: 'node -e "setInterval(() => {}, 1000)"',
+        promptTransport: "stdin",
+        timeoutMs: 5_000,
+        env: {},
+      },
+      new JsonLogger(),
+    );
+    const session = createSession();
+    let spawnedPid = -1;
+
+    const run = runner.run(session, {
+      onSpawn: async (event) => {
+        spawnedPid = event.pid;
+        throw new Error("persist failed");
+      },
+    });
+
+    await expect(run).rejects.toBeInstanceOf(RunnerError);
     expect(spawnedPid).toBeGreaterThan(0);
     await waitForExit(spawnedPid);
   });

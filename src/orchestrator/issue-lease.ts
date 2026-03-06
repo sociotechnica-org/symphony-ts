@@ -54,7 +54,23 @@ export class LocalIssueLeaseManager {
     for (;;) {
       try {
         await fs.mkdir(lockDir, { recursive: false });
-        await fs.writeFile(pidFile, `${process.pid}\n`, "utf8");
+        try {
+          await fs.writeFile(pidFile, `${process.pid}\n`, "utf8");
+        } catch (error) {
+          try {
+            await fs.rm(lockDir, { recursive: true, force: true });
+          } catch (cleanupError) {
+            this.#logger.warn("Failed to clean up incomplete issue lease", {
+              issueNumber,
+              lockDir,
+              error:
+                cleanupError instanceof Error
+                  ? cleanupError.message
+                  : String(cleanupError),
+            });
+          }
+          throw error;
+        }
         return lockDir;
       } catch (error) {
         const systemError = error as NodeJS.ErrnoException;
@@ -261,9 +277,7 @@ export class LocalIssueLeaseManager {
       return true;
     } catch (error) {
       const systemError = error as NodeJS.ErrnoException;
-      return (
-        !isStaleLeaseError(systemError.code) && systemError.code === "EPERM"
-      );
+      return systemError.code === "EPERM";
     }
   }
 
@@ -288,10 +302,13 @@ export class LocalIssueLeaseManager {
       }
     }
 
-    this.#logger.warn("Orphaned runner process did not terminate cleanly", {
-      issueNumber,
-      runnerPid: pid,
-    });
+    this.#logger.warn(
+      "Orphaned runner process did not terminate cleanly; clearing lease anyway",
+      {
+        issueNumber,
+        runnerPid: pid,
+      },
+    );
   }
 
   async #sendSignal(pid: number, signal: NodeJS.Signals): Promise<boolean> {

@@ -61,6 +61,7 @@ export class LocalRunner implements Runner {
       let settled = false;
       let timedOut = false;
       let aborted = false;
+      let spawnError: RunnerError | null = null;
 
       const finish = (callback: () => void): void => {
         if (settled) {
@@ -77,21 +78,27 @@ export class LocalRunner implements Runner {
         child.kill("SIGTERM");
       };
 
-      if (child.pid !== undefined) {
-        const spawnNotification = options?.onSpawn?.({
-          pid: child.pid,
-          spawnedAt: new Date().toISOString(),
+      const handleSpawnFailure = (error: unknown): void => {
+        if (spawnError !== null) {
+          return;
+        }
+        spawnError = new RunnerError(`Failed to record runner spawn`, {
+          cause: error as Error,
         });
-        if (spawnNotification instanceof Promise) {
-          void spawnNotification.catch((error: unknown) => {
-            finish(() => {
-              reject(
-                new RunnerError(`Failed to record runner spawn`, {
-                  cause: error as Error,
-                }),
-              );
-            });
+        child.kill("SIGTERM");
+      };
+
+      if (child.pid !== undefined) {
+        try {
+          const spawnNotification = options?.onSpawn?.({
+            pid: child.pid,
+            spawnedAt: new Date().toISOString(),
           });
+          if (spawnNotification instanceof Promise) {
+            void spawnNotification.catch(handleSpawnFailure);
+          }
+        } catch (error) {
+          handleSpawnFailure(error);
         }
       }
 
@@ -145,6 +152,10 @@ export class LocalRunner implements Runner {
       child.on("close", (exitCode, signal) => {
         finish(() => {
           const finishedAt = new Date().toISOString();
+          if (spawnError !== null) {
+            reject(spawnError);
+            return;
+          }
           if (aborted) {
             reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
             return;

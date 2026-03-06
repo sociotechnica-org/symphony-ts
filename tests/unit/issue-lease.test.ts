@@ -1,27 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { createTempDir } from "../support/git.js";
-
-async function waitForExit(pid: number): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      process.kill(pid, 0);
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    } catch (error) {
-      const systemError = error as NodeJS.ErrnoException;
-      if (systemError.code === "ESRCH") {
-        return;
-      }
-      throw error;
-    }
-  }
-  throw new Error(`Timed out waiting for pid ${pid} to exit`);
-}
+import { waitForExit } from "../support/process.js";
 
 function createSession(issueNumber: number, workspacePath: string): RunSession {
   const timestamp = new Date().toISOString();
@@ -73,6 +58,26 @@ describe("LocalIssueLeaseManager", () => {
       expect(snapshot.runnerPid).toBe(process.pid);
       expect(snapshot.record?.runSessionId).toContain("#21");
     } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("removes an incomplete lease if pid persistence fails during acquire", async () => {
+    const tempRoot = await createTempDir("symphony-lease-acquire-");
+    const manager = new LocalIssueLeaseManager(tempRoot, new JsonLogger());
+    const writeFileSpy = vi
+      .spyOn(fs, "writeFile")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("disk full"), { code: "ENOSPC" }),
+      );
+
+    try {
+      await expect(manager.acquire(23)).rejects.toMatchObject({
+        code: "ENOSPC",
+      });
+      expect((await manager.inspect(23)).kind).toBe("missing");
+    } finally {
+      writeFileSpy.mockRestore();
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
   });
