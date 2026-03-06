@@ -152,6 +152,26 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
+  it("treats cancelled and action_required conclusions as non-actionable", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "Deploy", status: "completed", conclusion: "action_required" },
+      { name: "CI", status: "completed", conclusion: "cancelled" },
+    ]);
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("ready");
+    expect(lifecycle.failingCheckNames).toEqual([]);
+  });
+
   it("stabilizes a no-check PR in the tracker before reporting it ready", async () => {
     const tracker = createTracker(server);
 
@@ -170,6 +190,18 @@ describe("GitHubBootstrapTracker", () => {
     const second = await tracker.inspectIssueHandoff("symphony/7");
     expect(second.kind).toBe("ready");
     expect(second.summary).toMatch(/merge-ready/i);
+  });
+
+  it("deduplicates concurrent ensureLabels calls", async () => {
+    const tracker = createTracker(server);
+
+    await Promise.all([
+      tracker.ensureLabels(),
+      tracker.ensureLabels(),
+      tracker.ensureLabels(),
+    ]);
+
+    expect(server.countRequests("POST labels")).toBe(3);
   });
 
   it("detects actionable review feedback and resolves addressed review threads", async () => {

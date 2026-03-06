@@ -125,7 +125,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
           branchName,
         );
         if (aheadCount > 0) {
-          this.#logger.info("Discarding local-only branch commits", {
+          this.#logger.warn("Discarding local-only branch commits", {
             workspacePath,
             branchName,
             aheadCount,

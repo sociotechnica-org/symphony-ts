@@ -56,8 +56,9 @@ export function evaluatePullRequestLifecycle(
   previousNoCheckObservation: NoCheckObservation | undefined,
 ): PullRequestPolicyResult {
   if (
-    snapshot.failingCheckNames.length > 0 ||
-    snapshot.botActionableReviewFeedback.length > 0
+    snapshot.botActionableReviewFeedback.length > 0 ||
+    (snapshot.failingCheckNames.length > 0 &&
+      snapshot.pendingCheckNames.length === 0)
   ) {
     return {
       lifecycle: {
@@ -74,6 +75,28 @@ export function evaluatePullRequestLifecycle(
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
           snapshot.actionableReviewFeedback,
+        ),
+      },
+      nextNoCheckObservation: null,
+    };
+  }
+
+  if (snapshot.failingCheckNames.length > 0) {
+    return {
+      lifecycle: {
+        kind: "awaiting-review",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        checks: snapshot.checks,
+        pendingCheckNames: snapshot.pendingCheckNames,
+        failingCheckNames: snapshot.failingCheckNames,
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: summarizeLifecycle(
+          snapshot.pullRequest.url,
+          snapshot.failingCheckNames,
+          snapshot.pendingCheckNames,
+          [],
         ),
       },
       nextNoCheckObservation: null,

@@ -28,6 +28,7 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
+    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -52,6 +53,8 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
     expect(workflow.config.workspace.root).toContain(
       `${path.sep}.tmp${path.sep}ws`,
     );
+    expect(workflow.config.polling.retry.maxAttempts).toBe(2);
+    expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
     const promptBuilder = createPromptBuilder(workflow);
     const rendered = await promptBuilder.build({
       issue: {

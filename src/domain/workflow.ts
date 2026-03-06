@@ -3,6 +3,7 @@ import type { PullRequestLifecycle } from "./pull-request.js";
 
 export interface RetryPolicy {
   readonly maxAttempts: number;
+  readonly maxFollowUpAttempts: number;
   readonly backoffMs: number;
 }
 

@@ -6,7 +6,7 @@ import type {
 } from "../domain/pull-request.js";
 import type {
   GitHubPullRequestResponse,
-  PullRequestReviewStateResponse,
+  PullRequestReviewPageResponse,
 } from "./github-client.js";
 
 export interface PullRequestSnapshot {
@@ -32,7 +32,7 @@ export function createPullRequestSnapshot(input: {
   pullRequest: GitHubPullRequestResponse;
   checks: readonly PullRequestCheck[];
   reviewState: NonNullable<
-    NonNullable<PullRequestReviewStateResponse["repository"]>["pullRequest"]
+    NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
   >;
   reviewBotLogins: readonly string[];
 }): PullRequestSnapshot {

@@ -100,4 +100,18 @@ describe("pull-request-policy", () => {
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
     expect(lifecycle.unresolvedThreadIds).toEqual(["thread-2"]);
   });
+
+  it("waits while failing checks coexist with pending checks", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        pendingCheckNames: ["integration"],
+        failingCheckNames: ["lint"],
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.pendingCheckNames).toEqual(["integration"]);
+    expect(lifecycle.failingCheckNames).toEqual(["lint"]);
+  });
 });

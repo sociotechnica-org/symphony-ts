@@ -12,10 +12,13 @@ import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
 import type { WorkspaceManager } from "../../src/workspace/service.js";
-import { createIssue, createLifecycle as lifecycle } from "../support/pull-request.js";
-import { createTempDir } from "../support/git.js";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createTempDir } from "../support/git.js";
+import {
+  createIssue,
+  createLifecycle as lifecycle,
+} from "../support/pull-request.js";
 
 function createDeferred<T>(): {
   readonly promise: Promise<T>;
@@ -45,6 +48,7 @@ const baseConfig: ResolvedConfig = {
     maxConcurrentRuns: 2,
     retry: {
       maxAttempts: 2,
+      maxFollowUpAttempts: 2,
       backoffMs: 0,
     },
   },
@@ -79,6 +83,8 @@ class NullLogger implements Logger {
   readonly errors: string[] = [];
 
   info(_message: string, _data?: Record<string, unknown>): void {}
+
+  warn(_message: string, _data?: Record<string, unknown>): void {}
 
   error(message: string, _data?: Record<string, unknown>): void {
     this.errors.push(message);
@@ -359,57 +365,60 @@ describe("BootstrapOrchestrator", () => {
 
   it("keeps polling after a transient poll-level failure", async () => {
     const tempRoot = await createTempDir("symphony-loop-test-");
-    const tracker = new FlakyTracker({
-      ready: [createIssue(1)],
-    });
-    tracker.setLifecycleSequence(1, [
-      lifecycle("missing", "symphony/1"),
-      lifecycle("ready", "symphony/1"),
-    ]);
-    const logger = new NullLogger();
-    const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        polling: { ...baseConfig.polling, intervalMs: 1 },
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
+    try {
+      const tracker = new FlakyTracker({
+        ready: [createIssue(1)],
+      });
+      tracker.setLifecycleSequence(1, [
+        lifecycle("missing", "symphony/1"),
+        lifecycle("ready", "symphony/1"),
+      ]);
+      const logger = new NullLogger();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          polling: { ...baseConfig.polling, intervalMs: 1 },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
         },
-      },
-      staticPromptBuilder,
-      tracker,
-      new StaticWorkspaceManager(),
-      new RecordingRunner(),
-      logger,
-    );
-    const controller = new AbortController();
-    const loop = orchestrator.runLoop(controller.signal);
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        logger,
+      );
+      const controller = new AbortController();
+      const loop = orchestrator.runLoop(controller.signal);
 
-    await new Promise<void>((resolve, reject) => {
-      const deadline = Date.now() + 500;
-      const check = () => {
-        if (tracker.completed.length === 1) {
-          controller.abort();
-          resolve();
-          return;
-        }
-        if (Date.now() >= deadline) {
-          controller.abort();
-          reject(
-            new Error("Timed out waiting for the orchestrator to recover"),
-          );
-          return;
-        }
-        setTimeout(check, 1);
-      };
-      check();
-    });
+      await new Promise<void>((resolve, reject) => {
+        const deadline = Date.now() + 500;
+        const check = () => {
+          if (tracker.completed.length === 1) {
+            controller.abort();
+            resolve();
+            return;
+          }
+          if (Date.now() >= deadline) {
+            controller.abort();
+            reject(
+              new Error("Timed out waiting for the orchestrator to recover"),
+            );
+            return;
+          }
+          setTimeout(check, 1);
+        };
+        check();
+      });
 
-    await loop;
-    await fs.rm(tempRoot, { recursive: true, force: true });
+      await loop;
 
-    expect(logger.errors).toContain("Poll cycle failed");
-    expect(tracker.completed).toEqual([1]);
+      expect(logger.errors).toContain("Poll cycle failed");
+      expect(tracker.completed).toEqual([1]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("waits when a running PR only has pending checks", async () => {
@@ -911,6 +920,7 @@ describe("BootstrapOrchestrator", () => {
           ...baseConfig.polling,
           retry: {
             maxAttempts: 2,
+            maxFollowUpAttempts: 2,
             backoffMs: 60_000,
           },
         },

@@ -314,7 +314,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         issue.number,
         attempt,
         nextLifecycle,
-        this.#config.polling.retry.maxAttempts,
+        this.#config.polling.retry.maxFollowUpAttempts,
       );
       if (decision.kind === "exhausted") {
         await this.#handleFailure(

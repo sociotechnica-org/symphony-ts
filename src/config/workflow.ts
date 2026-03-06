@@ -173,12 +173,16 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   if (resolved.polling.retry.maxAttempts < 1) {
     throw new ConfigError("polling.retry.max_attempts must be >= 1");
   }
+  if (resolved.polling.retry.maxFollowUpAttempts < 1) {
+    throw new ConfigError("polling.retry.max_follow_up_attempts must be >= 1");
+  }
 
   return resolved;
 }
 
 function resolveRetryConfig(value: unknown): {
   readonly maxAttempts: number;
+  readonly maxFollowUpAttempts: number;
   readonly backoffMs: number;
 } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -191,6 +195,13 @@ function resolveRetryConfig(value: unknown): {
       retry["max_attempts"],
       "polling.retry.max_attempts",
     ),
+    maxFollowUpAttempts:
+      retry["max_follow_up_attempts"] === undefined
+        ? requireNumber(retry["max_attempts"], "polling.retry.max_attempts")
+        : requireNumber(
+            retry["max_follow_up_attempts"],
+            "polling.retry.max_follow_up_attempts",
+          ),
     backoffMs: requireNumber(retry["backoff_ms"], "polling.retry.backoff_ms"),
   };
 }

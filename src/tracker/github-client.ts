@@ -56,7 +56,48 @@ interface GraphQlResponse<T> {
   readonly errors?: ReadonlyArray<{ readonly message: string }>;
 }
 
-export interface PullRequestReviewStateResponse {
+interface PullRequestReviewCommentsConnection {
+  readonly nodes: Array<{
+    readonly id: string;
+    readonly body: string;
+    readonly createdAt: string;
+    readonly url: string;
+    readonly author: {
+      readonly login: string;
+    } | null;
+  }>;
+  readonly pageInfo?: {
+    readonly hasNextPage: boolean;
+    readonly endCursor: string | null;
+  };
+}
+
+interface PullRequestReviewThreadsConnection {
+  readonly nodes: Array<{
+    readonly id: string;
+    readonly isResolved: boolean;
+    readonly isOutdated: boolean;
+    readonly comments: {
+      readonly nodes: ReadonlyArray<{
+        readonly id: string;
+        readonly body: string;
+        readonly createdAt: string;
+        readonly url: string;
+        readonly path: string | null;
+        readonly line: number | null;
+        readonly author: {
+          readonly login: string;
+        } | null;
+      }>;
+    };
+  }>;
+  readonly pageInfo?: {
+    readonly hasNextPage: boolean;
+    readonly endCursor: string | null;
+  };
+}
+
+export interface PullRequestReviewPageResponse {
   readonly repository: {
     readonly pullRequest: {
       readonly commits: {
@@ -66,43 +107,20 @@ export interface PullRequestReviewStateResponse {
           };
         }>;
       };
-      readonly comments: {
-        readonly nodes: ReadonlyArray<{
-          readonly id: string;
-          readonly body: string;
-          readonly createdAt: string;
-          readonly url: string;
-          readonly author: {
-            readonly login: string;
-          } | null;
-        }>;
-      };
-      readonly reviewThreads: {
-        readonly nodes: ReadonlyArray<{
-          readonly id: string;
-          readonly isResolved: boolean;
-          readonly isOutdated: boolean;
-          readonly comments: {
-            readonly nodes: ReadonlyArray<{
-              readonly id: string;
-              readonly body: string;
-              readonly createdAt: string;
-              readonly url: string;
-              readonly path: string | null;
-              readonly line: number | null;
-              readonly author: {
-                readonly login: string;
-              } | null;
-            }>;
-          };
-        }>;
-      };
+      readonly comments: PullRequestReviewCommentsConnection;
+      readonly reviewThreads: PullRequestReviewThreadsConnection;
     } | null;
   } | null;
 }
 
 const PULL_REQUEST_REVIEW_STATE_QUERY = `
-  query PullRequestReviewState($owner: String!, $repo: String!, $number: Int!) {
+  query PullRequestReviewState(
+    $owner: String!,
+    $repo: String!,
+    $number: Int!,
+    $commentsAfter: String,
+    $reviewThreadsAfter: String
+  ) {
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
         commits(last: 1) {
@@ -112,7 +130,7 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
             }
           }
         }
-        comments(last: 50) {
+        comments(first: 100, after: $commentsAfter) {
           nodes {
             id
             body
@@ -122,8 +140,12 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
               login
             }
           }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
-        reviewThreads(first: 100) {
+        reviewThreads(first: 100, after: $reviewThreadsAfter) {
           nodes {
             id
             isResolved
@@ -142,6 +164,10 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
               }
             }
           }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
       }
     }
@@ -158,6 +184,23 @@ const RESOLVE_REVIEW_THREAD_MUTATION = `
     }
   }
 `;
+
+function paginationInfo(
+  pageInfo:
+    | {
+        readonly hasNextPage: boolean;
+        readonly endCursor: string | null;
+      }
+    | undefined,
+): {
+  readonly hasNextPage: boolean;
+  readonly endCursor: string | null;
+} {
+  return {
+    hasNextPage: pageInfo?.hasNextPage ?? false,
+    endCursor: pageInfo?.endCursor ?? null,
+  };
+}
 
 function normalizeCheckStatus(
   status: string,
@@ -186,7 +229,9 @@ function normalizeCheckStatus(
     normalizedConclusion === "success" ||
     normalizedConclusion === "neutral" ||
     normalizedConclusion === "skipped" ||
-    normalizedConclusion === "stale"
+    normalizedConclusion === "stale" ||
+    normalizedConclusion === "action_required" ||
+    normalizedConclusion === "cancelled"
   ) {
     return {
       status: "success",
@@ -380,19 +425,69 @@ export class GitHubClient {
     number: number,
   ): Promise<
     NonNullable<
-      NonNullable<PullRequestReviewStateResponse["repository"]>["pullRequest"]
+      NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
     >
   > {
-    const response = await this.#graphqlRequest<PullRequestReviewStateResponse>(
-      PULL_REQUEST_REVIEW_STATE_QUERY,
-      {
-        owner: this.#repoOwner,
-        repo: this.#repoName,
-        number,
-      },
-    );
+    let commentsAfter: string | null = null;
+    let reviewThreadsAfter: string | null = null;
+    let pullRequest: NonNullable<
+      NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
+    > | null = null;
 
-    const pullRequest = response.repository?.pullRequest;
+    for (;;) {
+      const response: PullRequestReviewPageResponse =
+        await this.#graphqlRequest<PullRequestReviewPageResponse>(
+          PULL_REQUEST_REVIEW_STATE_QUERY,
+          {
+            owner: this.#repoOwner,
+            repo: this.#repoName,
+            number,
+            commentsAfter,
+            reviewThreadsAfter,
+          },
+        );
+
+      const page: NonNullable<
+        NonNullable<PullRequestReviewPageResponse["repository"]>["pullRequest"]
+      > | null = response.repository?.pullRequest ?? null;
+      if (!page) {
+        throw new TrackerError(
+          `Pull request ${number} was not found in GraphQL`,
+        );
+      }
+
+      if (pullRequest === null) {
+        pullRequest = {
+          commits: page.commits,
+          comments: {
+            nodes: [...page.comments.nodes],
+            pageInfo: paginationInfo(page.comments.pageInfo),
+          },
+          reviewThreads: {
+            nodes: [...page.reviewThreads.nodes],
+            pageInfo: paginationInfo(page.reviewThreads.pageInfo),
+          },
+        };
+      } else {
+        pullRequest.comments.nodes.push(...page.comments.nodes);
+        pullRequest.reviewThreads.nodes.push(...page.reviewThreads.nodes);
+      }
+
+      const commentsPageInfo = paginationInfo(page.comments.pageInfo);
+      const reviewThreadsPageInfo = paginationInfo(page.reviewThreads.pageInfo);
+      const hasMoreComments: boolean = commentsPageInfo.hasNextPage;
+      const hasMoreThreads: boolean = reviewThreadsPageInfo.hasNextPage;
+      if (!hasMoreComments && !hasMoreThreads) {
+        break;
+      }
+      commentsAfter = hasMoreComments
+        ? commentsPageInfo.endCursor
+        : commentsAfter;
+      reviewThreadsAfter = hasMoreThreads
+        ? reviewThreadsPageInfo.endCursor
+        : reviewThreadsAfter;
+    }
+
     if (!pullRequest) {
       throw new TrackerError(`Pull request ${number} was not found in GraphQL`);
     }

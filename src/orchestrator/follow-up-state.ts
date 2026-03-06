@@ -49,6 +49,7 @@ export function noteRetryScheduled(
 ): RetryState {
   const nextAttempt = attempt + 1;
   state.nextRunSequenceByIssueNumber.set(issue.number, nextAttempt);
+  state.followUpAttemptsByIssueNumber.delete(issue.number);
   return {
     issue,
     nextAttempt,
@@ -77,6 +78,7 @@ export function noteLifecycleObservation(
 
   const nextFollowUpAttempt =
     (state.followUpAttemptsByIssueNumber.get(issueNumber) ?? 0) + 1;
+  state.followUpAttemptsByIssueNumber.set(issueNumber, nextFollowUpAttempt);
   if (nextFollowUpAttempt >= maxFollowUpAttempts) {
     return {
       kind: "exhausted",
@@ -84,8 +86,6 @@ export function noteLifecycleObservation(
       followUpAttempt: nextFollowUpAttempt,
     };
   }
-
-  state.followUpAttemptsByIssueNumber.set(issueNumber, nextFollowUpAttempt);
   return {
     kind: "continue",
     nextRunSequence,

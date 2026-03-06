@@ -73,6 +73,13 @@ describe("follow-up-state", () => {
   it("creates retry state and clears issue follow-up state", () => {
     const state = createFollowUpRuntimeState();
     const issue = createIssue(18);
+    noteLifecycleObservation(
+      state,
+      issue.number,
+      1,
+      createLifecycle("needs-follow-up", "symphony/18"),
+      3,
+    );
 
     const retry = noteRetryScheduled(state, issue, 1, 10, "boom");
 
@@ -83,5 +90,20 @@ describe("follow-up-state", () => {
     clearFollowUpRuntimeState(state, issue.number);
 
     expect(resolveRunSequence(state, issue.number, new Map())).toBe(1);
+  });
+
+  it("persists the exhausted follow-up count for downstream handling", () => {
+    const state = createFollowUpRuntimeState();
+
+    const decision = noteLifecycleObservation(
+      state,
+      19,
+      2,
+      createLifecycle("needs-follow-up", "symphony/19"),
+      1,
+    );
+
+    expect(decision.kind).toBe("exhausted");
+    expect(state.followUpAttemptsByIssueNumber.get(19)).toBe(1);
   });
 });
