@@ -45,11 +45,17 @@ export function normalizeReviewThreads(reviewThreads) {
     id: thread.id ?? "",
     isResolved: thread.isResolved === true,
     isOutdated: thread.isOutdated === true,
-    comments: (thread.comments?.nodes ?? []).map((comment) => ({
-      authorLogin: comment.author?.login ?? "",
-      body: comment.body ?? "",
-      path: comment.path ?? "",
-    })),
+    comments: Array.isArray(thread.comments)
+      ? thread.comments.map((comment) => ({
+          authorLogin: comment.authorLogin ?? comment.author?.login ?? "",
+          body: comment.body ?? "",
+          path: comment.path ?? "",
+        }))
+      : (thread.comments?.nodes ?? []).map((comment) => ({
+          authorLogin: comment.author?.login ?? "",
+          body: comment.body ?? "",
+          path: comment.path ?? "",
+        })),
   }));
 }
 
@@ -204,7 +210,11 @@ export async function fetchReviewThreads(
   ]);
   const result = JSON.parse(stdout);
 
-  return normalizeReviewThreads(
-    result.data.repository.pullRequest.reviewThreads.nodes,
-  );
+  if (Array.isArray(result.errors) && result.errors.length > 0) {
+    throw new Error(
+      `GraphQL error fetching review threads: ${result.errors.map((error) => error.message).join("; ")}`,
+    );
+  }
+
+  return result.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
 }

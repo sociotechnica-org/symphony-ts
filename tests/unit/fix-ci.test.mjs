@@ -107,6 +107,42 @@ describe("fix-ci skill", () => {
     expect(summary.unresolvedThreads).toHaveLength(1);
   });
 
+  it("preserves thread comment details when passed pre-normalized threads", () => {
+    const summary = summarizeChecks(
+      [
+        {
+          name: "check",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+          detailsUrl: "https://example.test/check",
+          workflowName: "CI",
+        },
+      ],
+      [
+        {
+          id: "THREAD_123",
+          isResolved: false,
+          isOutdated: false,
+          comments: [
+            {
+              authorLogin: "greptile-apps",
+              body: "Please fix this",
+              path: "src/example.ts",
+            },
+          ],
+        },
+      ],
+    );
+
+    expect(summary.overall).toBe("failure");
+    expect(summary.unresolvedThreads[0]?.comments[0]?.authorLogin).toBe(
+      "greptile-apps",
+    );
+    expect(summary.unresolvedThreads[0]?.comments[0]?.path).toBe(
+      "src/example.ts",
+    );
+  });
+
   it("preserves review thread ids for later resolution", () => {
     const threads = normalizeReviewThreads([
       {
