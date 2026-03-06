@@ -65,6 +65,34 @@ src/workspace/  workspace lifecycle and hooks
 - Keep coordination infrastructure such as leases, lock recovery, and temp cleanup in focused modules rather than inline branches.
 - Prefer test builders and helpers over repeated ad hoc setup for snapshots, fixtures, temp roots, and cleanup.
 
+## Skills Policy
+
+`WORKFLOW.md`, `AGENTS.md`, and in-repo skills serve different roles.
+
+- `WORKFLOW.md` is the repository runtime contract. It should define the required worker process and completion behavior.
+- `AGENTS.md` is the repository engineering policy. It should define enduring design, testing, review, and architecture expectations.
+- skills are specialized guides for recurring kinds of work. They may add detailed method, but they should not be the only place where required correctness rules live.
+
+Use this rule of thumb:
+
+- if behavior is required for every worker run, put it in `WORKFLOW.md` or `AGENTS.md`
+- if guidance is specialized to a type of task, put it in a skill
+- if behavior is part of runtime correctness, put it in code and tests, not only in prompts
+
+For this repo, skills should stay small in number and high in leverage. Prefer checked-in skills that help Symphony build Symphony without making the repository depend on hidden prompt state.
+
+## Architecture Principles
+
+- Normalize external inputs at the boundary before orchestration logic uses them.
+- Separate transport, normalization, and policy whenever an adapter talks to an external system.
+- Make runtime state explicit when behavior depends on multiple counters, stages, or recovery paths.
+- Do not overload one counter to mean prompt sequence, retry budget, and follow-up budget at the same time.
+- Isolate coordination infrastructure such as leases, lock recovery, and durable runtime ownership into focused modules.
+- Prefer pure policy functions over inline branching when lifecycle or recovery decisions can be expressed over normalized internal state.
+- Use small test builders/helpers when repeated orchestration fixtures start to accumulate.
+
+When review feedback clusters repeatedly in the same files or around the same themes, treat that as a sign the decomposition is wrong. Prefer a structural refactor before continuing with more patch-on-patch fixes.
+
 ## Issue Workflow
 
 For any GitHub issue assigned for implementation:
@@ -125,6 +153,8 @@ Every PR should:
 3. and remain traceable back to the plan and issue discussion.
 
 Prefer smaller reviewable slices over oversized PRs when the work can be split without losing end-to-end integrity.
+
+For orchestration-heavy work, prefer splitting large changes into smaller PRs along stable architectural seams rather than combining tracker policy, orchestrator state, runner behavior, test harness changes, and docs into one review surface. Each PR should either complete one usable vertical slice or land inert, well-tested plumbing that reduces risk for the next slice.
 
 ## Related Bugs
 
