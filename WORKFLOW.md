@@ -69,5 +69,5 @@ Rules:
 9. Run the relevant local checks before finishing.
 10. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
 11. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
-12. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved, unless blocked by an external stuck check.
+12. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved. If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, comment on the issue describing the blocked check and wait for human guidance before proceeding.
 13. Leave the workspace in a git state that can be inspected if the run fails.

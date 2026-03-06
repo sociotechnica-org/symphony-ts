@@ -179,6 +179,8 @@ After opening a PR:
 
 Greptile review feedback is part of the required review loop and must be explicitly handled.
 
+If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, treat it as blocked infrastructure rather than silent success. Comment on the issue or PR with the blocked check name and wait for human guidance before proceeding.
+
 ## Execution Bias
 
 In general, keep working through the task until the full delivery loop is finished.
