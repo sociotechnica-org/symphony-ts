@@ -105,6 +105,15 @@ export class MockGitHubServer {
     return structuredClone(issue);
   }
 
+  setIssueLabels(number: number, labels: readonly string[]): void {
+    const issue = this.#issues.get(number);
+    if (!issue) {
+      throw new Error(`Issue ${number} not found`);
+    }
+    issue.labels = labels.map((name) => ({ name }));
+    issue.updated_at = new Date().toISOString();
+  }
+
   getPullRequests(): readonly PullRequestRecord[] {
     return structuredClone(this.#prs);
   }

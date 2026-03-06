@@ -151,4 +151,56 @@ describe("GitHubBootstrapTracker", () => {
 
     expect(server.countRequests("POST labels")).toBe(3);
   });
+
+  it("preserves labels added after claim when completing an issue", async () => {
+    const tracker = new GitHubBootstrapTracker(
+      {
+        kind: "github-bootstrap",
+        repo: "sociotechnica-org/symphony-ts",
+        apiUrl: server.baseUrl,
+        readyLabel: "symphony:ready",
+        runningLabel: "symphony:running",
+        failedLabel: "symphony:failed",
+        successComment: "done",
+      },
+      logger,
+    );
+
+    const claimed = (await tracker.claimIssue(7))!;
+    server.setIssueLabels(7, [...claimed.labels, "external:keep"]);
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+
+    await tracker.completeRun(
+      {
+        id: "sociotechnica-org/symphony-ts#7/attempt-1",
+        issue: claimed,
+        workspace: {
+          key: "sociotechnica-org_symphony-ts_7",
+          path: "/tmp/workspaces/7",
+          branchName: "symphony/7",
+          createdNow: true,
+        },
+        prompt: "prompt",
+        attempt: {
+          sequence: 1,
+        },
+      },
+      {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+      },
+    );
+
+    expect(server.getIssue(7).labels.map((label) => label.name)).toContain(
+      "external:keep",
+    );
+  });
 });

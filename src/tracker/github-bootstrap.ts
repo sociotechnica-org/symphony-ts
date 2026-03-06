@@ -141,7 +141,8 @@ export class GitHubBootstrapTracker implements Tracker {
         `Runner exited successfully but no pull request was found for ${session.workspace.branchName}`,
       );
     }
-    await this.#completeIssue(session.issue);
+    // Re-fetch before closing so we preserve labels added after the issue was claimed.
+    await this.#completeIssue(await this.getIssue(session.issue.number));
   }
 
   async #doEnsureLabels(): Promise<void> {
