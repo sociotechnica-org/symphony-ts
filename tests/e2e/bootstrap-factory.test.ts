@@ -49,8 +49,7 @@ workspace:
   branch_prefix: symphony/
   cleanup_on_success: true
 hooks:
-  after_create:
-    - git fetch origin
+  after_create: []
 agent:
   command: ${options.agentCommand}
   prompt_transport: stdin
@@ -182,5 +181,64 @@ describe("Phase 0 bootstrap factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("attempt 2");
+  });
+
+  it("retries successfully after a prior attempt pushed the branch without opening a PR", async () => {
+    server.seedIssue({
+      number: 3,
+      title: "Retry after pushed branch",
+      body: "First attempt pushes but forgets the PR",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve(
+        "tests/fixtures/fake-agent-push-no-pr-then-succeed.sh",
+      ),
+      retryBackoffMs: 0,
+      maxAttempts: 2,
+    });
+
+    const workflow = await loadWorkflow(workflowPath);
+    const logger = new JsonLogger();
+    const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
+    const workspace = new LocalWorkspaceManager(logger);
+    const runner = new LocalRunner(logger);
+    const orchestrator = new BootstrapOrchestrator(
+      workflow,
+      tracker,
+      workspace,
+      runner,
+      logger,
+    );
+
+    await orchestrator.runOnce();
+
+    let issue = server.getIssue(3);
+    expect(issue.state).toBe("open");
+    expect(server.getPullRequests()).toHaveLength(0);
+
+    const firstAttempt = await readRemoteBranchFile(
+      remotePath,
+      "symphony/3",
+      "IMPLEMENTED.txt",
+    );
+    expect(firstAttempt).toContain("attempt 1");
+
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(3);
+    expect(issue.state).toBe("closed");
+    expect(server.getPullRequests()).toHaveLength(1);
+
+    const secondAttempt = await readRemoteBranchFile(
+      remotePath,
+      "symphony/3",
+      "IMPLEMENTED.txt",
+    );
+    expect(secondAttempt).toContain("attempt 2");
   });
 });

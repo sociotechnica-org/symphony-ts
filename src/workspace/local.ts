@@ -27,6 +27,25 @@ async function runShell(command: string, cwd: string): Promise<void> {
   }
 }
 
+async function branchExists(cwd: string, branchName: string): Promise<boolean> {
+  const result = await execFileAsync("git", ["branch", "--list", branchName], {
+    cwd,
+  });
+  return result.stdout.trim() !== "";
+}
+
+async function remoteTrackingBranchExists(
+  cwd: string,
+  branchName: string,
+): Promise<boolean> {
+  const result = await execFileAsync(
+    "git",
+    ["branch", "--remotes", "--list", `origin/${branchName}`],
+    { cwd },
+  );
+  return result.stdout.trim() !== "";
+}
+
 export class LocalWorkspaceManager implements WorkspaceManager {
   readonly #logger: Logger;
 
@@ -57,16 +76,31 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     }
 
     await execFileAsync("git", ["fetch", "origin"], { cwd: workspacePath });
+    const hasBranch = await branchExists(workspacePath, branchName);
+    const hasRemoteTrackingBranch = await remoteTrackingBranchExists(
+      workspacePath,
+      branchName,
+    );
+
+    if (hasBranch && hasRemoteTrackingBranch) {
+      this.#logger.info("Deleting existing remote issue branch", {
+        workspacePath,
+        branchName,
+        issueIdentifier: issue.identifier,
+      });
+      await execFileAsync("git", ["push", "origin", "--delete", branchName], {
+        cwd: workspacePath,
+      });
+      await execFileAsync("git", ["fetch", "origin", "--prune"], {
+        cwd: workspacePath,
+      });
+    }
+
     await execFileAsync("git", ["checkout", "main"], { cwd: workspacePath });
     await execFileAsync("git", ["reset", "--hard", "origin/main"], {
       cwd: workspacePath,
     });
 
-    const hasBranch = await execFileAsync(
-      "git",
-      ["branch", "--list", branchName],
-      { cwd: workspacePath },
-    ).then((result) => result.stdout.trim() !== "");
     if (hasBranch) {
       await execFileAsync("git", ["checkout", branchName], {
         cwd: workspacePath,

@@ -19,10 +19,7 @@ workspace:
   branch_prefix: symphony/
   cleanup_on_success: true
 hooks:
-  after_create:
-    - git fetch origin
-    - git checkout main
-    - git reset --hard origin/main
+  after_create: []
 agent:
   command: codex exec --dangerously-bypass-approvals-and-sandbox -C . -
   prompt_transport: stdin

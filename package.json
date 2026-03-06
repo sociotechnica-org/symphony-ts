@@ -16,7 +16,6 @@
     "dev": "tsx watch bin/symphony.ts"
   },
   "dependencies": {
-    "effect": "^3.19.6",
     "liquidjs": "^10.24.0",
     "yaml": "^2.8.1"
   },
