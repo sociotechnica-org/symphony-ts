@@ -81,18 +81,6 @@ Use this rule of thumb:
 
 For this repo, skills should stay small in number and high in leverage. Prefer checked-in skills that help Symphony build Symphony without making the repository depend on hidden prompt state.
 
-## Architecture Principles
-
-- Normalize external inputs at the boundary before orchestration logic uses them.
-- Separate transport, normalization, and policy whenever an adapter talks to an external system.
-- Make runtime state explicit when behavior depends on multiple counters, stages, or recovery paths.
-- Do not overload one counter to mean prompt sequence, retry budget, and follow-up budget at the same time.
-- Isolate coordination infrastructure such as leases, lock recovery, and durable runtime ownership into focused modules.
-- Prefer pure policy functions over inline branching when lifecycle or recovery decisions can be expressed over normalized internal state.
-- Use small test builders/helpers when repeated orchestration fixtures start to accumulate.
-
-When review feedback clusters repeatedly in the same files or around the same themes, treat that as a sign the decomposition is wrong. Prefer a structural refactor before continuing with more patch-on-patch fixes.
-
 ## Issue Workflow
 
 For any GitHub issue assigned for implementation:
@@ -168,7 +156,7 @@ Implementation work is not complete when the code compiles locally. It is comple
 
 1. plan exists,
 2. implementation is complete,
-3. `/review` has been run and all self-review findings have been fixed,
+3. `codex review --base origin/main` has been run and all self-review findings have been fixed,
 4. formatting, lint, typecheck, and all tests are passing,
 5. a PR is created,
 6. PR CI is watched until it passes,

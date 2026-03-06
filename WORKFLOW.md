@@ -65,7 +65,7 @@ Rules:
 5. Comment on the GitHub issue when the plan is ready for review.
 6. If explicitly instructed not to wait for human feedback, continue directly from plan into implementation.
 7. Implement the issue completely, including docs and tests required by the repo process.
-8. Run `/review` on your changes and fix the findings before opening a PR.
+8. Run `codex review --base origin/main` on your changes and fix the findings before opening a PR.
 9. Run the relevant local checks before finishing.
 10. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
 11. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.

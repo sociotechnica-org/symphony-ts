@@ -28,8 +28,8 @@ Required sources:
 
 When relevant to the issue, also consult:
 
-1. the local Symphony spec checkout
-2. the Elixir reference implementation
+1. the local Symphony spec checkout, if available locally, for example the sibling `../symphony/` checkout
+2. the Elixir reference implementation, if available locally, for example under `../symphony/elixir/`
 3. the Harness engineering principles already discussed in this repo
 
 ## Planning Standard
