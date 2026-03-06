@@ -356,6 +356,9 @@ class RecordingRunner implements Runner {
 
 describe("BootstrapOrchestrator", () => {
   it("starts up to maxConcurrentRuns ready issues in parallel", async () => {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "symphony-parallel-test-"),
+    );
     const tracker = new SequencedTracker({
       ready: [createIssue(1), createIssue(2), createIssue(3)],
     });
@@ -373,7 +376,13 @@ describe("BootstrapOrchestrator", () => {
     ]);
     const runner = new ConcurrencyRunner();
     const orchestrator = new BootstrapOrchestrator(
-      baseConfig,
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -385,10 +394,9 @@ describe("BootstrapOrchestrator", () => {
     await runner.waitForTwoStarts();
 
     expect(runner.maxActive).toBe(2);
-    expect([...runner.startedIssues].sort((left, right) => left - right)).toEqual([
-      1,
-      2,
-    ]);
+    expect(
+      [...runner.startedIssues].sort((left, right) => left - right),
+    ).toEqual([1, 2]);
 
     runner.finish();
     await runOnce;
