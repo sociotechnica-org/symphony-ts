@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runCli } from "../../src/cli/index.js";
 import {
   createPromptBuilder,
   loadWorkflow,
@@ -12,6 +11,7 @@ import { LocalRunner } from "../../src/runner/local.js";
 import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
+  countRemoteBranchCommits,
   createSeedRemote,
   createTempDir,
   readRemoteBranchFile,
@@ -27,6 +27,7 @@ async function writeWorkflow(options: {
   agentCommand: string;
   retryBackoffMs?: number;
   maxAttempts?: number;
+  maxFollowUpAttempts?: number;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   await fs.writeFile(
@@ -40,11 +41,15 @@ tracker:
   running_label: symphony:running
   failed_label: symphony:failed
   success_comment: Symphony completed this issue successfully.
+  review_bot_logins:
+    - greptile[bot]
+    - bugbot[bot]
 polling:
   interval_ms: 5
   max_concurrent_runs: 1
   retry:
     max_attempts: ${options.maxAttempts ?? 2}
+    max_follow_up_attempts: ${options.maxFollowUpAttempts ?? options.maxAttempts ?? 2}
     backoff_ms: ${options.retryBackoffMs ?? 0}
 workspace:
   root: ./.tmp/workspaces
@@ -62,13 +67,43 @@ agent:
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 Description: {{ issue.description }}
+{% if pull_request %}
+Pull request lifecycle: {{ pull_request.kind }}
+Pull request URL: {{ pull_request.pullRequest.url }}
+Pending checks: {{ pull_request.pendingCheckNames | join: ", " }}
+Failing checks: {{ pull_request.failingCheckNames | join: ", " }}
+Actionable feedback: {{ pull_request.actionableReviewFeedback | size }}
+{% endif %}
 `,
     "utf8",
   );
   return workflowPath;
 }
 
-describe("Phase 0 bootstrap factory", () => {
+async function createOrchestrator(
+  workflowPath: string,
+): Promise<BootstrapOrchestrator> {
+  const workflow = await loadWorkflow(workflowPath);
+  const logger = new JsonLogger();
+  const promptBuilder = createPromptBuilder(workflow);
+  const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
+  const workspace = new LocalWorkspaceManager(
+    workflow.config.workspace,
+    workflow.config.hooks.afterCreate,
+    logger,
+  );
+  const runner = new LocalRunner(workflow.config.agent, logger);
+  return new BootstrapOrchestrator(
+    workflow.config,
+    promptBuilder,
+    tracker,
+    workspace,
+    runner,
+    logger,
+  );
+}
+
+describe("Phase 1.2 PR lifecycle factory", () => {
   let server: MockGitHubServer;
   let tempDir: string;
   let remotePath: string;
@@ -95,7 +130,7 @@ describe("Phase 0 bootstrap factory", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("processes a real issue end-to-end with a fake GitHub API and fake agent", async () => {
+  it("keeps the issue running after PR open until checks become green", async () => {
     server.seedIssue({
       number: 1,
       title: "Implement Symphony",
@@ -109,23 +144,28 @@ describe("Phase 0 bootstrap factory", () => {
       apiUrl: server.baseUrl,
       agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
     });
+    const orchestrator = await createOrchestrator(workflowPath);
 
-    await runCli([
-      "node",
-      "symphony",
-      "run",
-      "--once",
-      "--workflow",
-      workflowPath,
+    await orchestrator.runOnce();
+
+    let issue = server.getIssue(1);
+    expect(issue.state).toBe("open");
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+    expect(server.getPullRequests()).toHaveLength(1);
+
+    server.setPullRequestCheckRuns("symphony/1", [
+      { name: "CI", status: "completed", conclusion: "success" },
     ]);
 
-    const issue = server.getIssue(1);
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(1);
     expect(issue.state).toBe("closed");
     expect(issue.comments).toContain(
       "Symphony completed this issue successfully.",
     );
-    expect(server.getPullRequests()).toHaveLength(1);
-    expect(server.getPullRequests()[0]?.head).toBe("symphony/1");
 
     const implemented = await readRemoteBranchFile(
       remotePath,
@@ -135,11 +175,11 @@ describe("Phase 0 bootstrap factory", () => {
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
   });
 
-  it("retries a failed run and succeeds on the next attempt", async () => {
+  it("reruns the same PR branch after CI failure and closes only after the rerun goes green", async () => {
     server.seedIssue({
       number: 2,
-      title: "Retry this",
-      body: "Needs one retry",
+      title: "Retry CI failures",
+      body: "Carry the PR through CI",
       labels: ["symphony:ready"],
     });
 
@@ -147,56 +187,44 @@ describe("Phase 0 bootstrap factory", () => {
       rootDir: tempDir,
       remotePath,
       apiUrl: server.baseUrl,
-      agentCommand: path.resolve("tests/fixtures/fake-agent-flaky.sh"),
-      retryBackoffMs: 0,
-      maxAttempts: 2,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-pr-follow-up.sh"),
     });
-
-    const workflow = await loadWorkflow(workflowPath);
-    const logger = new JsonLogger();
-    const promptBuilder = createPromptBuilder(workflow);
-    const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
-    const workspace = new LocalWorkspaceManager(
-      workflow.config.workspace,
-      workflow.config.hooks.afterCreate,
-      logger,
-    );
-    const runner = new LocalRunner(workflow.config.agent, logger);
-    const orchestrator = new BootstrapOrchestrator(
-      workflow.config,
-      promptBuilder,
-      tracker,
-      workspace,
-      runner,
-      logger,
-    );
+    const orchestrator = await createOrchestrator(workflowPath);
 
     await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/2", [
+      { name: "CI", status: "completed", conclusion: "failure" },
+    ]);
+
+    await orchestrator.runOnce();
+
     let issue = server.getIssue(2);
     expect(issue.state).toBe("open");
-    expect(
-      issue.comments.some((comment) =>
-        comment.includes("Retry scheduled by Symphony"),
-      ),
-    ).toBe(true);
-
-    await orchestrator.runOnce();
-    issue = server.getIssue(2);
-    expect(issue.state).toBe("closed");
     expect(server.getPullRequests()).toHaveLength(1);
-    const implemented = await readRemoteBranchFile(
+
+    const secondAttempt = await readRemoteBranchFile(
       remotePath,
       "symphony/2",
       "IMPLEMENTED.txt",
     );
-    expect(implemented).toContain("attempt 2");
+    expect(secondAttempt).toContain("attempt 2");
+    expect(await countRemoteBranchCommits(remotePath, "symphony/2")).toBe(2);
+
+    server.setPullRequestCheckRuns("symphony/2", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(2);
+    expect(issue.state).toBe("closed");
   });
 
-  it("retries successfully after a prior attempt pushed the branch without opening a PR", async () => {
+  it("resolves actionable review feedback after a follow-up push and waits for the PR to become clean", async () => {
     server.seedIssue({
       number: 3,
-      title: "Retry after pushed branch",
-      body: "First attempt pushes but forgets the PR",
+      title: "Handle review feedback",
+      body: "Address bot comments on the open PR",
       labels: ["symphony:ready"],
     });
 
@@ -204,50 +232,30 @@ describe("Phase 0 bootstrap factory", () => {
       rootDir: tempDir,
       remotePath,
       apiUrl: server.baseUrl,
-      agentCommand: path.resolve(
-        "tests/fixtures/fake-agent-push-no-pr-then-succeed.sh",
-      ),
-      retryBackoffMs: 0,
-      maxAttempts: 2,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-pr-follow-up.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/3", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    const threadId = server.addPullRequestReviewThread({
+      head: "symphony/3",
+      authorLogin: "greptile[bot]",
+      body: "Please tighten this implementation",
+      path: "src/tracker/github-bootstrap.ts",
+      line: 42,
+    });
+    server.addPullRequestComment({
+      head: "symphony/3",
+      authorLogin: "bugbot[bot]",
+      body: "There is still one more issue to fix",
     });
 
-    const workflow = await loadWorkflow(workflowPath);
-    const logger = new JsonLogger();
-    const promptBuilder = createPromptBuilder(workflow);
-    const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
-    const workspace = new LocalWorkspaceManager(
-      workflow.config.workspace,
-      workflow.config.hooks.afterCreate,
-      logger,
-    );
-    const runner = new LocalRunner(workflow.config.agent, logger);
-    const orchestrator = new BootstrapOrchestrator(
-      workflow.config,
-      promptBuilder,
-      tracker,
-      workspace,
-      runner,
-      logger,
-    );
-
     await orchestrator.runOnce();
 
-    let issue = server.getIssue(3);
-    expect(issue.state).toBe("open");
-    expect(server.getPullRequests()).toHaveLength(0);
-
-    const firstAttempt = await readRemoteBranchFile(
-      remotePath,
-      "symphony/3",
-      "IMPLEMENTED.txt",
-    );
-    expect(firstAttempt).toContain("attempt 1");
-
-    await orchestrator.runOnce();
-
-    issue = server.getIssue(3);
-    expect(issue.state).toBe("closed");
-    expect(server.getPullRequests()).toHaveLength(1);
+    expect(server.isReviewThreadResolved(threadId)).toBe(true);
 
     const secondAttempt = await readRemoteBranchFile(
       remotePath,
@@ -255,5 +263,15 @@ describe("Phase 0 bootstrap factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(secondAttempt).toContain("attempt 2");
+    expect(await countRemoteBranchCommits(remotePath, "symphony/3")).toBe(2);
+
+    server.setPullRequestCheckRuns("symphony/3", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(3);
+    expect(issue.state).toBe("closed");
   });
 });

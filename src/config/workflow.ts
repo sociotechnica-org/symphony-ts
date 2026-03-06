@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
+import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -27,6 +28,7 @@ interface PromptRenderInput {
     readonly identifier: string;
   };
   readonly attempt: number | null;
+  readonly pullRequest: PullRequestLifecycle | null;
   readonly config: ResolvedConfig;
 }
 
@@ -111,6 +113,13 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         tracker["success_comment"],
         "tracker.success_comment",
       ),
+      reviewBotLogins:
+        tracker["review_bot_logins"] === undefined
+          ? []
+          : requireStringArray(
+              tracker["review_bot_logins"],
+              "tracker.review_bot_logins",
+            ),
     },
     polling: {
       intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
@@ -164,12 +173,16 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   if (resolved.polling.retry.maxAttempts < 1) {
     throw new ConfigError("polling.retry.max_attempts must be >= 1");
   }
+  if (resolved.polling.retry.maxFollowUpAttempts < 1) {
+    throw new ConfigError("polling.retry.max_follow_up_attempts must be >= 1");
+  }
 
   return resolved;
 }
 
 function resolveRetryConfig(value: unknown): {
   readonly maxAttempts: number;
+  readonly maxFollowUpAttempts: number;
   readonly backoffMs: number;
 } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -182,6 +195,13 @@ function resolveRetryConfig(value: unknown): {
       retry["max_attempts"],
       "polling.retry.max_attempts",
     ),
+    maxFollowUpAttempts:
+      retry["max_follow_up_attempts"] === undefined
+        ? requireNumber(retry["max_attempts"], "polling.retry.max_attempts")
+        : requireNumber(
+            retry["max_follow_up_attempts"],
+            "polling.retry.max_follow_up_attempts",
+          ),
     backoffMs: requireNumber(retry["backoff_ms"], "polling.retry.backoff_ms"),
   };
 }
@@ -213,6 +233,7 @@ async function renderPromptTemplate(
     return await liquid.parseAndRender(definition.promptTemplate, {
       issue: input.issue,
       attempt: input.attempt,
+      pull_request: input.pullRequest,
       config: input.config,
     });
   } catch (error) {
@@ -233,6 +254,7 @@ export function createPromptBuilder(
       return await renderPromptTemplate(definition, {
         issue: input.issue,
         attempt: input.attempt,
+        pullRequest: input.pullRequest,
         config: definition.config,
       });
     },

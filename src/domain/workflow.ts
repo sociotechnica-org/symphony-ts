@@ -1,7 +1,9 @@
 import type { RuntimeIssue } from "./issue.js";
+import type { PullRequestLifecycle } from "./pull-request.js";
 
 export interface RetryPolicy {
   readonly maxAttempts: number;
+  readonly maxFollowUpAttempts: number;
   readonly backoffMs: number;
 }
 
@@ -13,6 +15,7 @@ export interface TrackerConfig {
   readonly runningLabel: string;
   readonly failedLabel: string;
   readonly successComment: string;
+  readonly reviewBotLogins: readonly string[];
 }
 
 export interface PollingConfig {
@@ -57,5 +60,6 @@ export interface PromptBuilder {
   build(input: {
     readonly issue: RuntimeIssue;
     readonly attempt: number | null;
+    readonly pullRequest: PullRequestLifecycle | null;
   }): Promise<string>;
 }

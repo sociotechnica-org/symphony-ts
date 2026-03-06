@@ -8,4 +8,5 @@ export interface WorkspaceManager {
     request: WorkspacePreparationRequest,
   ): Promise<PreparedWorkspace>;
   cleanupWorkspace(workspace: PreparedWorkspace): Promise<void>;
+  cleanupWorkspaceForIssue(request: WorkspacePreparationRequest): Promise<void>;
 }

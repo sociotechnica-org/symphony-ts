@@ -52,11 +52,18 @@ src/workspace/  workspace lifecycle and hooks
 
 - Prefer small files and explicit interfaces.
 - Parse external inputs at the boundary.
+- Normalize external payloads into stable internal snapshots before policy or orchestration logic runs.
+- Separate transport, normalization, and policy instead of mixing them in one adapter file.
 - Use structured logging.
 - Keep repo-local operational skills in `skills/` when the behavior should be reused and reviewed.
 - Treat `WORKFLOW.md` as a repository-owned runtime contract.
 - Make the happy path real early; do not fake end-to-end behavior.
 - Preserve a clean separation between workflow/config, tracker, workspace, runner, orchestrator, and observability.
+- Keep tracker-specific lifecycle policy at the edge; the orchestrator should consume normalized handoff state rather than compensate for GitHub-specific quirks.
+- If orchestration depends on multiple counters, flags, or maps, extract a named runtime-state module with explicit transitions.
+- Do not overload one counter for prompt sequencing, retry budgeting, and follow-up budgeting.
+- Keep coordination infrastructure such as leases, lock recovery, and temp cleanup in focused modules rather than inline branches.
+- Prefer test builders and helpers over repeated ad hoc setup for snapshots, fixtures, temp roots, and cleanup.
 
 ## Issue Workflow
 

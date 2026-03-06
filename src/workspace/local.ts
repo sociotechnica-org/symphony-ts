@@ -46,6 +46,19 @@ async function remoteTrackingBranchExists(
   return result.stdout.trim() !== "";
 }
 
+async function branchAheadCount(
+  cwd: string,
+  baseRef: string,
+  branchName: string,
+): Promise<number> {
+  const result = await execFileAsync(
+    "git",
+    ["rev-list", "--count", `${baseRef}..${branchName}`],
+    { cwd },
+  );
+  return Number(result.stdout.trim() || "0");
+}
+
 export class LocalWorkspaceManager implements WorkspaceManager {
   readonly #config: WorkspaceConfig;
   readonly #afterCreate: readonly string[];
@@ -65,8 +78,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     request: WorkspacePreparationRequest,
   ): Promise<PreparedWorkspace> {
     const issue = request.issue;
-    const workspaceKey = sanitize(issue.identifier);
-    const workspacePath = path.join(this.#config.root, workspaceKey);
+    const workspacePath = this.#workspacePathForIssue(issue.identifier);
     const branchName = `${this.#config.branchPrefix}${issue.number}`;
     const exists = await fs
       .stat(workspacePath)
@@ -93,36 +105,43 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       branchName,
     );
 
-    if (hasBranch && hasRemoteTrackingBranch) {
-      this.#logger.info("Deleting existing remote issue branch", {
-        workspacePath,
-        branchName,
-        issueIdentifier: issue.identifier,
-      });
-      await execFileAsync("git", ["push", "origin", "--delete", branchName], {
+    if (hasRemoteTrackingBranch) {
+      await execFileAsync("git", ["checkout", "-B", branchName], {
         cwd: workspacePath,
       });
-      await execFileAsync("git", ["fetch", "origin", "--prune"], {
-        cwd: workspacePath,
-      });
-    }
-
-    await execFileAsync("git", ["checkout", "main"], { cwd: workspacePath });
-    await execFileAsync("git", ["reset", "--hard", "origin/main"], {
-      cwd: workspacePath,
-    });
-
-    if (hasBranch) {
-      await execFileAsync("git", ["checkout", branchName], {
-        cwd: workspacePath,
-      });
-      await execFileAsync("git", ["reset", "--hard", "origin/main"], {
+      await execFileAsync("git", ["reset", "--hard", `origin/${branchName}`], {
         cwd: workspacePath,
       });
     } else {
-      await execFileAsync("git", ["checkout", "-b", branchName], {
+      await execFileAsync("git", ["checkout", "main"], { cwd: workspacePath });
+      await execFileAsync("git", ["reset", "--hard", "origin/main"], {
         cwd: workspacePath,
       });
+
+      if (hasBranch) {
+        const aheadCount = await branchAheadCount(
+          workspacePath,
+          "origin/main",
+          branchName,
+        );
+        if (aheadCount > 0) {
+          this.#logger.warn("Discarding local-only branch commits", {
+            workspacePath,
+            branchName,
+            aheadCount,
+          });
+        }
+        await execFileAsync("git", ["checkout", branchName], {
+          cwd: workspacePath,
+        });
+        await execFileAsync("git", ["reset", "--hard", "origin/main"], {
+          cwd: workspacePath,
+        });
+      } else {
+        await execFileAsync("git", ["checkout", "-b", branchName], {
+          cwd: workspacePath,
+        });
+      }
     }
 
     this.#logger.info("Workspace ready", {
@@ -133,7 +152,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     });
 
     return {
-      key: workspaceKey,
+      key: sanitize(issue.identifier),
       path: workspacePath,
       branchName,
       createdNow: !exists,
@@ -143,5 +162,20 @@ export class LocalWorkspaceManager implements WorkspaceManager {
   async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
     this.#logger.info("Cleaning workspace", { workspacePath: workspace.path });
     await fs.rm(workspace.path, { recursive: true, force: true });
+  }
+
+  async cleanupWorkspaceForIssue(
+    request: WorkspacePreparationRequest,
+  ): Promise<void> {
+    await this.cleanupWorkspace({
+      key: sanitize(request.issue.identifier),
+      path: this.#workspacePathForIssue(request.issue.identifier),
+      branchName: `${this.#config.branchPrefix}${request.issue.number}`,
+      createdNow: false,
+    });
+  }
+
+  #workspacePathForIssue(issueIdentifier: string): string {
+    return path.join(this.#config.root, sanitize(issueIdentifier));
   }
 }

@@ -21,11 +21,14 @@ tracker:
   running_label: symphony:running
   failed_label: symphony:failed
   success_comment: done
+  review_bot_logins:
+    - greptile[bot]
 polling:
   interval_ms: 1000
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
+    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -50,6 +53,8 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
     expect(workflow.config.workspace.root).toContain(
       `${path.sep}.tmp${path.sep}ws`,
     );
+    expect(workflow.config.polling.retry.maxAttempts).toBe(2);
+    expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
     const promptBuilder = createPromptBuilder(workflow);
     const rendered = await promptBuilder.build({
       issue: {
@@ -65,6 +70,7 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
       attempt: null,
+      pullRequest: null,
     });
     expect(rendered).toContain("repo#1");
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
