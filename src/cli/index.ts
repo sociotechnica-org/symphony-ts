@@ -29,10 +29,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
   const command = args[0];
   const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
-  const resolvedWorkflowPath = path.resolve(
-    process.cwd(),
-    workflowPath ?? "WORKFLOW.md",
-  );
+  const resolvedWorkflowPath = path.resolve(process.cwd(), workflowPath);
 
   if (command === "run") {
     return {

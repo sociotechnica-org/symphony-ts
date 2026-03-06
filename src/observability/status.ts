@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
 
+let snapshotWriteSequence = 0;
+
 export type FactoryState = "idle" | "running" | "blocked";
 
 export type FactoryIssueStatus =
@@ -102,8 +104,9 @@ export async function writeFactoryStatusSnapshot(
   const directory = path.dirname(filePath);
   const temporaryPath = path.join(
     directory,
-    `.status.${process.pid.toString()}.tmp`,
+    `.status.${process.pid.toString()}.${snapshotWriteSequence.toString()}.tmp`,
   );
+  snapshotWriteSequence += 1;
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(
     temporaryPath,
