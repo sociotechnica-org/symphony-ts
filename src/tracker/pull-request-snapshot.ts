@@ -43,22 +43,24 @@ export function createPullRequestSnapshot(input: {
   const unresolvedThreads = input.reviewState.reviewThreads.nodes
     .filter((thread) => !thread.isResolved && !thread.isOutdated)
     .map((thread) => {
-      const comment = thread.comments.nodes.at(-1);
-      if (!comment) {
+      const originComment = thread.comments.nodes[0];
+      const latestComment = thread.comments.nodes.at(-1);
+      if (!originComment || !latestComment) {
         throw new TrackerError(
           `Pull request review thread ${thread.id} had no comments`,
         );
       }
       const feedback: ReviewFeedback = {
-        id: comment.id,
+        id: latestComment.id,
         kind: "review-thread",
         threadId: thread.id,
-        authorLogin: comment.author?.login ?? null,
-        body: comment.body,
-        createdAt: comment.createdAt,
-        url: comment.url,
-        path: comment.path,
-        line: comment.line,
+        // Keep thread ownership stable even if humans reply inside the thread.
+        authorLogin: originComment.author?.login ?? null,
+        body: latestComment.body,
+        createdAt: latestComment.createdAt,
+        url: latestComment.url,
+        path: latestComment.path,
+        line: latestComment.line,
       };
       return feedback;
     });
