@@ -575,8 +575,21 @@ export class MockGitHubServer {
                   id: thread.id,
                   isResolved: thread.isResolved,
                   isOutdated: thread.isOutdated,
-                  comments: {
-                    nodes: thread.comments.map((comment) => ({
+                  originComments: {
+                    nodes: thread.comments.slice(0, 1).map((comment) => ({
+                      id: comment.id,
+                      body: comment.body,
+                      createdAt: comment.createdAt,
+                      url: comment.url,
+                      path: comment.path,
+                      line: comment.line,
+                      author: {
+                        login: comment.authorLogin,
+                      },
+                    })),
+                  },
+                  latestComments: {
+                    nodes: thread.comments.slice(-1).map((comment) => ({
                       id: comment.id,
                       body: comment.body,
                       createdAt: comment.createdAt,

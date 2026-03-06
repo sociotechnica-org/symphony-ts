@@ -1,13 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { RunnerError } from "../domain/errors.js";
+import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
 import type { RunResult, RunSession } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import type { Runner } from "./service.js";
+import type { Runner, RunnerRunOptions } from "./service.js";
 
 export class LocalRunner implements Runner {
+  static readonly #terminationGraceMs = 200;
   readonly #config: AgentConfig;
   readonly #logger: Logger;
 
@@ -16,7 +17,10 @@ export class LocalRunner implements Runner {
     this.#logger = logger;
   }
 
-  async run(session: RunSession): Promise<RunResult> {
+  async run(
+    session: RunSession,
+    options?: RunnerRunOptions,
+  ): Promise<RunResult> {
     const startedAt = new Date().toISOString();
     const promptFile = path.join(session.workspace.path, ".symphony-prompt.md");
     const command =
@@ -56,6 +60,10 @@ export class LocalRunner implements Runner {
       let stdout = "";
       let stderr = "";
       let settled = false;
+      let timedOut = false;
+      let aborted = false;
+      let spawnError: RunnerError | null = null;
+      let forcedKillTimeout: NodeJS.Timeout | null = null;
 
       const finish = (callback: () => void): void => {
         if (settled) {
@@ -63,8 +71,72 @@ export class LocalRunner implements Runner {
         }
         settled = true;
         clearTimeout(timeout);
+        if (forcedKillTimeout !== null) {
+          clearTimeout(forcedKillTimeout);
+          forcedKillTimeout = null;
+        }
+        options?.signal?.removeEventListener("abort", handleAbort);
         callback();
       };
+
+      const terminateChild = (): void => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          return;
+        }
+        child.kill("SIGTERM");
+        if (forcedKillTimeout !== null) {
+          return;
+        }
+        forcedKillTimeout = setTimeout(() => {
+          forcedKillTimeout = null;
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill("SIGKILL");
+          }
+        }, LocalRunner.#terminationGraceMs);
+      };
+
+      const handleAbort = (): void => {
+        if (!timedOut) {
+          aborted = true;
+        }
+        terminateChild();
+      };
+
+      const handleSpawnFailure = (error: unknown): void => {
+        if (spawnError !== null) {
+          return;
+        }
+        const reason = error instanceof Error ? error.message : String(error);
+        spawnError = new RunnerError(
+          `Failed to record runner spawn: ${reason}`,
+          {
+            cause: error instanceof Error ? error : new Error(reason),
+          },
+        );
+        terminateChild();
+      };
+
+      if (child.pid !== undefined) {
+        try {
+          const spawnNotification = options?.onSpawn?.({
+            pid: child.pid,
+            spawnedAt: new Date().toISOString(),
+          });
+          if (spawnNotification instanceof Promise) {
+            void spawnNotification.catch(handleSpawnFailure);
+          }
+        } catch (error) {
+          handleSpawnFailure(error);
+        }
+      }
+
+      if (options?.signal?.aborted) {
+        handleAbort();
+      } else {
+        options?.signal?.addEventListener("abort", handleAbort, {
+          once: true,
+        });
+      }
 
       const handleStdinError = (error: NodeJS.ErrnoException): void => {
         if (
@@ -85,7 +157,8 @@ export class LocalRunner implements Runner {
       };
 
       const timeout = setTimeout(() => {
-        child.kill("SIGTERM");
+        timedOut = true;
+        terminateChild();
       }, this.#config.timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer | string) => {
@@ -104,15 +177,23 @@ export class LocalRunner implements Runner {
           );
         });
       });
-      child.on("close", (exitCode, signal) => {
+      child.on("close", (exitCode) => {
         finish(() => {
           const finishedAt = new Date().toISOString();
-          if (signal === "SIGTERM") {
+          if (timedOut) {
             reject(
               new RunnerError(
                 `Runner timed out after ${this.#config.timeoutMs}ms`,
               ),
             );
+            return;
+          }
+          if (aborted) {
+            reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
+            return;
+          }
+          if (spawnError !== null) {
+            reject(spawnError);
             return;
           }
           resolve({

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createPromptBuilder,
@@ -17,6 +18,7 @@ import {
   readRemoteBranchFile,
 } from "../support/git.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
+import { waitForExit } from "../support/process.js";
 
 const originalEnv = { ...process.env };
 
@@ -273,5 +275,79 @@ describe("Phase 1.2 PR lifecycle factory", () => {
 
     const issue = server.getIssue(3);
     expect(issue.state).toBe("closed");
+  });
+
+  it("recovers a stale running issue and clears orphaned local ownership on startup", async () => {
+    server.seedIssue({
+      number: 4,
+      title: "Recover orphaned run ownership",
+      body: "Repair stale running state after a factory crash",
+      labels: ["symphony:running"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+    });
+    const workspaceRoot = path.join(tempDir, ".tmp", "workspaces");
+    const lockDir = path.join(workspaceRoot, ".symphony-locks", "4");
+    const orphan = spawn(
+      process.execPath,
+      ["-e", "setInterval(() => {}, 1000)"],
+      {
+        stdio: "ignore",
+      },
+    );
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+    await fs.writeFile(
+      path.join(lockDir, "run.json"),
+      JSON.stringify(
+        {
+          issueNumber: 4,
+          issueIdentifier: "sociotechnica-org/symphony-ts#4",
+          branchName: "symphony/4",
+          runSessionId: "sociotechnica-org/symphony-ts#4/attempt-1/orphaned",
+          attempt: 1,
+          ownerPid: 999999,
+          runnerPid: orphan.pid,
+          runRecordedAt: new Date().toISOString(),
+          runnerStartedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    try {
+      await orchestrator.runOnce();
+
+      expect(await fs.stat(lockDir).catch(() => null)).toBeNull();
+      await waitForExit(orphan.pid!);
+
+      let issue = server.getIssue(4);
+      expect(issue.state).toBe("open");
+      expect(issue.labels.map((label) => label.name)).toContain(
+        "symphony:running",
+      );
+      expect(server.getPullRequests()).toHaveLength(1);
+
+      server.setPullRequestCheckRuns("symphony/4", [
+        { name: "CI", status: "completed", conclusion: "success" },
+      ]);
+
+      await orchestrator.runOnce();
+
+      issue = server.getIssue(4);
+      expect(issue.state).toBe("closed");
+    } finally {
+      orphan.kill("SIGKILL");
+    }
   });
 });

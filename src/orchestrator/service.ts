@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { OrchestratorError } from "../domain/errors.js";
+import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { RetryState } from "../domain/retry.js";
-import type { RunSession } from "../domain/run.js";
+import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
 import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { Runner } from "../runner/service.js";
@@ -40,6 +40,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #state = createOrchestratorState();
   readonly #instanceId = randomUUID();
   readonly #leaseManager: LocalIssueLeaseManager;
+  #shutdownSignal: AbortSignal | undefined;
 
   constructor(
     config: ResolvedConfig,
@@ -68,6 +69,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#tracker.fetchReadyIssues(),
       this.#tracker.fetchRunningIssues(),
     ]);
+    await this.#reconcileRunningIssueOwnership(runningCandidates);
     const dueRetries = this.#collectDueRetries();
     const queue = this.#mergeQueue(
       readyCandidates,
@@ -107,6 +109,11 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {
+    this.#shutdownSignal = signal;
+    const handleAbort = (): void => {
+      this.#abortActiveRuns();
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
     while (!signal?.aborted) {
       try {
         await this.runOnce();
@@ -115,9 +122,14 @@ export class BootstrapOrchestrator implements Orchestrator {
           error: this.#normalizeFailure(error as Error),
         });
       }
-      await new Promise((resolve) =>
-        setTimeout(resolve, this.#config.polling.intervalMs),
-      );
+      if (signal?.aborted) {
+        break;
+      }
+      await this.#sleep(this.#config.polling.intervalMs, signal);
+    }
+    signal?.removeEventListener("abort", handleAbort);
+    if (this.#shutdownSignal === signal) {
+      this.#shutdownSignal = undefined;
     }
   }
 
@@ -193,7 +205,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
-    await this.#withIssueLease(issue, attempt, async () => {
+    await this.#withIssueLease(issue, attempt, async (lockDir) => {
       const claimed = await this.#tracker.claimIssue(issue.number);
       if (claimed === null) {
         this.#logger.info("Issue was no longer claimable", {
@@ -204,6 +216,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#processClaimedIssue(
         claimed,
         attempt,
+        lockDir,
         this.#missingLifecycle(claimed.number),
       );
     });
@@ -213,15 +226,15 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
-    await this.#withIssueLease(issue, attempt, async () => {
-      await this.#processClaimedIssue(issue, attempt);
+    await this.#withIssueLease(issue, attempt, async (lockDir) => {
+      await this.#processClaimedIssue(issue, attempt, lockDir);
     });
   }
 
   async #withIssueLease(
     issue: RuntimeIssue,
     attempt: number,
-    work: () => Promise<void>,
+    work: (lockDir: string) => Promise<void>,
   ): Promise<void> {
     const lease = await this.#leaseManager.acquire(issue.number);
     if (!lease) {
@@ -229,7 +242,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     this.#state.runningIssueNumbers.add(issue.number);
     try {
-      await work();
+      await work(lease);
     } catch (error) {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
@@ -241,6 +254,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #processClaimedIssue(
     issue: RuntimeIssue,
     attempt: number,
+    lockDir: string,
     initialLifecycle?: PullRequestLifecycle,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
@@ -264,6 +278,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#runIssue(
       issue,
       attempt,
+      lockDir,
       lifecycle.kind === "missing" ? null : lifecycle,
     );
   }
@@ -271,6 +286,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #runIssue(
     issue: RuntimeIssue,
     attempt: number,
+    lockDir: string,
     pullRequest: PullRequestLifecycle | null,
   ): Promise<void> {
     const workspace = await this.#workspaceManager.prepareWorkspace({ issue });
@@ -280,7 +296,31 @@ export class BootstrapOrchestrator implements Orchestrator {
       pullRequest,
     });
     const session = this.#createRunSession(issue, workspace, prompt, attempt);
-    const result = await this.#runner.run(session);
+    await this.#leaseManager.recordRun(lockDir, session);
+    const abortController = new AbortController();
+    const shutdownSignal = this.#shutdownSignal;
+    const handleShutdown = (): void => {
+      abortController.abort();
+    };
+    if (shutdownSignal?.aborted) {
+      abortController.abort();
+    } else if (shutdownSignal) {
+      shutdownSignal.addEventListener("abort", handleShutdown, { once: true });
+    }
+    this.#state.runAbortControllers.set(issue.number, abortController);
+
+    let result: RunResult;
+    try {
+      result = await this.#runner.run(session, {
+        signal: abortController.signal,
+        onSpawn: (event) => {
+          this.#recordRunnerSpawn(issue.number, lockDir, event);
+        },
+      });
+    } finally {
+      shutdownSignal?.removeEventListener("abort", handleShutdown);
+      this.#state.runAbortControllers.delete(issue.number);
+    }
 
     if (result.exitCode !== 0) {
       await this.#handleFailure(
@@ -381,6 +421,42 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #refreshLifecycle(branchName: string): Promise<PullRequestLifecycle> {
     return await this.#tracker.inspectIssueHandoff(branchName);
+  }
+
+  async #reconcileRunningIssueOwnership(
+    issues: readonly RuntimeIssue[],
+  ): Promise<void> {
+    const recoveries = await Promise.allSettled(
+      issues.map(async (issue) => ({
+        issueNumber: issue.number,
+        snapshot: await this.#leaseManager.reconcile(issue.number),
+      })),
+    );
+
+    for (const [index, recovery] of recoveries.entries()) {
+      if (recovery.status === "rejected") {
+        this.#logger.error("Failed to reconcile running issue ownership", {
+          issueNumber: issues[index]?.number,
+          error: this.#normalizeFailure(
+            recovery.reason instanceof Error
+              ? recovery.reason
+              : new Error(String(recovery.reason)),
+          ),
+        });
+        continue;
+      }
+      const { issueNumber, snapshot } = recovery.value;
+      if (snapshot.kind === "missing" || snapshot.kind === "active") {
+        continue;
+      }
+      this.#logger.warn("Recovered stale local run ownership", {
+        issueNumber,
+        ownershipState: snapshot.kind,
+        ownerPid: snapshot.ownerPid,
+        runnerPid: snapshot.runnerPid,
+        runSessionId: snapshot.record?.runSessionId ?? null,
+      });
+    }
   }
 
   #createRunSession(
@@ -518,8 +594,51 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #normalizeFailure(error: Error): string {
+    if (error instanceof RunnerAbortedError) {
+      return error.message;
+    }
     return error instanceof OrchestratorError
       ? error.message
       : `${error.name}: ${error.message}`;
+  }
+
+  #recordRunnerSpawn(
+    issueNumber: number,
+    lockDir: string,
+    event: RunSpawnEvent,
+  ): void {
+    this.#leaseManager.recordRunnerSpawn(lockDir, event);
+    this.#logger.info("Runner process attached to active issue", {
+      issueNumber,
+      runnerPid: event.pid,
+      spawnedAt: event.spawnedAt,
+    });
+  }
+
+  #abortActiveRuns(): void {
+    for (const controller of this.#state.runAbortControllers.values()) {
+      controller.abort();
+    }
+  }
+
+  async #sleep(durationMs: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        signal?.removeEventListener("abort", handleAbort);
+        resolve();
+      }, durationMs);
+      const handleAbort = (): void => {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", handleAbort);
+        resolve();
+      };
+      if (!signal) {
+        return;
+      }
+      signal.addEventListener("abort", handleAbort, { once: true });
+    });
   }
 }

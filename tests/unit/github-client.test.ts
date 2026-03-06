@@ -68,7 +68,20 @@ describe("GitHubClient", () => {
                           id: "thread-2",
                           isResolved: false,
                           isOutdated: false,
-                          comments: {
+                          originComments: {
+                            nodes: [
+                              {
+                                id: "thread-comment-2",
+                                body: "thread two",
+                                createdAt: "2026-03-06T00:01:00Z",
+                                url: "https://example.com/thread-2",
+                                path: "src/index.ts",
+                                line: 2,
+                                author: { login: "greptile-apps" },
+                              },
+                            ],
+                          },
+                          latestComments: {
                             nodes: [
                               {
                                 id: "thread-comment-2",
@@ -105,7 +118,20 @@ describe("GitHubClient", () => {
                           id: "thread-1",
                           isResolved: false,
                           isOutdated: false,
-                          comments: {
+                          originComments: {
+                            nodes: [
+                              {
+                                id: "thread-comment-1",
+                                body: "thread one",
+                                createdAt: "2026-03-06T00:00:30Z",
+                                url: "https://example.com/thread-1",
+                                path: "src/index.ts",
+                                line: 1,
+                                author: { login: "greptile-apps" },
+                              },
+                            ],
+                          },
+                          latestComments: {
                             nodes: [
                               {
                                 id: "thread-comment-1",

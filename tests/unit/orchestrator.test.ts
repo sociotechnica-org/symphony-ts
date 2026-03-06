@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RunnerAbortedError } from "../../src/domain/errors.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type { PullRequestLifecycle } from "../../src/domain/pull-request.js";
 import type { RunResult, RunSession } from "../../src/domain/run.js";
@@ -7,6 +8,7 @@ import type {
   PromptBuilder,
   ResolvedConfig,
 } from "../../src/domain/workflow.js";
+import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
@@ -553,6 +555,60 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("keeps processing other work when one running-issue reconciliation fails", async () => {
+    const tempRoot = await createTempDir("symphony-reconcile-failure-test-");
+    const tracker = new SequencedTracker({
+      ready: [createIssue(78)],
+      running: [createIssue(77, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(77, [lifecycle("ready", "symphony/77")]);
+    tracker.setLifecycleSequence(78, [
+      lifecycle("missing", "symphony/78"),
+      lifecycle("ready", "symphony/78"),
+    ]);
+    const logger = new NullLogger();
+    const originalReconcile = LocalIssueLeaseManager.prototype.reconcile;
+    const reconcileSpy = vi
+      .spyOn(LocalIssueLeaseManager.prototype, "reconcile")
+      .mockImplementation(async function mockReconcile(
+        this: LocalIssueLeaseManager,
+        issueNumber,
+      ) {
+        if (issueNumber === 77) {
+          throw new Error("simulated reconcile failure");
+        }
+        return await originalReconcile.call(this, issueNumber);
+      });
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        logger,
+      );
+
+      await orchestrator.runOnce();
+    } finally {
+      reconcileSpy.mockRestore();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+
+    expect(tracker.completed).toEqual(expect.arrayContaining([77, 78]));
+    expect(logger.errors).toContain(
+      "Failed to reconcile running issue ownership",
+    );
+    expect(logger.errors).not.toContain("Poll cycle failed");
+  });
+
   it("keeps an existing issue lease when pid probing returns EPERM", async () => {
     const tempRoot = await createTempDir("symphony-stale-lease-eperm-test-");
     const tracker = new SequencedTracker({
@@ -1051,6 +1107,66 @@ describe("BootstrapOrchestrator", () => {
       },
     ]);
     expect(logger.errors).toContain("Failure handling failed");
+  });
+
+  it("cancels an active run on shutdown and leaves the issue queued for retry", async () => {
+    const tempRoot = await createTempDir("symphony-shutdown-test-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(76)],
+      });
+      tracker.setLifecycleSequence(76, [lifecycle("missing", "symphony/76")]);
+      const started = createDeferred<void>();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          polling: {
+            ...baseConfig.polling,
+            intervalMs: 1,
+          },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          async run(_session, options): Promise<RunResult> {
+            started.resolve();
+            return await new Promise<RunResult>((_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => {
+                  reject(
+                    new RunnerAbortedError("Runner cancelled by shutdown"),
+                  );
+                },
+                { once: true },
+              );
+            });
+          },
+        },
+        new NullLogger(),
+      );
+      const controller = new AbortController();
+      const loop = orchestrator.runLoop(controller.signal);
+
+      await started.promise;
+      controller.abort();
+      await loop;
+
+      expect(tracker.retried).toEqual([
+        {
+          issueNumber: 76,
+          reason: "Runner cancelled by shutdown",
+        },
+      ]);
+      expect(tracker.failed).toEqual([]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("generates unique run session ids across orchestrator instances", async () => {

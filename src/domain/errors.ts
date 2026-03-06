@@ -38,6 +38,12 @@ export class RunnerError extends SymphonyError {
   }
 }
 
+export class RunnerAbortedError extends SymphonyError {
+  constructor(message: string, options?: ErrorOptions) {
+    super("runner_aborted", message, options);
+  }
+}
+
 export class OrchestratorError extends SymphonyError {
   constructor(message: string, options?: ErrorOptions) {
     super("orchestrator_error", message, options);

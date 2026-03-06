@@ -13,6 +13,11 @@ export interface RunSession {
   readonly attempt: RunAttempt;
 }
 
+export interface RunSpawnEvent {
+  readonly pid: number;
+  readonly spawnedAt: string;
+}
+
 export interface RunResult {
   readonly exitCode: number;
   readonly stdout: string;
