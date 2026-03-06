@@ -275,10 +275,16 @@ describe("BootstrapOrchestrator", () => {
   it("keeps polling after a transient poll-level failure", async () => {
     const tracker = new FlakyTracker([createIssue(1)]);
     const workspace = new StaticWorkspaceManager();
-    const runner = new ConcurrencyRunner();
+    const runner = new RecordingRunner();
     const logger = new NullLogger();
     const orchestrator = new BootstrapOrchestrator(
-      baseConfig,
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          intervalMs: 1,
+        },
+      },
       staticPromptBuilder,
       tracker,
       workspace,
@@ -286,13 +292,29 @@ describe("BootstrapOrchestrator", () => {
       logger,
     );
     const controller = new AbortController();
+    const loop = orchestrator.runLoop(controller.signal);
 
-    setTimeout(() => {
-      controller.abort();
-      runner.finish();
-    }, 50);
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + 500;
+      const check = () => {
+        if (tracker.completed.length === 1) {
+          controller.abort();
+          resolve();
+          return;
+        }
+        if (Date.now() >= deadline) {
+          controller.abort();
+          reject(
+            new Error("Timed out waiting for the orchestrator to recover"),
+          );
+          return;
+        }
+        setTimeout(check, 1);
+      };
+      check();
+    });
 
-    await orchestrator.runLoop(controller.signal);
+    await loop;
 
     expect(tracker.attempts).toBeGreaterThanOrEqual(2);
     expect(logger.errors).toContain("Poll cycle failed");
