@@ -12,9 +12,11 @@ Today, `symphony-ts` can:
 - claim one of those issues locally
 - create or reuse a deterministic per-issue git workspace
 - run Codex against that workspace using the rendered `WORKFLOW.md` prompt
+- supervise active local agent subprocesses and persist run ownership metadata
 - observe the pull request associated with the issue branch
 - wait for PR checks and automated review feedback after PR creation
 - re-enter the same workspace branch when CI or review feedback needs follow-up
+- recover orphaned `symphony:running` issues after local worker or agent loss
 - close the issue only after the PR is merge-ready
 - retry failed runs locally
 
@@ -29,7 +31,7 @@ The current runtime is a narrow vertical slice:
 3. `src/tracker/github-bootstrap.ts` polls GitHub and manages labels/comments/state.
 4. `src/workspace/local.ts` clones and resets per-issue workspaces.
 5. `src/runner/local.ts` launches Codex as a subprocess.
-6. `src/orchestrator/service.ts` ties the loop together.
+6. `src/orchestrator/service.ts` ties the loop together and supervises active local runs.
 
 The default issue lifecycle is:
 
@@ -45,6 +47,11 @@ If a run fails, Symphony either:
 
 - schedules a retry while keeping the issue in the in-flight factory loop, or
 - marks it `symphony:failed` after retries are exhausted
+
+Active run ownership is also persisted locally under the workspace root. On the
+next startup or poll, Symphony reconciles `symphony:running` issues against
+that local state, terminates orphaned local agent processes when needed, and
+resumes or fails the issue from the runtime itself.
 
 ## Repository Map
 

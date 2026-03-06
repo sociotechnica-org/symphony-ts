@@ -1,10 +1,43 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { RunSession, RunSpawnEvent } from "../domain/run.js";
 import type { Logger } from "../observability/logger.js";
 
 function isStaleLeaseError(code: string | undefined): boolean {
   return code === "ENOENT" || code === "ENOTDIR" || code === "ESRCH";
 }
+
+export interface ActiveRunLeaseRecord {
+  readonly issueNumber: number;
+  readonly issueIdentifier: string;
+  readonly branchName: string;
+  readonly runSessionId: string;
+  readonly attempt: number;
+  readonly ownerPid: number;
+  readonly runnerPid: number | null;
+  readonly acquiredAt: string;
+  readonly runnerStartedAt: string | null;
+  readonly updatedAt: string;
+}
+
+export interface IssueLeaseSnapshot {
+  readonly kind:
+    | "missing"
+    | "active"
+    | "stale-owner"
+    | "stale-owner-runner"
+    | "invalid";
+  readonly issueNumber: number;
+  readonly lockDir: string | null;
+  readonly ownerPid: number | null;
+  readonly ownerAlive: boolean | null;
+  readonly runnerPid: number | null;
+  readonly runnerAlive: boolean | null;
+  readonly record: ActiveRunLeaseRecord | null;
+}
+
+const RUN_RECORD_FILE = "run.json";
+const PID_FILE = "pid";
 
 export class LocalIssueLeaseManager {
   readonly #workspaceRoot: string;
@@ -16,12 +49,8 @@ export class LocalIssueLeaseManager {
   }
 
   async acquire(issueNumber: number): Promise<string | null> {
-    const lockDir = path.join(
-      this.#workspaceRoot,
-      ".symphony-locks",
-      issueNumber.toString(),
-    );
-    const pidFile = path.join(lockDir, "pid");
+    const lockDir = this.#lockDir(issueNumber);
+    const pidFile = this.#pidFile(lockDir);
     for (;;) {
       try {
         await fs.mkdir(lockDir, { recursive: false });
@@ -34,8 +63,8 @@ export class LocalIssueLeaseManager {
           continue;
         }
         if (systemError.code === "EEXIST") {
-          if (await this.#isStaleLease(pidFile)) {
-            await fs.rm(lockDir, { recursive: true, force: true });
+          const recovered = await this.reconcile(issueNumber);
+          if (recovered.kind !== "active") {
             continue;
           }
           this.#logger.info("Issue already leased by another local worker", {
@@ -52,18 +81,232 @@ export class LocalIssueLeaseManager {
     await fs.rm(lockDir, { recursive: true, force: true });
   }
 
-  async #isStaleLease(pidFile: string): Promise<boolean> {
+  async recordRun(lockDir: string, session: RunSession): Promise<void> {
+    const record: ActiveRunLeaseRecord = {
+      issueNumber: session.issue.number,
+      issueIdentifier: session.issue.identifier,
+      branchName: session.workspace.branchName,
+      runSessionId: session.id,
+      attempt: session.attempt.sequence,
+      ownerPid: process.pid,
+      runnerPid: null,
+      acquiredAt: new Date().toISOString(),
+      runnerStartedAt: null,
+      updatedAt: new Date().toISOString(),
+    };
+    await fs.writeFile(
+      this.#recordFile(lockDir),
+      JSON.stringify(record, null, 2),
+      "utf8",
+    );
+  }
+
+  async recordRunnerSpawn(
+    lockDir: string,
+    event: RunSpawnEvent,
+  ): Promise<void> {
+    const record = await this.#readRecord(lockDir);
+    if (record === null) {
+      return;
+    }
+    const nextRecord: ActiveRunLeaseRecord = {
+      ...record,
+      runnerPid: event.pid,
+      runnerStartedAt: event.spawnedAt,
+      updatedAt: event.spawnedAt,
+    };
+    await fs.writeFile(
+      this.#recordFile(lockDir),
+      JSON.stringify(nextRecord, null, 2),
+      "utf8",
+    );
+  }
+
+  async inspect(issueNumber: number): Promise<IssueLeaseSnapshot> {
+    const lockDir = this.#lockDir(issueNumber);
     try {
-      const rawPid = await fs.readFile(pidFile, "utf8");
-      const pid = Number.parseInt(rawPid.trim(), 10);
-      if (!Number.isInteger(pid)) {
-        return true;
-      }
-      process.kill(pid, 0);
-      return false;
+      await fs.stat(lockDir);
     } catch (error) {
       const systemError = error as NodeJS.ErrnoException;
-      return isStaleLeaseError(systemError.code);
+      if (isStaleLeaseError(systemError.code)) {
+        return {
+          kind: "missing",
+          issueNumber,
+          lockDir: null,
+          ownerPid: null,
+          ownerAlive: null,
+          runnerPid: null,
+          runnerAlive: null,
+          record: null,
+        };
+      }
+      throw error;
+    }
+
+    const [ownerPid, record] = await Promise.all([
+      this.#readOwnerPid(lockDir),
+      this.#readRecord(lockDir),
+    ]);
+
+    const ownerAlive =
+      ownerPid === null ? null : await this.#isProcessAlive(ownerPid);
+    const runnerPid = record?.runnerPid ?? null;
+    const runnerAlive =
+      runnerPid === null ? null : await this.#isProcessAlive(runnerPid);
+
+    if (ownerPid === null) {
+      return {
+        kind: "invalid",
+        issueNumber,
+        lockDir,
+        ownerPid,
+        ownerAlive,
+        runnerPid,
+        runnerAlive,
+        record,
+      };
+    }
+
+    if (ownerAlive) {
+      return {
+        kind: "active",
+        issueNumber,
+        lockDir,
+        ownerPid,
+        ownerAlive,
+        runnerPid,
+        runnerAlive,
+        record,
+      };
+    }
+
+    return {
+      kind: runnerAlive ? "stale-owner-runner" : "stale-owner",
+      issueNumber,
+      lockDir,
+      ownerPid,
+      ownerAlive,
+      runnerPid,
+      runnerAlive,
+      record,
+    };
+  }
+
+  async reconcile(issueNumber: number): Promise<IssueLeaseSnapshot> {
+    const snapshot = await this.inspect(issueNumber);
+    if (snapshot.kind === "missing" || snapshot.kind === "active") {
+      return snapshot;
+    }
+
+    if (snapshot.kind === "stale-owner-runner" && snapshot.runnerPid !== null) {
+      await this.#terminateRunner(issueNumber, snapshot.runnerPid);
+    }
+
+    if (snapshot.lockDir !== null) {
+      await fs.rm(snapshot.lockDir, { recursive: true, force: true });
+    }
+
+    return snapshot;
+  }
+
+  #lockDir(issueNumber: number): string {
+    return path.join(
+      this.#workspaceRoot,
+      ".symphony-locks",
+      issueNumber.toString(),
+    );
+  }
+
+  #pidFile(lockDir: string): string {
+    return path.join(lockDir, PID_FILE);
+  }
+
+  #recordFile(lockDir: string): string {
+    return path.join(lockDir, RUN_RECORD_FILE);
+  }
+
+  async #readOwnerPid(lockDir: string): Promise<number | null> {
+    try {
+      const rawPid = await fs.readFile(this.#pidFile(lockDir), "utf8");
+      const pid = Number.parseInt(rawPid.trim(), 10);
+      return Number.isInteger(pid) ? pid : null;
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      if (isStaleLeaseError(systemError.code)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async #readRecord(lockDir: string): Promise<ActiveRunLeaseRecord | null> {
+    try {
+      const raw = await fs.readFile(this.#recordFile(lockDir), "utf8");
+      return JSON.parse(raw) as ActiveRunLeaseRecord;
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      if (isStaleLeaseError(systemError.code)) {
+        return null;
+      }
+      if (systemError.name === "SyntaxError") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async #isProcessAlive(pid: number): Promise<boolean> {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      return (
+        !isStaleLeaseError(systemError.code) && systemError.code === "EPERM"
+      );
+    }
+  }
+
+  async #terminateRunner(issueNumber: number, pid: number): Promise<void> {
+    if (!(await this.#sendSignal(pid, "SIGTERM"))) {
+      return;
+    }
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (!(await this.#isProcessAlive(pid))) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    if (await this.#sendSignal(pid, "SIGKILL")) {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        if (!(await this.#isProcessAlive(pid))) {
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    this.#logger.warn("Orphaned runner process did not terminate cleanly", {
+      issueNumber,
+      runnerPid: pid,
+    });
+  }
+
+  async #sendSignal(pid: number, signal: NodeJS.Signals): Promise<boolean> {
+    try {
+      process.kill(pid, signal);
+      return true;
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      if (isStaleLeaseError(systemError.code)) {
+        return false;
+      }
+      if (systemError.code === "EPERM") {
+        return true;
+      }
+      throw error;
     }
   }
 }

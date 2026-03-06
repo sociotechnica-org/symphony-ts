@@ -1,11 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { RunnerError } from "../domain/errors.js";
+import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
 import type { RunResult, RunSession } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import type { Runner } from "./service.js";
+import type { Runner, RunnerRunOptions } from "./service.js";
 
 export class LocalRunner implements Runner {
   readonly #config: AgentConfig;
@@ -16,7 +16,10 @@ export class LocalRunner implements Runner {
     this.#logger = logger;
   }
 
-  async run(session: RunSession): Promise<RunResult> {
+  async run(
+    session: RunSession,
+    options?: RunnerRunOptions,
+  ): Promise<RunResult> {
     const startedAt = new Date().toISOString();
     const promptFile = path.join(session.workspace.path, ".symphony-prompt.md");
     const command =
@@ -56,6 +59,8 @@ export class LocalRunner implements Runner {
       let stdout = "";
       let stderr = "";
       let settled = false;
+      let timedOut = false;
+      let aborted = false;
 
       const finish = (callback: () => void): void => {
         if (settled) {
@@ -63,8 +68,40 @@ export class LocalRunner implements Runner {
         }
         settled = true;
         clearTimeout(timeout);
+        options?.signal?.removeEventListener("abort", handleAbort);
         callback();
       };
+
+      const handleAbort = (): void => {
+        aborted = true;
+        child.kill("SIGTERM");
+      };
+
+      if (child.pid !== undefined) {
+        const spawnNotification = options?.onSpawn?.({
+          pid: child.pid,
+          spawnedAt: new Date().toISOString(),
+        });
+        if (spawnNotification instanceof Promise) {
+          void spawnNotification.catch((error: unknown) => {
+            finish(() => {
+              reject(
+                new RunnerError(`Failed to record runner spawn`, {
+                  cause: error as Error,
+                }),
+              );
+            });
+          });
+        }
+      }
+
+      if (options?.signal?.aborted) {
+        handleAbort();
+      } else {
+        options?.signal?.addEventListener("abort", handleAbort, {
+          once: true,
+        });
+      }
 
       const handleStdinError = (error: NodeJS.ErrnoException): void => {
         if (
@@ -85,6 +122,7 @@ export class LocalRunner implements Runner {
       };
 
       const timeout = setTimeout(() => {
+        timedOut = true;
         child.kill("SIGTERM");
       }, this.#config.timeoutMs);
 
@@ -107,7 +145,11 @@ export class LocalRunner implements Runner {
       child.on("close", (exitCode, signal) => {
         finish(() => {
           const finishedAt = new Date().toISOString();
-          if (signal === "SIGTERM") {
+          if (aborted) {
+            reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
+            return;
+          }
+          if (signal === "SIGTERM" && timedOut) {
             reject(
               new RunnerError(
                 `Runner timed out after ${this.#config.timeoutMs}ms`,

@@ -1,5 +1,10 @@
-import type { RunResult, RunSession } from "../domain/run.js";
+import type { RunResult, RunSession, RunSpawnEvent } from "../domain/run.js";
+
+export interface RunnerRunOptions {
+  readonly signal?: AbortSignal;
+  readonly onSpawn?: (event: RunSpawnEvent) => void | Promise<void>;
+}
 
 export interface Runner {
-  run(session: RunSession): Promise<RunResult>;
+  run(session: RunSession, options?: RunnerRunOptions): Promise<RunResult>;
 }

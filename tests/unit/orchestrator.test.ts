@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { RunnerAbortedError } from "../../src/domain/errors.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type { PullRequestLifecycle } from "../../src/domain/pull-request.js";
 import type { RunResult, RunSession } from "../../src/domain/run.js";
@@ -1051,6 +1052,66 @@ describe("BootstrapOrchestrator", () => {
       },
     ]);
     expect(logger.errors).toContain("Failure handling failed");
+  });
+
+  it("cancels an active run on shutdown and leaves the issue queued for retry", async () => {
+    const tempRoot = await createTempDir("symphony-shutdown-test-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(76)],
+      });
+      tracker.setLifecycleSequence(76, [lifecycle("missing", "symphony/76")]);
+      const started = createDeferred<void>();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          polling: {
+            ...baseConfig.polling,
+            intervalMs: 1,
+          },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          async run(_session, options): Promise<RunResult> {
+            started.resolve();
+            return await new Promise<RunResult>((_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => {
+                  reject(
+                    new RunnerAbortedError("Runner cancelled by shutdown"),
+                  );
+                },
+                { once: true },
+              );
+            });
+          },
+        },
+        new NullLogger(),
+      );
+      const controller = new AbortController();
+      const loop = orchestrator.runLoop(controller.signal);
+
+      await started.promise;
+      controller.abort();
+      await loop;
+
+      expect(tracker.retried).toEqual([
+        {
+          issueNumber: 76,
+          reason: "Runner cancelled by shutdown",
+        },
+      ]);
+      expect(tracker.failed).toEqual([]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("generates unique run session ids across orchestrator instances", async () => {
