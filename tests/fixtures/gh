@@ -30,9 +30,13 @@ if [[ "$1" == "pr" && "$2" == "create" ]]; then
         ;;
     esac
   done
+  JSON_PAYLOAD="$(
+    TITLE="$TITLE" BODY="$BODY" HEAD="$HEAD" BASE="$BASE" \
+      node -e 'process.stdout.write(JSON.stringify({ title: process.env.TITLE, body: process.env.BODY, head: process.env.HEAD, base: process.env.BASE }))'
+  )"
   curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/prs" \
     -H 'content-type: application/json' \
-    -d "{\"title\":\"${TITLE}\",\"body\":\"${BODY}\",\"head\":\"${HEAD}\",\"base\":\"${BASE}\"}" >/dev/null
+    -d "$JSON_PAYLOAD" >/dev/null
   echo "https://example.test/pr/1"
   exit 0
 fi

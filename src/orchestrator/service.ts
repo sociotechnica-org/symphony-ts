@@ -49,21 +49,29 @@ export class BootstrapOrchestrator implements Orchestrator {
     const candidates = await this.#tracker.fetchEligibleIssues();
     const dueRetries = this.#collectDueRetries();
     const queue = this.#mergeQueue(candidates, dueRetries);
+    const availableSlots =
+      this.#definition.config.polling.maxConcurrentRuns - this.#running.size;
     this.#logger.info("Poll candidates fetched", {
       candidateCount: queue.length,
+      availableSlots,
     });
 
+    if (availableSlots <= 0) {
+      return;
+    }
+
+    const runs: Promise<void>[] = [];
     for (const issue of queue) {
-      if (
-        this.#running.size >= this.#definition.config.polling.maxConcurrentRuns
-      ) {
+      if (runs.length >= availableSlots) {
         break;
       }
       if (this.#running.has(issue.issue.number)) {
         continue;
       }
-      await this.#processIssue(issue.issue, issue.attempt);
+      runs.push(this.#processIssue(issue.issue, issue.attempt));
     }
+
+    await Promise.all(runs);
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {

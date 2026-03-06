@@ -14,7 +14,8 @@ function write(
     message,
     ...(data ?? {}),
   };
-  process.stdout.write(`${JSON.stringify(entry)}\n`);
+  const stream = level === "error" ? process.stderr : process.stdout;
+  stream.write(`${JSON.stringify(entry)}\n`);
 }
 
 export class JsonLogger implements Logger {
