@@ -212,6 +212,21 @@ class RetryRecordingFailingTracker extends SequencedTracker {
   }
 }
 
+class FailOnceMarkIssueFailedTracker extends SequencedTracker {
+  markIssueFailedCalls = 0;
+
+  override async markIssueFailed(
+    issueNumber: number,
+    reason: string,
+  ): Promise<void> {
+    this.markIssueFailedCalls += 1;
+    if (this.markIssueFailedCalls === 1) {
+      throw new Error("mark failed transient");
+    }
+    await super.markIssueFailed(issueNumber, reason);
+  }
+}
+
 class StaticWorkspaceManager implements WorkspaceManager {
   readonly prepared: string[] = [];
 
@@ -971,6 +986,60 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.retryCalls).toBe(1);
     expect(tracker.retried).toHaveLength(1);
     expect(logger.errors).toContain("Issue run failed");
+    expect(logger.errors).toContain("Failure handling failed");
+  });
+
+  it("does not reset retry state when marking an issue failed throws", async () => {
+    const tracker = new FailOnceMarkIssueFailedTracker({
+      ready: [createIssue(75)],
+    });
+    tracker.setLifecycleSequence(75, [lifecycle("missing", "symphony/75")]);
+    const runnerCalls: number[] = [];
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            maxFollowUpAttempts: 2,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        async run(session): Promise<RunResult> {
+          runnerCalls.push(session.attempt.sequence);
+          const timestamp = new Date().toISOString();
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      logger,
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(runnerCalls).toEqual([1, 2, 2]);
+    expect(tracker.retried).toHaveLength(1);
+    expect(tracker.markIssueFailedCalls).toBe(2);
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 75,
+        reason: "Runner exited with 17\nsimulated failure",
+      },
+    ]);
     expect(logger.errors).toContain("Failure handling failed");
   });
 

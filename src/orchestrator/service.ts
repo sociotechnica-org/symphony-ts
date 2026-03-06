@@ -193,12 +193,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
-    const lease = await this.#leaseManager.acquire(issue.number);
-    if (!lease) {
-      return;
-    }
-    this.#state.runningIssueNumbers.add(issue.number);
-    try {
+    await this.#withIssueLease(issue, attempt, async () => {
       const claimed = await this.#tracker.claimIssue(issue.number);
       if (claimed === null) {
         this.#logger.info("Issue was no longer claimable", {
@@ -207,17 +202,22 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
       await this.#processClaimedIssue(claimed, attempt);
-    } catch (error) {
-      await this.#handleUnexpectedFailure(issue, attempt, error as Error);
-    } finally {
-      this.#state.runningIssueNumbers.delete(issue.number);
-      await this.#leaseManager.release(lease);
-    }
+    });
   }
 
   async #processRunningIssue(
     issue: RuntimeIssue,
     attempt: number,
+  ): Promise<void> {
+    await this.#withIssueLease(issue, attempt, async () => {
+      await this.#processClaimedIssue(issue, attempt);
+    });
+  }
+
+  async #withIssueLease(
+    issue: RuntimeIssue,
+    attempt: number,
+    work: () => Promise<void>,
   ): Promise<void> {
     const lease = await this.#leaseManager.acquire(issue.number);
     if (!lease) {
@@ -225,7 +225,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     this.#state.runningIssueNumbers.add(issue.number);
     try {
-      await this.#processClaimedIssue(issue, attempt);
+      await work();
     } catch (error) {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
@@ -472,9 +472,9 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async #failIssue(issueNumber: number, message: string): Promise<void> {
+    await this.#tracker.markIssueFailed(issueNumber, message);
     this.#state.retries.delete(issueNumber);
     clearFollowUpRuntimeState(this.#state.followUp, issueNumber);
-    await this.#tracker.markIssueFailed(issueNumber, message);
   }
 
   #followUpFailureMessage(lifecycle: PullRequestLifecycle): string {
