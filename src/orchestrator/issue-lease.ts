@@ -165,10 +165,10 @@ export class LocalIssueLeaseManager {
     ]);
 
     const ownerAlive =
-      ownerPid === null ? null : await this.#isProcessAlive(ownerPid);
+      ownerPid === null ? null : this.#isProcessAlive(ownerPid);
     const runnerPid = record?.runnerPid ?? null;
     const runnerAlive =
-      runnerPid === null ? null : await this.#isProcessAlive(runnerPid);
+      runnerPid === null ? null : this.#isProcessAlive(runnerPid);
 
     if (ownerPid === null) {
       return {
@@ -271,7 +271,7 @@ export class LocalIssueLeaseManager {
     }
   }
 
-  async #isProcessAlive(pid: number): Promise<boolean> {
+  #isProcessAlive(pid: number): boolean {
     try {
       process.kill(pid, 0);
       return true;
@@ -282,20 +282,20 @@ export class LocalIssueLeaseManager {
   }
 
   async #terminateRunner(issueNumber: number, pid: number): Promise<void> {
-    if (!(await this.#sendSignal(pid, "SIGTERM"))) {
+    if (!this.#sendSignal(pid, "SIGTERM")) {
       return;
     }
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (!(await this.#isProcessAlive(pid))) {
+      if (!this.#isProcessAlive(pid)) {
         return;
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
 
-    if (await this.#sendSignal(pid, "SIGKILL")) {
+    if (this.#sendSignal(pid, "SIGKILL")) {
       for (let attempt = 0; attempt < 10; attempt += 1) {
-        if (!(await this.#isProcessAlive(pid))) {
+        if (!this.#isProcessAlive(pid)) {
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -311,7 +311,7 @@ export class LocalIssueLeaseManager {
     );
   }
 
-  async #sendSignal(pid: number, signal: NodeJS.Signals): Promise<boolean> {
+  #sendSignal(pid: number, signal: NodeJS.Signals): boolean {
     try {
       process.kill(pid, signal);
       return true;

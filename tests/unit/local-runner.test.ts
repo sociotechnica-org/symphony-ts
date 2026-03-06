@@ -56,7 +56,8 @@ describe("LocalRunner", () => {
   it("reports the spawned pid and aborts the runner child on shutdown", async () => {
     const runner = new LocalRunner(
       {
-        command: 'node -e "setInterval(() => {}, 1000)"',
+        command:
+          "node -e \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\"",
         promptTransport: "stdin",
         timeoutMs: 5_000,
         env: {},

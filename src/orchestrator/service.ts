@@ -246,7 +246,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     } catch (error) {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
-      this.#state.runAbortControllers.delete(issue.number);
       this.#state.runningIssueNumbers.delete(issue.number);
       await this.#leaseManager.release(lease);
     }

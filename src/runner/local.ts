@@ -8,6 +8,7 @@ import type { Logger } from "../observability/logger.js";
 import type { Runner, RunnerRunOptions } from "./service.js";
 
 export class LocalRunner implements Runner {
+  static readonly #terminationGraceMs = 200;
   readonly #config: AgentConfig;
   readonly #logger: Logger;
 
@@ -62,6 +63,7 @@ export class LocalRunner implements Runner {
       let timedOut = false;
       let aborted = false;
       let spawnError: RunnerError | null = null;
+      let forcedKillTimeout: NodeJS.Timeout | null = null;
 
       const finish = (callback: () => void): void => {
         if (settled) {
@@ -69,13 +71,32 @@ export class LocalRunner implements Runner {
         }
         settled = true;
         clearTimeout(timeout);
+        if (forcedKillTimeout !== null) {
+          clearTimeout(forcedKillTimeout);
+        }
         options?.signal?.removeEventListener("abort", handleAbort);
         callback();
       };
 
+      const terminateChild = (): void => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          return;
+        }
+        child.kill("SIGTERM");
+        if (forcedKillTimeout !== null) {
+          return;
+        }
+        forcedKillTimeout = setTimeout(() => {
+          forcedKillTimeout = null;
+          if (child.exitCode === null && child.signalCode === null) {
+            child.kill("SIGKILL");
+          }
+        }, LocalRunner.#terminationGraceMs);
+      };
+
       const handleAbort = (): void => {
         aborted = true;
-        child.kill("SIGTERM");
+        terminateChild();
       };
 
       const handleSpawnFailure = (error: unknown): void => {
@@ -85,7 +106,7 @@ export class LocalRunner implements Runner {
         spawnError = new RunnerError(`Failed to record runner spawn`, {
           cause: error as Error,
         });
-        child.kill("SIGTERM");
+        terminateChild();
       };
 
       if (child.pid !== undefined) {
@@ -130,7 +151,7 @@ export class LocalRunner implements Runner {
 
       const timeout = setTimeout(() => {
         timedOut = true;
-        child.kill("SIGTERM");
+        terminateChild();
       }, this.#config.timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer | string) => {
