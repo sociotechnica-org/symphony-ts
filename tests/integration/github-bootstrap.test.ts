@@ -242,7 +242,12 @@ describe("GitHubBootstrapTracker", () => {
 
     expect(server.isReviewThreadResolved(botThreadId)).toBe(true);
     expect(server.isReviewThreadResolved(humanThreadId)).toBe(false);
-    expect(refreshed.kind).toBe("needs-follow-up");
+    expect(refreshed.kind).toBe("awaiting-review");
+    expect(refreshed.actionableReviewFeedback).toHaveLength(1);
+    expect(refreshed.actionableReviewFeedback[0]?.authorLogin).toBe(
+      "jessmartin",
+    );
+    expect(refreshed.unresolvedThreadIds).toEqual([]);
   });
 
   it("preserves no-check stabilization for other branches when an issue completes", async () => {

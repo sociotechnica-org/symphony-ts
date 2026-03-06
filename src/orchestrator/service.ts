@@ -24,6 +24,15 @@ interface QueueEntry {
   readonly source: "ready" | "running";
 }
 
+function isStaleLeaseError(code: string | undefined): boolean {
+  return (
+    code === "ENOENT" ||
+    code === "ENOTDIR" ||
+    code === "ESRCH" ||
+    code === "EPERM"
+  );
+}
+
 export class BootstrapOrchestrator implements Orchestrator {
   readonly #config: ResolvedConfig;
   readonly #promptBuilder: PromptBuilder;
@@ -499,11 +508,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       return false;
     } catch (error) {
       const systemError = error as NodeJS.ErrnoException;
-      return (
-        systemError.code === "ENOENT" ||
-        systemError.code === "ENOTDIR" ||
-        systemError.code === "ESRCH"
-      );
+      return isStaleLeaseError(systemError.code);
     }
   }
 

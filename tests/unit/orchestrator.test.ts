@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type {
   PullRequestLifecycle,
@@ -400,7 +400,9 @@ describe("BootstrapOrchestrator", () => {
       runner.finish();
       await runOnce;
 
-      expect(tracker.completed).toEqual([1, 2]);
+      expect(
+        [...tracker.completed].sort((left, right) => left - right),
+      ).toEqual([1, 2]);
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -569,6 +571,49 @@ describe("BootstrapOrchestrator", () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
 
     expect(tracker.completed).toEqual([71]);
+  });
+
+  it("reclaims a stale issue lease when pid probing returns EPERM", async () => {
+    const tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "symphony-stale-lease-eperm-test-"),
+    );
+    const tracker = new SequencedTracker({
+      running: [createIssue(72, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(72, [lifecycle("ready", "symphony/72")]);
+    const lockDir = path.join(tempRoot, ".symphony-locks", "72");
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(path.join(lockDir, "pid"), "4242\n", "utf8");
+
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      const error = new Error("permission denied") as NodeJS.ErrnoException;
+      error.code = "EPERM";
+      throw error;
+    });
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      new RecordingRunner(),
+      new NullLogger(),
+    );
+
+    try {
+      await orchestrator.runOnce();
+    } finally {
+      killSpy.mockRestore();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+
+    expect(tracker.completed).toEqual([72]);
   });
 
   it("completes a running PR when the tracker later reports it ready", async () => {

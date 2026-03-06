@@ -402,24 +402,30 @@ export class GitHubBootstrapTracker implements Tracker {
       ...unresolvedThreads,
       ...actionableBotComments,
     ];
+    const botActionableReviewFeedback = actionableReviewFeedback.filter(
+      (feedback) => {
+        const authorLogin = feedback.authorLogin;
+        if (!authorLogin) {
+          return false;
+        }
+        return reviewBotLogins.has(authorLogin.toLowerCase());
+      },
+    );
     const pendingCheckNames = checks
       .filter((check) => check.status === "pending")
       .map((check) => check.name);
     const failingCheckNames = checks
       .filter((check) => check.status === "failure")
       .map((check) => check.name);
-    const unresolvedThreadIds = unresolvedThreads
-      .filter((feedback) => {
-        const authorLogin = feedback.authorLogin;
-        if (!authorLogin) {
-          return false;
-        }
-        return reviewBotLogins.has(authorLogin.toLowerCase());
-      })
+    const unresolvedThreadIds = botActionableReviewFeedback
+      .filter((feedback) => feedback.kind === "review-thread")
       .map((feedback) => feedback.threadId)
       .filter((threadId): threadId is string => threadId !== null);
 
-    if (failingCheckNames.length > 0 || actionableReviewFeedback.length > 0) {
+    if (
+      failingCheckNames.length > 0 ||
+      botActionableReviewFeedback.length > 0
+    ) {
       this.#noCheckObservations.delete(branchName);
       return {
         kind: "needs-follow-up",
@@ -461,6 +467,26 @@ export class GitHubBootstrapTracker implements Tracker {
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
         summary: `Waiting for ${pendingCheckNames.join(", ")} on ${pullRequest.html_url}`,
+      };
+    }
+
+    if (actionableReviewFeedback.length > 0) {
+      this.#noCheckObservations.delete(branchName);
+      return {
+        kind: "awaiting-review",
+        branchName,
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.html_url,
+          branchName: pullRequest.head.ref,
+          latestCommitAt,
+        },
+        checks,
+        pendingCheckNames,
+        failingCheckNames,
+        actionableReviewFeedback,
+        unresolvedThreadIds: [],
+        summary: `Waiting for human review on ${pullRequest.html_url}`,
       };
     }
 
