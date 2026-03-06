@@ -258,6 +258,68 @@ describe("LocalIssueLeaseManager", () => {
     }
   });
 
+  it("never signals the current orchestrator process while reconciling a stale runner lease", async () => {
+    const tempRoot = await createTempDir("symphony-lease-self-runner-");
+    const logger = new CapturingLogger();
+    const manager = new LocalIssueLeaseManager(tempRoot, logger);
+
+    const killSpy = vi
+      .spyOn(process, "kill")
+      .mockImplementation((pid, signal) => {
+        if (pid === 999999 && signal === 0) {
+          const error = new Error("missing process") as NodeJS.ErrnoException;
+          error.code = "ESRCH";
+          throw error;
+        }
+
+        if (pid === process.pid && signal === 0) {
+          return true;
+        }
+
+        throw new Error(`Unexpected kill(${String(pid)}, ${String(signal)})`);
+      });
+
+    try {
+      const lockDir = path.join(tempRoot, ".symphony-locks", "27");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+      await fs.writeFile(
+        path.join(lockDir, "run.json"),
+        JSON.stringify(
+          {
+            issueNumber: 27,
+            issueIdentifier: "sociotechnica-org/symphony-ts#27",
+            branchName: "symphony/27",
+            runSessionId: "sociotechnica-org/symphony-ts#27/attempt-1/orphaned",
+            attempt: 1,
+            ownerPid: 999999,
+            runnerPid: process.pid,
+            runRecordedAt: new Date().toISOString(),
+            runnerStartedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const snapshot = await manager.reconcile(27);
+      expect(snapshot.kind).toBe("stale-owner-runner");
+      expect(killSpy.mock.calls).toEqual([
+        [999999, 0],
+        [process.pid, 0],
+      ]);
+      expect(logger.warnings).toContain(
+        "Refusing to terminate current orchestrator process while reconciling orphaned runner lease",
+      );
+      expect((await manager.inspect(27)).kind).toBe("missing");
+    } finally {
+      killSpy.mockRestore();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("does not warn when the runner exits before SIGKILL is delivered", async () => {
     const tempRoot = await createTempDir("symphony-lease-sigkill-missing-");
     const logger = new CapturingLogger();

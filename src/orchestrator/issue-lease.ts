@@ -304,6 +304,17 @@ export class LocalIssueLeaseManager {
   }
 
   async #terminateRunner(issueNumber: number, pid: number): Promise<void> {
+    if (pid === process.pid) {
+      this.#logger.warn(
+        "Refusing to terminate current orchestrator process while reconciling orphaned runner lease",
+        {
+          issueNumber,
+          runnerPid: pid,
+        },
+      );
+      return;
+    }
+
     const sigtermResult = this.#sendSignal(pid, "SIGTERM");
     if (sigtermResult !== "sent") {
       if (sigtermResult === "denied") {
