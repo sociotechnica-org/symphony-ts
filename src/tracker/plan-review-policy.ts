@@ -56,11 +56,12 @@ export function evaluatePlanReviewLifecycle(
   const latestSignal = comments
     .map(parsePlanReviewComment)
     .filter((entry): entry is ParsedPlanReviewComment => entry !== null)
-    .sort(
-      (left, right) =>
+    .sort((left, right) => {
+      const timeDiff =
         Date.parse(left.comment.createdAt) -
-        Date.parse(right.comment.createdAt),
-    )
+        Date.parse(right.comment.createdAt);
+      return timeDiff !== 0 ? timeDiff : left.comment.id - right.comment.id;
+    })
     .at(-1);
 
   if (!latestSignal || latestSignal.signal !== "plan-ready") {
