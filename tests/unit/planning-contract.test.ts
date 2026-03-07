@@ -71,6 +71,7 @@ describe("repo planning contract", () => {
       "spec.md",
       "non-goals",
       "slice strategy",
+      "acceptance scenarios",
       "runtime state machine",
       "failure-class matrix",
       "leases",
