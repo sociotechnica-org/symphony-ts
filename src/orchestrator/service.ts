@@ -324,6 +324,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     initialLifecycle?: PullRequestLifecycle,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
+    const issueSource = initialLifecycle === undefined ? "running" : "ready";
     const lifecycle =
       initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 
@@ -337,7 +338,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       noteLifecycleForIssue(
         this.#state.status,
         issue,
-        initialLifecycle === undefined ? "running" : "ready",
+        issueSource,
         attempt,
         branchName,
         lifecycle,
@@ -359,6 +360,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issue,
       attempt,
       lockDir,
+      issueSource,
       lifecycle.kind === "missing" ? null : lifecycle,
     );
   }
@@ -367,10 +369,11 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     lockDir: string,
+    source: "ready" | "running",
     pullRequest: PullRequestLifecycle | null,
   ): Promise<void> {
     upsertActiveIssue(this.#state.status, issue, {
-      source: pullRequest === null ? "ready" : "running",
+      source,
       runSequence: attempt,
       branchName: this.#branchName(issue.number),
       status: "preparing",
@@ -393,7 +396,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     });
     const session = this.#createRunSession(issue, workspace, prompt, attempt);
     upsertActiveIssue(this.#state.status, issue, {
-      source: pullRequest === null ? "ready" : "running",
+      source,
       runSequence: attempt,
       branchName: workspace.branchName,
       status: "running",
@@ -483,7 +486,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       noteLifecycleForIssue(
         this.#state.status,
         issue,
-        pullRequest === null ? "ready" : "running",
+        source,
         attempt,
         workspace.branchName,
         nextLifecycle,

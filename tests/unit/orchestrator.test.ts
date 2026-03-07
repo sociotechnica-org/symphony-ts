@@ -10,6 +10,10 @@ import type {
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
+import {
+  deriveStatusFilePath,
+  readFactoryStatusSnapshot,
+} from "../../src/observability/status.js";
 import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
@@ -483,6 +487,46 @@ describe("BootstrapOrchestrator", () => {
     expect(runnerCalls).toBe(0);
     expect(tracker.completed).toEqual([]);
     expect(tracker.retried).toEqual([]);
+  });
+
+  it("preserves the running source when a running issue has no PR yet", async () => {
+    const tempRoot = await createTempDir("symphony-running-source-test-");
+    try {
+      const tracker = new SequencedTracker({
+        running: [createIssue(79, "symphony:running")],
+      });
+      tracker.setLifecycleSequence(79, [
+        lifecycle("missing", "symphony/79"),
+        lifecycle("awaiting-review", "symphony/79", {
+          pendingCheckNames: ["CI"],
+        }),
+      ]);
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.activeIssues).toHaveLength(1);
+      expect(snapshot.activeIssues[0]?.source).toBe("running");
+      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-review");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("skips a running issue that is already leased by another local worker", async () => {
