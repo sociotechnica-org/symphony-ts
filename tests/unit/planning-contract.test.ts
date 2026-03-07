@@ -137,12 +137,12 @@ describe("repo planning contract", () => {
       "in review",
       "revise -> plan-ready",
       "approved",
-      "waives waiting",
+      "waives waiting", // AGENTS.md §Issue Workflow step 6 — keep this exact wording
       "human review station",
     ]);
   });
 
-  it("documents the human plan review station for operators", async () => {
+  it("keeps readme explicit about the human plan review station for operators", async () => {
     const content = await readRepoFileLowercased("README.md");
 
     expectPhrases(content, [

@@ -196,7 +196,6 @@ States:
 4. `revise`: human feedback requires updates to the plan before implementation
 5. `approved`: a human explicitly approves the plan
 6. `waived`: the issue or operator explicitly says not to wait for approval
-7. `implementing`: code changes begin after `approved` or `waived`
 
 Allowed transitions:
 
@@ -207,14 +206,14 @@ Allowed transitions:
 5. `in review -> approved`
 6. `draft -> waived`
 7. `plan-ready -> waived`
-8. `approved -> implementing`
-9. `waived -> implementing`
+8. `approved -> begin substantial implementation`
+9. `waived -> begin substantial implementation`
 
 Invalid transitions to block in guidance:
 
-1. `draft -> implementing` without explicit waiver
-2. `plan-ready -> implementing` without explicit approval or waiver
-3. `revise -> implementing` without a fresh review-ready handoff
+1. `draft -> begin substantial implementation` without explicit waiver
+2. `plan-ready -> begin substantial implementation` without explicit approval or waiver
+3. `revise -> begin substantial implementation` without a fresh review-ready handoff
 
 ## Failure-Class Matrix
 
