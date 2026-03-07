@@ -137,7 +137,7 @@ describe("repo planning contract", () => {
       "in review",
       "revise -> plan-ready",
       "approved",
-      "waives waiting", // AGENTS.md §Issue Workflow step 6 — keep this exact wording
+      "waives waiting", // AGENTS.md §Issue Workflow step 5 — keep this exact wording
       "human review station",
     ]);
   });
