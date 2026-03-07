@@ -22,7 +22,7 @@ export class GitHubBootstrapTracker implements Tracker {
     string,
     {
       readonly issueUpdatedAt: string;
-      readonly lifecycle: PullRequestLifecycle;
+      readonly lifecycle: PullRequestLifecycle | null;
     }
   >();
 
@@ -85,9 +85,6 @@ export class GitHubBootstrapTracker implements Tracker {
       this.#noCheckObservations.delete(branchName);
       const planReviewLifecycle =
         await this.#inspectPlanReviewHandoff(branchName);
-      if (planReviewLifecycle === null) {
-        this.#planReviewObservations.delete(branchName);
-      }
       return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
     }
 
@@ -155,14 +152,10 @@ export class GitHubBootstrapTracker implements Tracker {
         authorLogin: comment.user?.login ?? null,
       })),
     );
-    if (lifecycle?.kind === "awaiting-plan-review") {
-      this.#planReviewObservations.set(branchName, {
-        issueUpdatedAt: issue.updatedAt,
-        lifecycle,
-      });
-    } else {
-      this.#planReviewObservations.delete(branchName);
-    }
+    this.#planReviewObservations.set(branchName, {
+      issueUpdatedAt: issue.updatedAt,
+      lifecycle,
+    });
     return lifecycle;
   }
 
