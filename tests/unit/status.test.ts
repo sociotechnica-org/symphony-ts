@@ -271,7 +271,7 @@ describe("factory status helpers", () => {
     expect(output).toContain("Factory: blocked");
     expect(output).toContain("Worker: online");
     expect(output).toContain(
-      "Counts: ready=1 running=2 failed=0 local=0 retries=1",
+      "Counts: ready=1 tracker_running=2 failed=0 local=0 retries=1",
     );
     expect(output).toContain("#12 Expose factory status [awaiting-review]");
     expect(output).toContain("PR: #12 https://example.test/pr/12");

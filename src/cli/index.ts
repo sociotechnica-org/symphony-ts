@@ -65,13 +65,13 @@ export function parseArgs(argv: readonly string[]): CliArgs {
 export async function runCli(argv: readonly string[]): Promise<void> {
   const args = parseArgs(argv);
   if (args.command === "status") {
+    const effectiveWorkflowPath =
+      args.workflowPath ?? path.resolve(process.cwd(), "WORKFLOW.md");
     const statusFilePath =
       args.statusFilePath ??
-      (await resolveStatusFilePath(
-        args.workflowPath ?? path.resolve(process.cwd(), "WORKFLOW.md"),
-      ).catch((error) => {
+      (await resolveStatusFilePath(effectiveWorkflowPath).catch((error) => {
         throw new Error(
-          `Could not determine status file path from workflow at ${args.workflowPath ?? path.resolve(process.cwd(), "WORKFLOW.md")}. Use --status-file <path> to specify the snapshot location directly.`,
+          `Could not determine status file path from workflow at ${effectiveWorkflowPath}. Use --status-file <path> to specify the snapshot location directly.`,
           { cause: error as Error },
         );
       }));

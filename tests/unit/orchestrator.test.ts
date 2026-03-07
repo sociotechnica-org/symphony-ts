@@ -662,6 +662,48 @@ describe("BootstrapOrchestrator", () => {
     expect(logger.errors).not.toContain("Poll cycle failed");
   });
 
+  it("prunes stale active issues that no longer appear in tracker state", async () => {
+    const tempRoot = await createTempDir("symphony-status-prune-test-");
+    try {
+      const issue = createIssue(72, "symphony:running");
+      const tracker = new SequencedTracker({
+        running: [issue],
+      });
+      tracker.setLifecycleSequence(72, [
+        lifecycle("awaiting-review", "symphony/72"),
+      ]);
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      tracker.runningIssues.clear();
+
+      await orchestrator.runOnce();
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.activeIssues).toHaveLength(0);
+      expect(snapshot.counts.running).toBe(0);
+      expect(snapshot.factoryState).toBe("idle");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps an existing issue lease when pid probing returns EPERM", async () => {
     const tempRoot = await createTempDir("symphony-stale-lease-eperm-test-");
     const tracker = new SequencedTracker({

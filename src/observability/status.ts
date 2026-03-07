@@ -186,7 +186,7 @@ export function renderFactoryStatusSnapshot(
     `Started: ${snapshot.worker.startedAt}  Snapshot: ${snapshot.generatedAt}`,
   );
   lines.push(
-    `Counts: ready=${snapshot.counts.ready.toString()} running=${snapshot.counts.running.toString()} failed=${snapshot.counts.failed.toString()} local=${snapshot.counts.activeLocalRuns.toString()} retries=${snapshot.counts.retries.toString()}`,
+    `Counts: ready=${snapshot.counts.ready.toString()} tracker_running=${snapshot.counts.running.toString()} failed=${snapshot.counts.failed.toString()} local=${snapshot.counts.activeLocalRuns.toString()} retries=${snapshot.counts.retries.toString()}`,
   );
   lines.push(
     `Polling: every ${snapshot.worker.pollIntervalMs.toString()}ms, max concurrency ${snapshot.worker.maxConcurrentRuns.toString()}`,

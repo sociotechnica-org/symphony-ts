@@ -97,6 +97,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       running: runningCandidates.length,
       failed: failedCandidates.length,
     });
+    this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
     await this.#reconcileRunningIssueOwnership(runningCandidates);
     const dueRetries = this.#collectDueRetries();
     const queue = this.#mergeQueue(
@@ -254,10 +255,6 @@ export class BootstrapOrchestrator implements Orchestrator {
         await this.#persistStatusSnapshot();
         return;
       }
-      adjustTrackerIssueCounts(this.#state.status, {
-        ready: -1,
-        running: 1,
-      });
       upsertActiveIssue(this.#state.status, claimed, {
         source: "ready",
         runSequence: attempt,
@@ -265,6 +262,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         status: "queued",
         summary: `Claimed ${claimed.identifier}`,
         ownerPid: process.pid,
+      });
+      adjustTrackerIssueCounts(this.#state.status, {
+        ready: -1,
+        running: 1,
       });
       noteStatusAction(this.#state.status, {
         kind: "issue-claimed",
@@ -629,6 +630,25 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber,
       });
       await this.#persistStatusSnapshot();
+    }
+  }
+
+  #pruneStaleActiveIssues(
+    readyIssues: readonly RuntimeIssue[],
+    runningIssues: readonly RuntimeIssue[],
+  ): void {
+    const retainedIssueNumbers = new Set<number>([
+      ...readyIssues.map((issue) => issue.number),
+      ...runningIssues.map((issue) => issue.number),
+      ...this.#state.runningIssueNumbers,
+      ...this.#state.retries.keys(),
+    ]);
+
+    for (const issueNumber of this.#state.status.activeIssues.keys()) {
+      if (retainedIssueNumbers.has(issueNumber)) {
+        continue;
+      }
+      clearActiveIssue(this.#state.status, issueNumber);
     }
   }
 
