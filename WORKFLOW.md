@@ -64,12 +64,16 @@ Rules:
 2. Work only inside this repository clone.
 3. Create or reuse the issue branch for this work.
 4. Read `skills/symphony-plan/SKILL.md` and use it to create or update `docs/plans/<issue-number>-<task-name>/plan.md` before substantial code changes.
-5. Comment on the GitHub issue when the plan is ready for review.
-6. If explicitly instructed not to wait for human feedback, continue directly from plan into implementation.
-7. Implement the issue completely, including docs and tests required by the repo process.
-8. Run `codex review --base origin/main` on your changes and fix the findings before opening a PR.
-9. Run the relevant local checks before finishing.
-10. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
-11. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
-12. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved. If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, comment on the issue describing the blocked check and wait for human guidance before proceeding.
-13. Leave the workspace in a git state that can be inspected if the run fails.
+5. The plan must explicitly map the touched work to the Symphony abstraction levels from `SPEC.md`: policy, configuration, coordination, execution, integration, and observability. If `SPEC.md` is not available in this clone, use the matching layer model summarized in `docs/architecture.md`.
+6. The plan must name scope, non-goals, current gaps, architecture boundaries, implementation steps, tests, slice strategy, acceptance scenarios, exit criteria, and what is deferred to later issues or PRs.
+7. If orchestration behavior depends on retries, continuations, reconciliation, leases, or handoff states, the plan must include an explicit runtime state machine and failure-class matrix.
+8. If the proposed work would mix tracker transport, normalization, and policy, or combine multiple separable review surfaces in one PR, narrow the current issue to the first reviewable slice before coding. Default to one issue / one PR.
+9. Comment on the GitHub issue when the plan is ready for review.
+10. If explicitly instructed not to wait for human feedback, continue directly from plan into implementation.
+11. Implement the issue completely, including docs and tests required by the repo process.
+12. Run `codex review --base origin/main` on your changes and fix the findings before opening a PR.
+13. Run the relevant local checks before finishing.
+14. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
+15. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
+16. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved. If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, comment on the issue describing the blocked check and wait for human guidance before proceeding.
+17. Leave the workspace in a git state that can be inspected if the run fails.
