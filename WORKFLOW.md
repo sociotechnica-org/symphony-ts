@@ -71,7 +71,7 @@ Rules:
 9. Drive the plan through the repo's human review station before substantial implementation: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from an explicit `approved` or explicit `waived` handoff.
 10. Comment on the GitHub issue when the plan is `plan-ready` for review and treat that as a human handoff, not as permission to start coding.
 11. If human feedback requests changes, revise `docs/plans/<issue-number>-<task-name>/plan.md`, summarize the delta in a fresh issue comment, and return the plan to `plan-ready`.
-12. Do not begin substantial implementation until the plan is explicitly `approved` by a human or explicitly `waived` by issue instructions that say not to wait for human feedback.
+12. Do not begin substantial implementation until the plan is explicitly `approved` by a human or explicitly `waived` by issue or operator instructions that say not to wait for human feedback.
 13. If plan approval is explicitly waived, record that in your issue/PR notes and continue directly from plan into implementation.
 14. Implement the issue completely, including docs and tests required by the repo process.
 15. Run `codex review --base origin/main` on your changes and fix the findings before opening a PR.
