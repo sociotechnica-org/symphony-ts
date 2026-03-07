@@ -57,7 +57,7 @@ describe("repo planning contract", () => {
       "approved",
       "waived",
       "human feedback",
-      "wait for human review",
+      "wait for human review", // SKILL.md §Plan Output step 4 — keep this exact wording
     ]);
   });
 
