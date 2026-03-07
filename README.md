@@ -54,6 +54,17 @@ next startup or poll, Symphony reconciles `symphony:running` issues against
 that local state, terminates orphaned local agent processes when needed, and
 resumes or fails the issue from the runtime itself.
 
+## Technical Plan Review Station
+
+Before substantial implementation begins, the repo-owned workflow contract requires a human review station for technical plans:
+
+1. the worker writes `docs/plans/<issue-number>-<task-name>/plan.md`
+2. the worker posts a `plan-ready` issue comment and hands off for review
+3. if human feedback requests changes, the worker revises the plan and posts another `plan-ready` summary
+4. coding begins only after the plan is explicitly approved or explicitly waived with instructions not to wait
+
+This first slice uses issue comments and checked-in repo guidance. It does not require a dashboard or tracker-specific approval subsystem.
+
 ## Repository Map
 
 ```text
@@ -199,11 +210,12 @@ When Symphony picks up the issue, it should:
 1. replace `symphony:ready` with `symphony:running`
 2. create or reuse a local workspace under `./.tmp/workspaces/`
 3. create branch `symphony/<issue-number>`
-4. run Codex with the rendered issue prompt
-5. push the branch
-6. open a PR against `main`
-7. keep polling that PR for CI and automated review state
-8. push follow-up commits on the same branch until the PR is actually clean
+4. have the worker draft the technical plan and stop at the human review station unless plan approval is waived
+5. run Codex implementation work from the approved or waived plan
+6. push the branch
+7. open a PR against `main`
+8. keep polling that PR for CI and automated review state
+9. push follow-up commits on the same branch until the PR is actually clean
 
 If the PR reaches a clean merge-ready state, Symphony will comment on the issue and close it.
 
