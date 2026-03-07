@@ -3,6 +3,7 @@ import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { TrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { GitHubClient } from "./github-client.js";
+import { evaluatePlanReviewLifecycle } from "./plan-review-policy.js";
 import {
   evaluatePullRequestLifecycle,
   missingPullRequestLifecycle,
@@ -17,6 +18,13 @@ export class GitHubBootstrapTracker implements Tracker {
   readonly #client: GitHubClient;
   #ensureLabelsPromise: Promise<void> | null = null;
   readonly #noCheckObservations = new Map<string, NoCheckObservation>();
+  readonly #planReviewObservations = new Map<
+    string,
+    {
+      readonly issueUpdatedAt: string;
+      readonly lifecycle: PullRequestLifecycle | null;
+    }
+  >();
 
   constructor(config: TrackerConfig, logger: Logger) {
     this.#config = config;
@@ -75,13 +83,16 @@ export class GitHubBootstrapTracker implements Tracker {
     const pullRequest = await this.#client.findOpenPullRequest(branchName);
     if (pullRequest === null) {
       this.#noCheckObservations.delete(branchName);
-      return missingPullRequestLifecycle(branchName);
+      const planReviewLifecycle =
+        await this.#inspectPlanReviewHandoff(branchName);
+      return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
     }
 
     const [checks, reviewStateData] = await Promise.all([
       this.#client.getChecks(pullRequest.head.sha),
       this.#client.getPullRequestReviewState(pullRequest.number),
     ]);
+    this.#planReviewObservations.delete(branchName);
     const snapshot = createPullRequestSnapshot({
       branchName,
       pullRequest,
@@ -110,6 +121,54 @@ export class GitHubBootstrapTracker implements Tracker {
     }
 
     return await this.inspectIssueHandoff(branchName);
+  }
+
+  async #inspectPlanReviewHandoff(
+    branchName: string,
+  ): Promise<PullRequestLifecycle | null> {
+    const issueNumber = this.#issueNumberFromBranchName(branchName);
+    if (issueNumber === null) {
+      return null;
+    }
+
+    const issue = await this.getIssue(issueNumber);
+    const observation = this.#planReviewObservations.get(branchName);
+    if (
+      observation !== undefined &&
+      observation.issueUpdatedAt === issue.updatedAt
+    ) {
+      return observation.lifecycle;
+    }
+
+    const comments = await this.#client.getIssueComments(issueNumber);
+    const lifecycle = evaluatePlanReviewLifecycle(
+      branchName,
+      issue.url,
+      comments.map((comment) => ({
+        id: comment.id,
+        body: comment.body,
+        createdAt: comment.created_at,
+        url: comment.html_url,
+        authorLogin: comment.user?.login ?? null,
+      })),
+    );
+    this.#planReviewObservations.set(branchName, {
+      issueUpdatedAt: issue.updatedAt,
+      lifecycle,
+    });
+    return lifecycle;
+  }
+
+  #issueNumberFromBranchName(branchName: string): number | null {
+    const match = branchName.match(/(\d+)$/u);
+    if (!match || !match[1]) {
+      this.#logger.warn(
+        "Could not extract issue number from branch name; skipping plan-review check",
+        { branchName },
+      );
+      return null;
+    }
+    return Number(match[1]);
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {

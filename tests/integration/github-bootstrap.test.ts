@@ -95,6 +95,104 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.summary).toMatch(/no open pull request/i);
   });
 
+  it("reports awaiting-plan-review when the latest issue handoff is plan-ready", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
+  });
+
+  it("resumes from missing once a plan review is approved", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+    server.addIssueComment({
+      issueNumber: 7,
+      authorLogin: "jessmartin",
+      body: "Plan review: approved\n\nSummary\n- Approved.",
+      createdAt: "2026-03-07T10:05:00.000Z",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("missing");
+    expect(lifecycle.summary).toMatch(/no open pull request/i);
+  });
+
+  it("reads plan-review signals beyond the first page of issue comments", async () => {
+    const tracker = createTracker(server);
+
+    for (let index = 0; index < 120; index += 1) {
+      server.addIssueComment({
+        issueNumber: 7,
+        body: `noise ${index.toString()}`,
+        createdAt: new Date(Date.UTC(2026, 2, 7, 10, 0, index)).toISOString(),
+      });
+    }
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+      createdAt: "2026-03-07T10:05:00.000Z",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
+  });
+
+  it("reuses cached plan-review observations while the issue is unchanged", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+    });
+
+    const first = await tracker.inspectIssueHandoff("symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(first.kind).toBe("awaiting-plan-review");
+    expect(second.kind).toBe("awaiting-plan-review");
+    expect(server.countRequests("GET issues/7")).toBe(2);
+    expect(server.countRequests("GET issues/7/comments")).toBe(1);
+  });
+
+  it("reuses cached null plan-review observations while the issue is unchanged", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+    server.addIssueComment({
+      issueNumber: 7,
+      authorLogin: "jessmartin",
+      body: "Plan review: changes-requested\n\nRequired changes\n- Split the issue.",
+      createdAt: "2026-03-07T10:05:00.000Z",
+    });
+
+    const first = await tracker.inspectIssueHandoff("symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(first.kind).toBe("missing");
+    expect(second.kind).toBe("missing");
+    expect(server.countRequests("GET issues/7")).toBe(2);
+    expect(server.countRequests("GET issues/7/comments")).toBe(1);
+  });
+
   it("reports awaiting-review while checks are pending", async () => {
     const tracker = createTracker(server);
 

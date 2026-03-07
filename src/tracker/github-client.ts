@@ -25,6 +25,16 @@ interface GitHubLabelResponse {
   readonly name: string;
 }
 
+export interface GitHubIssueCommentResponse {
+  readonly id: number;
+  readonly body: string;
+  readonly created_at: string;
+  readonly html_url: string;
+  readonly user: {
+    readonly login: string;
+  } | null;
+}
+
 export interface GitHubPullRequestResponse {
   readonly number: number;
   readonly html_url: string;
@@ -409,6 +419,27 @@ export class GitHubClient {
       this.#issuePath(`issues/${issueNumber}/comments`),
       { body },
     );
+  }
+
+  async getIssueComments(
+    issueNumber: number,
+  ): Promise<readonly GitHubIssueCommentResponse[]> {
+    const comments: GitHubIssueCommentResponse[] = [];
+    let page = 1;
+
+    for (;;) {
+      const currentPage = await this.#request<GitHubIssueCommentResponse[]>(
+        "GET",
+        this.#issuePath(
+          `issues/${issueNumber}/comments?per_page=100&page=${page.toString()}`,
+        ),
+      );
+      comments.push(...currentPage);
+      if (currentPage.length < 100) {
+        return comments;
+      }
+      page += 1;
+    }
   }
 
   async findOpenPullRequest(

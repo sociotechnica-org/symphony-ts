@@ -65,7 +65,17 @@ interface MockIssue {
   created_at: string;
   updated_at: string;
   labels: Array<{ name: string }>;
-  comments: string[];
+  comments: MockIssueComment[];
+}
+
+interface MockIssueComment {
+  readonly id: number;
+  readonly body: string;
+  readonly created_at: string;
+  readonly html_url: string;
+  readonly user: {
+    readonly login: string;
+  } | null;
 }
 
 interface MockLabel {
@@ -145,12 +155,17 @@ export class MockGitHubServer {
     });
   }
 
-  getIssue(number: number): MockIssue {
+  getIssue(
+    number: number,
+  ): Omit<MockIssue, "comments"> & { comments: string[] } {
     const issue = this.#issues.get(number);
     if (!issue) {
       throw new Error(`Issue ${number} not found`);
     }
-    return structuredClone(issue);
+    return {
+      ...structuredClone(issue),
+      comments: issue.comments.map((comment) => comment.body),
+    };
   }
 
   setIssueLabels(number: number, labels: readonly string[]): void {
@@ -160,6 +175,30 @@ export class MockGitHubServer {
     }
     issue.labels = labels.map((name) => ({ name }));
     issue.updated_at = new Date().toISOString();
+  }
+
+  addIssueComment(input: {
+    issueNumber: number;
+    authorLogin?: string;
+    body: string;
+    createdAt?: string;
+  }): number {
+    const issue = this.#issues.get(input.issueNumber);
+    if (!issue) {
+      throw new Error(`Issue ${input.issueNumber} not found`);
+    }
+    const id = issue.comments.length + 1;
+    issue.comments.push({
+      id,
+      body: input.body,
+      created_at: input.createdAt ?? new Date().toISOString(),
+      html_url: `${issue.html_url}#issuecomment-${id.toString()}`,
+      user: {
+        login: input.authorLogin ?? "symphony[bot]",
+      },
+    });
+    issue.updated_at = new Date().toISOString();
+    return id;
   }
 
   getPullRequests(): ReadonlyArray<{
@@ -504,6 +543,19 @@ export class MockGitHubServer {
     }
 
     const commentMatch = suffix.match(/^issues\/(\d+)\/comments$/);
+    if (commentMatch && method === "GET") {
+      const issueNumber = Number(commentMatch[1]);
+      const issue = this.#issues.get(issueNumber);
+      if (!issue) {
+        json(response, 404, { message: "issue not found" });
+        return;
+      }
+      const perPage = Number(url.searchParams.get("per_page") ?? "30");
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const offset = Math.max(page - 1, 0) * perPage;
+      json(response, 200, issue.comments.slice(offset, offset + perPage));
+      return;
+    }
     if (commentMatch && method === "POST") {
       const issueNumber = Number(commentMatch[1]);
       const issue = this.#issues.get(issueNumber);
@@ -512,9 +564,21 @@ export class MockGitHubServer {
         return;
       }
       const body = (await readJson(request)) as { body: string };
-      issue.comments.push(body.body);
+      const id = issue.comments.length + 1;
+      issue.comments.push({
+        id,
+        body: body.body,
+        created_at: new Date().toISOString(),
+        html_url: `${issue.html_url}#issuecomment-${id.toString()}`,
+        user: {
+          login: "symphony[bot]",
+        },
+      });
       issue.updated_at = new Date().toISOString();
-      json(response, 201, { id: randomUUID(), body: body.body });
+      json(response, 201, {
+        id,
+        body: body.body,
+      });
       return;
     }
 

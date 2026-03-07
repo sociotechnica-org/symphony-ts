@@ -1,5 +1,6 @@
 export type PullRequestLifecycleKind =
   | "missing"
+  | "awaiting-plan-review"
   | "awaiting-review"
   | "needs-follow-up"
   | "ready";
