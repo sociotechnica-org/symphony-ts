@@ -117,6 +117,7 @@ describe("repo planning contract", () => {
       "slice strategy",
       "runtime state machine",
       "failure-class matrix",
+      "leases",
       "transport, normalization, and policy",
       "docs/architecture.md",
       "one issue / one pr",
