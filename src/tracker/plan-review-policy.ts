@@ -14,9 +14,27 @@ type PlanReviewSignal =
   | "approved"
   | "waived";
 
+type PlanReviewDecisionSignal = Exclude<PlanReviewSignal, "plan-ready">;
+
 interface ParsedPlanReviewComment {
   readonly signal: PlanReviewSignal;
   readonly comment: IssueCommentSnapshot;
+}
+
+interface ParsedPlanReviewAcknowledgement {
+  readonly signal: PlanReviewDecisionSignal;
+  readonly reviewCommentId: number;
+  readonly comment: IssueCommentSnapshot;
+}
+
+export interface PlanReviewProtocolEvaluation {
+  readonly latestSignal: ParsedPlanReviewComment | null;
+  readonly lifecycle: PullRequestLifecycle | null;
+  readonly acknowledgement: {
+    readonly signal: PlanReviewDecisionSignal;
+    readonly reviewCommentId: number;
+    readonly body: string;
+  } | null;
 }
 
 function parsePlanReviewComment(
@@ -48,39 +66,156 @@ function parsePlanReviewComment(
   return null;
 }
 
+function parsePlanReviewAcknowledgement(
+  comment: IssueCommentSnapshot,
+): ParsedPlanReviewAcknowledgement | null {
+  const lines = comment.body
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+
+  const [firstLine, ...rest] = lines;
+  if (!firstLine) {
+    return null;
+  }
+
+  const normalized = firstLine.toLowerCase();
+  let signal: PlanReviewDecisionSignal | null = null;
+  if (normalized === "plan review acknowledged: changes-requested") {
+    signal = "changes-requested";
+  } else if (normalized === "plan review acknowledged: approved") {
+    signal = "approved";
+  } else if (normalized === "plan review acknowledged: waived") {
+    signal = "waived";
+  }
+
+  if (signal === null) {
+    return null;
+  }
+
+  const idLine = rest.find((line) => /^review comment id:\s*\d+$/iu.test(line));
+  if (!idLine) {
+    return null;
+  }
+
+  const match = idLine.match(/^review comment id:\s*(\d+)$/iu);
+  if (!match || !match[1]) {
+    return null;
+  }
+
+  return {
+    signal,
+    reviewCommentId: Number(match[1]),
+    comment,
+  };
+}
+
+function hasAcknowledgedLatestSignal(
+  signal: PlanReviewDecisionSignal,
+  reviewCommentId: number,
+  comments: readonly IssueCommentSnapshot[],
+): boolean {
+  return comments.some((comment) => {
+    const acknowledgement = parsePlanReviewAcknowledgement(comment);
+    return (
+      acknowledgement !== null &&
+      acknowledgement.signal === signal &&
+      acknowledgement.reviewCommentId === reviewCommentId
+    );
+  });
+}
+
+function buildPlanReviewAcknowledgement(
+  signal: PlanReviewDecisionSignal,
+  comment: IssueCommentSnapshot,
+): string {
+  const nextAction =
+    signal === "changes-requested"
+      ? "Revise the plan, post a fresh `Plan status: plan-ready` comment, and wait for review again."
+      : signal === "approved"
+        ? "Begin substantial implementation."
+        : "Begin substantial implementation without waiting for plan approval.";
+
+  return [
+    `Plan review acknowledged: ${signal}`,
+    "",
+    `Review comment id: ${comment.id.toString()}`,
+    `Review comment URL: ${comment.url}`,
+    "",
+    "Next action",
+    `- ${nextAction}`,
+  ].join("\n");
+}
+
+export function evaluatePlanReviewProtocol(
+  branchName: string,
+  issueUrl: string,
+  comments: readonly IssueCommentSnapshot[],
+): PlanReviewProtocolEvaluation {
+  const latestSignal =
+    comments
+      .map(parsePlanReviewComment)
+      .filter((entry): entry is ParsedPlanReviewComment => entry !== null)
+      .sort((left, right) => {
+        const timeDiff =
+          Date.parse(left.comment.createdAt) -
+          Date.parse(right.comment.createdAt);
+        return timeDiff !== 0 ? timeDiff : left.comment.id - right.comment.id;
+      })
+      .at(-1) ?? null;
+
+  if (latestSignal === null) {
+    return {
+      latestSignal: null,
+      lifecycle: null,
+      acknowledgement: null,
+    };
+  }
+
+  if (latestSignal.signal !== "plan-ready") {
+    const acknowledgement = hasAcknowledgedLatestSignal(
+      latestSignal.signal,
+      latestSignal.comment.id,
+      comments,
+    )
+      ? null
+      : {
+          signal: latestSignal.signal,
+          reviewCommentId: latestSignal.comment.id,
+          body: buildPlanReviewAcknowledgement(
+            latestSignal.signal,
+            latestSignal.comment,
+          ),
+        };
+
+    return {
+      latestSignal,
+      lifecycle: null,
+      acknowledgement,
+    };
+  }
+
+  return {
+    latestSignal,
+    lifecycle: {
+      kind: "awaiting-plan-review",
+      branchName,
+      pullRequest: null,
+      checks: [],
+      pendingCheckNames: [],
+      failingCheckNames: [],
+      actionableReviewFeedback: [],
+      unresolvedThreadIds: [],
+      summary: `Waiting for human plan review on ${issueUrl}`,
+    },
+    acknowledgement: null,
+  };
+}
+
 export function evaluatePlanReviewLifecycle(
   branchName: string,
   issueUrl: string,
   comments: readonly IssueCommentSnapshot[],
 ): PullRequestLifecycle | null {
-  const latestSignal = comments
-    .map(parsePlanReviewComment)
-    .filter((entry): entry is ParsedPlanReviewComment => entry !== null)
-    .sort((left, right) => {
-      const timeDiff =
-        Date.parse(left.comment.createdAt) -
-        Date.parse(right.comment.createdAt);
-      return timeDiff !== 0 ? timeDiff : left.comment.id - right.comment.id;
-    })
-    .at(-1);
-
-  if (!latestSignal || latestSignal.signal !== "plan-ready") {
-    return null;
-  }
-
-  // Author validation is intentionally deferred to #48 so #42 only fixes the
-  // runtime handoff semantics; today the issue comment first-line markers are
-  // treated as an open-trust protocol.
-
-  return {
-    kind: "awaiting-plan-review",
-    branchName,
-    pullRequest: null,
-    checks: [],
-    pendingCheckNames: [],
-    failingCheckNames: [],
-    actionableReviewFeedback: [],
-    unresolvedThreadIds: [],
-    summary: `Waiting for human plan review on ${issueUrl}`,
-  };
+  return evaluatePlanReviewProtocol(branchName, issueUrl, comments).lifecycle;
 }

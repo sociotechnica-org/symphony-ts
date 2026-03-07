@@ -80,3 +80,64 @@ Rules:
 18. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
 19. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved. If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, comment on the issue describing the blocked check and wait for human guidance before proceeding.
 20. Leave the workspace in a git state that can be inspected if the run fails.
+
+When posting the `plan-ready` handoff comment, include:
+
+- the plan path
+- a short summary
+- a brief note that replies must start with one of the accepted review markers
+- copy-pasteable fenced markdown templates
+
+Accepted first-line review markers are:
+
+- `Plan review: approved`
+- `Plan review: changes-requested`
+- `Plan review: waived`
+
+Use this exact reply-template block in the `plan-ready` comment:
+
+````md
+```md
+Plan review: approved
+
+Summary
+
+- Approved to implement.
+```
+
+```md
+Plan review: changes-requested
+
+Summary
+
+- One-sentence decision.
+
+What is good
+
+- ...
+
+Required changes
+
+- ...
+
+Architecture / spec concerns
+
+- ...
+
+Slice / PR size concerns
+
+- ...
+
+Approval condition
+
+- Approve after ...
+```
+
+```md
+Plan review: waived
+
+Summary
+
+- Plan review is waived; proceed to implementation.
+```
+````
