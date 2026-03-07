@@ -243,5 +243,3 @@ After writing the plan:
 3. comment on the issue that the plan is `plan-ready`
 4. unless plan approval is explicitly waived, wait for human review before substantial implementation
 5. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
-
-If implementation is explicitly allowed to continue without waiting, continue from the plan.
