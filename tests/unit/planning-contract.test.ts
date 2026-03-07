@@ -29,6 +29,7 @@ describe("repo planning contract", () => {
     expectPhrases(content, [
       "1. goal",
       "2. scope",
+      "non-goals",
       "current gaps",
       "architecture boundaries",
       "policy layer",
@@ -42,6 +43,7 @@ describe("repo planning contract", () => {
       "one issue / one pr",
       "transport, normalization, and policy",
       "runtime state machine",
+      "implementation steps",
       "failure-class matrix",
       "acceptance scenarios",
       "exit criteria",
