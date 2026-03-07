@@ -41,6 +41,7 @@ describe("repo planning contract", () => {
       "observability requirements",
       "implementation steps",
       "tests",
+      "slice strategy",
       "one issue / one pr",
       "transport, normalization, and policy",
       "runtime state machine",
