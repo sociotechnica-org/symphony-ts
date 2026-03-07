@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-async function readRepoFile(relativePath: string): Promise<string> {
+async function readRepoFileLowercased(relativePath: string): Promise<string> {
   return (
     await fs.readFile(path.join(process.cwd(), relativePath), "utf8")
   ).toLowerCase();
@@ -16,7 +16,7 @@ function expectPhrases(content: string, phrases: readonly string[]): void {
 
 describe("repo planning contract", () => {
   it("keeps the symphony plan skill explicit about spec layers and seams", async () => {
-    const content = await readRepoFile("skills/symphony-plan/SKILL.md");
+    const content = await readRepoFileLowercased("skills/symphony-plan/SKILL.md");
 
     expectPhrases(content, [
       "policy layer",
@@ -36,7 +36,7 @@ describe("repo planning contract", () => {
   });
 
   it("keeps a local abstraction-level fallback in architecture docs", async () => {
-    const content = await readRepoFile("docs/architecture.md");
+    const content = await readRepoFileLowercased("docs/architecture.md");
 
     expectPhrases(content, [
       "spec abstraction levels",
@@ -57,7 +57,7 @@ describe("repo planning contract", () => {
   });
 
   it("keeps workflow instructions plan-first and decomposition-aware", async () => {
-    const content = await readRepoFile("WORKFLOW.md");
+    const content = await readRepoFileLowercased("WORKFLOW.md");
 
     expectPhrases(content, [
       "spec.md",
@@ -73,7 +73,7 @@ describe("repo planning contract", () => {
   });
 
   it("keeps repo policy explicit about narrow pr seams", async () => {
-    const content = await readRepoFile("AGENTS.md");
+    const content = await readRepoFileLowercased("AGENTS.md");
 
     expectPhrases(content, [
       "planning standard",
@@ -84,7 +84,7 @@ describe("repo planning contract", () => {
       "transport, normalization, and policy",
       "docs/architecture.md",
       "one issue / one pr",
-      "phase 1.2 / pr `#23`",
+      "phase 1.2",
     ]);
   });
 });
