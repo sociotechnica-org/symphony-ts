@@ -70,6 +70,8 @@ describe("repo planning contract", () => {
     expectPhrases(content, [
       "spec.md",
       "non-goals",
+      "current gaps",
+      "architecture boundaries",
       "slice strategy",
       "acceptance scenarios",
       "runtime state machine",
@@ -90,6 +92,7 @@ describe("repo planning contract", () => {
       "policy, configuration, coordination, execution, integration, and observability",
       "non-goals",
       "acceptance scenarios",
+      "exit criteria",
       "slice strategy",
       "runtime state machine",
       "failure-class matrix",
