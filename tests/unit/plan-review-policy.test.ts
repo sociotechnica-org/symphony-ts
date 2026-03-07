@@ -57,6 +57,48 @@ describe("plan-review-policy", () => {
     expect(lifecycle).toBeNull();
   });
 
+  it("does not wait when the latest signal is waived", () => {
+    const lifecycle = evaluatePlanReviewLifecycle(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Plan status: plan-ready\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
+        comment(
+          "Plan review: waived\n\nSummary\n- Proceed without waiting.",
+          "2026-03-07T10:06:00.000Z",
+          3,
+        ),
+      ],
+    );
+
+    expect(lifecycle).toBeNull();
+  });
+
+  it("does not wait when the latest signal is changes-requested", () => {
+    const lifecycle = evaluatePlanReviewLifecycle(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Plan status: plan-ready\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
+        comment(
+          "Plan review: changes-requested\n\nRequired changes\n- Split the issue.",
+          "2026-03-07T10:06:00.000Z",
+          3,
+        ),
+      ],
+    );
+
+    expect(lifecycle).toBeNull();
+  });
+
   it("returns to waiting when a revised plan-ready comment is newer than prior feedback", () => {
     const lifecycle = evaluatePlanReviewLifecycle(
       "symphony/32",

@@ -143,6 +143,10 @@ export class GitHubBootstrapTracker implements Tracker {
   #issueNumberFromBranchName(branchName: string): number | null {
     const match = branchName.match(/(\d+)$/u);
     if (!match || !match[1]) {
+      this.#logger.warn(
+        "Could not extract issue number from branch name; skipping plan-review check",
+        { branchName },
+      );
       return null;
     }
     return Number(match[1]);
