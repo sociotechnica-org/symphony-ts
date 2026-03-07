@@ -16,7 +16,7 @@ async function readRepoFileLowercased(relativePath: string): Promise<string> {
 
 function expectPhrases(content: string, phrases: readonly string[]): void {
   for (const phrase of phrases) {
-    expect(content).toContain(phrase);
+    expect.soft(content).toContain(phrase);
   }
 }
 
