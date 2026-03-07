@@ -18,6 +18,13 @@ export class GitHubBootstrapTracker implements Tracker {
   readonly #client: GitHubClient;
   #ensureLabelsPromise: Promise<void> | null = null;
   readonly #noCheckObservations = new Map<string, NoCheckObservation>();
+  readonly #planReviewObservations = new Map<
+    string,
+    {
+      readonly issueUpdatedAt: string;
+      readonly lifecycle: PullRequestLifecycle;
+    }
+  >();
 
   constructor(config: TrackerConfig, logger: Logger) {
     this.#config = config;
@@ -78,6 +85,9 @@ export class GitHubBootstrapTracker implements Tracker {
       this.#noCheckObservations.delete(branchName);
       const planReviewLifecycle =
         await this.#inspectPlanReviewHandoff(branchName);
+      if (planReviewLifecycle === null) {
+        this.#planReviewObservations.delete(branchName);
+      }
       return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
     }
 
@@ -85,6 +95,7 @@ export class GitHubBootstrapTracker implements Tracker {
       this.#client.getChecks(pullRequest.head.sha),
       this.#client.getPullRequestReviewState(pullRequest.number),
     ]);
+    this.#planReviewObservations.delete(branchName);
     const snapshot = createPullRequestSnapshot({
       branchName,
       pullRequest,
@@ -123,11 +134,17 @@ export class GitHubBootstrapTracker implements Tracker {
       return null;
     }
 
-    const [issue, comments] = await Promise.all([
-      this.getIssue(issueNumber),
-      this.#client.getIssueComments(issueNumber),
-    ]);
-    return evaluatePlanReviewLifecycle(
+    const issue = await this.getIssue(issueNumber);
+    const observation = this.#planReviewObservations.get(branchName);
+    if (
+      observation !== undefined &&
+      observation.issueUpdatedAt === issue.updatedAt
+    ) {
+      return observation.lifecycle;
+    }
+
+    const comments = await this.#client.getIssueComments(issueNumber);
+    const lifecycle = evaluatePlanReviewLifecycle(
       branchName,
       issue.url,
       comments.map((comment) => ({
@@ -138,6 +155,15 @@ export class GitHubBootstrapTracker implements Tracker {
         authorLogin: comment.user?.login ?? null,
       })),
     );
+    if (lifecycle?.kind === "awaiting-plan-review") {
+      this.#planReviewObservations.set(branchName, {
+        issueUpdatedAt: issue.updatedAt,
+        lifecycle,
+      });
+    } else {
+      this.#planReviewObservations.delete(branchName);
+    }
+    return lifecycle;
   }
 
   #issueNumberFromBranchName(branchName: string): number | null {

@@ -152,6 +152,23 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
   });
 
+  it("reuses cached plan-review observations while the issue is unchanged", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+    });
+
+    const first = await tracker.inspectIssueHandoff("symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(first.kind).toBe("awaiting-plan-review");
+    expect(second.kind).toBe("awaiting-plan-review");
+    expect(server.countRequests("GET issues/7")).toBe(2);
+    expect(server.countRequests("GET issues/7/comments")).toBe(1);
+  });
+
   it("reports awaiting-review while checks are pending", async () => {
     const tracker = createTracker(server);
 
