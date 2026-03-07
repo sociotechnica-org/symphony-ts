@@ -92,7 +92,7 @@ For any GitHub issue assigned for implementation:
 3. Once the plan is `plan-ready`, post on the GitHub issue that the plan is ready for review and treat that comment as a human handoff.
 4. If human feedback requests changes, update the plan, summarize the revisions on the issue, and return to `plan-ready`.
 5. Do not begin substantial implementation until a human explicitly approves the plan or the issue/operator explicitly waives waiting for plan approval.
-6. If explicitly instructed not to wait for human feedback, record that waiver and continue directly from the plan into implementation.
+6. If the issue/operator explicitly waives waiting for plan approval, record that waiver and continue directly from the plan into implementation.
 
 Plans are part of the system of record. Do not implement substantial work without first creating or updating the plan.
 Plan approval is a required workflow handoff and is the repo-owned human review station; it is not terminal success, and it must happen before implementation unless waived.
