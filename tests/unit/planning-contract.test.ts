@@ -79,11 +79,15 @@ describe("repo planning contract", () => {
 
     expectPhrases(content, [
       "spec.md",
+      "scope",
       "non-goals",
       "current gaps",
       "architecture boundaries",
+      "implementation steps",
+      "tests",
       "slice strategy",
       "acceptance scenarios",
+      "exit criteria",
       "runtime state machine",
       "failure-class matrix",
       "leases",

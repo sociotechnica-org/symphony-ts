@@ -65,7 +65,7 @@ Rules:
 3. Create or reuse the issue branch for this work.
 4. Read `skills/symphony-plan/SKILL.md` and use it to create or update `docs/plans/<issue-number>-<task-name>/plan.md` before substantial code changes.
 5. The plan must explicitly map the touched work to the Symphony abstraction levels from `SPEC.md`: policy, configuration, coordination, execution, integration, and observability. If `SPEC.md` is not available in this clone, use the matching layer model summarized in `docs/architecture.md`.
-6. The plan must name non-goals, current gaps, architecture boundaries, slice strategy, acceptance scenarios, and what is deferred to later issues or PRs.
+6. The plan must name scope, non-goals, current gaps, architecture boundaries, implementation steps, tests, slice strategy, acceptance scenarios, exit criteria, and what is deferred to later issues or PRs.
 7. If orchestration behavior depends on retries, continuations, reconciliation, leases, or handoff states, the plan must include an explicit runtime state machine and failure-class matrix.
 8. If the proposed work would mix tracker transport, normalization, and policy, or combine multiple separable review surfaces in one PR, narrow the current issue to the first reviewable slice before coding. Default to one issue / one PR.
 9. Comment on the GitHub issue when the plan is ready for review.
