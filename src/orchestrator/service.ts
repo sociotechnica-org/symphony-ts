@@ -258,6 +258,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         ready: -1,
         running: 1,
       });
+      upsertActiveIssue(this.#state.status, claimed, {
+        source: "ready",
+        runSequence: attempt,
+        branchName: this.#branchName(claimed.number),
+        status: "queued",
+        summary: `Claimed ${claimed.identifier}`,
+        ownerPid: process.pid,
+      });
       noteStatusAction(this.#state.status, {
         kind: "issue-claimed",
         summary: `Claimed ${claimed.identifier}`,
