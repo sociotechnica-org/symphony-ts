@@ -5,7 +5,7 @@ import { JsonLogger } from "../observability/logger.js";
 import {
   deriveStatusFilePath,
   isProcessAlive,
-  readFactoryStatusSnapshot,
+  parseFactoryStatusSnapshotContent,
   renderFactoryStatusSnapshot,
 } from "../observability/status.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
@@ -73,7 +73,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     let rawSnapshot = "";
     try {
       rawSnapshot = await fs.readFile(statusFilePath, "utf8");
-      snapshot = await readFactoryStatusSnapshot(statusFilePath);
+      snapshot = parseFactoryStatusSnapshotContent(rawSnapshot, statusFilePath);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {

@@ -125,6 +125,13 @@ export async function readFactoryStatusSnapshot(
   filePath: string,
 ): Promise<FactoryStatusSnapshot> {
   const raw = await fs.readFile(filePath, "utf8");
+  return parseFactoryStatusSnapshotContent(raw, filePath);
+}
+
+export function parseFactoryStatusSnapshotContent(
+  raw: string,
+  filePath: string,
+): FactoryStatusSnapshot {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
