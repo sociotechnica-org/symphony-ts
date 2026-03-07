@@ -1,10 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 
 async function readRepoFileLowercased(relativePath: string): Promise<string> {
   return (
-    await fs.readFile(path.join(process.cwd(), relativePath), "utf8")
+    await fs.readFile(path.join(repoRoot, relativePath), "utf8")
   ).toLowerCase();
 }
 
