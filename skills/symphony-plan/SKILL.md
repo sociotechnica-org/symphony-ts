@@ -243,5 +243,5 @@ After writing the plan:
 2. sanity-check that spec alignment, non-goals, boundaries, slice strategy, acceptance scenarios, and deferred work are explicit
 3. comment on the issue that the plan is `plan-ready`
 4. follow the Human Review Station above: unless plan approval is explicitly waived, stop at `plan-ready`, treat the plan as `in review`, and wait for human review before substantial implementation; current enforcement is guidance-only and orchestrator-level pause support is deferred
-5. once the plan is explicitly `approved`, or plan approval is explicitly `waived`, begin substantial implementation; if approval is waived, record that waiver in the issue or PR notes so the handoff remains inspectable
-6. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
+5. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
+6. once the plan is explicitly `approved`, or plan approval is explicitly `waived`, begin substantial implementation; if approval is waived, record that waiver in the issue or PR notes so the handoff remains inspectable
