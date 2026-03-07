@@ -27,7 +27,7 @@ describe("repo planning contract", () => {
     );
 
     expectPhrases(content, [
-      "goal",
+      "1. goal",
       "2. scope",
       "non-goals",
       "current gaps",
