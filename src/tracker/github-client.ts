@@ -424,10 +424,22 @@ export class GitHubClient {
   async getIssueComments(
     issueNumber: number,
   ): Promise<readonly GitHubIssueCommentResponse[]> {
-    return await this.#request<GitHubIssueCommentResponse[]>(
-      "GET",
-      this.#issuePath(`issues/${issueNumber}/comments`),
-    );
+    const comments: GitHubIssueCommentResponse[] = [];
+    let page = 1;
+
+    for (;;) {
+      const currentPage = await this.#request<GitHubIssueCommentResponse[]>(
+        "GET",
+        this.#issuePath(
+          `issues/${issueNumber}/comments?per_page=100&page=${page.toString()}`,
+        ),
+      );
+      comments.push(...currentPage);
+      if (currentPage.length < 100) {
+        return comments;
+      }
+      page += 1;
+    }
   }
 
   async findOpenPullRequest(

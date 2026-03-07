@@ -550,7 +550,10 @@ export class MockGitHubServer {
         json(response, 404, { message: "issue not found" });
         return;
       }
-      json(response, 200, issue.comments);
+      const perPage = Number(url.searchParams.get("per_page") ?? "30");
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const offset = Math.max(page - 1, 0) * perPage;
+      json(response, 200, issue.comments.slice(offset, offset + perPage));
       return;
     }
     if (commentMatch && method === "POST") {

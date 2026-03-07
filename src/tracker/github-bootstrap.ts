@@ -123,8 +123,10 @@ export class GitHubBootstrapTracker implements Tracker {
       return null;
     }
 
-    const issue = await this.getIssue(issueNumber);
-    const comments = await this.#client.getIssueComments(issueNumber);
+    const [issue, comments] = await Promise.all([
+      this.getIssue(issueNumber),
+      this.#client.getIssueComments(issueNumber),
+    ]);
     return evaluatePlanReviewLifecycle(
       branchName,
       issue.url,
