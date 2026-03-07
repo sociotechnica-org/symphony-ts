@@ -68,12 +68,15 @@ Rules:
 6. The plan must name scope, non-goals, current gaps, architecture boundaries, implementation steps, tests, slice strategy, acceptance scenarios, exit criteria, and what is deferred to later issues or PRs.
 7. If orchestration behavior depends on retries, continuations, reconciliation, leases, or handoff states, the plan must include an explicit runtime state machine and failure-class matrix.
 8. If the proposed work would mix tracker transport, normalization, and policy, or combine multiple separable review surfaces in one PR, narrow the current issue to the first reviewable slice before coding. Default to one issue / one PR.
-9. Comment on the GitHub issue when the plan is ready for review.
-10. If explicitly instructed not to wait for human feedback, continue directly from plan into implementation.
-11. Implement the issue completely, including docs and tests required by the repo process.
-12. Run `codex review --base origin/main` on your changes and fix the findings before opening a PR.
-13. Run the relevant local checks before finishing.
-14. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
-15. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
-16. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved. If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, comment on the issue describing the blocked check and wait for human guidance before proceeding.
-17. Leave the workspace in a git state that can be inspected if the run fails.
+9. Drive the plan through the repo's human review station before substantial implementation: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from an explicit `approved` or explicit `waived` handoff.
+10. Comment on the GitHub issue when the plan is `plan-ready` for review and treat that as a human handoff, not as permission to start coding.
+11. If human feedback requests changes, revise `docs/plans/<issue-number>-<task-name>/plan.md`, summarize the delta in a fresh issue comment, and return the plan to `plan-ready`.
+12. Do not begin substantial implementation until the plan is explicitly `approved` by a human or explicitly `waived` by issue or operator instructions that say not to wait for human feedback.
+13. If plan approval is explicitly waived, record that in your issue/PR notes and continue directly from plan into implementation.
+14. Implement the issue completely, including docs and tests required by the repo process.
+15. Run `codex review --base origin/main` on your changes and fix the findings before opening a PR.
+16. Run the relevant local checks before finishing.
+17. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
+18. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
+19. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved. If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, comment on the issue describing the blocked check and wait for human guidance before proceeding.
+20. Leave the workspace in a git state that can be inspected if the run fails.

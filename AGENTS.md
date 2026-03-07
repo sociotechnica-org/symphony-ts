@@ -83,15 +83,19 @@ For this repo, skills should stay small in number and high in leverage. Prefer c
 
 ## Issue Workflow
 
+For any implementation issue, treat plan approval as an explicit human review station before substantial implementation: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from an explicit `approved` or explicit `waived` handoff.
+
 For any GitHub issue assigned for implementation:
 
 1. Create a technical plan in `docs/plans/<issue-number>-<phase-or-task-name>/plan.md`.
 2. Use the issue number in the directory name. For now this should match the GitHub issue number.
-3. Discuss and refine the plan as needed.
-4. Once the plan is ready, post on the GitHub issue that the plan is ready for review.
-5. If explicitly instructed not to wait for human feedback, continue directly from the approved plan into implementation.
+3. Once the plan is `plan-ready`, post on the GitHub issue that the plan is ready for review and treat that comment as a human handoff.
+4. If human feedback requests changes, update the plan, summarize the revisions on the issue, and return to `plan-ready`.
+5. Do not begin substantial implementation until a human explicitly approves the plan or the issue/operator explicitly waives waiting for plan approval.
+6. If the issue/operator explicitly waives waiting for plan approval, record that waiver and continue directly from the plan into implementation.
 
 Plans are part of the system of record. Do not implement substantial work without first creating or updating the plan.
+Plan approval is a required workflow handoff and is the repo-owned human review station; it is not terminal success, and it must happen before implementation unless waived.
 
 ## Planning Standard
 

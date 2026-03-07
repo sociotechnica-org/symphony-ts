@@ -50,6 +50,14 @@ describe("repo planning contract", () => {
       "decision notes",
       "docs/architecture.md",
       "deferred",
+      "human review station",
+      "plan-ready",
+      "in review",
+      "revise",
+      "approved",
+      "waived",
+      "human feedback",
+      "wait for human review", // SKILL.md §Plan Output step 4 — keep this exact wording
     ]);
   });
 
@@ -94,6 +102,15 @@ describe("repo planning contract", () => {
       "docs/architecture.md",
       "one issue / one pr",
       "deferred",
+      "draft -> plan-ready -> in review",
+      "loop",
+      "revise -> plan-ready",
+      "as needed",
+      "human handoff",
+      "do not begin substantial implementation",
+      "approved",
+      "waived",
+      "human feedback",
     ]);
   });
 
@@ -118,6 +135,28 @@ describe("repo planning contract", () => {
       "one issue / one pr",
       "phase 1.2",
       "deferred",
+      "plan-ready",
+      "in review",
+      "loop",
+      "revise -> plan-ready",
+      "as needed",
+      "approved",
+      "waives waiting", // AGENTS.md §Issue Workflow step 5 — keep this exact wording
+      "human review station",
+    ]);
+  });
+
+  it("keeps readme explicit about the human plan review station for operators", async () => {
+    const content = await readRepoFileLowercased("README.md");
+
+    expectPhrases(content, [
+      "technical plan review station",
+      "plan-ready",
+      "human feedback",
+      "approved or explicitly waived",
+      "issue comments",
+      "human review station",
+      "plan approval is waived",
     ]);
   });
 });

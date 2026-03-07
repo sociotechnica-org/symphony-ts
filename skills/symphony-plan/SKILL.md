@@ -205,6 +205,30 @@ When the issue is about planning, workflow guidance, or prompt contracts, the fi
 
 Do not turn that first slice into a generic planning product, planner service, or large automation framework.
 
+## Human Review Station
+
+Technical plans in this repo go through an explicit human review station before substantial implementation.
+
+Use these process states:
+
+1. `draft`
+2. `plan-ready`
+3. `in review`
+4. `revise`
+5. `approved`
+6. `waived`
+
+Required behavior:
+
+1. when the plan meets the planning standard, post an issue comment that the plan is `plan-ready` for review
+2. unless the issue or operator explicitly says not to wait, stop there and treat the plan as being `in review`
+3. if human feedback requests changes, move to `revise`, update the plan, and post a fresh comment that summarizes the deltas before returning to `plan-ready`
+4. a waiver can arrive from `draft`, `plan-ready`, or `in review`; treat all three as valid transitions to `waived`
+5. begin substantial implementation only after the plan is explicitly `approved` or explicitly `waived`
+6. if approval is waived, record that fact in the issue or PR notes so the handoff remains inspectable
+
+This review station is the first slice for plan-process issues because it preserves the workflow boundary and uses existing issue comments instead of inventing new runtime machinery.
+
 ## Plan Output
 
 Write the plan to:
@@ -217,6 +241,9 @@ After writing the plan:
 
 1. sanity-check that it matches the issue
 2. sanity-check that spec alignment, non-goals, boundaries, slice strategy, acceptance scenarios, and deferred work are explicit
-3. comment on the issue that the plan is ready
+3. comment on the issue that the plan is `plan-ready`
+4. follow the Human Review Station above: unless plan approval is explicitly waived, stop at `plan-ready`, treat the plan as `in review`, and wait for human review before substantial implementation
+5. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
+6. once the plan is explicitly `approved`, or plan approval is explicitly `waived`, begin substantial implementation; if approval is waived, record that waiver in the issue or PR notes so the handoff remains inspectable
 
-If implementation is explicitly allowed to continue without waiting, continue from the plan.
+Current enforcement is guidance and process expectation; orchestrator-level pause support is deferred.
