@@ -78,6 +78,7 @@ describe("repo planning contract", () => {
       "transport, normalization, and policy",
       "docs/architecture.md",
       "one issue / one pr",
+      "deferred",
     ]);
   });
 
@@ -87,6 +88,7 @@ describe("repo planning contract", () => {
     expectPhrases(content, [
       "planning standard",
       "policy, configuration, coordination, execution, integration, and observability",
+      "non-goals",
       "acceptance scenarios",
       "slice strategy",
       "runtime state machine",
