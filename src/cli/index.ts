@@ -79,7 +79,10 @@ export async function runCli(argv: readonly string[]): Promise<void> {
           { cause: error as Error },
         );
       }
-      throw error;
+      throw new Error(
+        `Failed to read factory status snapshot at ${statusFilePath}. The file may be corrupt; re-running 'symphony run' will regenerate it.`,
+        { cause: error as Error },
+      );
     }
     const output =
       args.format === "json"

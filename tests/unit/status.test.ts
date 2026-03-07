@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   deriveStatusFilePath,
   isProcessAlive,
@@ -115,6 +115,28 @@ describe("factory status helpers", () => {
       await writeFactoryStatusSnapshot(filePath, second);
       expect(await readFactoryStatusSnapshot(filePath)).toEqual(second);
     } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans up the temporary file when rename fails", async () => {
+    const tempDir = await createTempDir("symphony-status-rename-failure-");
+    const filePath = path.join(tempDir, "status.json");
+    const snapshot = createSnapshot();
+    const rename = vi
+      .spyOn(fs, "rename")
+      .mockRejectedValueOnce(
+        Object.assign(new Error("rename failed"), { code: "EPERM" }),
+      );
+
+    try {
+      await expect(
+        writeFactoryStatusSnapshot(filePath, snapshot),
+      ).rejects.toThrow("rename failed");
+      const entries = await fs.readdir(tempDir);
+      expect(entries).toEqual([]);
+    } finally {
+      rename.mockRestore();
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
@@ -252,5 +274,11 @@ describe("factory status helpers", () => {
     expect(output).toContain("Pending checks: CI");
     expect(output).toContain("Retries:");
     expect(output).toContain("#9 Retry a failed run attempt 2");
+  });
+
+  it("renders worker state as unknown when liveness is omitted", () => {
+    const output = renderFactoryStatusSnapshot(createSnapshot());
+
+    expect(output).toContain("Worker: unknown");
   });
 });

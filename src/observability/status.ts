@@ -113,7 +113,12 @@ export async function writeFactoryStatusSnapshot(
     `${JSON.stringify(snapshot, null, 2)}\n`,
     "utf8",
   );
-  await fs.rename(temporaryPath, filePath);
+  try {
+    await fs.rename(temporaryPath, filePath);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function readFactoryStatusSnapshot(
@@ -157,11 +162,7 @@ export function renderFactoryStatusSnapshot(
   const lines: string[] = [];
   const workerAlive = options?.workerAlive;
   const workerState =
-    workerAlive === undefined
-      ? snapshot.factoryState
-      : workerAlive
-        ? "online"
-        : "offline";
+    workerAlive === undefined ? "unknown" : workerAlive ? "online" : "offline";
 
   lines.push(`Factory: ${snapshot.factoryState}`);
   lines.push(

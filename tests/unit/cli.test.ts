@@ -198,6 +198,24 @@ describe("runCli status", () => {
     }
   });
 
+  it("fails with guidance when the snapshot file is invalid", async () => {
+    const tempDir = await createTempDir("symphony-cli-status-invalid-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const statusPath = path.join(tempDir, ".tmp", "status.json");
+    await fs.mkdir(path.dirname(statusPath), { recursive: true });
+    await fs.writeFile(statusPath, "{ invalid json\n", "utf8");
+
+    try {
+      await expect(
+        runCli(["node", "symphony", "status", "--workflow", workflowPath]),
+      ).rejects.toThrowError(
+        `Failed to read factory status snapshot at ${statusPath}. The file may be corrupt; re-running 'symphony run' will regenerate it.`,
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("fails with guidance when the workflow cannot determine the status path", async () => {
     const tempDir = await createTempDir(
       "symphony-cli-status-workflow-missing-",
