@@ -153,9 +153,11 @@ export function noteLifecycleForIssue(
     status:
       lifecycle.kind === "needs-follow-up"
         ? "needs-follow-up"
-        : lifecycle.kind === "awaiting-review"
-          ? "awaiting-review"
-          : "queued",
+        : lifecycle.kind === "awaiting-plan-review"
+          ? "awaiting-plan-review"
+          : lifecycle.kind === "awaiting-review"
+            ? "awaiting-review"
+            : "queued",
     summary: lifecycle.summary,
     pullRequest:
       lifecycle.pullRequest === null
@@ -174,6 +176,7 @@ export function noteLifecycleForIssue(
       unresolvedThreadCount: lifecycle.unresolvedThreadIds.length,
     },
     blockedReason:
+      lifecycle.kind === "awaiting-plan-review" ||
       lifecycle.kind === "awaiting-review" ||
       lifecycle.kind === "needs-follow-up"
         ? lifecycle.summary

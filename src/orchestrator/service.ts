@@ -343,7 +343,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       return;
     }
 
-    if (lifecycle.kind === "awaiting-review") {
+    if (
+      lifecycle.kind === "awaiting-review" ||
+      lifecycle.kind === "awaiting-plan-review"
+    ) {
       noteLifecycleForIssue(
         this.#state.status,
         issue,
@@ -352,12 +355,12 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName,
         lifecycle,
       );
-      this.#logger.info("Issue remains in PR review", {
+      this.#logger.info("Issue remains in handoff review", {
         issueNumber: issue.number,
         summary: lifecycle.summary,
       });
       noteStatusAction(this.#state.status, {
-        kind: "awaiting-review",
+        kind: lifecycle.kind,
         summary: lifecycle.summary,
         issueNumber: issue.number,
       });

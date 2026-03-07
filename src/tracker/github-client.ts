@@ -25,6 +25,16 @@ interface GitHubLabelResponse {
   readonly name: string;
 }
 
+export interface GitHubIssueCommentResponse {
+  readonly id: number;
+  readonly body: string;
+  readonly created_at: string;
+  readonly html_url: string;
+  readonly user: {
+    readonly login: string;
+  } | null;
+}
+
 export interface GitHubPullRequestResponse {
   readonly number: number;
   readonly html_url: string;
@@ -408,6 +418,15 @@ export class GitHubClient {
       "POST",
       this.#issuePath(`issues/${issueNumber}/comments`),
       { body },
+    );
+  }
+
+  async getIssueComments(
+    issueNumber: number,
+  ): Promise<readonly GitHubIssueCommentResponse[]> {
+    return await this.#request<GitHubIssueCommentResponse[]>(
+      "GET",
+      this.#issuePath(`issues/${issueNumber}/comments`),
     );
   }
 

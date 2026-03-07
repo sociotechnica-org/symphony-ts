@@ -95,6 +95,41 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.summary).toMatch(/no open pull request/i);
   });
 
+  it("reports awaiting-plan-review when the latest issue handoff is plan-ready", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
+  });
+
+  it("resumes from missing once a plan review is approved", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+    server.addIssueComment({
+      issueNumber: 7,
+      authorLogin: "jessmartin",
+      body: "Plan review: approved\n\nSummary\n- Approved.",
+      createdAt: "2026-03-07T10:05:00.000Z",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("missing");
+    expect(lifecycle.summary).toMatch(/no open pull request/i);
+  });
+
   it("reports awaiting-review while checks are pending", async () => {
     const tracker = createTracker(server);
 

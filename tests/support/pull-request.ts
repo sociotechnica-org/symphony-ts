@@ -37,7 +37,7 @@ export function createLifecycle(
     kind,
     branchName,
     pullRequest:
-      kind === "missing"
+      kind === "missing" || kind === "awaiting-plan-review"
         ? null
         : {
             number: 1,

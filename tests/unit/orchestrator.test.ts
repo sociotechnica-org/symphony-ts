@@ -489,6 +489,47 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.retried).toEqual([]);
   });
 
+  it("waits at a valid plan-review handoff without retrying or failing", async () => {
+    const tempRoot = await createTempDir("symphony-plan-review-wait-test-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(32)],
+      });
+      tracker.setLifecycleSequence(32, [
+        lifecycle("missing", "symphony/32"),
+        lifecycle("awaiting-plan-review", "symphony/32"),
+      ]);
+      const runner = new RecordingRunner();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runner.attempts).toEqual([1]);
+      expect(tracker.failed).toEqual([]);
+      expect(tracker.retried).toEqual([]);
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-plan-review");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("preserves the running source when a running issue has no PR yet", async () => {
     const tempRoot = await createTempDir("symphony-running-source-test-");
     try {

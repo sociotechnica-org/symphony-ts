@@ -10,6 +10,7 @@ export type FactoryIssueStatus =
   | "queued"
   | "preparing"
   | "running"
+  | "awaiting-plan-review"
   | "awaiting-review"
   | "needs-follow-up";
 
@@ -413,7 +414,14 @@ function parseActiveIssue(
     ),
     status: expectEnum(
       issue.status,
-      ["queued", "preparing", "running", "awaiting-review", "needs-follow-up"],
+      [
+        "queued",
+        "preparing",
+        "running",
+        "awaiting-plan-review",
+        "awaiting-review",
+        "needs-follow-up",
+      ],
       filePath,
       `${field}.status`,
     ),
