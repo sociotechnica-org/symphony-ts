@@ -15,7 +15,7 @@ export interface TrackerIssueCounts {
   failed: number;
 }
 
-interface RuntimeActiveIssueState extends FactoryActiveIssueSnapshot {}
+type RuntimeActiveIssueState = FactoryActiveIssueSnapshot;
 
 export interface RuntimeStatusState {
   readonly workerStartedAt: string;

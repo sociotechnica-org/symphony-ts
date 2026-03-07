@@ -337,7 +337,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       noteLifecycleForIssue(
         this.#state.status,
         issue,
-        "running",
+        initialLifecycle === undefined ? "running" : "ready",
         attempt,
         branchName,
         lifecycle,

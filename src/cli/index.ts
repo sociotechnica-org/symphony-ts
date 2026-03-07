@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { createPromptBuilder, loadWorkflow } from "../config/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
@@ -28,23 +29,23 @@ export type CliArgs =
 export function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
   const command = args[0];
-  const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
-  const resolvedWorkflowPath = path.resolve(process.cwd(), workflowPath);
 
   if (command === "run") {
+    const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
     return {
       command: "run",
       once: args.includes("--once"),
-      workflowPath: resolvedWorkflowPath,
+      workflowPath: path.resolve(process.cwd(), workflowPath),
     };
   }
 
   if (command === "status") {
+    const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
     const statusFilePath = readOptionValue(args, "--status-file");
     return {
       command: "status",
       format: args.includes("--json") ? "json" : "human",
-      workflowPath: resolvedWorkflowPath,
+      workflowPath: path.resolve(process.cwd(), workflowPath),
       statusFilePath:
         statusFilePath !== null
           ? path.resolve(process.cwd(), statusFilePath)
@@ -69,7 +70,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         );
       }));
     let snapshot;
+    let rawSnapshot = "";
     try {
+      rawSnapshot = await fs.readFile(statusFilePath, "utf8");
       snapshot = await readFactoryStatusSnapshot(statusFilePath);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
@@ -86,7 +89,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     }
     const output =
       args.format === "json"
-        ? `${JSON.stringify(snapshot, null, 2)}\n`
+        ? rawSnapshot
         : `${renderFactoryStatusSnapshot(snapshot, {
             workerAlive: isProcessAlive(snapshot.worker.pid),
             statusFilePath,

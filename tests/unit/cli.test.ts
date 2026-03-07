@@ -111,6 +111,14 @@ describe("parseArgs", () => {
       parseArgs(["node", "symphony", "run", "--workflow"]),
     ).toThrowError("Missing value for --workflow");
   });
+
+  it("shows usage for unknown commands before parsing workflow options", () => {
+    expect(() =>
+      parseArgs(["node", "symphony", "deploy", "--workflow"]),
+    ).toThrowError(
+      "Usage: symphony <run|status> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+    );
+  });
 });
 
 describe("runCli status", () => {
@@ -149,13 +157,31 @@ describe("runCli status", () => {
     const tempDir = await createTempDir("symphony-cli-status-json-");
     const workflowPath = await writeWorkflow(tempDir);
     const statusPath = path.join(tempDir, ".tmp", "status.json");
-    const snapshot = createSnapshot();
+    const rawSnapshot = `{
+  "version": 1,
+  "generatedAt": "2026-03-06T12:00:00.000Z",
+  "factoryState": "idle",
+  "worker": {
+    "instanceId": "worker-1",
+    "pid": ${process.pid},
+    "startedAt": "2026-03-06T11:59:00.000Z",
+    "pollIntervalMs": 1000,
+    "maxConcurrentRuns": 1
+  },
+  "counts": {
+    "ready": 0,
+    "running": 0,
+    "failed": 0,
+    "activeLocalRuns": 0,
+    "retries": 0
+  },
+  "lastAction": null,
+  "activeIssues": [],
+  "retries": []
+}
+`;
     await fs.mkdir(path.dirname(statusPath), { recursive: true });
-    await fs.writeFile(
-      statusPath,
-      `${JSON.stringify(snapshot, null, 2)}\n`,
-      "utf8",
-    );
+    await fs.writeFile(statusPath, rawSnapshot, "utf8");
 
     const chunks: string[] = [];
     vi.spyOn(process.stdout, "write").mockImplementation(((
@@ -180,7 +206,7 @@ describe("runCli status", () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
 
-    expect(JSON.parse(chunks.join(""))).toEqual(snapshot);
+    expect(chunks.join("")).toBe(rawSnapshot);
   });
 
   it("fails with a clear message when the snapshot is missing", async () => {
