@@ -94,7 +94,11 @@ export interface FactoryStatusSnapshot {
 }
 
 export function deriveStatusFilePath(workspaceRoot: string): string {
-  return path.resolve(workspaceRoot, "..", "status.json");
+  const parent = path.dirname(workspaceRoot);
+  if (parent === workspaceRoot) {
+    return path.join(workspaceRoot, "status.json");
+  }
+  return path.join(parent, "status.json");
 }
 
 export async function writeFactoryStatusSnapshot(

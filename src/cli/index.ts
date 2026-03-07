@@ -22,7 +22,7 @@ export type CliArgs =
   | {
       readonly command: "status";
       readonly format: "human" | "json";
-      readonly workflowPath: string;
+      readonly workflowPath: string | null;
       readonly statusFilePath: string | null;
     };
 
@@ -40,12 +40,16 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   }
 
   if (command === "status") {
-    const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
     const statusFilePath = readOptionValue(args, "--status-file");
+    const workflowPath =
+      statusFilePath === null ? readOptionValue(args, "--workflow") : null;
     return {
       command: "status",
       format: args.includes("--json") ? "json" : "human",
-      workflowPath: path.resolve(process.cwd(), workflowPath),
+      workflowPath:
+        workflowPath === null
+          ? null
+          : path.resolve(process.cwd(), workflowPath),
       statusFilePath:
         statusFilePath !== null
           ? path.resolve(process.cwd(), statusFilePath)
@@ -63,9 +67,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   if (args.command === "status") {
     const statusFilePath =
       args.statusFilePath ??
-      (await resolveStatusFilePath(args.workflowPath).catch((error) => {
+      (await resolveStatusFilePath(
+        args.workflowPath ?? path.resolve(process.cwd(), "WORKFLOW.md"),
+      ).catch((error) => {
         throw new Error(
-          `Could not determine status file path from workflow at ${args.workflowPath}. Use --status-file <path> to specify the snapshot location directly.`,
+          `Could not determine status file path from workflow at ${args.workflowPath ?? path.resolve(process.cwd(), "WORKFLOW.md")}. Use --status-file <path> to specify the snapshot location directly.`,
           { cause: error as Error },
         );
       }));

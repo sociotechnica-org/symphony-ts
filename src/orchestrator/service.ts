@@ -324,7 +324,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     initialLifecycle?: PullRequestLifecycle,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
-    const issueSource = initialLifecycle === undefined ? "running" : "ready";
+    const issueSource = initialLifecycle !== undefined ? "ready" : "running";
     const lifecycle =
       initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 

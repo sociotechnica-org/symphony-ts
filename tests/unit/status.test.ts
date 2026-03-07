@@ -93,6 +93,10 @@ describe("factory status helpers", () => {
     );
   });
 
+  it("keeps the status file within the workspace root when given a filesystem root", () => {
+    expect(deriveStatusFilePath("/")).toBe(path.join("/", "status.json"));
+  });
+
   it("writes and reads the JSON snapshot contract", async () => {
     const tempDir = await createTempDir("symphony-status-test-");
     const filePath = path.join(tempDir, "status.json");

@@ -258,4 +258,40 @@ describe("runCli status", () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("ignores malformed --workflow when --status-file is provided", async () => {
+    const tempDir = await createTempDir("symphony-cli-status-explicit-file-");
+    const statusPath = path.join(tempDir, "status.json");
+    await fs.writeFile(
+      statusPath,
+      `${JSON.stringify(createSnapshot(), null, 2)}\n`,
+      "utf8",
+    );
+
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      chunks.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
+
+    try {
+      await runCli([
+        "node",
+        "symphony",
+        "status",
+        "--status-file",
+        statusPath,
+        "--workflow",
+        "--json",
+      ]);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(chunks.join("")).toContain('"factoryState": "idle"');
+  });
 });
