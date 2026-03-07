@@ -16,6 +16,28 @@ CLI
 
 This ordering is logical, not an excuse for tight coupling. Each layer should expose a narrow service contract.
 
+## Spec Abstraction Levels
+
+`SPEC.md` describes Symphony in these abstraction levels:
+
+1. Policy Layer
+2. Configuration Layer
+3. Coordination Layer
+4. Execution Layer
+5. Integration Layer
+6. Observability Layer
+
+In `symphony-ts`, use this local mapping when `SPEC.md` is not present in the clone:
+
+- Policy Layer: `WORKFLOW.md`, issue plans, and repository-owned guidance
+- Configuration Layer: workflow loading, parsing, and typed config resolution under `src/config/`
+- Coordination Layer: orchestrator polling, retries, reconciliation, and runtime state under `src/orchestrator/`
+- Execution Layer: workspace lifecycle plus runner process control under `src/workspace/` and `src/runner/`
+- Integration Layer: tracker adapters, transport, and normalization under `src/tracker/`
+- Observability Layer: structured logs and operator-facing status surfaces under `src/observability/`
+
+The CLI is bootstrap wiring around these layers, not a replacement for them.
+
 ## Core Layers
 
 ### CLI

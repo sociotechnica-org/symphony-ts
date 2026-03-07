@@ -12,6 +12,7 @@ The goal is not just to write a task list. The goal is to produce a plan that:
 - stays aligned with the Symphony spec,
 - preserves the intended layers of the system,
 - makes failure and recovery behavior explicit,
+- narrows the work to one reviewable slice where possible,
 - and reduces the chance of patch-on-patch review churn later.
 
 ## Sources Of Truth
@@ -28,9 +29,11 @@ Required sources:
 
 When relevant to the issue, also consult:
 
-1. the local Symphony spec checkout, if available locally, for example the sibling `../symphony/` checkout
-2. the Elixir reference implementation, if available locally, for example under `../symphony/elixir/`
-3. the Harness engineering principles in `docs/golden-principles.md`
+1. `SPEC.md` from a local Symphony checkout, if available locally, for example the sibling `../symphony/` checkout
+2. the matching abstraction-level summary in `docs/architecture.md` when `SPEC.md` is not locally available
+3. the upstream `openai/symphony` `SPEC.md` only when network access is available and more detail is needed
+4. the Elixir reference implementation, local or upstream, when the issue is about decomposition or runtime seams
+5. the Harness engineering principles in `docs/golden-principles.md`
 
 ## Planning Standard
 
@@ -39,18 +42,37 @@ Every substantial implementation plan should cover:
 1. goal
 2. scope
 3. non-goals
-4. current gaps
-5. architecture boundaries
-6. runtime state model or state machine, if behavior is stateful
-7. failure-class matrix, if recovery or retries are involved
-8. storage or persistence contract, if durable state is involved
-9. observability requirements
-10. implementation steps
-11. tests and named acceptance scenarios
-12. exit criteria
-13. decision notes when a boundary or tradeoff needs explicit rationale
+4. spec alignment by abstraction level
+5. current gaps
+6. architecture boundaries
+7. slice strategy and PR seam
+8. runtime state model or runtime state machine, if behavior is stateful
+9. failure-class matrix, if recovery or retries are involved
+10. storage or persistence contract, if durable state is involved
+11. observability requirements
+12. implementation steps
+13. tests and named acceptance scenarios
+14. exit criteria
+15. what is deferred to later issues or PRs
+16. decision notes when a boundary or tradeoff needs explicit rationale
 
 Do not stop at generic implementation bullets if the feature changes orchestration behavior.
+If the plan cannot explain why the work fits in one reviewable PR, the plan is not ready yet.
+
+## Spec Alignment
+
+Plans should explicitly map the work to the Symphony abstraction levels from `SPEC.md`.
+
+Spell out what belongs in each touched layer and what does not:
+
+- Policy Layer
+- Configuration Layer
+- Coordination Layer
+- Execution Layer
+- Integration Layer
+- Observability Layer
+
+If a layer is intentionally untouched, say so when it keeps the seam clearer.
 
 ## Layering Rules
 
@@ -73,6 +95,22 @@ Examples:
 - transport, normalization, and policy should not be mixed in one module
 - leases and lock recovery should not live inline inside large coordinator branches
 - runtime state should not be represented as a few loose maps if the behavior is stateful enough to deserve explicit transitions
+- workflow/config changes should not be hidden inside tracker or runner edits
+- status surface work should not force unrelated tracker or orchestrator refactors unless the seam truly requires it
+
+## Slice Decomposition
+
+Default to one issue / one PR with one narrow review surface.
+
+Make the intended seam explicit:
+
+1. what lands in the current PR
+2. what is deliberately deferred
+3. why the seam is reviewable on its own
+
+Use the Elixir reference as a reminder that supervision, status surface, workflow config, and tracker integration are separable components.
+
+If the work would otherwise mix several of those components in one patch, narrow the current issue to the first usable slice before implementation.
 
 ## Harness-Oriented Principles
 
@@ -97,7 +135,9 @@ If the issue changes long-running orchestration, retries, review loops, ownershi
 4. define which states are healthy waiting vs broken/orphaned
 5. define what facts the system uses to decide between wait, rerun, fail, or complete
 
-Do not let run sequence, retry budget, waiting state, and recovery state blur together.
+Do not let run sequence, retry budget, follow-up budget, waiting state, and recovery state blur together.
+
+If the behavior depends on several counters, flags, or maps, the plan should call for a named runtime-state module with explicit transitions.
 
 ## Failure-Class Matrix
 
@@ -132,6 +172,17 @@ For orchestration changes, plans should usually include:
 
 Name the end-to-end scenarios explicitly.
 
+For planning/process issues, add lightweight contract tests when the checked-in guidance itself is the primary deliverable.
+
+## Phase 1.2 Review-Churn Lessons
+
+Encode these lessons directly in the plan instead of waiting for review comments:
+
+1. separate tracker transport, normalization, and policy at the boundary
+2. require explicit runtime state machines for retries, continuations, reconciliation, and handoff states
+3. avoid broad PRs that combine tracker seams, orchestrator state, workflow prompts, and harness cleanup without a named slice strategy
+4. prefer shared test builders/helpers when the same fixtures or temp-root setup repeat across multiple tests
+
 ## Review-Churn Trigger
 
 If you find yourself planning a change that would patch a large existing file in several unrelated places, stop and reconsider the decomposition.
@@ -146,6 +197,14 @@ If likely review comments would cluster around:
 
 then the plan should include a small structural refactor up front rather than deferring it to code review.
 
+If the first slice is still too broad after that refactor, the issue should be decomposed further before coding.
+
+## Planning-Process First Slice
+
+When the issue is about planning, workflow guidance, or prompt contracts, the first implementation slice should improve the checked-in planning process itself.
+
+Do not turn that first slice into a generic planning product, planner service, or large automation framework.
+
 ## Plan Output
 
 Write the plan to:
@@ -157,7 +216,7 @@ Use a stable, descriptive directory name.
 After writing the plan:
 
 1. sanity-check that it matches the issue
-2. sanity-check that boundaries are explicit
+2. sanity-check that spec alignment, non-goals, boundaries, slice strategy, acceptance scenarios, and deferred work are explicit
 3. comment on the issue that the plan is ready
 
 If implementation is explicitly allowed to continue without waiting, continue from the plan.

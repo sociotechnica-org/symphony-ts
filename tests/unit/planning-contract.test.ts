@@ -1,0 +1,90 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+
+async function readRepoFile(relativePath: string): Promise<string> {
+  return (
+    await fs.readFile(path.join(process.cwd(), relativePath), "utf8")
+  ).toLowerCase();
+}
+
+function expectPhrases(content: string, phrases: readonly string[]): void {
+  for (const phrase of phrases) {
+    expect(content).toContain(phrase);
+  }
+}
+
+describe("repo planning contract", () => {
+  it("keeps the symphony plan skill explicit about spec layers and seams", async () => {
+    const content = await readRepoFile("skills/symphony-plan/SKILL.md");
+
+    expectPhrases(content, [
+      "policy layer",
+      "configuration layer",
+      "coordination layer",
+      "execution layer",
+      "integration layer",
+      "observability layer",
+      "one issue / one pr",
+      "transport, normalization, and policy",
+      "runtime state machine",
+      "failure-class matrix",
+      "acceptance scenarios",
+      "docs/architecture.md",
+      "deferred",
+    ]);
+  });
+
+  it("keeps a local abstraction-level fallback in architecture docs", async () => {
+    const content = await readRepoFile("docs/architecture.md");
+
+    expectPhrases(content, [
+      "spec abstraction levels",
+      "policy layer",
+      "configuration layer",
+      "coordination layer",
+      "execution layer",
+      "integration layer",
+      "observability layer",
+      "workflow.md",
+      "src/config/",
+      "src/orchestrator/",
+      "src/workspace/",
+      "src/runner/",
+      "src/tracker/",
+      "src/observability/",
+    ]);
+  });
+
+  it("keeps workflow instructions plan-first and decomposition-aware", async () => {
+    const content = await readRepoFile("WORKFLOW.md");
+
+    expectPhrases(content, [
+      "spec.md",
+      "non-goals",
+      "slice strategy",
+      "runtime state machine",
+      "failure-class matrix",
+      "leases",
+      "transport, normalization, and policy",
+      "docs/architecture.md",
+      "one issue / one pr",
+    ]);
+  });
+
+  it("keeps repo policy explicit about narrow pr seams", async () => {
+    const content = await readRepoFile("AGENTS.md");
+
+    expectPhrases(content, [
+      "planning standard",
+      "policy, configuration, coordination, execution, integration, and observability",
+      "slice strategy",
+      "runtime state machine",
+      "failure-class matrix",
+      "transport, normalization, and policy",
+      "docs/architecture.md",
+      "one issue / one pr",
+      "phase 1.2 / pr `#23`",
+    ]);
+  });
+});

@@ -93,6 +93,19 @@ For any GitHub issue assigned for implementation:
 
 Plans are part of the system of record. Do not implement substantial work without first creating or updating the plan.
 
+## Planning Standard
+
+Every substantial implementation plan must:
+
+1. explicitly map the touched work to the Symphony abstraction levels from `SPEC.md`: policy, configuration, coordination, execution, integration, and observability; if `SPEC.md` is not vendored in the current clone, use the matching layer model summarized in `docs/architecture.md`
+2. name scope, non-goals, current gaps, architecture boundaries, implementation steps, tests, acceptance scenarios, exit criteria, and what is deferred to later issues or PRs
+3. name the intended slice strategy and why the current issue should fit in one reviewable PR
+4. require an explicit runtime state machine and failure-class matrix when orchestration behavior depends on retries, continuations, reconciliation, leases, or handoff states
+5. keep tracker changes separated across transport, normalization, and policy instead of mixing them in one adapter module
+6. call out what does not belong in each touched layer
+
+If the plan cannot describe a narrow seam, the issue is too large and should be decomposed before substantial implementation continues.
+
 ## Scope Changes
 
 If material scope changes are discovered during implementation:
@@ -140,9 +153,13 @@ Every PR should:
 2. stay as small as practical while still completing the assigned work,
 3. and remain traceable back to the plan and issue discussion.
 
+Default to one issue / one PR.
+
 Prefer smaller reviewable slices over oversized PRs when the work can be split without losing end-to-end integrity.
 
 For orchestration-heavy work, prefer splitting large changes into smaller PRs along stable architectural seams rather than combining tracker policy, orchestrator state, runner behavior, test harness changes, and docs into one review surface. Each PR should either complete one usable vertical slice or land inert, well-tested plumbing that reduces risk for the next slice.
+
+Phase 1.2 / PR `#23` is the standing warning here: do not combine tracker transport, normalization, policy, orchestration state, workflow prompts, and harness cleanup in one broad review surface without an explicit seam and rationale. Use the Elixir reference as a reminder that supervision, status surface, workflow config, and tracker integration are separable components.
 
 ## Related Bugs
 
