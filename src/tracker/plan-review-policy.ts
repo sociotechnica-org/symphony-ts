@@ -24,7 +24,6 @@ interface ParsedPlanReviewComment {
 interface ParsedPlanReviewAcknowledgement {
   readonly signal: PlanReviewDecisionSignal;
   readonly reviewCommentId: number;
-  readonly comment: IssueCommentSnapshot;
 }
 
 export interface PlanReviewProtocolEvaluation {
