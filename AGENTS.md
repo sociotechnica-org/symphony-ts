@@ -95,7 +95,7 @@ For any GitHub issue assigned for implementation:
 6. If explicitly instructed not to wait for human feedback, record that waiver and continue directly from the plan into implementation.
 
 Plans are part of the system of record. Do not implement substantial work without first creating or updating the plan.
-Plan approval is a required workflow handoff similar in spirit to a human review station; it is not terminal success, and it must happen before implementation unless waived.
+Plan approval is a required workflow handoff and is the repo-owned human review station; it is not terminal success, and it must happen before implementation unless waived.
 
 ## Planning Standard
 
