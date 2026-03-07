@@ -5,6 +5,7 @@ export interface Tracker {
   ensureLabels(): Promise<void>;
   fetchReadyIssues(): Promise<readonly RuntimeIssue[]>;
   fetchRunningIssues(): Promise<readonly RuntimeIssue[]>;
+  fetchFailedIssues(): Promise<readonly RuntimeIssue[]>;
   getIssue(issueNumber: number): Promise<RuntimeIssue>;
   claimIssue(issueNumber: number): Promise<RuntimeIssue | null>;
   inspectIssueHandoff(branchName: string): Promise<PullRequestLifecycle>;

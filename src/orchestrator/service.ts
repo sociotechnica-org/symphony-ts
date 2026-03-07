@@ -6,6 +6,10 @@ import type { RetryState } from "../domain/retry.js";
 import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
 import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
+import {
+  deriveStatusFilePath,
+  writeFactoryStatusSnapshot,
+} from "../observability/status.js";
 import type { Runner } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
@@ -18,6 +22,15 @@ import {
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
 import { createOrchestratorState } from "./state.js";
+import {
+  adjustTrackerIssueCounts,
+  buildFactoryStatusSnapshot,
+  clearActiveIssue,
+  noteLifecycleForIssue,
+  noteStatusAction,
+  setTrackerIssueCounts,
+  upsertActiveIssue,
+} from "./status-state.js";
 
 export interface Orchestrator {
   runOnce(): Promise<void>;
@@ -40,6 +53,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #state = createOrchestratorState();
   readonly #instanceId = randomUUID();
   readonly #leaseManager: LocalIssueLeaseManager;
+  readonly #statusFilePath: string;
   #shutdownSignal: AbortSignal | undefined;
 
   constructor(
@@ -60,15 +74,30 @@ export class BootstrapOrchestrator implements Orchestrator {
       config.workspace.root,
       logger,
     );
+    this.#statusFilePath = deriveStatusFilePath(config.workspace.root);
   }
 
   async runOnce(): Promise<void> {
+    noteStatusAction(this.#state.status, {
+      kind: "poll-started",
+      summary: "Polling tracker for ready and running issues",
+      issueNumber: null,
+    });
+    await this.#persistStatusSnapshot();
     await this.#tracker.ensureLabels();
     this.#logger.info("Poll started");
-    const [readyCandidates, runningCandidates] = await Promise.all([
-      this.#tracker.fetchReadyIssues(),
-      this.#tracker.fetchRunningIssues(),
-    ]);
+    const [readyCandidates, runningCandidates, failedCandidates] =
+      await Promise.all([
+        this.#tracker.fetchReadyIssues(),
+        this.#tracker.fetchRunningIssues(),
+        this.#fetchFailedCandidatesForStatus(),
+      ]);
+    setTrackerIssueCounts(this.#state.status, {
+      ready: readyCandidates.length,
+      running: runningCandidates.length,
+      failed: failedCandidates.length,
+    });
+    this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
     await this.#reconcileRunningIssueOwnership(runningCandidates);
     const dueRetries = this.#collectDueRetries();
     const queue = this.#mergeQueue(
@@ -82,9 +111,16 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#logger.info("Poll candidates fetched", {
       readyCount: readyCandidates.length,
       runningCount: runningCandidates.length,
+      failedCount: failedCandidates.length,
       candidateCount: queue.length,
       availableSlots,
     });
+    noteStatusAction(this.#state.status, {
+      kind: "poll-fetched",
+      summary: `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`,
+      issueNumber: null,
+    });
+    await this.#persistStatusSnapshot();
 
     if (availableSlots <= 0) {
       return;
@@ -211,8 +247,32 @@ export class BootstrapOrchestrator implements Orchestrator {
         this.#logger.info("Issue was no longer claimable", {
           issueNumber: issue.number,
         });
+        noteStatusAction(this.#state.status, {
+          kind: "claim-skipped",
+          summary: `Issue #${issue.number.toString()} was no longer claimable`,
+          issueNumber: issue.number,
+        });
+        await this.#persistStatusSnapshot();
         return;
       }
+      upsertActiveIssue(this.#state.status, claimed, {
+        source: "ready",
+        runSequence: attempt,
+        branchName: this.#branchName(claimed.number),
+        status: "queued",
+        summary: `Claimed ${claimed.identifier}`,
+        ownerPid: process.pid,
+      });
+      adjustTrackerIssueCounts(this.#state.status, {
+        ready: -1,
+        running: 1,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "issue-claimed",
+        summary: `Claimed ${claimed.identifier}`,
+        issueNumber: claimed.number,
+      });
+      await this.#persistStatusSnapshot();
       await this.#processClaimedIssue(
         claimed,
         attempt,
@@ -227,6 +287,20 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
   ): Promise<void> {
     await this.#withIssueLease(issue, attempt, async (lockDir) => {
+      upsertActiveIssue(this.#state.status, issue, {
+        source: "running",
+        runSequence: attempt,
+        branchName: this.#branchName(issue.number),
+        status: "queued",
+        summary: `Inspecting ${issue.identifier}`,
+        ownerPid: process.pid,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "issue-resumed",
+        summary: `Inspecting running issue ${issue.identifier}`,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
       await this.#processClaimedIssue(issue, attempt, lockDir);
     });
   }
@@ -248,6 +322,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
       await this.#leaseManager.release(lease);
+      await this.#persistStatusSnapshot();
     }
   }
 
@@ -258,6 +333,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     initialLifecycle?: PullRequestLifecycle,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
+    const issueSource = initialLifecycle !== undefined ? "ready" : "running";
     const lifecycle =
       initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 
@@ -268,10 +344,24 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     if (lifecycle.kind === "awaiting-review") {
+      noteLifecycleForIssue(
+        this.#state.status,
+        issue,
+        issueSource,
+        attempt,
+        branchName,
+        lifecycle,
+      );
       this.#logger.info("Issue remains in PR review", {
         issueNumber: issue.number,
         summary: lifecycle.summary,
       });
+      noteStatusAction(this.#state.status, {
+        kind: "awaiting-review",
+        summary: lifecycle.summary,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
       return;
     }
 
@@ -279,6 +369,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issue,
       attempt,
       lockDir,
+      issueSource,
       lifecycle.kind === "missing" ? null : lifecycle,
     );
   }
@@ -287,8 +378,25 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     lockDir: string,
+    source: "ready" | "running",
     pullRequest: PullRequestLifecycle | null,
   ): Promise<void> {
+    upsertActiveIssue(this.#state.status, issue, {
+      source,
+      runSequence: attempt,
+      branchName: this.#branchName(issue.number),
+      status: "preparing",
+      summary: `Preparing workspace for ${issue.identifier}`,
+      ownerPid: process.pid,
+      runnerPid: null,
+      blockedReason: null,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: "run-preparing",
+      summary: `Preparing workspace for ${issue.identifier}`,
+      issueNumber: issue.number,
+    });
+    await this.#persistStatusSnapshot();
     const workspace = await this.#workspaceManager.prepareWorkspace({ issue });
     const prompt = await this.#promptBuilder.build({
       issue,
@@ -296,6 +404,42 @@ export class BootstrapOrchestrator implements Orchestrator {
       pullRequest,
     });
     const session = this.#createRunSession(issue, workspace, prompt, attempt);
+    upsertActiveIssue(this.#state.status, issue, {
+      source,
+      runSequence: attempt,
+      branchName: workspace.branchName,
+      status: "running",
+      summary: `Running ${issue.identifier}`,
+      workspacePath: workspace.path,
+      runSessionId: session.id,
+      ownerPid: process.pid,
+      runnerPid: null,
+      startedAt: new Date().toISOString(),
+      pullRequest:
+        pullRequest?.pullRequest === undefined ||
+        pullRequest.pullRequest === null
+          ? null
+          : {
+              number: pullRequest.pullRequest.number,
+              url: pullRequest.pullRequest.url,
+              latestCommitAt: pullRequest.pullRequest.latestCommitAt,
+            },
+      checks: {
+        pendingNames: pullRequest?.pendingCheckNames ?? [],
+        failingNames: pullRequest?.failingCheckNames ?? [],
+      },
+      review: {
+        actionableCount: pullRequest?.actionableReviewFeedback.length ?? 0,
+        unresolvedThreadCount: pullRequest?.unresolvedThreadIds.length ?? 0,
+      },
+      blockedReason: null,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: "run-started",
+      summary: `Started agent run for ${issue.identifier}`,
+      issueNumber: issue.number,
+    });
+    await this.#persistStatusSnapshot();
     await this.#leaseManager.recordRun(lockDir, session);
     const abortController = new AbortController();
     const shutdownSignal = this.#shutdownSignal;
@@ -348,6 +492,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
 
+      noteLifecycleForIssue(
+        this.#state.status,
+        issue,
+        source,
+        attempt,
+        workspace.branchName,
+        nextLifecycle,
+      );
       this.#logger.info("Issue remains in PR lifecycle", {
         issueNumber: issue.number,
         branchName: workspace.branchName,
@@ -355,6 +507,12 @@ export class BootstrapOrchestrator implements Orchestrator {
         lifecycle: nextLifecycle.kind,
         summary: nextLifecycle.summary,
       });
+      noteStatusAction(this.#state.status, {
+        kind: nextLifecycle.kind,
+        summary: nextLifecycle.summary,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
 
       const decision = noteLifecycleObservation(
         this.#state.followUp,
@@ -382,7 +540,17 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#tracker.completeIssue(issueNumber);
     this.#state.retries.delete(issueNumber);
     clearFollowUpRuntimeState(this.#state.followUp, issueNumber);
+    clearActiveIssue(this.#state.status, issueNumber);
+    adjustTrackerIssueCounts(this.#state.status, {
+      running: -1,
+    });
     this.#logger.info("Issue completed", { issueNumber });
+    noteStatusAction(this.#state.status, {
+      kind: "issue-completed",
+      summary: `Completed issue #${issueNumber.toString()}`,
+      issueNumber,
+    });
+    await this.#persistStatusSnapshot();
   }
 
   async #cleanupIssueWorkspaceIfNeeded(issue: RuntimeIssue): Promise<void> {
@@ -456,6 +624,31 @@ export class BootstrapOrchestrator implements Orchestrator {
         runnerPid: snapshot.runnerPid,
         runSessionId: snapshot.record?.runSessionId ?? null,
       });
+      noteStatusAction(this.#state.status, {
+        kind: "ownership-recovered",
+        summary: `Recovered stale ownership for issue #${issueNumber.toString()}`,
+        issueNumber,
+      });
+      await this.#persistStatusSnapshot();
+    }
+  }
+
+  #pruneStaleActiveIssues(
+    readyIssues: readonly RuntimeIssue[],
+    runningIssues: readonly RuntimeIssue[],
+  ): void {
+    const retainedIssueNumbers = new Set<number>([
+      ...readyIssues.map((issue) => issue.number),
+      ...runningIssues.map((issue) => issue.number),
+      ...this.#state.runningIssueNumbers,
+      ...this.#state.retries.keys(),
+    ]);
+
+    for (const issueNumber of this.#state.status.activeIssues.keys()) {
+      if (retainedIssueNumbers.has(issueNumber)) {
+        continue;
+      }
+      clearActiveIssue(this.#state.status, issueNumber);
     }
   }
 
@@ -507,6 +700,12 @@ export class BootstrapOrchestrator implements Orchestrator {
       workspacePath: session.workspace.path,
       runSessionId: session.id,
     });
+    noteStatusAction(this.#state.status, {
+      kind: "run-failed",
+      summary: message,
+      issueNumber: session.issue.number,
+    });
+    await this.#persistStatusSnapshot();
     await this.#scheduleRetryOrFailSafely(session.issue, attempt, message);
   }
 
@@ -521,6 +720,12 @@ export class BootstrapOrchestrator implements Orchestrator {
       attempt,
       error: message,
     });
+    noteStatusAction(this.#state.status, {
+      kind: "unexpected-failure",
+      summary: message,
+      issueNumber: issue.number,
+    });
+    await this.#persistStatusSnapshot();
     await this.#scheduleRetryOrFailSafely(issue, attempt, message);
   }
 
@@ -563,6 +768,15 @@ export class BootstrapOrchestrator implements Orchestrator {
           message,
         ),
       );
+      clearActiveIssue(this.#state.status, issue.number);
+      noteStatusAction(this.#state.status, {
+        kind: "retry-scheduled",
+        summary: `Retry ${this.#state.retries
+          .get(issue.number)!
+          .nextAttempt.toString()} scheduled for ${issue.identifier}`,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
       return;
     }
     await this.#failIssue(issue.number, message);
@@ -572,6 +786,17 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#tracker.markIssueFailed(issueNumber, message);
     this.#state.retries.delete(issueNumber);
     clearFollowUpRuntimeState(this.#state.followUp, issueNumber);
+    clearActiveIssue(this.#state.status, issueNumber);
+    adjustTrackerIssueCounts(this.#state.status, {
+      running: -1,
+      failed: 1,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: "issue-failed",
+      summary: message,
+      issueNumber,
+    });
+    await this.#persistStatusSnapshot();
   }
 
   #followUpFailureMessage(lifecycle: PullRequestLifecycle): string {
@@ -608,6 +833,22 @@ export class BootstrapOrchestrator implements Orchestrator {
     event: RunSpawnEvent,
   ): void {
     this.#leaseManager.recordRunnerSpawn(lockDir, event);
+    const entry = this.#state.status.activeIssues.get(issueNumber);
+    if (entry) {
+      this.#state.status.activeIssues.set(issueNumber, {
+        ...entry,
+        runnerPid: event.pid,
+        updatedAt: event.spawnedAt,
+      });
+    }
+    noteStatusAction(this.#state.status, {
+      kind: "runner-spawned",
+      summary: `Runner PID ${event.pid.toString()} attached`,
+      issueNumber,
+      at: event.spawnedAt,
+    });
+    // The runner onSpawn callback is synchronous; snapshot persistence is optional.
+    void this.#persistStatusSnapshot();
     this.#logger.info("Runner process attached to active issue", {
       issueNumber,
       runnerPid: event.pid,
@@ -618,6 +859,39 @@ export class BootstrapOrchestrator implements Orchestrator {
   #abortActiveRuns(): void {
     for (const controller of this.#state.runAbortControllers.values()) {
       controller.abort();
+    }
+  }
+
+  async #persistStatusSnapshot(): Promise<void> {
+    try {
+      await writeFactoryStatusSnapshot(
+        this.#statusFilePath,
+        buildFactoryStatusSnapshot({
+          state: this.#state.status,
+          instanceId: this.#instanceId,
+          workerPid: process.pid,
+          pollIntervalMs: this.#config.polling.intervalMs,
+          maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
+          activeLocalRuns: this.#state.runningIssueNumbers.size,
+          retries: this.#state.retries,
+        }),
+      );
+    } catch (error) {
+      this.#logger.warn("Failed to write status snapshot", {
+        statusFilePath: this.#statusFilePath,
+        error: this.#normalizeFailure(error as Error),
+      });
+    }
+  }
+
+  async #fetchFailedCandidatesForStatus(): Promise<readonly RuntimeIssue[]> {
+    try {
+      return await this.#tracker.fetchFailedIssues();
+    } catch (error) {
+      this.#logger.warn("Failed to fetch failed issues for status snapshot", {
+        error: this.#normalizeFailure(error as Error),
+      });
+      return [];
     }
   }
 

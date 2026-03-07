@@ -10,6 +10,10 @@ import type {
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
+import {
+  deriveStatusFilePath,
+  readFactoryStatusSnapshot,
+} from "../../src/observability/status.js";
 import type { Logger } from "../../src/observability/logger.js";
 import type { Runner } from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
@@ -96,6 +100,7 @@ class NullLogger implements Logger {
 class SequencedTracker implements Tracker {
   readonly readyIssues = new Map<number, RuntimeIssue>();
   readonly runningIssues = new Map<number, RuntimeIssue>();
+  readonly failedIssues = new Map<number, RuntimeIssue>();
   readonly lifecycleSequences = new Map<number, PullRequestLifecycle[]>();
   readonly completed: number[] = [];
   readonly retried: Array<{ issueNumber: number; reason: string }> = [];
@@ -132,6 +137,10 @@ class SequencedTracker implements Tracker {
 
   async fetchRunningIssues(): Promise<readonly RuntimeIssue[]> {
     return [...this.runningIssues.values()];
+  }
+
+  async fetchFailedIssues(): Promise<readonly RuntimeIssue[]> {
+    return [...this.failedIssues.values()];
   }
 
   async getIssue(issueNumber: number): Promise<RuntimeIssue> {
@@ -196,6 +205,10 @@ class SequencedTracker implements Tracker {
     this.failed.push({ issueNumber, reason });
     this.readyIssues.delete(issueNumber);
     this.runningIssues.delete(issueNumber);
+    this.failedIssues.set(
+      issueNumber,
+      createIssue(issueNumber, "symphony:failed"),
+    );
   }
 }
 
@@ -476,6 +489,46 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.retried).toEqual([]);
   });
 
+  it("preserves the running source when a running issue has no PR yet", async () => {
+    const tempRoot = await createTempDir("symphony-running-source-test-");
+    try {
+      const tracker = new SequencedTracker({
+        running: [createIssue(79, "symphony:running")],
+      });
+      tracker.setLifecycleSequence(79, [
+        lifecycle("missing", "symphony/79"),
+        lifecycle("awaiting-review", "symphony/79", {
+          pendingCheckNames: ["CI"],
+        }),
+      ]);
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.activeIssues).toHaveLength(1);
+      expect(snapshot.activeIssues[0]?.source).toBe("running");
+      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-review");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips a running issue that is already leased by another local worker", async () => {
     const tempRoot = await createTempDir("symphony-lease-test-");
     try {
@@ -607,6 +660,48 @@ describe("BootstrapOrchestrator", () => {
       "Failed to reconcile running issue ownership",
     );
     expect(logger.errors).not.toContain("Poll cycle failed");
+  });
+
+  it("prunes stale active issues that no longer appear in tracker state", async () => {
+    const tempRoot = await createTempDir("symphony-status-prune-test-");
+    try {
+      const issue = createIssue(72, "symphony:running");
+      const tracker = new SequencedTracker({
+        running: [issue],
+      });
+      tracker.setLifecycleSequence(72, [
+        lifecycle("awaiting-review", "symphony/72"),
+      ]);
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      tracker.runningIssues.clear();
+
+      await orchestrator.runOnce();
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.activeIssues).toHaveLength(0);
+      expect(snapshot.counts.running).toBe(0);
+      expect(snapshot.factoryState).toBe("idle");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("keeps an existing issue lease when pid probing returns EPERM", async () => {

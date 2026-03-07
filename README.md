@@ -19,6 +19,7 @@ Today, `symphony-ts` can:
 - recover orphaned `symphony:running` issues after local worker or agent loss
 - close the issue only after the PR is merge-ready
 - retry failed runs locally
+- emit a local factory status snapshot and render it in the terminal
 
 This is already being used to build `symphony-ts` itself.
 
@@ -112,6 +113,18 @@ Run continuously:
 pnpm tsx bin/symphony.ts run
 ```
 
+Inspect the latest local factory status:
+
+```bash
+pnpm tsx bin/symphony.ts status
+```
+
+Print the machine-readable snapshot:
+
+```bash
+pnpm tsx bin/symphony.ts status --json
+```
+
 By default, the checked-in `WORKFLOW.md` targets:
 
 - repo: `sociotechnica-org/symphony-ts`
@@ -174,6 +187,10 @@ pnpm tsx bin/symphony.ts run
 ```
 
 In continuous mode, Symphony will keep polling for additional ready issues.
+
+During or after a run, Symphony writes the latest derived status snapshot to `.tmp/status.json`.
+The `status` CLI reads that file and renders either a simple terminal view or the raw JSON contract
+for future tooling.
 
 ### 5. Watch the issue lifecycle
 
