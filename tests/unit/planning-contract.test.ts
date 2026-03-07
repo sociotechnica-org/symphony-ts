@@ -40,7 +40,6 @@ describe("repo planning contract", () => {
       "observability layer",
       "observability requirements",
       "implementation steps",
-      "12. implementation steps",
       "slice strategy",
       "one issue / one pr",
       "transport, normalization, and policy",
