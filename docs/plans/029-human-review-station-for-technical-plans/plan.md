@@ -192,7 +192,7 @@ States:
 
 1. `draft`: the issue plan exists but has not yet been handed off for human review
 2. `plan-ready`: the plan satisfies the repo planning standard and the issue has a comment asking for human review
-3. `in-review`: the agent is waiting for human approval or requested changes
+3. `in review`: the agent is waiting for human approval or requested changes
 4. `revise`: human feedback requires updates to the plan before implementation
 5. `approved`: a human explicitly approves the plan
 6. `waived`: the issue or operator explicitly says not to wait for approval
@@ -201,10 +201,10 @@ States:
 Allowed transitions:
 
 1. `draft -> plan-ready`
-2. `plan-ready -> in-review`
-3. `in-review -> revise`
+2. `plan-ready -> in review`
+3. `in review -> revise`
 4. `revise -> plan-ready`
-5. `in-review -> approved`
+5. `in review -> approved`
 6. `draft -> waived`
 7. `plan-ready -> waived`
 8. `approved -> implementing`

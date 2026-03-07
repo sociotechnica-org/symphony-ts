@@ -68,7 +68,7 @@ Rules:
 6. The plan must name scope, non-goals, current gaps, architecture boundaries, implementation steps, tests, slice strategy, acceptance scenarios, exit criteria, and what is deferred to later issues or PRs.
 7. If orchestration behavior depends on retries, continuations, reconciliation, leases, or handoff states, the plan must include an explicit runtime state machine and failure-class matrix.
 8. If the proposed work would mix tracker transport, normalization, and policy, or combine multiple separable review surfaces in one PR, narrow the current issue to the first reviewable slice before coding. Default to one issue / one PR.
-9. Drive the plan through the repo's human review station before substantial implementation: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only when the plan is `approved`.
+9. Drive the plan through the repo's human review station before substantial implementation: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from explicit `approved` or `waived` handoff.
 10. Comment on the GitHub issue when the plan is `plan-ready` for review and treat that as a human handoff, not as permission to start coding.
 11. If human feedback requests changes, revise `docs/plans/<issue-number>-<task-name>/plan.md`, summarize the delta in a fresh issue comment, and return the plan to `plan-ready`.
 12. Do not begin substantial implementation until the plan is explicitly `approved` by a human or explicitly `waived` by issue instructions that say not to wait for human feedback.
