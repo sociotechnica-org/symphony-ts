@@ -223,8 +223,9 @@ Required behavior:
 1. when the plan meets the planning standard, post an issue comment that the plan is `plan-ready` for review
 2. unless the issue or operator explicitly says not to wait, stop there and treat the plan as being `in review`
 3. if human feedback requests changes, move to `revise`, update the plan, and post a fresh comment that summarizes the deltas before returning to `plan-ready`
-4. begin substantial implementation only after the plan is explicitly `approved` or explicitly `waived`
-5. if approval is waived, record that fact in the issue or PR notes so the handoff remains inspectable
+4. a waiver can arrive from `draft`, `plan-ready`, or `in review`; treat all three as valid transitions to `waived`
+5. begin substantial implementation only after the plan is explicitly `approved` or explicitly `waived`
+6. if approval is waived, record that fact in the issue or PR notes so the handoff remains inspectable
 
 This review station is the first slice for plan-process issues because it preserves the workflow boundary and uses existing issue comments instead of inventing new runtime machinery.
 
