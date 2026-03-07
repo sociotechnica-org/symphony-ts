@@ -10,16 +10,16 @@ import type {
 } from "../observability/status.js";
 
 export interface TrackerIssueCounts {
-  ready: number;
-  running: number;
-  failed: number;
+  readonly ready: number;
+  readonly running: number;
+  readonly failed: number;
 }
 
 type RuntimeActiveIssueState = FactoryActiveIssueSnapshot;
 
 export interface RuntimeStatusState {
   readonly workerStartedAt: string;
-  readonly trackerCounts: TrackerIssueCounts;
+  trackerCounts: TrackerIssueCounts;
   readonly activeIssues: Map<number, RuntimeActiveIssueState>;
   lastAction: FactoryStatusAction | null;
 }
@@ -53,33 +53,31 @@ export function setTrackerIssueCounts(
   state: RuntimeStatusState,
   counts: TrackerIssueCounts,
 ): void {
-  state.trackerCounts.ready = counts.ready;
-  state.trackerCounts.running = counts.running;
-  state.trackerCounts.failed = counts.failed;
+  state.trackerCounts = {
+    ready: counts.ready,
+    running: counts.running,
+    failed: counts.failed,
+  };
 }
 
 export function adjustTrackerIssueCounts(
   state: RuntimeStatusState,
   change: Partial<Record<keyof TrackerIssueCounts, number>>,
 ): void {
-  if (change.ready !== undefined) {
-    state.trackerCounts.ready = Math.max(
-      0,
-      state.trackerCounts.ready + change.ready,
-    );
-  }
-  if (change.running !== undefined) {
-    state.trackerCounts.running = Math.max(
-      0,
-      state.trackerCounts.running + change.running,
-    );
-  }
-  if (change.failed !== undefined) {
-    state.trackerCounts.failed = Math.max(
-      0,
-      state.trackerCounts.failed + change.failed,
-    );
-  }
+  state.trackerCounts = {
+    ready:
+      change.ready === undefined
+        ? state.trackerCounts.ready
+        : Math.max(0, state.trackerCounts.ready + change.ready),
+    running:
+      change.running === undefined
+        ? state.trackerCounts.running
+        : Math.max(0, state.trackerCounts.running + change.running),
+    failed:
+      change.failed === undefined
+        ? state.trackerCounts.failed
+        : Math.max(0, state.trackerCounts.failed + change.failed),
+  };
 }
 
 export function upsertActiveIssue(

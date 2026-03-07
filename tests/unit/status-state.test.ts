@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import {
+  adjustTrackerIssueCounts,
   createRuntimeStatusState,
+  setTrackerIssueCounts,
   upsertActiveIssue,
 } from "../../src/orchestrator/status-state.js";
 
@@ -19,6 +21,30 @@ const issue: RuntimeIssue = {
 };
 
 describe("upsertActiveIssue", () => {
+  it("reassigns tracker counts through the helper functions", () => {
+    const state = createRuntimeStatusState();
+    const firstCounts = state.trackerCounts;
+
+    setTrackerIssueCounts(state, {
+      ready: 3,
+      running: 2,
+      failed: 1,
+    });
+    const secondCounts = state.trackerCounts;
+    adjustTrackerIssueCounts(state, {
+      ready: -1,
+      running: 1,
+    });
+
+    expect(firstCounts).not.toBe(secondCounts);
+    expect(secondCounts).not.toBe(state.trackerCounts);
+    expect(state.trackerCounts).toEqual({
+      ready: 2,
+      running: 3,
+      failed: 1,
+    });
+  });
+
   it("resets nullable fields when an explicit null update is provided", () => {
     const state = createRuntimeStatusState();
 

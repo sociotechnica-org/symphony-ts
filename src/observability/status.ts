@@ -22,10 +22,13 @@ export interface FactoryWorkerSnapshot {
 }
 
 export interface FactoryStatusCounts {
+  /** Tracker-level label counts refreshed from the tracker on each poll. */
   readonly ready: number;
   readonly running: number;
   readonly failed: number;
+  /** Local process state for the current factory instance. */
   readonly activeLocalRuns: number;
+  /** Local in-memory retry queue size, not a tracker-level label count. */
   readonly retries: number;
 }
 
