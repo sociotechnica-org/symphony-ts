@@ -151,7 +151,8 @@ describe("repo planning contract", () => {
       "human feedback",
       "approved or explicitly waived",
       "issue comments",
-      "human review station unless plan approval is waived",
+      "human review station",
+      "plan approval is waived",
     ]);
   });
 });
