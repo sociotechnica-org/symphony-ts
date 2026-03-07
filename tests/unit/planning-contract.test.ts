@@ -16,7 +16,9 @@ function expectPhrases(content: string, phrases: readonly string[]): void {
 
 describe("repo planning contract", () => {
   it("keeps the symphony plan skill explicit about spec layers and seams", async () => {
-    const content = await readRepoFileLowercased("skills/symphony-plan/SKILL.md");
+    const content = await readRepoFileLowercased(
+      "skills/symphony-plan/SKILL.md",
+    );
 
     expectPhrases(content, [
       "policy layer",
