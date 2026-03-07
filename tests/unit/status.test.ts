@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   deriveStatusFilePath,
+  isProcessAlive,
   readFactoryStatusSnapshot,
   renderFactoryStatusSnapshot,
   writeFactoryStatusSnapshot,
@@ -161,6 +162,36 @@ describe("factory status helpers", () => {
       await expect(readFactoryStatusSnapshot(filePath)).rejects.toThrowError(
         `Invalid factory status snapshot at ${filePath}: expected worker.pid to be an integer`,
       );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats non-positive pids as invalid and offline", async () => {
+    const tempDir = await createTempDir("symphony-status-pid-test-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(
+          {
+            ...createSnapshot(),
+            worker: {
+              ...createSnapshot().worker,
+              pid: 0,
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+
+      await expect(readFactoryStatusSnapshot(filePath)).rejects.toThrowError(
+        `Invalid factory status snapshot at ${filePath}: expected worker.pid to be a positive integer`,
+      );
+      expect(isProcessAlive(0)).toBe(false);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

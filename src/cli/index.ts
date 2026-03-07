@@ -61,7 +61,13 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   const args = parseArgs(argv);
   if (args.command === "status") {
     const statusFilePath =
-      args.statusFilePath ?? (await resolveStatusFilePath(args.workflowPath));
+      args.statusFilePath ??
+      (await resolveStatusFilePath(args.workflowPath).catch((error) => {
+        throw new Error(
+          `Could not determine status file path from workflow at ${args.workflowPath}. Use --status-file <path> to specify the snapshot location directly.`,
+          { cause: error as Error },
+        );
+      }));
     let snapshot;
     try {
       snapshot = await readFactoryStatusSnapshot(statusFilePath);
@@ -70,6 +76,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
       if (code === "ENOENT") {
         throw new Error(
           `No factory status snapshot found at ${statusFilePath}. Start Symphony with 'symphony run' first.`,
+          { cause: error as Error },
         );
       }
       throw error;

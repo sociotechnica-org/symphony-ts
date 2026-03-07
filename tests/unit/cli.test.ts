@@ -197,4 +197,21 @@ describe("runCli status", () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("fails with guidance when the workflow cannot determine the status path", async () => {
+    const tempDir = await createTempDir(
+      "symphony-cli-status-workflow-missing-",
+    );
+    const workflowPath = path.join(tempDir, "WORKFLOW.md");
+
+    try {
+      await expect(
+        runCli(["node", "symphony", "status", "--workflow", workflowPath]),
+      ).rejects.toThrowError(
+        `Could not determine status file path from workflow at ${workflowPath}. Use --status-file <path> to specify the snapshot location directly.`,
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });

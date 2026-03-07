@@ -135,6 +135,9 @@ export async function readFactoryStatusSnapshot(
 }
 
 export function isProcessAlive(pid: number): boolean {
+  if (pid <= 0) {
+    return false;
+  }
   try {
     process.kill(pid, 0);
     return true;
@@ -311,7 +314,7 @@ function parseWorkerSnapshot(
   const worker = expectObject(value, filePath, "worker");
   return {
     instanceId: expectString(worker.instanceId, filePath, "worker.instanceId"),
-    pid: expectInteger(worker.pid, filePath, "worker.pid"),
+    pid: expectPositiveInteger(worker.pid, filePath, "worker.pid"),
     startedAt: expectString(worker.startedAt, filePath, "worker.startedAt"),
     pollIntervalMs: expectInteger(
       worker.pollIntervalMs,
@@ -568,6 +571,21 @@ function expectInteger(
     throw invalidSnapshot(filePath, `expected ${field} to be an integer`);
   }
   return value;
+}
+
+function expectPositiveInteger(
+  value: unknown,
+  filePath: string,
+  field: string,
+): number {
+  const integer = expectInteger(value, filePath, field);
+  if (integer <= 0) {
+    throw invalidSnapshot(
+      filePath,
+      `expected ${field} to be a positive integer`,
+    );
+  }
+  return integer;
 }
 
 function expectNullableInteger(

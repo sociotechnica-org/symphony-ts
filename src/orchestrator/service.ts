@@ -90,7 +90,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await Promise.all([
         this.#tracker.fetchReadyIssues(),
         this.#tracker.fetchRunningIssues(),
-        this.#tracker.fetchFailedIssues(),
+        this.#fetchFailedCandidatesForStatus(),
       ]);
     setTrackerIssueCounts(this.#state.status, {
       ready: readyCandidates.length,
@@ -850,6 +850,17 @@ export class BootstrapOrchestrator implements Orchestrator {
         statusFilePath: this.#statusFilePath,
         error: this.#normalizeFailure(error as Error),
       });
+    }
+  }
+
+  async #fetchFailedCandidatesForStatus(): Promise<readonly RuntimeIssue[]> {
+    try {
+      return await this.#tracker.fetchFailedIssues();
+    } catch (error) {
+      this.#logger.warn("Failed to fetch failed issues for status snapshot", {
+        error: this.#normalizeFailure(error as Error),
+      });
+      return [];
     }
   }
 
