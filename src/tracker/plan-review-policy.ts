@@ -56,14 +56,20 @@ export function evaluatePlanReviewLifecycle(
   const latestSignal = comments
     .map(parsePlanReviewComment)
     .filter((entry): entry is ParsedPlanReviewComment => entry !== null)
-    .sort((left, right) =>
-      left.comment.createdAt.localeCompare(right.comment.createdAt),
+    .sort(
+      (left, right) =>
+        Date.parse(left.comment.createdAt) -
+        Date.parse(right.comment.createdAt),
     )
     .at(-1);
 
   if (!latestSignal || latestSignal.signal !== "plan-ready") {
     return null;
   }
+
+  // Author validation is intentionally deferred to #48 so #42 only fixes the
+  // runtime handoff semantics; today the issue comment first-line markers are
+  // treated as an open-trust protocol.
 
   return {
     kind: "awaiting-plan-review",

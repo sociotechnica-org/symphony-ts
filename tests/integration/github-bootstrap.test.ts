@@ -149,6 +149,7 @@ describe("GitHubBootstrapTracker", () => {
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
   });
 
   it("reports awaiting-review while checks are pending", async () => {
