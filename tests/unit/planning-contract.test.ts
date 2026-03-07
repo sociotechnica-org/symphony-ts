@@ -91,6 +91,8 @@ describe("repo planning contract", () => {
       "planning standard",
       "policy, configuration, coordination, execution, integration, and observability",
       "non-goals",
+      "current gaps",
+      "architecture boundaries",
       "acceptance scenarios",
       "exit criteria",
       "slice strategy",
