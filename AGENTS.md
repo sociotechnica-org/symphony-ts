@@ -87,11 +87,11 @@ For any GitHub issue assigned for implementation:
 
 1. Create a technical plan in `docs/plans/<issue-number>-<phase-or-task-name>/plan.md`.
 2. Use the issue number in the directory name. For now this should match the GitHub issue number.
-3. Treat plan approval as an explicit human review station before coding: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from `approved` or an explicit waiver.
-4. Once the plan is `plan-ready`, post on the GitHub issue that the plan is ready for review.
-5. If human feedback requests changes, update the plan, summarize the revisions on the issue, and return to `plan-ready`.
-6. Do not begin substantial implementation until a human explicitly approves the plan or the issue/operator explicitly waives waiting for plan approval.
-7. If explicitly instructed not to wait for human feedback, record that waiver and continue directly from the plan into implementation.
+   For any implementation issue, treat plan approval as an explicit human review station before coding: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from `approved` or an explicit waiver.
+3. Once the plan is `plan-ready`, post on the GitHub issue that the plan is ready for review and treat that comment as a human handoff.
+4. If human feedback requests changes, update the plan, summarize the revisions on the issue, and return to `plan-ready`.
+5. Do not begin substantial implementation until a human explicitly approves the plan or the issue/operator explicitly waives waiting for plan approval.
+6. If explicitly instructed not to wait for human feedback, record that waiver and continue directly from the plan into implementation.
 
 Plans are part of the system of record. Do not implement substantial work without first creating or updating the plan.
 Plan approval is a required workflow handoff similar in spirit to Human Review; it is not terminal success, and it must happen before implementation unless waived.
