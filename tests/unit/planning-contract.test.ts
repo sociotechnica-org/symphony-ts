@@ -87,6 +87,7 @@ describe("repo planning contract", () => {
     expectPhrases(content, [
       "planning standard",
       "policy, configuration, coordination, execution, integration, and observability",
+      "acceptance scenarios",
       "slice strategy",
       "runtime state machine",
       "failure-class matrix",
@@ -94,6 +95,7 @@ describe("repo planning contract", () => {
       "docs/architecture.md",
       "one issue / one pr",
       "phase 1.2",
+      "deferred",
     ]);
   });
 });
