@@ -58,6 +58,10 @@ describe("repo planning contract", () => {
       "waived",
       "human feedback",
       "wait for human review", // SKILL.md §Plan Output step 4 — keep this exact wording
+      "plan review: approved",
+      "plan review: changes-requested",
+      "plan review: waived",
+      "copy-pasteable fenced markdown templates",
     ]);
   });
 
@@ -111,6 +115,10 @@ describe("repo planning contract", () => {
       "approved",
       "waived",
       "human feedback",
+      "plan review: approved",
+      "plan review: changes-requested",
+      "plan review: waived",
+      "copy-pasteable",
     ]);
   });
 
@@ -143,6 +151,11 @@ describe("repo planning contract", () => {
       "approved",
       "waives waiting", // AGENTS.md §Issue Workflow step 5 — keep this exact wording
       "human review station",
+      "plan review comment protocol",
+      "plan review: approved",
+      "plan review: changes-requested",
+      "plan review: waived",
+      "acknowledge",
     ]);
   });
 

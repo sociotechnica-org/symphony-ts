@@ -227,6 +227,19 @@ Required behavior:
 5. begin substantial implementation only after the plan is explicitly `approved` or explicitly `waived`
 6. if approval is waived, record that fact in the issue or PR notes so the handoff remains inspectable
 
+Use these exact first-line markers for the human reply protocol:
+
+- `Plan review: approved`
+- `Plan review: changes-requested`
+- `Plan review: waived`
+
+The `plan-ready` issue comment should include:
+
+- the plan path
+- a short summary
+- a short note that the review reply must begin with one of the accepted markers
+- copy-pasteable fenced markdown templates for `approved`, `changes-requested`, and `waived`
+
 This review station is the first slice for plan-process issues because it preserves the workflow boundary and uses existing issue comments instead of inventing new runtime machinery.
 
 ## Plan Output
@@ -245,5 +258,53 @@ After writing the plan:
 4. follow the Human Review Station above: unless plan approval is explicitly waived, stop at `plan-ready`, treat the plan as `in review`, and wait for human review before substantial implementation
 5. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
 6. once the plan is explicitly `approved`, or plan approval is explicitly `waived`, begin substantial implementation; if approval is waived, record that waiver in the issue or PR notes so the handoff remains inspectable
+
+Use this exact reply-template block in the `plan-ready` comment:
+
+````md
+```md
+Plan review: approved
+
+Summary
+
+- Approved to implement.
+```
+
+```md
+Plan review: changes-requested
+
+Summary
+
+- One-sentence decision.
+
+What is good
+
+- ...
+
+Required changes
+
+- ...
+
+Architecture / spec concerns
+
+- ...
+
+Slice / PR size concerns
+
+- ...
+
+Approval condition
+
+- Approve after ...
+```
+
+```md
+Plan review: waived
+
+Summary
+
+- Plan review is waived; proceed to implementation.
+```
+````
 
 Current enforcement is guidance and process expectation; orchestrator-level pause support is deferred.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  evaluatePlanReviewProtocol,
   evaluatePlanReviewLifecycle,
   type IssueCommentSnapshot,
 } from "../../src/tracker/plan-review-policy.js";
@@ -123,5 +124,62 @@ describe("plan-review-policy", () => {
     );
 
     expect(lifecycle?.kind).toBe("awaiting-plan-review");
+  });
+
+  it("requests an acknowledgement comment for approved reviews", () => {
+    const protocol = evaluatePlanReviewProtocol(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Plan status: plan-ready\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
+        comment(
+          "Plan review: approved\n\nSummary\n- Proceed.",
+          "2026-03-07T10:06:00.000Z",
+          3,
+        ),
+      ],
+    );
+
+    expect(protocol.lifecycle).toBeNull();
+    expect(protocol.acknowledgement?.signal).toBe("approved");
+    expect(protocol.acknowledgement?.reviewCommentId).toBe(3);
+    expect(protocol.acknowledgement?.body).toContain(
+      "Plan review acknowledged: approved",
+    );
+    expect(protocol.acknowledgement?.body).toContain("Review comment id: 3");
+  });
+
+  it("does not request a duplicate acknowledgement when one already exists", () => {
+    const protocol = evaluatePlanReviewProtocol(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Plan review: changes-requested\n\nRequired changes\n- Split the issue.",
+          "2026-03-07T10:06:00.000Z",
+          3,
+        ),
+        comment(
+          [
+            "Plan review acknowledged: changes-requested",
+            "",
+            "Review comment id: 3",
+            "Review comment URL: https://example.test/issues/32#issuecomment-3",
+            "",
+            "Next action",
+            "- Revise the plan, post a fresh `Plan status: plan-ready` comment, and wait for review again.",
+          ].join("\n"),
+          "2026-03-07T10:07:00.000Z",
+          4,
+        ),
+      ],
+    );
+
+    expect(protocol.lifecycle).toBeNull();
+    expect(protocol.acknowledgement).toBeNull();
   });
 });

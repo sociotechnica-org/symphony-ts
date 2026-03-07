@@ -3,7 +3,7 @@ import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { TrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { GitHubClient } from "./github-client.js";
-import { evaluatePlanReviewLifecycle } from "./plan-review-policy.js";
+import { evaluatePlanReviewProtocol } from "./plan-review-policy.js";
 import {
   evaluatePullRequestLifecycle,
   missingPullRequestLifecycle,
@@ -141,7 +141,7 @@ export class GitHubBootstrapTracker implements Tracker {
     }
 
     const comments = await this.#client.getIssueComments(issueNumber);
-    const lifecycle = evaluatePlanReviewLifecycle(
+    const protocol = evaluatePlanReviewProtocol(
       branchName,
       issue.url,
       comments.map((comment) => ({
@@ -152,6 +152,14 @@ export class GitHubBootstrapTracker implements Tracker {
         authorLogin: comment.user?.login ?? null,
       })),
     );
+    if (protocol.acknowledgement !== null) {
+      await this.#client.createComment(
+        issueNumber,
+        protocol.acknowledgement.body,
+      );
+      return protocol.lifecycle;
+    }
+    const lifecycle = protocol.lifecycle;
     this.#planReviewObservations.set(branchName, {
       issueUpdatedAt: issue.updatedAt,
       lifecycle,

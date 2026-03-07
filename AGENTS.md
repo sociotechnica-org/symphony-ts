@@ -97,6 +97,23 @@ For any GitHub issue assigned for implementation:
 Plans are part of the system of record. Do not implement substantial work without first creating or updating the plan.
 Plan approval is a required workflow handoff and is the repo-owned human review station; it is not terminal success, and it must happen before implementation unless waived.
 
+## Plan Review Comment Protocol
+
+When a worker posts the `plan-ready` handoff comment, it should include:
+
+1. the plan path,
+2. a short summary,
+3. a short note that replies must begin with an accepted review marker,
+4. and copy-pasteable fenced markdown templates for the review reply.
+
+Accepted first-line review markers are:
+
+- `Plan review: approved`
+- `Plan review: changes-requested`
+- `Plan review: waived`
+
+The factory should acknowledge one of those explicit review decisions after it reads it and summarize the next action in the issue thread.
+
 ## Planning Standard
 
 Every substantial implementation plan must:

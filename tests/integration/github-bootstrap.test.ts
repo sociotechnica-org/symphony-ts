@@ -124,10 +124,29 @@ describe("GitHubBootstrapTracker", () => {
       createdAt: "2026-03-07T10:05:00.000Z",
     });
 
-    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    const first = await tracker.inspectIssueHandoff("symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("missing");
-    expect(lifecycle.summary).toMatch(/no open pull request/i);
+    expect(first.kind).toBe("missing");
+    expect(first.summary).toMatch(/no open pull request/i);
+    expect(second.kind).toBe("missing");
+    expect(second.summary).toMatch(/no open pull request/i);
+    expect(
+      server
+        .getIssue(7)
+        .comments.some(
+          (body) =>
+            body.includes("Plan review acknowledged: approved") &&
+            body.includes("Review comment id: 2"),
+        ),
+    ).toBe(true);
+    expect(
+      server
+        .getIssue(7)
+        .comments.filter((body) =>
+          body.startsWith("Plan review acknowledged: approved"),
+        ),
+    ).toHaveLength(1);
   });
 
   it("reads plan-review signals beyond the first page of issue comments", async () => {
@@ -190,7 +209,43 @@ describe("GitHubBootstrapTracker", () => {
     expect(first.kind).toBe("missing");
     expect(second.kind).toBe("missing");
     expect(server.countRequests("GET issues/7")).toBe(2);
-    expect(server.countRequests("GET issues/7/comments")).toBe(1);
+    expect(server.countRequests("GET issues/7/comments")).toBe(2);
+    expect(
+      server
+        .getIssue(7)
+        .comments.filter((body) =>
+          body.startsWith("Plan review acknowledged: changes-requested"),
+        ),
+    ).toHaveLength(1);
+  });
+
+  it("acknowledges waived plan review decisions once", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan status: plan-ready\n\nWaiting for human review.",
+      createdAt: "2026-03-07T10:00:00.000Z",
+    });
+    server.addIssueComment({
+      issueNumber: 7,
+      authorLogin: "jessmartin",
+      body: "Plan review: waived\n\nSummary\n- Proceed without waiting.",
+      createdAt: "2026-03-07T10:05:00.000Z",
+    });
+
+    const first = await tracker.inspectIssueHandoff("symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(first.kind).toBe("missing");
+    expect(second.kind).toBe("missing");
+    expect(
+      server
+        .getIssue(7)
+        .comments.filter((body) =>
+          body.startsWith("Plan review acknowledged: waived"),
+        ),
+    ).toHaveLength(1);
   });
 
   it("reports awaiting-review while checks are pending", async () => {
