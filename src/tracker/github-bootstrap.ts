@@ -157,6 +157,7 @@ export class GitHubBootstrapTracker implements Tracker {
         issueNumber,
         protocol.acknowledgement.body,
       );
+      return protocol.lifecycle;
     }
     const lifecycle = protocol.lifecycle;
     this.#planReviewObservations.set(branchName, {

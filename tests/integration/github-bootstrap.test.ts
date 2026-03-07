@@ -124,10 +124,13 @@ describe("GitHubBootstrapTracker", () => {
       createdAt: "2026-03-07T10:05:00.000Z",
     });
 
-    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    const first = await tracker.inspectIssueHandoff("symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("missing");
-    expect(lifecycle.summary).toMatch(/no open pull request/i);
+    expect(first.kind).toBe("missing");
+    expect(first.summary).toMatch(/no open pull request/i);
+    expect(second.kind).toBe("missing");
+    expect(second.summary).toMatch(/no open pull request/i);
     expect(
       server
         .getIssue(7)
@@ -137,6 +140,13 @@ describe("GitHubBootstrapTracker", () => {
             body.includes("Review comment id: 2"),
         ),
     ).toBe(true);
+    expect(
+      server
+        .getIssue(7)
+        .comments.filter((body) =>
+          body.startsWith("Plan review acknowledged: approved"),
+        ),
+    ).toHaveLength(1);
   });
 
   it("reads plan-review signals beyond the first page of issue comments", async () => {
