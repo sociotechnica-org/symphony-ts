@@ -83,7 +83,7 @@ For this repo, skills should stay small in number and high in leverage. Prefer c
 
 ## Issue Workflow
 
-For any implementation issue, treat plan approval as an explicit human review station before coding: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from an explicit `approved` or explicit `waived` handoff.
+For any implementation issue, treat plan approval as an explicit human review station before substantial implementation: `draft -> plan-ready -> in review`, loop `revise -> plan-ready` as needed, then continue only from an explicit `approved` or explicit `waived` handoff.
 
 For any GitHub issue assigned for implementation:
 
