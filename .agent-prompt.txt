@@ -1,8 +1,2 @@
 You are working on issue sociotechnica-org/symphony-ts#3: Handle review feedback.
 Description: Address bot comments on the open PR
-
-Pull request lifecycle: needs-follow-up
-Pull request URL: http://127.0.0.1:59925/pulls/1
-Pending checks: 
-Failing checks: 
-Actionable feedback: 2
