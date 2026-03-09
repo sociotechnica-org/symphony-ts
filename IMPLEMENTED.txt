@@ -1,1 +1,1 @@
-implemented sociotechnica-org/symphony-ts#3 attempt 2
+implemented sociotechnica-org/symphony-ts#3 attempt 1
