@@ -1,0 +1,2 @@
+You are working on issue sociotechnica-org/symphony-ts#4: Recover orphaned run ownership.
+Description: Repair stale running state after a factory crash
