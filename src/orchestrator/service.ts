@@ -18,7 +18,10 @@ import type {
   IssueArtifactSessionSnapshot,
   IssueArtifactStore,
 } from "../observability/issue-artifacts.js";
-import { LocalIssueArtifactStore } from "../observability/issue-artifacts.js";
+import {
+  ISSUE_ARTIFACT_SCHEMA_VERSION,
+  LocalIssueArtifactStore,
+} from "../observability/issue-artifacts.js";
 import type { Logger } from "../observability/logger.js";
 import {
   deriveStatusFilePath,
@@ -993,7 +996,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     },
   ): IssueArtifactEvent {
     return {
-      version: 1,
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
       kind,
       issueNumber: issue.number,
       observedAt: options.observedAt,
@@ -1320,7 +1323,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     },
   ): IssueArtifactAttemptSnapshot {
     return {
-      version: 1,
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
       issueNumber: issue.number,
       attemptNumber: attempt,
       branch: options.branchName,
@@ -1344,7 +1347,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): IssueArtifactSessionSnapshot {
     const description = describeRunnerSession(this.#runner, session);
     return {
-      version: 1,
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
       issueNumber: session.issue.number,
       attemptNumber: session.attempt.sequence,
       sessionId: session.id,

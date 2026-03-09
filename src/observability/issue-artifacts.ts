@@ -407,7 +407,18 @@ export async function readIssueArtifactEvents(
   return raw
     .split("\n")
     .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line) as IssueArtifactEvent);
+    .map((line) => {
+      try {
+        return JSON.parse(line) as IssueArtifactEvent;
+      } catch (error) {
+        throw new ObservabilityError(
+          `Failed to parse JSONL artifact at ${filePath}`,
+          {
+            cause: error as Error,
+          },
+        );
+      }
+    });
 }
 
 export async function readIssueArtifactAttempt(

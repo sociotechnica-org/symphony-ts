@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { ObservabilityError } from "../../src/domain/errors.js";
 import {
+  ISSUE_ARTIFACT_SCHEMA_VERSION,
   LocalIssueArtifactStore,
   deriveFactoryRuntimeRoot,
   deriveIssueArtifactPaths,
@@ -66,7 +68,7 @@ describe("issue artifacts", () => {
       },
       events: [
         {
-          version: 1,
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
           kind: "plan-ready",
           issueNumber: 43,
           observedAt: firstObservedAt,
@@ -92,7 +94,7 @@ describe("issue artifacts", () => {
       },
       events: [
         {
-          version: 1,
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
           kind: "plan-ready",
           issueNumber: 43,
           observedAt: secondObservedAt,
@@ -145,7 +147,7 @@ describe("issue artifacts", () => {
         latestSessionId: sessionId,
       },
       attempt: {
-        version: 1,
+        version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         issueNumber: 43,
         attemptNumber: 1,
         branch: "symphony/43",
@@ -170,7 +172,7 @@ describe("issue artifacts", () => {
         },
       },
       session: {
-        version: 1,
+        version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         issueNumber: 43,
         attemptNumber: 1,
         sessionId,
@@ -209,5 +211,20 @@ describe("issue artifacts", () => {
       `${encodeURIComponent(sessionId)}.json`,
     );
     await expect(fs.stat(sessionPath)).resolves.toBeDefined();
+  });
+
+  it("wraps malformed event JSONL reads in an observability error", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+
+    await fs.mkdir(paths.issueRoot, { recursive: true });
+    await fs.writeFile(paths.eventsFile, "{not-json}\n", "utf8");
+
+    await expect(readIssueArtifactEvents(workspaceRoot, 43)).rejects.toThrow(
+      ObservabilityError,
+    );
+    await expect(readIssueArtifactEvents(workspaceRoot, 43)).rejects.toThrow(
+      paths.eventsFile,
+    );
   });
 });
