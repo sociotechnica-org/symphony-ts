@@ -1,8 +1,2 @@
 You are working on issue sociotechnica-org/symphony-ts#2: Retry CI failures.
 Description: Carry the PR through CI
-
-Pull request lifecycle: needs-follow-up
-Pull request URL: http://127.0.0.1:59912/pulls/1
-Pending checks: 
-Failing checks: CI
-Actionable feedback: 0
