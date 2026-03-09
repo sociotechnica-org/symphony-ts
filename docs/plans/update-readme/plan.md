@@ -42,15 +42,15 @@ Six comparable OSS projects were evaluated. Key takeaways:
 
 ### Patterns That Work Across the Best READMEs
 
-| Pattern | Where it works |
-|---------|---------------|
-| One-line value prop at the very top | agent-orchestrator, agentsview |
-| "Why" / problem statement section | agent-orchestrator, CAR |
-| Copy-pasteable quickstart with < 5 commands | agent-orchestrator, agentsview, otter-camp |
-| Plugin/adapter table showing extensibility | agent-orchestrator |
-| Concrete config example | agent-orchestrator |
-| Project structure / repo map for contributors | agentsview, Attractor |
-| Separate detailed docs linked from README | background-agents, Attractor |
+| Pattern                                       | Where it works                             |
+| --------------------------------------------- | ------------------------------------------ |
+| One-line value prop at the very top           | agent-orchestrator, agentsview             |
+| "Why" / problem statement section             | agent-orchestrator, CAR                    |
+| Copy-pasteable quickstart with < 5 commands   | agent-orchestrator, agentsview, otter-camp |
+| Plugin/adapter table showing extensibility    | agent-orchestrator                         |
+| Concrete config example                       | agent-orchestrator                         |
+| Project structure / repo map for contributors | agentsview, Attractor                      |
+| Separate detailed docs linked from README     | background-agents, Attractor               |
 
 ### Anti-Patterns to Avoid
 
@@ -126,18 +126,18 @@ Six comparable OSS projects were evaluated. Key takeaways:
 
 ### Justification for Each Section
 
-| Section | Why it exists |
-|---------|--------------|
-| **Tagline + expansion** | The #1 failure mode is people bouncing because they can't figure out what the project does in 10 seconds. Every good README opens with this. |
-| **Why Symphony?** | This is where the passion and vision live. Your "visible factory" framing is compelling and differentiating. Without this, symphony-ts looks like "yet another agent orchestrator." This section is what makes people star the repo. |
-| **Quick Start** | If someone is intrigued by the pitch, the next question is "can I try it?" Every top-ranked README has this within the first scroll. Must be self-contained, concrete, and < 5 commands. |
-| **How It Works** | After trying it, people want a mental model. The current README's lifecycle description is good but buried. Pull it up, tighten it, add a simple flow diagram if possible. |
-| **Configuration** | Shows the project is configurable without being complex. The WORKFLOW.md concept is a differentiator — "your entire factory config is one markdown file." |
-| **Architecture** | The adapter/plugin table is the single most effective element from agent-orchestrator's README. It signals extensibility and invites contribution. The repo map helps contributors orient. |
-| **Development** | Standard for any OSS project. People need to know how to run the local gate before contributing. |
-| **Status & Roadmap** | Honest about what works and what doesn't. Prevents wasted time from people expecting features that don't exist yet. Also signals active development. |
-| **Documentation** | Consolidates links. Prevents the README from trying to be all docs at once. |
-| **License** | Standard. Currently missing from the README. |
+| Section                 | Why it exists                                                                                                                                                                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Tagline + expansion** | The #1 failure mode is people bouncing because they can't figure out what the project does in 10 seconds. Every good README opens with this.                                                                                         |
+| **Why Symphony?**       | This is where the passion and vision live. Your "visible factory" framing is compelling and differentiating. Without this, symphony-ts looks like "yet another agent orchestrator." This section is what makes people star the repo. |
+| **Quick Start**         | If someone is intrigued by the pitch, the next question is "can I try it?" Every top-ranked README has this within the first scroll. Must be self-contained, concrete, and < 5 commands.                                             |
+| **How It Works**        | After trying it, people want a mental model. The current README's lifecycle description is good but buried. Pull it up, tighten it, add a simple flow diagram if possible.                                                           |
+| **Configuration**       | Shows the project is configurable without being complex. The WORKFLOW.md concept is a differentiator — "your entire factory config is one markdown file."                                                                            |
+| **Architecture**        | The adapter/plugin table is the single most effective element from agent-orchestrator's README. It signals extensibility and invites contribution. The repo map helps contributors orient.                                           |
+| **Development**         | Standard for any OSS project. People need to know how to run the local gate before contributing.                                                                                                                                     |
+| **Status & Roadmap**    | Honest about what works and what doesn't. Prevents wasted time from people expecting features that don't exist yet. Also signals active development.                                                                                 |
+| **Documentation**       | Consolidates links. Prevents the README from trying to be all docs at once.                                                                                                                                                          |
+| **License**             | Standard. Currently missing from the README.                                                                                                                                                                                         |
 
 ## Sections to Remove or Relocate
 
