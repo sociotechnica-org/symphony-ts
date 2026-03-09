@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
@@ -153,8 +154,6 @@ export interface IssueArtifactObservation {
 export interface IssueArtifactStore {
   recordObservation(observation: IssueArtifactObservation): Promise<void>;
 }
-
-let issueArtifactWriteSequence = 0;
 
 export class LocalIssueArtifactStore implements IssueArtifactStore {
   readonly #workspaceRoot: string;
@@ -354,9 +353,20 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
 
 export function deriveFactoryRuntimeRoot(workspaceRoot: string): string {
   const resolved = path.resolve(workspaceRoot);
-  const parent = path.dirname(resolved);
-  const repoRoot =
-    path.basename(parent) === ".tmp" ? path.dirname(parent) : parent;
+  let current = resolved;
+
+  for (;;) {
+    const parent = path.dirname(current);
+    if (path.basename(parent) === ".tmp") {
+      return path.join(path.dirname(parent), ".var", "factory");
+    }
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
+  const repoRoot = path.dirname(resolved);
   return path.join(repoRoot, ".var", "factory");
 }
 
@@ -475,9 +485,8 @@ async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   const directory = path.dirname(filePath);
   const tempPath = path.join(
     directory,
-    `.issue-artifact.${process.pid.toString()}.${issueArtifactWriteSequence.toString()}.tmp`,
+    `.issue-artifact.${process.pid.toString()}.${randomUUID()}.tmp`,
   );
-  issueArtifactWriteSequence += 1;
 
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");

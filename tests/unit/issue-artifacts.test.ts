@@ -35,8 +35,21 @@ afterEach(async () => {
 describe("issue artifacts", () => {
   it("derives a repo-level factory root outside the cleanup-managed workspace tree", () => {
     const workspaceRoot = path.join("/repo", ".tmp", "workspaces");
+    const nestedWorkspaceRoot = path.join(
+      "/repo",
+      ".tmp",
+      "factory",
+      "workspaces",
+    );
+    const nonTmpWorkspaceRoot = path.join("/repo", "local-workspaces");
 
     expect(deriveFactoryRuntimeRoot(workspaceRoot)).toBe(
+      path.join("/repo", ".var", "factory"),
+    );
+    expect(deriveFactoryRuntimeRoot(nestedWorkspaceRoot)).toBe(
+      path.join("/repo", ".var", "factory"),
+    );
+    expect(deriveFactoryRuntimeRoot(nonTmpWorkspaceRoot)).toBe(
       path.join("/repo", ".var", "factory"),
     );
     expect(deriveIssueArtifactsRoot(workspaceRoot)).toBe(

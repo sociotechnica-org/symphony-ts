@@ -23,10 +23,3 @@ export interface RunnerRunOptions {
 export interface Runner extends RunnerSessionDescriber {
   run(session: RunSession, options?: RunnerRunOptions): Promise<RunResult>;
 }
-
-export function describeRunnerSession(
-  runner: Runner,
-  session: RunSession,
-): RunnerSessionDescription {
-  return runner.describeSession(session);
-}

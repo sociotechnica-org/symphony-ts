@@ -10,7 +10,10 @@ import type {
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
-import { deriveFactoryRuntimeRoot } from "../../src/observability/issue-artifacts.js";
+import {
+  deriveFactoryRuntimeRoot,
+  readIssueArtifactSummary,
+} from "../../src/observability/issue-artifacts.js";
 import {
   deriveStatusFilePath,
   readFactoryStatusSnapshot,
@@ -1205,6 +1208,61 @@ describe("BootstrapOrchestrator", () => {
     expect(runnerCalls).toEqual([1]);
     expect(tracker.retried).toHaveLength(1);
     expect(tracker.failed).toEqual([]);
+  });
+
+  it("records the terminal attempt number when a run fails without a surviving session", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(77)],
+    });
+    tracker.setLifecycleSequence(77, [lifecycle("missing", "symphony/77")]);
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            maxFollowUpAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunResult> {
+          const timestamp = "2026-03-09T16:30:00.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    const artifactSummary = await readIssueArtifactSummary(
+      baseConfig.workspace.root,
+      77,
+    );
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 77,
+        reason: "Runner exited with 17\nsimulated failure",
+      },
+    ]);
+    expect(artifactSummary.currentOutcome).toBe("failed");
+    expect(artifactSummary.latestAttemptNumber).toBe(1);
   });
 
   it("does not invoke the unexpected failure path when retry bookkeeping fails", async () => {

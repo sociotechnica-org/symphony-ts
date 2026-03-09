@@ -28,7 +28,6 @@ import {
   writeFactoryStatusSnapshot,
 } from "../observability/status.js";
 import type { Runner } from "../runner/service.js";
-import { describeRunnerSession } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
 import {
@@ -1176,8 +1175,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         outcome,
         summary: options.summary,
         branchName: options.branchName,
-        latestAttemptNumber:
-          options.session === undefined ? undefined : options.attemptNumber,
+        latestAttemptNumber: options.attemptNumber,
         latestSessionId: options.session?.id,
       }),
       events: [
@@ -1301,13 +1299,20 @@ export class BootstrapOrchestrator implements Orchestrator {
     IssueArtifactOutcome,
     "awaiting-plan-review" | "awaiting-review" | "needs-follow-up"
   > {
-    if (lifecycle.kind === "awaiting-plan-review") {
-      return "awaiting-plan-review";
+    switch (lifecycle.kind) {
+      case "awaiting-plan-review":
+        return "awaiting-plan-review";
+      case "awaiting-review":
+        return "awaiting-review";
+      case "needs-follow-up":
+        return "needs-follow-up";
+      case "missing":
+      case "ready":
+        break;
     }
-    if (lifecycle.kind === "needs-follow-up") {
-      return "needs-follow-up";
-    }
-    return "awaiting-review";
+    throw new OrchestratorError(
+      `Unsupported lifecycle kind for issue artifact outcome: ${lifecycle.kind}`,
+    );
   }
 
   #createLifecycleEventDetails(
@@ -1372,7 +1377,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     session: RunSession,
     finishedAt?: string,
   ): IssueArtifactSessionSnapshot {
-    const description = describeRunnerSession(this.#runner, session);
+    const description = this.#runner.describeSession(session);
     return {
       version: ISSUE_ARTIFACT_SCHEMA_VERSION,
       issueNumber: session.issue.number,
@@ -1393,7 +1398,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   #createSessionLogPointers(
     session: RunSession,
   ): IssueArtifactLogPointerSessionEntry {
-    const description = describeRunnerSession(this.#runner, session);
+    const description = this.#runner.describeSession(session);
     return {
       sessionId: session.id,
       pointers: description.logPointers.map((pointer) =>
