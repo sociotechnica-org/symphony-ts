@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import { writeJsonFileAtomic, writeTextFileAtomic } from "./atomic-file.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -189,7 +189,7 @@ export interface GeneratedIssueReport {
   readonly outputPaths: IssueReportPaths;
 }
 
-export function deriveIssueReportsRoot(workspaceRoot: string): string {
+function deriveIssueReportsRoot(workspaceRoot: string): string {
   return path.join(
     path.dirname(deriveFactoryRuntimeRoot(workspaceRoot)),
     "reports",
@@ -197,7 +197,7 @@ export function deriveIssueReportsRoot(workspaceRoot: string): string {
   );
 }
 
-export function deriveIssueReportPaths(
+function deriveIssueReportPaths(
   workspaceRoot: string,
   issueNumber: number,
 ): IssueReportPaths {
@@ -244,12 +244,12 @@ export async function writeIssueReport(
   await writeJsonFileAtomic(
     generated.outputPaths.reportJsonFile,
     generated.report,
-    ".issue-report",
+    { tempPrefix: ".issue-report" },
   );
   await writeTextFileAtomic(
     generated.outputPaths.reportMarkdownFile,
     generated.markdown,
-    ".issue-report",
+    { tempPrefix: ".issue-report" },
   );
   return generated;
 }
@@ -1304,46 +1304,6 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
         cause: error as Error,
       },
     );
-  }
-}
-
-async function writeJsonFileAtomic(
-  filePath: string,
-  value: unknown,
-  tempPrefix: string,
-): Promise<void> {
-  const directory = path.dirname(filePath);
-  const tempPath = path.join(
-    directory,
-    `${tempPrefix}.${process.pid.toString()}.${randomUUID()}.tmp`,
-  );
-  await fs.mkdir(directory, { recursive: true });
-  await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  try {
-    await fs.rename(tempPath, filePath);
-  } catch (error) {
-    await fs.rm(tempPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
-}
-
-async function writeTextFileAtomic(
-  filePath: string,
-  content: string,
-  tempPrefix: string,
-): Promise<void> {
-  const directory = path.dirname(filePath);
-  const tempPath = path.join(
-    directory,
-    `${tempPrefix}.${process.pid.toString()}.${randomUUID()}.tmp`,
-  );
-  await fs.mkdir(directory, { recursive: true });
-  await fs.writeFile(tempPath, content, "utf8");
-  try {
-    await fs.rename(tempPath, filePath);
-  } catch (error) {
-    await fs.rm(tempPath, { force: true }).catch(() => undefined);
-    throw error;
   }
 }
 
