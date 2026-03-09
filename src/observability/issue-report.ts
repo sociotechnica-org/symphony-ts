@@ -324,7 +324,7 @@ function buildIssueReport(
   const summary = buildSummary(loaded, attemptNumbers, pullRequests);
   const timeline = buildTimeline(loaded, summary);
   const githubActivity = buildGitHubActivity(loaded, pullRequests);
-  const tokenUsage = buildTokenUsage(loaded);
+  const tokenUsage = buildTokenUsage(loaded, attemptNumbers);
   const learnings = buildLearnings(loaded, summary, timeline, pullRequests);
   const artifacts = buildArtifacts(loaded, outputPaths);
   const operatorInterventions = buildOperatorInterventions(loaded);
@@ -538,7 +538,10 @@ function buildGitHubActivity(
   };
 }
 
-function buildTokenUsage(loaded: LoadedIssueArtifacts): IssueReportTokenUsage {
+function buildTokenUsage(
+  loaded: LoadedIssueArtifacts,
+  attemptNumbers: readonly number[],
+): IssueReportTokenUsage {
   const sessions = loaded.sessions.map((session) => ({
     sessionId: session.sessionId,
     attemptNumber: session.attemptNumber,
@@ -553,7 +556,7 @@ function buildTokenUsage(loaded: LoadedIssueArtifacts): IssueReportTokenUsage {
       ),
     ],
   }));
-  const attempts = collectAttemptNumbers(loaded).map((attemptNumber) => ({
+  const attempts = attemptNumbers.map((attemptNumber) => ({
     attemptNumber,
     sessionIds: loaded.sessions
       .filter((session) => session.attemptNumber === attemptNumber)
