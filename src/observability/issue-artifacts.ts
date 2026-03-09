@@ -21,6 +21,7 @@ export type IssueArtifactOutcome =
   | "running"
   | "awaiting-plan-review"
   | "awaiting-review"
+  | "needs-follow-up"
   | "retry-scheduled"
   | "succeeded"
   | "failed";
@@ -349,10 +350,6 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       checks: existing?.checks ?? null,
     } satisfies IssueArtifactAttemptSnapshot);
   }
-}
-
-export class NoopIssueArtifactStore implements IssueArtifactStore {
-  async recordObservation(): Promise<void> {}
 }
 
 export function deriveFactoryRuntimeRoot(workspaceRoot: string): string {

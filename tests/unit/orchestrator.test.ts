@@ -27,6 +27,14 @@ import {
   createLifecycle as lifecycle,
 } from "../support/pull-request.js";
 
+function createRunnerSessionDescription() {
+  return {
+    provider: "test-runner",
+    model: null,
+    logPointers: [],
+  } as const;
+}
+
 function createDeferred<T>(): {
   readonly promise: Promise<T>;
   resolve(value: T | PromiseLike<T>): void;
@@ -311,6 +319,10 @@ class ConcurrencyRunner implements Runner {
     this.#finishBarrier.resolve();
   }
 
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
   async run(session: RunSession): Promise<RunResult> {
     this.startedIssues.push(session.issue.number);
     this.#active += 1;
@@ -335,6 +347,10 @@ class RecordingRunner implements Runner {
   readonly sessionIds: string[] = [];
   readonly attempts: number[] = [];
   readonly prompts: string[] = [];
+
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
 
   async run(session: RunSession): Promise<RunResult> {
     this.sessionIds.push(session.id);
@@ -493,6 +509,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       new StaticWorkspaceManager(),
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           runnerCalls += 1;
           throw new Error("runner should not be called");
@@ -616,6 +635,9 @@ describe("BootstrapOrchestrator", () => {
         tracker,
         new StaticWorkspaceManager(),
         {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
           async run(): Promise<RunResult> {
             runnerCalls += 1;
             throw new Error("runner should not be called");
@@ -828,6 +850,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       workspace,
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           throw new Error("runner should not be called");
         },
@@ -915,6 +940,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       workspace,
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           runnerCalls += 1;
           throw new Error("runner should not be called");
@@ -1137,6 +1165,9 @@ describe("BootstrapOrchestrator", () => {
     tracker.setLifecycleSequence(10, [lifecycle("missing", "symphony/10")]);
     const runnerCalls: number[] = [];
     const runner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
       async run(session): Promise<RunResult> {
         runnerCalls.push(session.attempt.sequence);
         const timestamp = new Date().toISOString();
@@ -1188,6 +1219,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       new StaticWorkspaceManager(),
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           const timestamp = new Date().toISOString();
           return {
@@ -1233,6 +1267,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       new StaticWorkspaceManager(),
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(session): Promise<RunResult> {
           runnerCalls.push(session.attempt.sequence);
           const timestamp = new Date().toISOString();
@@ -1288,6 +1325,9 @@ describe("BootstrapOrchestrator", () => {
         tracker,
         new StaticWorkspaceManager(),
         {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
           async run(_session, options): Promise<RunResult> {
             started.resolve();
             return await new Promise<RunResult>((_resolve, reject) => {

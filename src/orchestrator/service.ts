@@ -295,9 +295,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: claimed.number,
       });
       await this.#persistStatusSnapshot();
+      const observedAt = new Date().toISOString();
       await this.#recordIssueArtifact({
         issue: this.#createIssueArtifactUpdate(claimed, {
-          observedAt: new Date().toISOString(),
+          observedAt,
           outcome: "claimed",
           summary: `Claimed ${claimed.identifier}`,
           branchName: this.#branchName(claimed.number),
@@ -305,7 +306,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         }),
         events: [
           this.#createIssueEvent("claimed", claimed, {
-            observedAt: new Date().toISOString(),
+            observedAt,
             attemptNumber: attempt,
             details: {
               branch: this.#branchName(claimed.number),
@@ -341,9 +342,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: issue.number,
       });
       await this.#persistStatusSnapshot();
+      const observedAt = new Date().toISOString();
       await this.#recordIssueArtifact({
         issue: this.#createIssueArtifactUpdate(issue, {
-          observedAt: new Date().toISOString(),
+          observedAt,
           outcome: "running",
           summary: `Inspecting ${issue.identifier}`,
           branchName: this.#branchName(issue.number),
@@ -528,6 +530,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         session,
         attempt,
         `Runner exited with ${result.exitCode}\n${result.stderr}`,
+        result.finishedAt,
       );
       return;
     }
@@ -947,15 +950,24 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #recordIssueArtifact(
     observation: IssueArtifactObservation,
   ): Promise<void> {
+    const write = async (): Promise<void> => {
+      try {
+        await this.#issueArtifactStore.recordObservation(observation);
+      } catch (error) {
+        this.#logger.warn("Failed to write issue artifact", {
+          issueNumber: observation.issue.issueNumber,
+          attemptNumber: observation.issue.latestAttemptNumber ?? null,
+          sessionId: observation.issue.latestSessionId ?? null,
+          error: this.#normalizeFailure(error as Error),
+        });
+      }
+    };
+
+    this.#state.artifactWriteQueue = this.#state.artifactWriteQueue.then(write);
     try {
-      await this.#issueArtifactStore.recordObservation(observation);
-    } catch (error) {
-      this.#logger.warn("Failed to write issue artifact", {
-        issueNumber: observation.issue.issueNumber,
-        attemptNumber: observation.issue.latestAttemptNumber ?? null,
-        sessionId: observation.issue.latestSessionId ?? null,
-        error: this.#normalizeFailure(error as Error),
-      });
+      await this.#state.artifactWriteQueue;
+    } catch {
+      // write() logs and absorbs its own failures; this is purely defensive.
     }
   }
 
@@ -1045,10 +1057,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     },
   ): IssueArtifactObservation {
     const observedAt = options?.finishedAt ?? new Date().toISOString();
-    const currentOutcome =
-      lifecycle.kind === "awaiting-plan-review"
-        ? "awaiting-plan-review"
-        : "awaiting-review";
+    const currentOutcome = this.#createLifecycleOutcome(lifecycle);
     const event = this.#createLifecycleEvent(
       issue,
       attempt,
@@ -1265,7 +1274,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
     }
 
-    if (lifecycle.kind !== "awaiting-review") {
+    if (
+      lifecycle.kind !== "awaiting-review" &&
+      lifecycle.kind !== "needs-follow-up"
+    ) {
       return null;
     }
 
@@ -1281,6 +1293,21 @@ export class BootstrapOrchestrator implements Orchestrator {
       sessionId,
       details: this.#createLifecycleEventDetails(lifecycle),
     });
+  }
+
+  #createLifecycleOutcome(
+    lifecycle: PullRequestLifecycle,
+  ): Extract<
+    IssueArtifactOutcome,
+    "awaiting-plan-review" | "awaiting-review" | "needs-follow-up"
+  > {
+    if (lifecycle.kind === "awaiting-plan-review") {
+      return "awaiting-plan-review";
+    }
+    if (lifecycle.kind === "needs-follow-up") {
+      return "needs-follow-up";
+    }
+    return "awaiting-review";
   }
 
   #createLifecycleEventDetails(

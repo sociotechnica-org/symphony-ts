@@ -20,7 +20,7 @@ export interface RunnerRunOptions {
   readonly onSpawn?: (event: RunSpawnEvent) => void | Promise<void>;
 }
 
-export interface Runner {
+export interface Runner extends RunnerSessionDescriber {
   run(session: RunSession, options?: RunnerRunOptions): Promise<RunResult>;
 }
 
@@ -28,16 +28,5 @@ export function describeRunnerSession(
   runner: Runner,
   session: RunSession,
 ): RunnerSessionDescription {
-  if (
-    "describeSession" in runner &&
-    typeof runner.describeSession === "function"
-  ) {
-    return (runner as RunnerSessionDescriber).describeSession(session);
-  }
-
-  return {
-    provider: "unknown",
-    model: null,
-    logPointers: [],
-  };
+  return runner.describeSession(session);
 }

@@ -76,6 +76,7 @@ export class LocalRunner implements Runner {
       let aborted = false;
       let spawnError: RunnerError | null = null;
       let forcedKillTimeout: NodeJS.Timeout | null = null;
+      let spawnNotificationPromise: Promise<void> = Promise.resolve();
 
       const finish = (callback: () => void): void => {
         if (settled) {
@@ -130,13 +131,14 @@ export class LocalRunner implements Runner {
 
       if (child.pid !== undefined) {
         try {
-          const spawnNotification = options?.onSpawn?.({
-            pid: child.pid,
-            spawnedAt: new Date().toISOString(),
+          spawnNotificationPromise = Promise.resolve(
+            options?.onSpawn?.({
+              pid: child.pid,
+              spawnedAt: new Date().toISOString(),
+            }),
+          ).catch((error) => {
+            handleSpawnFailure(error);
           });
-          if (spawnNotification instanceof Promise) {
-            void spawnNotification.catch(handleSpawnFailure);
-          }
         } catch (error) {
           handleSpawnFailure(error);
         }
@@ -190,30 +192,32 @@ export class LocalRunner implements Runner {
         });
       });
       child.on("close", (exitCode) => {
-        finish(() => {
-          const finishedAt = new Date().toISOString();
-          if (timedOut) {
-            reject(
-              new RunnerError(
-                `Runner timed out after ${this.#config.timeoutMs}ms`,
-              ),
-            );
-            return;
-          }
-          if (aborted) {
-            reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
-            return;
-          }
-          if (spawnError !== null) {
-            reject(spawnError);
-            return;
-          }
-          resolve({
-            exitCode: exitCode ?? 1,
-            stdout,
-            stderr,
-            startedAt,
-            finishedAt,
+        void spawnNotificationPromise.finally(() => {
+          finish(() => {
+            const finishedAt = new Date().toISOString();
+            if (timedOut) {
+              reject(
+                new RunnerError(
+                  `Runner timed out after ${this.#config.timeoutMs}ms`,
+                ),
+              );
+              return;
+            }
+            if (aborted) {
+              reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
+              return;
+            }
+            if (spawnError !== null) {
+              reject(spawnError);
+              return;
+            }
+            resolve({
+              exitCode: exitCode ?? 1,
+              stdout,
+              stderr,
+              startedAt,
+              finishedAt,
+            });
           });
         });
       });
