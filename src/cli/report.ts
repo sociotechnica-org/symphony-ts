@@ -20,7 +20,7 @@ export function parseReportArgs(argv: readonly string[]): ReportCliArgs {
 
   const issueValue = readOptionValue(args, "--issue");
   if (issueValue === null) {
-    throw new Error("Missing value for --issue");
+    throw new Error("Missing required --issue <number> option");
   }
   const issueNumber = Number.parseInt(issueValue, 10);
   if (!Number.isInteger(issueNumber) || issueNumber < 1) {

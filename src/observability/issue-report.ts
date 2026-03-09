@@ -321,13 +321,7 @@ function buildIssueReport(
   const timeline = buildTimeline(loaded, summary);
   const githubActivity = buildGitHubActivity(loaded, pullRequests);
   const tokenUsage = buildTokenUsage(loaded);
-  const learnings = buildLearnings(
-    loaded,
-    summary,
-    githubActivity,
-    tokenUsage,
-    timeline,
-  );
+  const learnings = buildLearnings(loaded, summary, timeline);
   const artifacts = buildArtifacts(loaded, outputPaths);
   const operatorInterventions = buildOperatorInterventions(loaded);
 
@@ -579,8 +573,6 @@ function buildTokenUsage(loaded: LoadedIssueArtifacts): IssueReportTokenUsage {
 function buildLearnings(
   loaded: LoadedIssueArtifacts,
   summary: IssueReportSummary,
-  githubActivity: IssueReportGitHubActivity,
-  tokenUsage: IssueReportTokenUsage,
   timeline: readonly IssueReportTimelineEntry[],
 ): IssueReportLearnings {
   const observations: IssueReportLearningItem[] = [];
@@ -589,6 +581,10 @@ function buildLearnings(
   ).length;
   const planReadyCount = loaded.events.filter(
     (event) => event.kind === "plan-ready",
+  ).length;
+  const pullRequests = collectPullRequests(loaded);
+  const reviewFeedbackRounds = loaded.events.filter(
+    (event) => event.kind === "review-feedback",
   ).length;
 
   observations.push({
@@ -610,13 +606,13 @@ function buildLearnings(
     });
   }
 
-  if (githubActivity.pullRequests.length > 0) {
+  if (pullRequests.length > 0) {
     observations.push({
       title: "Pull request loop",
-      summary: githubActivity.reviewLoopSummary,
+      summary: buildReviewLoopSummary(pullRequests, reviewFeedbackRounds),
       evidence: [
-        `Pull requests observed: ${githubActivity.pullRequests.length.toString()}`,
-        `Review feedback rounds: ${githubActivity.reviewFeedbackRounds.toString()}`,
+        `Pull requests observed: ${pullRequests.length.toString()}`,
+        `Review feedback rounds: ${reviewFeedbackRounds.toString()}`,
       ],
     });
   }
@@ -631,8 +627,6 @@ function buildLearnings(
   }
 
   const gaps = [
-    tokenUsage.explanation,
-    githubActivity.issueStateTransitionsNote,
     ...(loaded.issue === null
       ? [
           "Issue summary metadata was missing, so this report could not recover the canonical title, repo, or issue URL from local artifacts alone.",
@@ -640,7 +634,17 @@ function buildLearnings(
       : []),
     ...(loaded.events.length === 0
       ? [
-          "The canonical lifecycle event ledger was unavailable, so timeline reconstruction is necessarily incomplete.",
+          "The canonical lifecycle event ledger was unavailable, so lifecycle learnings are necessarily incomplete.",
+        ]
+      : []),
+    ...(timeline.length === 0
+      ? [
+          "No canonical or derived timeline entries were available, so the report could not derive lifecycle learnings beyond the final summary.",
+        ]
+      : []),
+    ...(observations.length === 0
+      ? [
+          "No evidence-backed learnings could be derived from the available local artifacts.",
         ]
       : []),
   ];

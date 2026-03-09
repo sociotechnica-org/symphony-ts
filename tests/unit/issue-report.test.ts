@@ -39,6 +39,7 @@ describe("issue report generation", () => {
     expect(generated.report.summary.outcome).toBe("succeeded");
     expect(generated.report.summary.attemptCount).toBe(1);
     expect(generated.report.summary.pullRequestCount).toBe(1);
+    expect(generated.report.learnings.status).toBe("complete");
     expect(generated.report.timeline.map((entry) => entry.kind)).toEqual(
       expect.arrayContaining([
         "claimed",
@@ -54,6 +55,8 @@ describe("issue report generation", () => {
     expect(generated.markdown).toContain("## GitHub Activity");
     expect(generated.markdown).toContain("## Token Usage");
     expect(generated.markdown).toContain("## Learnings");
+    expect(generated.markdown).toContain("pending checks None");
+    expect(generated.markdown).toContain("failing checks None");
   });
 
   it("generates a partial report when issue and event artifacts are missing but session artifacts remain", async () => {

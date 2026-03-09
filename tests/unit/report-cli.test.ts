@@ -20,6 +20,12 @@ describe("parseReportArgs", () => {
     ).toThrowError("Invalid issue number: 0");
   });
 
+  it("requires the issue flag", () => {
+    expect(() =>
+      parseReportArgs(["node", "symphony-report", "issue"]),
+    ).toThrowError("Missing required --issue <number> option");
+  });
+
   it("shows usage for unknown commands", () => {
     expect(() =>
       parseReportArgs(["node", "symphony-report", "status"]),

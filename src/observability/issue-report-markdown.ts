@@ -180,7 +180,7 @@ function renderCurrency(value: number | null): string {
 }
 
 function renderList(values: readonly string[]): string {
-  return values.length === 0 ? "Unavailable" : values.join(", ");
+  return values.length === 0 ? "None" : values.join(", ");
 }
 
 function renderNumberList(values: readonly number[]): string {
