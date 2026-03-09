@@ -13,6 +13,7 @@ import {
   readIssueArtifactSession,
   readIssueArtifactSummary,
 } from "../../src/observability/issue-artifacts.js";
+import { runReportCli } from "../../src/cli/report.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
@@ -250,6 +251,66 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
+  });
+
+  it("generates a detached per-issue report from runtime artifacts without mutating raw artifacts", async () => {
+    server.seedIssue({
+      number: 11,
+      title: "Render issue report",
+      body: "Generate report artifacts from local state",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/11", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    await orchestrator.runOnce();
+
+    const artifactPaths = deriveIssueArtifactPaths(
+      path.join(tempDir, ".tmp", "workspaces"),
+      11,
+    );
+    const summaryBefore = await fs.readFile(artifactPaths.issueFile, "utf8");
+    const eventsBefore = await fs.readFile(artifactPaths.eventsFile, "utf8");
+
+    await runReportCli([
+      "node",
+      "symphony-report",
+      "issue",
+      "--issue",
+      "11",
+      "--workflow",
+      workflowPath,
+    ]);
+
+    const reportDir = path.join(tempDir, ".var", "reports", "issues", "11");
+    const reportJson = await fs.readFile(
+      path.join(reportDir, "report.json"),
+      "utf8",
+    );
+    const reportMd = await fs.readFile(
+      path.join(reportDir, "report.md"),
+      "utf8",
+    );
+    const summaryAfter = await fs.readFile(artifactPaths.issueFile, "utf8");
+    const eventsAfter = await fs.readFile(artifactPaths.eventsFile, "utf8");
+
+    expect(reportJson).toContain('"summary"');
+    expect(reportJson).toContain('"githubActivity"');
+    expect(reportMd).toContain("## Summary");
+    expect(reportMd).toContain("## Timeline");
+    expect(reportMd).toContain("## Token Usage");
+    expect(summaryAfter).toBe(summaryBefore);
+    expect(eventsAfter).toBe(eventsBefore);
   });
 
   it("reruns the same PR branch after CI failure and closes only after the rerun goes green", async () => {
