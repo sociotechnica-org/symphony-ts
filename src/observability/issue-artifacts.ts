@@ -20,6 +20,7 @@ export type IssueArtifactEventKind =
 export type IssueArtifactOutcome =
   | "claimed"
   | "running"
+  | "attempt-failed"
   | "awaiting-plan-review"
   | "awaiting-review"
   | "needs-follow-up"

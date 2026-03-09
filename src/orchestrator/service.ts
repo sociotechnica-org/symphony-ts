@@ -949,6 +949,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #recordIssueArtifact(
     observation: IssueArtifactObservation,
   ): Promise<void> {
+    const issueNumber = observation.issue.issueNumber;
     const write = async (): Promise<void> => {
       try {
         await this.#issueArtifactStore.recordObservation(observation);
@@ -962,11 +963,18 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
     };
 
-    this.#state.artifactWriteQueue = this.#state.artifactWriteQueue.then(write);
+    const previousQueue =
+      this.#state.artifactWriteQueues.get(issueNumber) ?? Promise.resolve();
+    const nextQueue = previousQueue.then(write, write);
+    this.#state.artifactWriteQueues.set(issueNumber, nextQueue);
     try {
-      await this.#state.artifactWriteQueue;
+      await nextQueue;
     } catch {
       // write() logs and absorbs its own failures; this is purely defensive.
+    } finally {
+      if (this.#state.artifactWriteQueues.get(issueNumber) === nextQueue) {
+        this.#state.artifactWriteQueues.delete(issueNumber);
+      }
     }
   }
 
@@ -1109,7 +1117,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     return {
       issue: this.#createIssueArtifactUpdate(session.issue, {
         observedAt: finishedAt,
-        outcome: "running",
+        outcome: "attempt-failed",
         summary: `Run failed for ${session.issue.identifier}; evaluating retry state`,
         branchName: session.workspace.branchName,
         latestAttemptNumber: attempt,

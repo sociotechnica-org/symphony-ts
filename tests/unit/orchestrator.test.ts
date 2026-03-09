@@ -12,6 +12,8 @@ import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import {
   deriveFactoryRuntimeRoot,
+  type IssueArtifactObservation,
+  type IssueArtifactStore,
   readIssueArtifactSummary,
 } from "../../src/observability/issue-artifacts.js";
 import {
@@ -359,6 +361,82 @@ class RecordingRunner implements Runner {
     this.sessionIds.push(session.id);
     this.attempts.push(session.attempt.sequence);
     this.prompts.push(session.prompt);
+    const timestamp = new Date().toISOString();
+    return {
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      startedAt: timestamp,
+      finishedAt: timestamp,
+    };
+  }
+}
+
+class RecordingIssueArtifactStore implements IssueArtifactStore {
+  readonly observations: IssueArtifactObservation[] = [];
+
+  async recordObservation(
+    observation: IssueArtifactObservation,
+  ): Promise<void> {
+    this.observations.push(observation);
+  }
+}
+
+class PerIssueBlockingArtifactStore implements IssueArtifactStore {
+  readonly #blockedIssueNumber: number;
+  readonly #release = createDeferred<void>();
+
+  constructor(blockedIssueNumber: number) {
+    this.#blockedIssueNumber = blockedIssueNumber;
+  }
+
+  release(): void {
+    this.#release.resolve();
+  }
+
+  async recordObservation(
+    observation: IssueArtifactObservation,
+  ): Promise<void> {
+    if (
+      observation.issue.issueNumber === this.#blockedIssueNumber &&
+      observation.issue.currentOutcome === "running" &&
+      observation.issue.latestSessionId !== null
+    ) {
+      await this.#release.promise;
+    }
+  }
+}
+
+class BlockingRecordingRunner implements Runner {
+  readonly startedIssues: number[] = [];
+  readonly issueStarted = new Map<
+    number,
+    ReturnType<typeof createDeferred<void>>
+  >();
+  readonly #finish = createDeferred<void>();
+
+  constructor(issueNumbers: readonly number[]) {
+    for (const issueNumber of issueNumbers) {
+      this.issueStarted.set(issueNumber, createDeferred<void>());
+    }
+  }
+
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
+  release(): void {
+    this.#finish.resolve();
+  }
+
+  async waitForIssue(issueNumber: number): Promise<void> {
+    await this.issueStarted.get(issueNumber)?.promise;
+  }
+
+  async run(session: RunSession): Promise<RunResult> {
+    this.startedIssues.push(session.issue.number);
+    this.issueStarted.get(session.issue.number)?.resolve();
+    await this.#finish.promise;
     const timestamp = new Date().toISOString();
     return {
       exitCode: 0,
@@ -1263,6 +1341,100 @@ describe("BootstrapOrchestrator", () => {
     ]);
     expect(artifactSummary.currentOutcome).toBe("failed");
     expect(artifactSummary.latestAttemptNumber).toBe(1);
+  });
+
+  it("records an explicit attempt-failed issue state before retry scheduling", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(78)],
+    });
+    tracker.setLifecycleSequence(78, [lifecycle("missing", "symphony/78")]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            maxFollowUpAttempts: 2,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunResult> {
+          const timestamp = "2026-03-09T16:45:00.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 78 &&
+          observation.issue.currentOutcome === "attempt-failed",
+      ),
+    ).toBeDefined();
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 78 &&
+          observation.issue.currentOutcome === "retry-scheduled",
+      ),
+    ).toBeDefined();
+  });
+
+  it("does not block one issue's artifact writes behind another issue's queue", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(79), createIssue(80)],
+    });
+    tracker.setLifecycleSequence(79, [
+      lifecycle("missing", "symphony/79"),
+      lifecycle("ready", "symphony/79"),
+    ]);
+    tracker.setLifecycleSequence(80, [
+      lifecycle("missing", "symphony/80"),
+      lifecycle("ready", "symphony/80"),
+    ]);
+    const artifactStore = new PerIssueBlockingArtifactStore(79);
+    const runner = new BlockingRecordingRunner([79, 80]);
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+      artifactStore,
+    );
+
+    const runOnce = orchestrator.runOnce();
+
+    await runner.waitForIssue(80);
+    expect(runner.startedIssues).toContain(80);
+    expect(runner.startedIssues).not.toContain(79);
+
+    artifactStore.release();
+    await runner.waitForIssue(79);
+    runner.release();
+    await runOnce;
   });
 
   it("does not invoke the unexpected failure path when retry bookkeeping fails", async () => {
