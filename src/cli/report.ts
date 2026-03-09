@@ -22,10 +22,10 @@ export function parseReportArgs(argv: readonly string[]): ReportCliArgs {
   if (issueValue === null) {
     throw new Error("Missing required --issue <number> option");
   }
-  const issueNumber = Number.parseInt(issueValue, 10);
-  if (!Number.isInteger(issueNumber) || issueNumber < 1) {
+  if (!/^[1-9]\d*$/u.test(issueValue)) {
     throw new Error(`Invalid issue number: ${issueValue}`);
   }
+  const issueNumber = Number.parseInt(issueValue, 10);
 
   const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
   return {

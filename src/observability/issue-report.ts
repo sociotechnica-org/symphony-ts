@@ -241,7 +241,6 @@ export async function writeIssueReport(
   const generated = await generateIssueReport(workspaceRoot, issueNumber, {
     generatedAt: options?.generatedAt,
   });
-  await fs.mkdir(generated.outputPaths.issueRoot, { recursive: true });
   await writeJsonFileAtomic(
     generated.outputPaths.reportJsonFile,
     generated.report,

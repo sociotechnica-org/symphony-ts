@@ -16,6 +16,9 @@ describe("parseReportArgs", () => {
       parseReportArgs(["node", "symphony-report", "issue", "--issue", "abc"]),
     ).toThrowError("Invalid issue number: abc");
     expect(() =>
+      parseReportArgs(["node", "symphony-report", "issue", "--issue", "44x"]),
+    ).toThrowError("Invalid issue number: 44x");
+    expect(() =>
       parseReportArgs(["node", "symphony-report", "issue", "--issue", "0"]),
     ).toThrowError("Invalid issue number: 0");
   });
