@@ -37,6 +37,23 @@ describe("plan-review-policy", () => {
     expect(lifecycle?.kind).toBe("awaiting-plan-review");
   });
 
+  it("waits when the latest relevant signal uses the legacy plan-ready marker", () => {
+    const lifecycle = evaluatePlanReviewLifecycle(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment("some other comment", "2026-03-07T10:00:00.000Z", 1),
+        comment(
+          "Plan ready for review.\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
+      ],
+    );
+
+    expect(lifecycle?.kind).toBe("awaiting-plan-review");
+  });
+
   it("does not wait when a later approval exists", () => {
     const lifecycle = evaluatePlanReviewLifecycle(
       "symphony/32",

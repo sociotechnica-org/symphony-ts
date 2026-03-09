@@ -109,6 +109,20 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
   });
 
+  it("reports awaiting-plan-review for the legacy plan-ready wording", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "Plan ready for review.\n\nWaiting for human review.",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
+  });
+
   it("resumes from missing once a plan review is approved", async () => {
     const tracker = createTracker(server);
 
