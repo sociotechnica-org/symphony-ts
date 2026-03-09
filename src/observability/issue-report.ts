@@ -320,7 +320,7 @@ function buildIssueReport(
   const timeline = buildTimeline(loaded, summary);
   const githubActivity = buildGitHubActivity(loaded, pullRequests);
   const tokenUsage = buildTokenUsage(loaded);
-  const learnings = buildLearnings(loaded, summary, timeline);
+  const learnings = buildLearnings(loaded, summary, timeline, pullRequests);
   const artifacts = buildArtifacts(loaded, outputPaths);
   const operatorInterventions = buildOperatorInterventions(loaded);
 
@@ -573,6 +573,7 @@ function buildLearnings(
   loaded: LoadedIssueArtifacts,
   summary: IssueReportSummary,
   timeline: readonly IssueReportTimelineEntry[],
+  pullRequests: readonly IssueReportPullRequestActivity[],
 ): IssueReportLearnings {
   const observations: IssueReportLearningItem[] = [];
   const retryCount = loaded.events.filter(
@@ -581,7 +582,6 @@ function buildLearnings(
   const planReadyCount = loaded.events.filter(
     (event) => event.kind === "plan-ready",
   ).length;
-  const pullRequests = collectPullRequests(loaded);
   const reviewFeedbackRounds = loaded.events.filter(
     (event) => event.kind === "review-feedback",
   ).length;
@@ -634,16 +634,6 @@ function buildLearnings(
     ...(loaded.events.length === 0
       ? [
           "The canonical lifecycle event ledger was unavailable, so lifecycle learnings are necessarily incomplete.",
-        ]
-      : []),
-    ...(timeline.length === 0
-      ? [
-          "No canonical or derived timeline entries were available, so the report could not derive lifecycle learnings beyond the final summary.",
-        ]
-      : []),
-    ...(observations.length === 0
-      ? [
-          "No evidence-backed learnings could be derived from the available local artifacts.",
         ]
       : []),
   ];
@@ -1282,18 +1272,21 @@ async function readJsonArrayFromDir<T>(
   dirPath: string,
   compareNames: (left: string, right: string) => number,
 ): Promise<readonly T[]> {
-  const entries = await fs.readdir(dirPath).catch((error) => {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  });
+  const entries = await fs
+    .readdir(dirPath, { withFileTypes: true })
+    .catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    });
   if (entries === null) {
     return [];
   }
 
   const jsonFiles = entries
-    .filter((entry) => entry.endsWith(".json"))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .map((entry) => entry.name)
     .sort(compareNames);
   return await Promise.all(
     jsonFiles.map((entry) => readJsonFile<T>(path.join(dirPath, entry))),

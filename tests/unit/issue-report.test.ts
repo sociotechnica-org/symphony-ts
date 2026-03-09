@@ -88,4 +88,44 @@ describe("issue report generation", () => {
       fs.readFile(generated.outputPaths.reportMarkdownFile, "utf8"),
     ).resolves.toContain("## Artifacts");
   });
+
+  it("ignores nested .json directories when reading attempt and session artifacts", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-nested-json-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await fs.mkdir(
+      path.join(
+        tempDir,
+        ".var",
+        "factory",
+        "issues",
+        "44",
+        "attempts",
+        "nested.json",
+      ),
+      { recursive: true },
+    );
+    await fs.mkdir(
+      path.join(
+        tempDir,
+        ".var",
+        "factory",
+        "issues",
+        "44",
+        "sessions",
+        "nested.json",
+      ),
+      { recursive: true },
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:20:00.000Z",
+    });
+
+    expect(generated.report.summary.outcome).toBe("succeeded");
+    expect(generated.report.artifacts.attemptFiles).toHaveLength(1);
+    expect(generated.report.artifacts.sessionFiles).toHaveLength(1);
+  });
 });
