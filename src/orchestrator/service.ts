@@ -27,7 +27,7 @@ import {
   deriveStatusFilePath,
   writeFactoryStatusSnapshot,
 } from "../observability/status.js";
-import type { Runner } from "../runner/service.js";
+import type { Runner, RunnerSessionDescription } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
 import {
@@ -822,7 +822,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         finishedAt,
       ),
     );
-    await this.#scheduleRetryOrFailSafely(session.issue, attempt, message);
+    await this.#scheduleRetryOrFailSafely(session.issue, attempt, message, {
+      session,
+      finishedAt,
+    });
   }
 
   async #handleUnexpectedFailure(
@@ -849,9 +852,13 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     message: string,
+    options?: {
+      readonly session?: RunSession;
+      readonly finishedAt?: string;
+    },
   ): Promise<void> {
     try {
-      await this.#scheduleRetryOrFail(issue, attempt, message);
+      await this.#scheduleRetryOrFail(issue, attempt, message, options);
     } catch (error) {
       this.#logger.error("Failure handling failed", {
         issueNumber: issue.number,
@@ -866,6 +873,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     runSequence: number,
     message: string,
+    options?: {
+      readonly session?: RunSession;
+      readonly finishedAt?: string;
+    },
   ): Promise<void> {
     const failureRetryAttempt = resolveFailureRetryAttempt(
       this.#state.followUp,
@@ -903,10 +914,16 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
       return;
     }
-    await this.#failIssue(issue, message, {
+    const failureOptions = {
       attemptNumber: runSequence,
-      branchName: this.#branchName(issue.number),
-    });
+      branchName:
+        options?.session?.workspace.branchName ?? this.#branchName(issue.number),
+      ...(options?.session === undefined ? {} : { session: options.session }),
+      ...(options?.finishedAt === undefined
+        ? {}
+        : { finishedAt: options.finishedAt }),
+    };
+    await this.#failIssue(issue, message, failureOptions);
   }
 
   async #failIssue(
@@ -1031,6 +1048,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     session: RunSession,
     lifecycle: PullRequestLifecycle | null,
   ): IssueArtifactObservation {
+    const sessionArtifacts = this.#createSessionObservationArtifacts(session);
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
         observedAt: session.startedAt,
@@ -1048,8 +1066,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         startedAt: session.startedAt,
         lifecycle,
       }),
-      session: this.#createSessionArtifact(session),
-      logPointers: this.#createSessionLogPointers(session),
+      ...sessionArtifacts,
     };
   }
 
@@ -1072,6 +1089,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       lifecycle,
       observedAt,
     );
+    const sessionArtifacts =
+      options?.session === undefined
+        ? undefined
+        : this.#createSessionObservationArtifacts(options.session, observedAt);
 
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
@@ -1098,13 +1119,9 @@ export class BootstrapOrchestrator implements Orchestrator {
               runnerPid: this.#currentRunnerPid(issue.number),
             }),
       session:
-        options?.session === undefined
-          ? undefined
-          : this.#createSessionArtifact(options.session, observedAt),
+        sessionArtifacts?.session,
       logPointers:
-        options?.session === undefined
-          ? undefined
-          : this.#createSessionLogPointers(options.session),
+        sessionArtifacts?.logPointers,
     };
   }
 
@@ -1114,6 +1131,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     message: string,
     finishedAt: string,
   ): IssueArtifactObservation {
+    const sessionArtifacts = this.#createSessionObservationArtifacts(
+      session,
+      finishedAt,
+    );
     return {
       issue: this.#createIssueArtifactUpdate(session.issue, {
         observedAt: finishedAt,
@@ -1132,8 +1153,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         finishedAt,
         runnerPid: this.#currentRunnerPid(session.issue.number),
       }),
-      session: this.#createSessionArtifact(session, finishedAt),
-      logPointers: this.#createSessionLogPointers(session),
+      ...sessionArtifacts,
     };
   }
 
@@ -1177,6 +1197,13 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly lifecycle?: PullRequestLifecycle | null | undefined;
     },
   ): IssueArtifactObservation {
+    const sessionArtifacts =
+      options.session === undefined
+        ? undefined
+        : this.#createSessionObservationArtifacts(
+            options.session,
+            options.observedAt,
+          );
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
         observedAt: options.observedAt,
@@ -1214,13 +1241,9 @@ export class BootstrapOrchestrator implements Orchestrator {
                   : this.#currentRunnerPid(issue.number),
             }),
       session:
-        options.session === undefined
-          ? undefined
-          : this.#createSessionArtifact(options.session, options.observedAt),
+        sessionArtifacts?.session,
       logPointers:
-        options.session === undefined
-          ? undefined
-          : this.#createSessionLogPointers(options.session),
+        sessionArtifacts?.logPointers,
     };
   }
 
@@ -1228,6 +1251,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     session: RunSession,
     event: RunSpawnEvent,
   ): IssueArtifactObservation {
+    const sessionArtifacts = this.#createSessionObservationArtifacts(session);
     return {
       issue: this.#createIssueArtifactUpdate(session.issue, {
         observedAt: event.spawnedAt,
@@ -1259,8 +1283,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           runnerPid: event.pid,
         },
       ),
-      session: this.#createSessionArtifact(session),
-      logPointers: this.#createSessionLogPointers(session),
+      ...sessionArtifacts,
     };
   }
 
@@ -1348,6 +1371,20 @@ export class BootstrapOrchestrator implements Orchestrator {
     };
   }
 
+  #createSessionObservationArtifacts(
+    session: RunSession,
+    finishedAt?: string,
+  ): {
+    readonly session: IssueArtifactSessionSnapshot;
+    readonly logPointers: IssueArtifactLogPointerSessionEntry;
+  } {
+    const description = this.#runner.describeSession(session);
+    return {
+      session: this.#createSessionArtifact(session, description, finishedAt),
+      logPointers: this.#createSessionLogPointers(session, description),
+    };
+  }
+
   #createAttemptArtifact(
     issue: RuntimeIssue,
     attempt: number,
@@ -1383,9 +1420,9 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   #createSessionArtifact(
     session: RunSession,
+    description: RunnerSessionDescription,
     finishedAt?: string,
   ): IssueArtifactSessionSnapshot {
-    const description = this.#runner.describeSession(session);
     return {
       version: ISSUE_ARTIFACT_SCHEMA_VERSION,
       issueNumber: session.issue.number,
@@ -1405,8 +1442,8 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   #createSessionLogPointers(
     session: RunSession,
+    description: RunnerSessionDescription,
   ): IssueArtifactLogPointerSessionEntry {
-    const description = this.#runner.describeSession(session);
     return {
       sessionId: session.id,
       pointers: description.logPointers.map((pointer) =>

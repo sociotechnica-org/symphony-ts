@@ -12,6 +12,8 @@ import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import {
   deriveFactoryRuntimeRoot,
+  readIssueArtifactAttempt,
+  readIssueArtifactSession,
   type IssueArtifactObservation,
   type IssueArtifactStore,
   readIssueArtifactSummary,
@@ -1288,7 +1290,7 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([]);
   });
 
-  it("records the terminal attempt number when a run fails without a surviving session", async () => {
+  it("preserves attempt session fields when a failed run becomes terminal", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(77)],
     });
@@ -1341,6 +1343,22 @@ describe("BootstrapOrchestrator", () => {
     ]);
     expect(artifactSummary.currentOutcome).toBe("failed");
     expect(artifactSummary.latestAttemptNumber).toBe(1);
+    expect(artifactSummary.latestSessionId).not.toBeNull();
+
+    const attempt = await readIssueArtifactAttempt(
+      baseConfig.workspace.root,
+      77,
+      1,
+    );
+    const session = await readIssueArtifactSession(
+      baseConfig.workspace.root,
+      77,
+      artifactSummary.latestSessionId!,
+    );
+    expect(attempt.outcome).toBe("failed");
+    expect(attempt.sessionId).toBe(artifactSummary.latestSessionId);
+    expect(attempt.startedAt).toBe(session.startedAt);
+    expect(attempt.finishedAt).toBe("2026-03-09T16:30:00.000Z");
   });
 
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {
@@ -1399,6 +1417,41 @@ describe("BootstrapOrchestrator", () => {
           observation.issue.currentOutcome === "retry-scheduled",
       ),
     ).toBeDefined();
+  });
+
+  it("describes a session once per observation when writing session artifacts", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(81)],
+    });
+    tracker.setLifecycleSequence(81, [lifecycle("missing", "symphony/81")]);
+    let describeSessionCalls = 0;
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          describeSessionCalls += 1;
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunResult> {
+          const timestamp = "2026-03-09T17:00:00.000Z";
+          return {
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(describeSessionCalls).toBe(2);
   });
 
   it("does not block one issue's artifact writes behind another issue's queue", async () => {
