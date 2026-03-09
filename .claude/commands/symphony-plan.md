@@ -1,0 +1,1 @@
+../../skills/symphony-plan/SKILL.md

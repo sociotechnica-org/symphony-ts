@@ -1,0 +1,1 @@
+../../skills/symphony-operator/SKILL.md
