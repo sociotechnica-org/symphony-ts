@@ -917,7 +917,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     const failureOptions = {
       attemptNumber: runSequence,
       branchName:
-        options?.session?.workspace.branchName ?? this.#branchName(issue.number),
+        options?.session?.workspace.branchName ??
+        this.#branchName(issue.number),
       ...(options?.session === undefined ? {} : { session: options.session }),
       ...(options?.finishedAt === undefined
         ? {}
@@ -1118,10 +1119,8 @@ export class BootstrapOrchestrator implements Orchestrator {
               lifecycle,
               runnerPid: this.#currentRunnerPid(issue.number),
             }),
-      session:
-        sessionArtifacts?.session,
-      logPointers:
-        sessionArtifacts?.logPointers,
+      session: sessionArtifacts?.session,
+      logPointers: sessionArtifacts?.logPointers,
     };
   }
 
@@ -1240,10 +1239,8 @@ export class BootstrapOrchestrator implements Orchestrator {
                   ? null
                   : this.#currentRunnerPid(issue.number),
             }),
-      session:
-        sessionArtifacts?.session,
-      logPointers:
-        sessionArtifacts?.logPointers,
+      session: sessionArtifacts?.session,
+      logPointers: sessionArtifacts?.logPointers,
     };
   }
 
