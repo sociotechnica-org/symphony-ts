@@ -128,4 +128,71 @@ describe("issue report generation", () => {
     expect(generated.report.artifacts.attemptFiles).toHaveLength(1);
     expect(generated.report.artifacts.sessionFiles).toHaveLength(1);
   });
+
+  it("keeps events.jsonl in artifact pointers when the file exists but is empty", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-empty-events-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    const eventsFile = path.join(
+      tempDir,
+      ".var",
+      "factory",
+      "issues",
+      "44",
+      "events.jsonl",
+    );
+    await fs.writeFile(eventsFile, "", "utf8");
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:30:00.000Z",
+    });
+
+    expect(generated.report.artifacts.eventsFile).toBe(eventsFile);
+    expect(generated.report.artifacts.missingArtifacts).not.toContain(
+      eventsFile,
+    );
+    expect(generated.report.summary.notes).toContain(
+      "The canonical lifecycle event ledger was present but contained no recorded lifecycle events.",
+    );
+  });
+
+  it("ignores non-numeric attempt json files when loading attempt artifacts", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-attempt-json-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await fs.writeFile(
+      path.join(
+        tempDir,
+        ".var",
+        "factory",
+        "issues",
+        "44",
+        "attempts",
+        "metadata.json",
+      ),
+      `${JSON.stringify({ note: "ignore me" }, null, 2)}\n`,
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:40:00.000Z",
+    });
+
+    expect(generated.report.summary.outcome).toBe("succeeded");
+    expect(generated.report.artifacts.attemptFiles).toEqual([
+      path.join(
+        tempDir,
+        ".var",
+        "factory",
+        "issues",
+        "44",
+        "attempts",
+        "1.json",
+      ),
+    ]);
+  });
 });

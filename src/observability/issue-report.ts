@@ -178,6 +178,7 @@ interface LoadedIssueArtifacts {
   readonly paths: ReturnType<typeof deriveIssueArtifactPaths>;
   readonly issue: IssueArtifactSummary | null;
   readonly events: readonly IssueArtifactEvent[];
+  readonly hasEventsFile: boolean;
   readonly attempts: readonly IssueArtifactAttemptSnapshot[];
   readonly sessions: readonly IssueArtifactSessionSnapshot[];
   readonly logPointers: IssueArtifactLogPointersDocument | null;
@@ -272,19 +273,22 @@ async function loadIssueArtifacts(
     );
   }
 
-  const [issue, events, attempts, sessions, logPointers] = await Promise.all([
-    readOptionalJson<IssueArtifactSummary>(paths.issueFile),
-    readOptionalJsonLines(paths.eventsFile),
-    readJsonArrayFromDir<IssueArtifactAttemptSnapshot>(
-      paths.attemptsDir,
-      compareNumberNamedFiles,
-    ),
-    readJsonArrayFromDir<IssueArtifactSessionSnapshot>(
-      paths.sessionsDir,
-      compareTextNamedFiles,
-    ),
-    readOptionalJson<IssueArtifactLogPointersDocument>(paths.logPointersFile),
-  ]);
+  const [issue, eventLedger, attempts, sessions, logPointers] =
+    await Promise.all([
+      readOptionalJson<IssueArtifactSummary>(paths.issueFile),
+      readOptionalJsonLines(paths.eventsFile),
+      readJsonArrayFromDir<IssueArtifactAttemptSnapshot>(
+        paths.attemptsDir,
+        compareNumberNamedFiles,
+        isNumberNamedJsonFile,
+      ),
+      readJsonArrayFromDir<IssueArtifactSessionSnapshot>(
+        paths.sessionsDir,
+        compareTextNamedFiles,
+      ),
+      readOptionalJson<IssueArtifactLogPointersDocument>(paths.logPointersFile),
+    ]);
+  const events = eventLedger ?? [];
 
   if (
     issue === null &&
@@ -303,6 +307,7 @@ async function loadIssueArtifacts(
     paths,
     issue,
     events,
+    hasEventsFile: eventLedger !== null,
     attempts,
     sessions,
     logPointers,
@@ -367,9 +372,13 @@ function buildSummary(
       "Canonical issue summary metadata is unavailable; this report is anchored from remaining local artifacts.",
     );
   }
-  if (loaded.events.length === 0) {
+  if (!loaded.hasEventsFile) {
     notes.push(
       "No canonical lifecycle event ledger was available; the timeline is reconstructed from attempt and session snapshots where possible.",
+    );
+  } else if (loaded.events.length === 0) {
+    notes.push(
+      "The canonical lifecycle event ledger was present but contained no recorded lifecycle events.",
     );
   }
   if (loaded.sessions.length > 0 && loaded.issue === null) {
@@ -484,8 +493,9 @@ function buildTimeline(
       kind: "artifacts-observed",
       at: summary.startedAt ?? lastSession?.startedAt ?? null,
       title: "Local artifacts observed",
-      summary:
-        "The canonical event ledger was unavailable; this report is based on the remaining local snapshots.",
+      summary: !loaded.hasEventsFile
+        ? "The canonical event ledger was unavailable; this report is based on the remaining local snapshots."
+        : "No lifecycle events were recorded in the canonical event ledger; this report is based on the remaining local snapshots.",
       attemptNumber: lastSession?.attemptNumber ?? null,
       sessionId: lastSession?.sessionId ?? null,
       details: summary.notes,
@@ -631,11 +641,15 @@ function buildLearnings(
           "Issue summary metadata was missing, so this report could not recover the canonical title, repo, or issue URL from local artifacts alone.",
         ]
       : []),
-    ...(loaded.events.length === 0
+    ...(!loaded.hasEventsFile
       ? [
           "The canonical lifecycle event ledger was unavailable, so lifecycle learnings are necessarily incomplete.",
         ]
-      : []),
+      : loaded.events.length === 0
+        ? [
+            "The canonical lifecycle event ledger was present but empty, so lifecycle learnings are necessarily incomplete.",
+          ]
+        : []),
   ];
 
   return {
@@ -651,14 +665,14 @@ function buildArtifacts(
 ): IssueReportArtifacts {
   const missingArtifacts = [
     ...(loaded.issue === null ? [loaded.paths.issueFile] : []),
-    ...(loaded.events.length === 0 ? [loaded.paths.eventsFile] : []),
+    ...(!loaded.hasEventsFile ? [loaded.paths.eventsFile] : []),
     ...(loaded.logPointers === null ? [loaded.paths.logPointersFile] : []),
   ];
 
   return {
     rawIssueRoot: loaded.paths.issueRoot,
     issueFile: loaded.issue === null ? null : loaded.paths.issueFile,
-    eventsFile: loaded.events.length === 0 ? null : loaded.paths.eventsFile,
+    eventsFile: loaded.hasEventsFile ? loaded.paths.eventsFile : null,
     attemptFiles: loaded.attempts.map((attempt) =>
       path.join(
         loaded.paths.attemptsDir,
@@ -682,7 +696,7 @@ function buildArtifacts(
 function buildOperatorInterventions(
   loaded: LoadedIssueArtifacts,
 ): IssueReportOperatorInterventions {
-  if (loaded.events.length === 0) {
+  if (!loaded.hasEventsFile) {
     return {
       status: "unavailable",
       summary:
@@ -1242,7 +1256,7 @@ async function readOptionalJson<T>(filePath: string): Promise<T | null> {
 
 async function readOptionalJsonLines(
   filePath: string,
-): Promise<readonly IssueArtifactEvent[]> {
+): Promise<readonly IssueArtifactEvent[] | null> {
   const raw = await fs.readFile(filePath, "utf8").catch((error) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;
@@ -1250,7 +1264,7 @@ async function readOptionalJsonLines(
     throw error;
   });
   if (raw === null) {
-    return [];
+    return null;
   }
 
   return raw
@@ -1271,6 +1285,7 @@ async function readOptionalJsonLines(
 async function readJsonArrayFromDir<T>(
   dirPath: string,
   compareNames: (left: string, right: string) => number,
+  includeName?: (fileName: string) => boolean,
 ): Promise<readonly T[]> {
   const entries = await fs
     .readdir(dirPath, { withFileTypes: true })
@@ -1286,6 +1301,7 @@ async function readJsonArrayFromDir<T>(
 
   const jsonFiles = entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+    .filter((entry) => includeName?.(entry.name) ?? true)
     .map((entry) => entry.name)
     .sort(compareNames);
   return await Promise.all(
@@ -1326,11 +1342,20 @@ function latestTimestamp(
 }
 
 function compareNumberNamedFiles(left: string, right: string): number {
-  return Number.parseInt(left, 10) - Number.parseInt(right, 10);
+  const leftNumber = Number.parseInt(path.parse(left).name, 10);
+  const rightNumber = Number.parseInt(path.parse(right).name, 10);
+  if (Number.isNaN(leftNumber) || Number.isNaN(rightNumber)) {
+    return left.localeCompare(right);
+  }
+  return leftNumber - rightNumber;
 }
 
 function compareTextNamedFiles(left: string, right: string): number {
   return left.localeCompare(right);
+}
+
+function isNumberNamedJsonFile(fileName: string): boolean {
+  return /^\d+\.json$/u.test(fileName);
 }
 
 function asStringArray(value: unknown): readonly string[] | null {
