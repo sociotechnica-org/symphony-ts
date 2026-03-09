@@ -634,6 +634,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly finishedAt?: string;
     },
   ): Promise<void> {
+    const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.completeIssue(issue.number);
     this.#state.retries.delete(issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
@@ -655,6 +656,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         attemptNumber: options?.attemptNumber,
         branchName: options?.branchName ?? this.#branchName(issue.number),
         session: options?.session,
+        runnerPid,
       }),
     );
   }
@@ -938,6 +940,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly lifecycle?: PullRequestLifecycle | null;
     },
   ): Promise<void> {
+    const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
     this.#state.retries.delete(issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
@@ -959,6 +962,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         attemptNumber: options?.attemptNumber,
         branchName: options?.branchName ?? this.#branchName(issue.number),
         session: options?.session,
+        runnerPid,
         lifecycle: options?.lifecycle ?? null,
       }),
     );
@@ -1193,6 +1197,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly attemptNumber?: number | undefined;
       readonly branchName?: string | null | undefined;
       readonly session?: RunSession | undefined;
+      readonly runnerPid?: number | null | undefined;
       readonly lifecycle?: PullRequestLifecycle | null | undefined;
     },
   ): IssueArtifactObservation {
@@ -1237,7 +1242,7 @@ export class BootstrapOrchestrator implements Orchestrator {
               runnerPid:
                 options.session === undefined
                   ? null
-                  : this.#currentRunnerPid(issue.number),
+                  : (options.runnerPid ?? null),
             }),
       session: sessionArtifacts?.session,
       logPointers: sessionArtifacts?.logPointers,

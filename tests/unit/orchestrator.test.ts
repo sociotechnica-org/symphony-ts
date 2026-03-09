@@ -1295,6 +1295,7 @@ describe("BootstrapOrchestrator", () => {
       ready: [createIssue(77)],
     });
     tracker.setLifecycleSequence(77, [lifecycle("missing", "symphony/77")]);
+    const runnerPid = 4321;
     const orchestrator = new BootstrapOrchestrator(
       {
         ...baseConfig,
@@ -1314,8 +1315,12 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(): Promise<RunResult> {
+        async run(_session, options): Promise<RunResult> {
           const timestamp = "2026-03-09T16:30:00.000Z";
+          await options?.onSpawn?.({
+            pid: runnerPid,
+            spawnedAt: timestamp,
+          });
           return {
             exitCode: 17,
             stdout: "",
@@ -1359,6 +1364,7 @@ describe("BootstrapOrchestrator", () => {
     expect(attempt.sessionId).toBe(artifactSummary.latestSessionId);
     expect(attempt.startedAt).toBe(session.startedAt);
     expect(attempt.finishedAt).toBe("2026-03-09T16:30:00.000Z");
+    expect(attempt.runnerPid).toBe(runnerPid);
   });
 
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {
