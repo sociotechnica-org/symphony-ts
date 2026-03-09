@@ -83,6 +83,7 @@ Rules:
 
 When posting the `plan-ready` handoff comment, include:
 
+- the exact first line `Plan status: plan-ready`
 - the plan path
 - a short summary
 - a brief note that replies must start with one of the accepted review markers

@@ -101,10 +101,11 @@ Plan approval is a required workflow handoff and is the repo-owned human review 
 
 When a worker posts the `plan-ready` handoff comment, it should include:
 
-1. the plan path,
-2. a short summary,
-3. a short note that replies must begin with an accepted review marker,
-4. and copy-pasteable fenced markdown templates for the review reply.
+1. the exact first line `Plan status: plan-ready`,
+2. the plan path,
+3. a short summary,
+4. a short note that replies must begin with an accepted review marker,
+5. and copy-pasteable fenced markdown templates for the review reply.
 
 Accepted first-line review markers are:
 

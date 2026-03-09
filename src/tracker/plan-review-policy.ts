@@ -50,7 +50,10 @@ function parsePlanReviewComment(
   }
 
   const normalized = firstLine.toLowerCase();
-  if (normalized === "plan status: plan-ready") {
+  if (
+    normalized === "plan status: plan-ready" ||
+    normalized === "plan ready for review."
+  ) {
     return { signal: "plan-ready", comment };
   }
   if (normalized === "plan review: changes-requested") {

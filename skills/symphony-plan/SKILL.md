@@ -235,6 +235,7 @@ Use these exact first-line markers for the human reply protocol:
 
 The `plan-ready` issue comment should include:
 
+- the exact first line `Plan status: plan-ready`
 - the plan path
 - a short summary
 - a short note that the review reply must begin with one of the accepted markers
