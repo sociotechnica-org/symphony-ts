@@ -6,6 +6,13 @@ import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
+import {
+  deriveIssueArtifactPaths,
+  readIssueArtifactAttempt,
+  readIssueArtifactEvents,
+  readIssueArtifactSession,
+  readIssueArtifactSummary,
+} from "../../src/observability/issue-artifacts.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
@@ -183,6 +190,59 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     expect(issue.comments).toContain(
       "Symphony completed this issue successfully.",
     );
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      1,
+    );
+    expect(artifactSummary.currentOutcome).toBe("succeeded");
+    expect(artifactSummary.branch).toBe("symphony/1");
+    expect(artifactSummary.latestAttemptNumber).toBe(1);
+    expect(artifactSummary.latestSessionId).not.toBeNull();
+
+    const artifactEvents = await readIssueArtifactEvents(
+      path.join(tempDir, ".tmp", "workspaces"),
+      1,
+    );
+    expect(artifactEvents.map((event) => event.kind)).toEqual(
+      expect.arrayContaining([
+        "claimed",
+        "runner-spawned",
+        "pr-opened",
+        "succeeded",
+      ]),
+    );
+
+    const attempt = await readIssueArtifactAttempt(
+      path.join(tempDir, ".tmp", "workspaces"),
+      1,
+      1,
+    );
+    expect(attempt.outcome).toBe("succeeded");
+    expect(attempt.pullRequest?.number).toBe(1);
+
+    const session = await readIssueArtifactSession(
+      path.join(tempDir, ".tmp", "workspaces"),
+      1,
+      artifactSummary.latestSessionId!,
+    );
+    expect(session.provider).toBe("local-runner");
+
+    const workspacePath = path.join(
+      tempDir,
+      ".tmp",
+      "workspaces",
+      "sociotechnica-org_symphony-ts_1",
+    );
+    await expect(fs.stat(workspacePath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(
+      fs.stat(
+        deriveIssueArtifactPaths(path.join(tempDir, ".tmp", "workspaces"), 1)
+          .issueRoot,
+      ),
+    ).resolves.toBeDefined();
 
     const implemented = await readRemoteBranchFile(
       remotePath,

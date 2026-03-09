@@ -14,6 +14,7 @@ export interface OrchestratorState {
   readonly retries: Map<number, RetryState>;
   readonly followUp: FollowUpRuntimeState;
   readonly status: RuntimeStatusState;
+  readonly artifactWriteQueues: Map<number, Promise<void>>;
 }
 
 export function createOrchestratorState(): OrchestratorState {
@@ -23,5 +24,6 @@ export function createOrchestratorState(): OrchestratorState {
     retries: new Map<number, RetryState>(),
     followUp: createFollowUpRuntimeState(),
     status: createRuntimeStatusState(),
+    artifactWriteQueues: new Map<number, Promise<void>>(),
   };
 }

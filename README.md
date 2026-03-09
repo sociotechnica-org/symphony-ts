@@ -54,6 +54,12 @@ next startup or poll, Symphony reconciles `symphony:running` issues against
 that local state, terminates orphaned local agent processes when needed, and
 resumes or fails the issue from the runtime itself.
 
+Per-issue reporting artifacts are also written locally under
+`.var/factory/issues/<issue-number>/...`. That contract stores durable raw facts
+for one issue (`issue.json`, `events.jsonl`, per-attempt snapshots,
+per-session snapshots, and log pointers) so later report generation can read
+local state without coupling itself to orchestrator control flow.
+
 ## Technical Plan Review Station
 
 Before substantial implementation begins, the repo-owned workflow contract requires a human review station for technical plans:
@@ -202,6 +208,8 @@ In continuous mode, Symphony will keep polling for additional ready issues.
 During or after a run, Symphony writes the latest derived status snapshot to `.tmp/status.json`.
 The `status` CLI reads that file and renders either a simple terminal view or the raw JSON contract
 for future tooling.
+Issue-level reporting artifacts are written separately under `.var/factory/issues/`
+so they survive workspace cleanup.
 
 ### 5. Watch the issue lifecycle
 

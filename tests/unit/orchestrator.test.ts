@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type { PullRequestLifecycle } from "../../src/domain/pull-request.js";
@@ -10,6 +10,14 @@ import type {
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
+import {
+  deriveFactoryRuntimeRoot,
+  readIssueArtifactAttempt,
+  readIssueArtifactSession,
+  type IssueArtifactObservation,
+  type IssueArtifactStore,
+  readIssueArtifactSummary,
+} from "../../src/observability/issue-artifacts.js";
 import {
   deriveStatusFilePath,
   readFactoryStatusSnapshot,
@@ -25,6 +33,14 @@ import {
   createIssue,
   createLifecycle as lifecycle,
 } from "../support/pull-request.js";
+
+function createRunnerSessionDescription() {
+  return {
+    provider: "test-runner",
+    model: null,
+    logPointers: [],
+  } as const;
+}
 
 function createDeferred<T>(): {
   readonly promise: Promise<T>;
@@ -59,7 +75,11 @@ const baseConfig: ResolvedConfig = {
     },
   },
   workspace: {
-    root: "/tmp/workspaces",
+    root: path.join(
+      "/tmp",
+      `symphony-orchestrator-test-${process.pid}`,
+      "workspaces",
+    ),
     repoUrl: "/tmp/remote.git",
     branchPrefix: "symphony/",
     cleanupOnSuccess: false,
@@ -306,6 +326,10 @@ class ConcurrencyRunner implements Runner {
     this.#finishBarrier.resolve();
   }
 
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
   async run(session: RunSession): Promise<RunResult> {
     this.startedIssues.push(session.issue.number);
     this.#active += 1;
@@ -331,6 +355,10 @@ class RecordingRunner implements Runner {
   readonly attempts: number[] = [];
   readonly prompts: string[] = [];
 
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
   async run(session: RunSession): Promise<RunResult> {
     this.sessionIds.push(session.id);
     this.attempts.push(session.attempt.sequence);
@@ -346,7 +374,97 @@ class RecordingRunner implements Runner {
   }
 }
 
+class RecordingIssueArtifactStore implements IssueArtifactStore {
+  readonly observations: IssueArtifactObservation[] = [];
+
+  async recordObservation(
+    observation: IssueArtifactObservation,
+  ): Promise<void> {
+    this.observations.push(observation);
+  }
+}
+
+class PerIssueBlockingArtifactStore implements IssueArtifactStore {
+  readonly #blockedIssueNumber: number;
+  readonly #release = createDeferred<void>();
+
+  constructor(blockedIssueNumber: number) {
+    this.#blockedIssueNumber = blockedIssueNumber;
+  }
+
+  release(): void {
+    this.#release.resolve();
+  }
+
+  async recordObservation(
+    observation: IssueArtifactObservation,
+  ): Promise<void> {
+    if (
+      observation.issue.issueNumber === this.#blockedIssueNumber &&
+      observation.issue.currentOutcome === "running" &&
+      observation.issue.latestSessionId !== null
+    ) {
+      await this.#release.promise;
+    }
+  }
+}
+
+class BlockingRecordingRunner implements Runner {
+  readonly startedIssues: number[] = [];
+  readonly issueStarted = new Map<
+    number,
+    ReturnType<typeof createDeferred<void>>
+  >();
+  readonly #finish = createDeferred<void>();
+
+  constructor(issueNumbers: readonly number[]) {
+    for (const issueNumber of issueNumbers) {
+      this.issueStarted.set(issueNumber, createDeferred<void>());
+    }
+  }
+
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
+  release(): void {
+    this.#finish.resolve();
+  }
+
+  async waitForIssue(issueNumber: number): Promise<void> {
+    await this.issueStarted.get(issueNumber)?.promise;
+  }
+
+  async run(session: RunSession): Promise<RunResult> {
+    this.startedIssues.push(session.issue.number);
+    this.issueStarted.get(session.issue.number)?.resolve();
+    await this.#finish.promise;
+    const timestamp = new Date().toISOString();
+    return {
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      startedAt: timestamp,
+      finishedAt: timestamp,
+    };
+  }
+}
+
 describe("BootstrapOrchestrator", () => {
+  beforeEach(async () => {
+    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.workspace.root), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  afterEach(async () => {
+    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.workspace.root), {
+      recursive: true,
+      force: true,
+    });
+  });
+
   it("starts up to maxConcurrentRuns ready issues in parallel", async () => {
     const tempRoot = await createTempDir("symphony-parallel-test-");
     try {
@@ -474,6 +592,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       new StaticWorkspaceManager(),
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           runnerCalls += 1;
           throw new Error("runner should not be called");
@@ -597,6 +718,9 @@ describe("BootstrapOrchestrator", () => {
         tracker,
         new StaticWorkspaceManager(),
         {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
           async run(): Promise<RunResult> {
             runnerCalls += 1;
             throw new Error("runner should not be called");
@@ -809,6 +933,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       workspace,
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           throw new Error("runner should not be called");
         },
@@ -896,6 +1023,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       workspace,
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           runnerCalls += 1;
           throw new Error("runner should not be called");
@@ -1118,6 +1248,9 @@ describe("BootstrapOrchestrator", () => {
     tracker.setLifecycleSequence(10, [lifecycle("missing", "symphony/10")]);
     const runnerCalls: number[] = [];
     const runner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
       async run(session): Promise<RunResult> {
         runnerCalls.push(session.attempt.sequence);
         const timestamp = new Date().toISOString();
@@ -1157,6 +1290,267 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([]);
   });
 
+  it("preserves attempt session fields when a failed run becomes terminal", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(77)],
+    });
+    tracker.setLifecycleSequence(77, [lifecycle("missing", "symphony/77")]);
+    const runnerPid = 4321;
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            maxFollowUpAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(_session, options): Promise<RunResult> {
+          const timestamp = "2026-03-09T16:30:00.000Z";
+          await options?.onSpawn?.({
+            pid: runnerPid,
+            spawnedAt: timestamp,
+          });
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    const artifactSummary = await readIssueArtifactSummary(
+      baseConfig.workspace.root,
+      77,
+    );
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 77,
+        reason: "Runner exited with 17\nsimulated failure",
+      },
+    ]);
+    expect(artifactSummary.currentOutcome).toBe("failed");
+    expect(artifactSummary.latestAttemptNumber).toBe(1);
+    expect(artifactSummary.latestSessionId).not.toBeNull();
+
+    const attempt = await readIssueArtifactAttempt(
+      baseConfig.workspace.root,
+      77,
+      1,
+    );
+    const session = await readIssueArtifactSession(
+      baseConfig.workspace.root,
+      77,
+      artifactSummary.latestSessionId!,
+    );
+    expect(attempt.outcome).toBe("failed");
+    expect(attempt.sessionId).toBe(artifactSummary.latestSessionId);
+    expect(attempt.startedAt).toBe(session.startedAt);
+    expect(attempt.finishedAt).toBe("2026-03-09T16:30:00.000Z");
+    expect(attempt.runnerPid).toBe(runnerPid);
+  });
+
+  it("preserves a captured runner pid when a spawned run fails without session context", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(82)],
+    });
+    tracker.setLifecycleSequence(82, [lifecycle("missing", "symphony/82")]);
+    const runnerPid = 8765;
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            maxFollowUpAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(_session, options): Promise<RunResult> {
+          await options?.onSpawn?.({
+            pid: runnerPid,
+            spawnedAt: "2026-03-09T16:35:00.000Z",
+          });
+          throw new Error("runner crashed after spawn");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 82,
+        reason: "Error: runner crashed after spawn",
+      },
+    ]);
+
+    const attempt = await readIssueArtifactAttempt(
+      baseConfig.workspace.root,
+      82,
+      1,
+    );
+    expect(attempt.outcome).toBe("failed");
+    expect(attempt.sessionId).toBeNull();
+    expect(attempt.runnerPid).toBe(runnerPid);
+  });
+
+  it("records an explicit attempt-failed issue state before retry scheduling", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(78)],
+    });
+    tracker.setLifecycleSequence(78, [lifecycle("missing", "symphony/78")]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            maxFollowUpAttempts: 2,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunResult> {
+          const timestamp = "2026-03-09T16:45:00.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 78 &&
+          observation.issue.currentOutcome === "attempt-failed",
+      ),
+    ).toBeDefined();
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 78 &&
+          observation.issue.currentOutcome === "retry-scheduled",
+      ),
+    ).toBeDefined();
+  });
+
+  it("describes a session once per observation when writing session artifacts", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(81)],
+    });
+    tracker.setLifecycleSequence(81, [lifecycle("missing", "symphony/81")]);
+    let describeSessionCalls = 0;
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          describeSessionCalls += 1;
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunResult> {
+          const timestamp = "2026-03-09T17:00:00.000Z";
+          return {
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(describeSessionCalls).toBe(2);
+  });
+
+  it("does not block one issue's artifact writes behind another issue's queue", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(79), createIssue(80)],
+    });
+    tracker.setLifecycleSequence(79, [
+      lifecycle("missing", "symphony/79"),
+      lifecycle("ready", "symphony/79"),
+    ]);
+    tracker.setLifecycleSequence(80, [
+      lifecycle("missing", "symphony/80"),
+      lifecycle("ready", "symphony/80"),
+    ]);
+    const artifactStore = new PerIssueBlockingArtifactStore(79);
+    const runner = new BlockingRecordingRunner([79, 80]);
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+      artifactStore,
+    );
+
+    const runOnce = orchestrator.runOnce();
+
+    await runner.waitForIssue(80);
+    expect(runner.startedIssues).toContain(80);
+    expect(runner.startedIssues).not.toContain(79);
+
+    artifactStore.release();
+    await runner.waitForIssue(79);
+    runner.release();
+    await runOnce;
+  });
+
   it("does not invoke the unexpected failure path when retry bookkeeping fails", async () => {
     const tracker = new RetryRecordingFailingTracker({
       ready: [createIssue(11)],
@@ -1169,6 +1563,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       new StaticWorkspaceManager(),
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(): Promise<RunResult> {
           const timestamp = new Date().toISOString();
           return {
@@ -1214,6 +1611,9 @@ describe("BootstrapOrchestrator", () => {
       tracker,
       new StaticWorkspaceManager(),
       {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
         async run(session): Promise<RunResult> {
           runnerCalls.push(session.attempt.sequence);
           const timestamp = new Date().toISOString();
@@ -1269,6 +1669,9 @@ describe("BootstrapOrchestrator", () => {
         tracker,
         new StaticWorkspaceManager(),
         {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
           async run(_session, options): Promise<RunResult> {
             started.resolve();
             return await new Promise<RunResult>((_resolve, reject) => {

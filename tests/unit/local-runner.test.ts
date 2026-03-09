@@ -27,6 +27,7 @@ function createSession(): RunSession {
       createdNow: false,
     },
     prompt: "x".repeat(10_000_000),
+    startedAt: new Date().toISOString(),
     attempt: {
       sequence: 1,
     },
