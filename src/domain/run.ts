@@ -10,6 +10,7 @@ export interface RunSession {
   readonly issue: RuntimeIssue;
   readonly workspace: PreparedWorkspace;
   readonly prompt: string;
+  readonly startedAt: string;
   readonly attempt: RunAttempt;
 }
 

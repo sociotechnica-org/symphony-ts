@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type { PullRequestLifecycle } from "../../src/domain/pull-request.js";
@@ -10,6 +10,7 @@ import type {
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
+import { deriveFactoryRuntimeRoot } from "../../src/observability/issue-artifacts.js";
 import {
   deriveStatusFilePath,
   readFactoryStatusSnapshot,
@@ -59,7 +60,11 @@ const baseConfig: ResolvedConfig = {
     },
   },
   workspace: {
-    root: "/tmp/workspaces",
+    root: path.join(
+      "/tmp",
+      `symphony-orchestrator-test-${process.pid}`,
+      "workspaces",
+    ),
     repoUrl: "/tmp/remote.git",
     branchPrefix: "symphony/",
     cleanupOnSuccess: false,
@@ -347,6 +352,20 @@ class RecordingRunner implements Runner {
 }
 
 describe("BootstrapOrchestrator", () => {
+  beforeEach(async () => {
+    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.workspace.root), {
+      recursive: true,
+      force: true,
+    });
+  });
+
+  afterEach(async () => {
+    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.workspace.root), {
+      recursive: true,
+      force: true,
+    });
+  });
+
   it("starts up to maxConcurrentRuns ready issues in parallel", async () => {
     const tempRoot = await createTempDir("symphony-parallel-test-");
     try {

@@ -32,6 +32,7 @@ function createSession(issueNumber: number, workspacePath: string): RunSession {
       createdNow: false,
     },
     prompt: "test prompt",
+    startedAt: timestamp,
     attempt: {
       sequence: 1,
     },

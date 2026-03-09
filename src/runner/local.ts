@@ -5,7 +5,11 @@ import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
 import type { RunResult, RunSession } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import type { Runner, RunnerRunOptions } from "./service.js";
+import type {
+  Runner,
+  RunnerRunOptions,
+  RunnerSessionDescription,
+} from "./service.js";
 
 export class LocalRunner implements Runner {
   static readonly #terminationGraceMs = 200;
@@ -15,6 +19,14 @@ export class LocalRunner implements Runner {
   constructor(config: AgentConfig, logger: Logger) {
     this.#config = config;
     this.#logger = logger;
+  }
+
+  describeSession(_session: RunSession): RunnerSessionDescription {
+    return {
+      provider: "local-runner",
+      model: null,
+      logPointers: [],
+    };
   }
 
   async run(

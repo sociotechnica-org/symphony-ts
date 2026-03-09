@@ -5,12 +5,27 @@ import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { RetryState } from "../domain/retry.js";
 import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
 import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
+import type {
+  IssueArtifactAttemptSnapshot,
+  IssueArtifactCheckSnapshot,
+  IssueArtifactEvent,
+  IssueArtifactLogPointer,
+  IssueArtifactLogPointerSessionEntry,
+  IssueArtifactObservation,
+  IssueArtifactOutcome,
+  IssueArtifactPullRequestSnapshot,
+  IssueArtifactReviewSnapshot,
+  IssueArtifactSessionSnapshot,
+  IssueArtifactStore,
+} from "../observability/issue-artifacts.js";
+import { LocalIssueArtifactStore } from "../observability/issue-artifacts.js";
 import type { Logger } from "../observability/logger.js";
 import {
   deriveStatusFilePath,
   writeFactoryStatusSnapshot,
 } from "../observability/status.js";
 import type { Runner } from "../runner/service.js";
+import { describeRunnerSession } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
 import {
@@ -53,6 +68,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #state = createOrchestratorState();
   readonly #instanceId = randomUUID();
   readonly #leaseManager: LocalIssueLeaseManager;
+  readonly #issueArtifactStore: IssueArtifactStore;
   readonly #statusFilePath: string;
   #shutdownSignal: AbortSignal | undefined;
 
@@ -63,6 +79,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     workspaceManager: WorkspaceManager,
     runner: Runner,
     logger: Logger,
+    issueArtifactStore?: IssueArtifactStore,
   ) {
     this.#config = config;
     this.#promptBuilder = promptBuilder;
@@ -74,6 +91,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       config.workspace.root,
       logger,
     );
+    this.#issueArtifactStore =
+      issueArtifactStore ?? new LocalIssueArtifactStore(config.workspace.root);
     this.#statusFilePath = deriveStatusFilePath(config.workspace.root);
   }
 
@@ -273,6 +292,24 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: claimed.number,
       });
       await this.#persistStatusSnapshot();
+      await this.#recordIssueArtifact({
+        issue: this.#createIssueArtifactUpdate(claimed, {
+          observedAt: new Date().toISOString(),
+          outcome: "claimed",
+          summary: `Claimed ${claimed.identifier}`,
+          branchName: this.#branchName(claimed.number),
+          latestAttemptNumber: attempt,
+        }),
+        events: [
+          this.#createIssueEvent("claimed", claimed, {
+            observedAt: new Date().toISOString(),
+            attemptNumber: attempt,
+            details: {
+              branch: this.#branchName(claimed.number),
+            },
+          }),
+        ],
+      });
       await this.#processClaimedIssue(
         claimed,
         attempt,
@@ -301,6 +338,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: issue.number,
       });
       await this.#persistStatusSnapshot();
+      await this.#recordIssueArtifact({
+        issue: this.#createIssueArtifactUpdate(issue, {
+          observedAt: new Date().toISOString(),
+          outcome: "running",
+          summary: `Inspecting ${issue.identifier}`,
+          branchName: this.#branchName(issue.number),
+        }),
+      });
       await this.#processClaimedIssue(issue, attempt, lockDir);
     });
   }
@@ -338,7 +383,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 
     if (lifecycle.kind === "ready") {
-      await this.#completeIssue(issue.number);
+      await this.#completeIssue(issue);
       await this.#cleanupIssueWorkspaceIfNeeded(issue);
       return;
     }
@@ -365,6 +410,9 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: issue.number,
       });
       await this.#persistStatusSnapshot();
+      await this.#recordIssueArtifact(
+        this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
+      );
       return;
     }
 
@@ -443,6 +491,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
+      this.#createRunStartedObservation(issue, attempt, session, pullRequest),
+    );
     await this.#leaseManager.recordRun(lockDir, session);
     const abortController = new AbortController();
     const shutdownSignal = this.#shutdownSignal;
@@ -461,7 +512,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       result = await this.#runner.run(session, {
         signal: abortController.signal,
         onSpawn: (event) => {
-          this.#recordRunnerSpawn(issue.number, lockDir, event);
+          this.#recordRunnerSpawn(session, lockDir, event);
         },
       });
     } finally {
@@ -485,13 +536,23 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
 
       if (nextLifecycle.kind === "ready") {
-        await this.#completeIssue(issue.number);
+        await this.#completeIssue(issue, {
+          attemptNumber: attempt,
+          branchName: workspace.branchName,
+          session,
+          finishedAt: result.finishedAt,
+        });
         await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
         return;
       }
 
       if (nextLifecycle.kind === "missing") {
-        await this.#handleFailure(session, attempt, nextLifecycle.summary);
+        await this.#handleFailure(
+          session,
+          attempt,
+          nextLifecycle.summary,
+          result.finishedAt,
+        );
         return;
       }
 
@@ -516,6 +577,18 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: issue.number,
       });
       await this.#persistStatusSnapshot();
+      await this.#recordIssueArtifact(
+        this.#createLifecycleObservation(
+          issue,
+          attempt,
+          workspace.branchName,
+          nextLifecycle,
+          {
+            session,
+            finishedAt: result.finishedAt,
+          },
+        ),
+      );
 
       const decision = noteLifecycleObservation(
         this.#state.followUp,
@@ -526,8 +599,15 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
       if (decision.kind === "exhausted") {
         await this.#failIssue(
-          issue.number,
+          issue,
           this.#followUpFailureMessage(nextLifecycle),
+          {
+            attemptNumber: attempt,
+            branchName: workspace.branchName,
+            session,
+            finishedAt: result.finishedAt,
+            lifecycle: nextLifecycle,
+          },
         );
       }
     } catch (error) {
@@ -535,25 +615,43 @@ export class BootstrapOrchestrator implements Orchestrator {
         session,
         attempt,
         this.#normalizeFailure(error as Error),
+        new Date().toISOString(),
       );
     }
   }
 
-  async #completeIssue(issueNumber: number): Promise<void> {
-    await this.#tracker.completeIssue(issueNumber);
-    this.#state.retries.delete(issueNumber);
-    clearFollowUpRuntimeState(this.#state.followUp, issueNumber);
-    clearActiveIssue(this.#state.status, issueNumber);
+  async #completeIssue(
+    issue: RuntimeIssue,
+    options?: {
+      readonly attemptNumber?: number;
+      readonly branchName?: string | null;
+      readonly session?: RunSession;
+      readonly finishedAt?: string;
+    },
+  ): Promise<void> {
+    await this.#tracker.completeIssue(issue.number);
+    this.#state.retries.delete(issue.number);
+    clearFollowUpRuntimeState(this.#state.followUp, issue.number);
+    clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
       running: -1,
     });
-    this.#logger.info("Issue completed", { issueNumber });
+    this.#logger.info("Issue completed", { issueNumber: issue.number });
     noteStatusAction(this.#state.status, {
       kind: "issue-completed",
-      summary: `Completed issue #${issueNumber.toString()}`,
-      issueNumber,
+      summary: `Completed issue #${issue.number.toString()}`,
+      issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
+      this.#createTerminalObservation(issue, "succeeded", {
+        observedAt: options?.finishedAt ?? new Date().toISOString(),
+        summary: `Completed ${issue.identifier}`,
+        attemptNumber: options?.attemptNumber,
+        branchName: options?.branchName ?? this.#branchName(issue.number),
+        session: options?.session,
+      }),
+    );
   }
 
   async #cleanupIssueWorkspaceIfNeeded(issue: RuntimeIssue): Promise<void> {
@@ -666,6 +764,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issue,
       workspace,
       prompt,
+      startedAt: new Date().toISOString(),
       attempt: {
         sequence: attempt,
       },
@@ -695,6 +794,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     session: RunSession,
     attempt: number,
     message: string,
+    finishedAt = new Date().toISOString(),
   ): Promise<void> {
     this.#logger.error("Issue run failed", {
       issueNumber: session.issue.number,
@@ -709,6 +809,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber: session.issue.number,
     });
     await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
+      this.#createAttemptFailureObservation(
+        session,
+        attempt,
+        message,
+        finishedAt,
+      ),
+    );
     await this.#scheduleRetryOrFailSafely(session.issue, attempt, message);
   }
 
@@ -780,16 +888,37 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: issue.number,
       });
       await this.#persistStatusSnapshot();
+      await this.#recordIssueArtifact(
+        this.#createRetryScheduledObservation(
+          issue,
+          runSequence,
+          message,
+          this.#state.retries.get(issue.number)!.nextAttempt,
+        ),
+      );
       return;
     }
-    await this.#failIssue(issue.number, message);
+    await this.#failIssue(issue, message, {
+      attemptNumber: runSequence,
+      branchName: this.#branchName(issue.number),
+    });
   }
 
-  async #failIssue(issueNumber: number, message: string): Promise<void> {
-    await this.#tracker.markIssueFailed(issueNumber, message);
-    this.#state.retries.delete(issueNumber);
-    clearFollowUpRuntimeState(this.#state.followUp, issueNumber);
-    clearActiveIssue(this.#state.status, issueNumber);
+  async #failIssue(
+    issue: RuntimeIssue,
+    message: string,
+    options?: {
+      readonly attemptNumber?: number;
+      readonly branchName?: string | null;
+      readonly session?: RunSession;
+      readonly finishedAt?: string;
+      readonly lifecycle?: PullRequestLifecycle | null;
+    },
+  ): Promise<void> {
+    await this.#tracker.markIssueFailed(issue.number, message);
+    this.#state.retries.delete(issue.number);
+    clearFollowUpRuntimeState(this.#state.followUp, issue.number);
+    clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
       running: -1,
       failed: 1,
@@ -797,9 +926,504 @@ export class BootstrapOrchestrator implements Orchestrator {
     noteStatusAction(this.#state.status, {
       kind: "issue-failed",
       summary: message,
-      issueNumber,
+      issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
+      this.#createTerminalObservation(issue, "failed", {
+        observedAt: options?.finishedAt ?? new Date().toISOString(),
+        summary: message,
+        attemptNumber: options?.attemptNumber,
+        branchName: options?.branchName ?? this.#branchName(issue.number),
+        session: options?.session,
+        lifecycle: options?.lifecycle ?? null,
+      }),
+    );
+  }
+
+  async #recordIssueArtifact(
+    observation: IssueArtifactObservation,
+  ): Promise<void> {
+    try {
+      await this.#issueArtifactStore.recordObservation(observation);
+    } catch (error) {
+      this.#logger.warn("Failed to write issue artifact", {
+        issueNumber: observation.issue.issueNumber,
+        attemptNumber: observation.issue.latestAttemptNumber ?? null,
+        sessionId: observation.issue.latestSessionId ?? null,
+        error: this.#normalizeFailure(error as Error),
+      });
+    }
+  }
+
+  #createIssueArtifactUpdate(
+    issue: RuntimeIssue,
+    options: {
+      readonly observedAt: string;
+      readonly outcome: IssueArtifactOutcome;
+      readonly summary: string;
+      readonly branchName?: string | null | undefined;
+      readonly latestAttemptNumber?: number | null | undefined;
+      readonly latestSessionId?: string | null | undefined;
+    },
+  ) {
+    return {
+      issueNumber: issue.number,
+      issueIdentifier: issue.identifier,
+      repo: this.#config.tracker.repo,
+      title: issue.title,
+      issueUrl: issue.url,
+      branch: options.branchName,
+      currentOutcome: options.outcome,
+      currentSummary: options.summary,
+      observedAt: options.observedAt,
+      latestAttemptNumber: options.latestAttemptNumber,
+      latestSessionId: options.latestSessionId,
+    } as const;
+  }
+
+  #createIssueEvent(
+    kind: IssueArtifactEvent["kind"],
+    issue: RuntimeIssue,
+    options: {
+      readonly observedAt: string;
+      readonly attemptNumber?: number | null | undefined;
+      readonly sessionId?: string | null | undefined;
+      readonly details?: Readonly<Record<string, unknown>>;
+    },
+  ): IssueArtifactEvent {
+    return {
+      version: 1,
+      kind,
+      issueNumber: issue.number,
+      observedAt: options.observedAt,
+      attemptNumber: options.attemptNumber ?? null,
+      sessionId: options.sessionId ?? null,
+      details: options.details ?? {},
+    };
+  }
+
+  #createRunStartedObservation(
+    issue: RuntimeIssue,
+    attempt: number,
+    session: RunSession,
+    lifecycle: PullRequestLifecycle | null,
+  ): IssueArtifactObservation {
+    return {
+      issue: this.#createIssueArtifactUpdate(issue, {
+        observedAt: session.startedAt,
+        outcome: "running",
+        summary: `Running ${issue.identifier}`,
+        branchName: session.workspace.branchName,
+        latestAttemptNumber: attempt,
+        latestSessionId: session.id,
+      }),
+      attempt: this.#createAttemptArtifact(issue, attempt, {
+        outcome: "running",
+        summary: `Running ${issue.identifier}`,
+        branchName: session.workspace.branchName,
+        sessionId: session.id,
+        startedAt: session.startedAt,
+        lifecycle,
+      }),
+      session: this.#createSessionArtifact(session),
+      logPointers: this.#createSessionLogPointers(session),
+    };
+  }
+
+  #createLifecycleObservation(
+    issue: RuntimeIssue,
+    attempt: number,
+    branchName: string,
+    lifecycle: PullRequestLifecycle,
+    options?: {
+      readonly session?: RunSession;
+      readonly finishedAt?: string | undefined;
+    },
+  ): IssueArtifactObservation {
+    const observedAt = options?.finishedAt ?? new Date().toISOString();
+    const currentOutcome =
+      lifecycle.kind === "awaiting-plan-review"
+        ? "awaiting-plan-review"
+        : "awaiting-review";
+    const event = this.#createLifecycleEvent(
+      issue,
+      attempt,
+      options?.session?.id ?? null,
+      lifecycle,
+      observedAt,
+    );
+
+    return {
+      issue: this.#createIssueArtifactUpdate(issue, {
+        observedAt,
+        outcome: currentOutcome,
+        summary: lifecycle.summary,
+        branchName,
+        latestAttemptNumber:
+          options?.session === undefined ? undefined : attempt,
+        latestSessionId: options?.session?.id,
+      }),
+      events: event === null ? [] : [event],
+      attempt:
+        options?.session === undefined
+          ? undefined
+          : this.#createAttemptArtifact(issue, attempt, {
+              outcome: currentOutcome,
+              summary: lifecycle.summary,
+              branchName,
+              sessionId: options.session.id,
+              startedAt: options.session.startedAt,
+              finishedAt: observedAt,
+              lifecycle,
+              runnerPid: this.#currentRunnerPid(issue.number),
+            }),
+      session:
+        options?.session === undefined
+          ? undefined
+          : this.#createSessionArtifact(options.session, observedAt),
+      logPointers:
+        options?.session === undefined
+          ? undefined
+          : this.#createSessionLogPointers(options.session),
+    };
+  }
+
+  #createAttemptFailureObservation(
+    session: RunSession,
+    attempt: number,
+    message: string,
+    finishedAt: string,
+  ): IssueArtifactObservation {
+    return {
+      issue: this.#createIssueArtifactUpdate(session.issue, {
+        observedAt: finishedAt,
+        outcome: "running",
+        summary: `Run failed for ${session.issue.identifier}; evaluating retry state`,
+        branchName: session.workspace.branchName,
+        latestAttemptNumber: attempt,
+        latestSessionId: session.id,
+      }),
+      attempt: this.#createAttemptArtifact(session.issue, attempt, {
+        outcome: "failed",
+        summary: message,
+        branchName: session.workspace.branchName,
+        sessionId: session.id,
+        startedAt: session.startedAt,
+        finishedAt,
+        runnerPid: this.#currentRunnerPid(session.issue.number),
+      }),
+      session: this.#createSessionArtifact(session, finishedAt),
+      logPointers: this.#createSessionLogPointers(session),
+    };
+  }
+
+  #createRetryScheduledObservation(
+    issue: RuntimeIssue,
+    attempt: number,
+    message: string,
+    nextAttempt: number,
+  ): IssueArtifactObservation {
+    const observedAt = new Date().toISOString();
+    return {
+      issue: this.#createIssueArtifactUpdate(issue, {
+        observedAt,
+        outcome: "retry-scheduled",
+        summary: `Retry ${nextAttempt.toString()} scheduled for ${issue.identifier}`,
+        branchName: this.#branchName(issue.number),
+        latestAttemptNumber: attempt,
+      }),
+      events: [
+        this.#createIssueEvent("retry-scheduled", issue, {
+          observedAt,
+          attemptNumber: attempt,
+          details: {
+            nextAttempt,
+            reason: message,
+          },
+        }),
+      ],
+    };
+  }
+
+  #createTerminalObservation(
+    issue: RuntimeIssue,
+    outcome: "succeeded" | "failed",
+    options: {
+      readonly observedAt: string;
+      readonly summary: string;
+      readonly attemptNumber?: number | undefined;
+      readonly branchName?: string | null | undefined;
+      readonly session?: RunSession | undefined;
+      readonly lifecycle?: PullRequestLifecycle | null | undefined;
+    },
+  ): IssueArtifactObservation {
+    return {
+      issue: this.#createIssueArtifactUpdate(issue, {
+        observedAt: options.observedAt,
+        outcome,
+        summary: options.summary,
+        branchName: options.branchName,
+        latestAttemptNumber:
+          options.session === undefined ? undefined : options.attemptNumber,
+        latestSessionId: options.session?.id,
+      }),
+      events: [
+        this.#createIssueEvent(outcome, issue, {
+          observedAt: options.observedAt,
+          attemptNumber: options.attemptNumber,
+          sessionId: options.session?.id,
+          details: {
+            branch: options.branchName ?? null,
+            summary: options.summary,
+          },
+        }),
+      ],
+      attempt:
+        options.attemptNumber === undefined
+          ? undefined
+          : this.#createAttemptArtifact(issue, options.attemptNumber, {
+              outcome,
+              summary: options.summary,
+              branchName: options.branchName ?? null,
+              sessionId: options.session?.id ?? null,
+              startedAt: options.session?.startedAt ?? null,
+              finishedAt: options.observedAt,
+              lifecycle: options.lifecycle ?? null,
+              runnerPid:
+                options.session === undefined
+                  ? null
+                  : this.#currentRunnerPid(issue.number),
+            }),
+      session:
+        options.session === undefined
+          ? undefined
+          : this.#createSessionArtifact(options.session, options.observedAt),
+      logPointers:
+        options.session === undefined
+          ? undefined
+          : this.#createSessionLogPointers(options.session),
+    };
+  }
+
+  #createRunnerSpawnObservation(
+    session: RunSession,
+    event: RunSpawnEvent,
+  ): IssueArtifactObservation {
+    return {
+      issue: this.#createIssueArtifactUpdate(session.issue, {
+        observedAt: event.spawnedAt,
+        outcome: "running",
+        summary: `Running ${session.issue.identifier}`,
+        branchName: session.workspace.branchName,
+        latestAttemptNumber: session.attempt.sequence,
+        latestSessionId: session.id,
+      }),
+      events: [
+        this.#createIssueEvent("runner-spawned", session.issue, {
+          observedAt: event.spawnedAt,
+          attemptNumber: session.attempt.sequence,
+          sessionId: session.id,
+          details: {
+            pid: event.pid,
+          },
+        }),
+      ],
+      attempt: this.#createAttemptArtifact(
+        session.issue,
+        session.attempt.sequence,
+        {
+          outcome: "running",
+          summary: `Running ${session.issue.identifier}`,
+          branchName: session.workspace.branchName,
+          sessionId: session.id,
+          startedAt: session.startedAt,
+          runnerPid: event.pid,
+        },
+      ),
+      session: this.#createSessionArtifact(session),
+      logPointers: this.#createSessionLogPointers(session),
+    };
+  }
+
+  #createLifecycleEvent(
+    issue: RuntimeIssue,
+    attempt: number,
+    sessionId: string | null,
+    lifecycle: PullRequestLifecycle,
+    observedAt: string,
+  ): IssueArtifactEvent | null {
+    if (lifecycle.kind === "awaiting-plan-review") {
+      return this.#createIssueEvent("plan-ready", issue, {
+        observedAt,
+        attemptNumber: attempt,
+        sessionId,
+        details: this.#createLifecycleEventDetails(lifecycle),
+      });
+    }
+
+    if (lifecycle.kind !== "awaiting-review") {
+      return null;
+    }
+
+    const kind =
+      lifecycle.actionableReviewFeedback.length > 0 ||
+      lifecycle.unresolvedThreadIds.length > 0
+        ? "review-feedback"
+        : "pr-opened";
+
+    return this.#createIssueEvent(kind, issue, {
+      observedAt,
+      attemptNumber: attempt,
+      sessionId,
+      details: this.#createLifecycleEventDetails(lifecycle),
+    });
+  }
+
+  #createLifecycleEventDetails(
+    lifecycle: PullRequestLifecycle,
+  ): Readonly<Record<string, unknown>> {
+    return {
+      branch: lifecycle.branchName,
+      summary: lifecycle.summary,
+      pullRequest:
+        lifecycle.pullRequest === null
+          ? null
+          : {
+              number: lifecycle.pullRequest.number,
+              url: lifecycle.pullRequest.url,
+              latestCommitAt: lifecycle.pullRequest.latestCommitAt,
+            },
+      checks: {
+        pendingNames: [...lifecycle.pendingCheckNames],
+        failingNames: [...lifecycle.failingCheckNames],
+      },
+      review: {
+        actionableCount: lifecycle.actionableReviewFeedback.length,
+        unresolvedThreadCount: lifecycle.unresolvedThreadIds.length,
+      },
+    };
+  }
+
+  #createAttemptArtifact(
+    issue: RuntimeIssue,
+    attempt: number,
+    options: {
+      readonly outcome: IssueArtifactOutcome;
+      readonly summary: string;
+      readonly branchName: string | null;
+      readonly sessionId: string | null;
+      readonly startedAt: string | null;
+      readonly finishedAt?: string | null;
+      readonly lifecycle?: PullRequestLifecycle | null;
+      readonly runnerPid?: number | null;
+    },
+  ): IssueArtifactAttemptSnapshot {
+    return {
+      version: 1,
+      issueNumber: issue.number,
+      attemptNumber: attempt,
+      branch: options.branchName,
+      startedAt: options.startedAt,
+      finishedAt: options.finishedAt ?? null,
+      outcome: options.outcome,
+      summary: options.summary,
+      sessionId: options.sessionId,
+      runnerPid: options.runnerPid ?? null,
+      pullRequest: this.#createPullRequestArtifactSnapshot(
+        options.lifecycle ?? null,
+      ),
+      review: this.#createReviewArtifactSnapshot(options.lifecycle ?? null),
+      checks: this.#createCheckArtifactSnapshot(options.lifecycle ?? null),
+    };
+  }
+
+  #createSessionArtifact(
+    session: RunSession,
+    finishedAt?: string,
+  ): IssueArtifactSessionSnapshot {
+    const description = describeRunnerSession(this.#runner, session);
+    return {
+      version: 1,
+      issueNumber: session.issue.number,
+      attemptNumber: session.attempt.sequence,
+      sessionId: session.id,
+      provider: description.provider,
+      model: description.model,
+      startedAt: session.startedAt,
+      finishedAt: finishedAt ?? null,
+      workspacePath: session.workspace.path,
+      branch: session.workspace.branchName,
+      logPointers: description.logPointers.map((pointer) =>
+        this.#createLogPointer(pointer),
+      ),
+    };
+  }
+
+  #createSessionLogPointers(
+    session: RunSession,
+  ): IssueArtifactLogPointerSessionEntry {
+    const description = describeRunnerSession(this.#runner, session);
+    return {
+      sessionId: session.id,
+      pointers: description.logPointers.map((pointer) =>
+        this.#createLogPointer(pointer),
+      ),
+      archiveLocation: null,
+    };
+  }
+
+  #createLogPointer(pointer: {
+    readonly name: string;
+    readonly location: string | null;
+    readonly archiveLocation: string | null;
+  }): IssueArtifactLogPointer {
+    return {
+      name: pointer.name,
+      location: pointer.location,
+      archiveLocation: pointer.archiveLocation,
+    };
+  }
+
+  #createPullRequestArtifactSnapshot(
+    lifecycle: PullRequestLifecycle | null,
+  ): IssueArtifactPullRequestSnapshot | null {
+    if (lifecycle?.pullRequest === null || lifecycle === null) {
+      return null;
+    }
+    return {
+      number: lifecycle.pullRequest.number,
+      url: lifecycle.pullRequest.url,
+      latestCommitAt: lifecycle.pullRequest.latestCommitAt,
+    };
+  }
+
+  #createReviewArtifactSnapshot(
+    lifecycle: PullRequestLifecycle | null,
+  ): IssueArtifactReviewSnapshot | null {
+    if (lifecycle === null) {
+      return null;
+    }
+    return {
+      actionableCount: lifecycle.actionableReviewFeedback.length,
+      unresolvedThreadCount: lifecycle.unresolvedThreadIds.length,
+    };
+  }
+
+  #createCheckArtifactSnapshot(
+    lifecycle: PullRequestLifecycle | null,
+  ): IssueArtifactCheckSnapshot | null {
+    if (lifecycle === null) {
+      return null;
+    }
+    return {
+      pendingNames: [...lifecycle.pendingCheckNames],
+      failingNames: [...lifecycle.failingCheckNames],
+    };
+  }
+
+  #currentRunnerPid(issueNumber: number): number | null {
+    return this.#state.status.activeIssues.get(issueNumber)?.runnerPid ?? null;
   }
 
   #followUpFailureMessage(lifecycle: PullRequestLifecycle): string {
@@ -831,10 +1455,11 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #recordRunnerSpawn(
-    issueNumber: number,
+    session: RunSession,
     lockDir: string,
     event: RunSpawnEvent,
   ): void {
+    const issueNumber = session.issue.number;
     this.#leaseManager.recordRunnerSpawn(lockDir, event);
     const entry = this.#state.status.activeIssues.get(issueNumber);
     if (entry) {
@@ -852,6 +1477,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     });
     // The runner onSpawn callback is synchronous; snapshot persistence is optional.
     void this.#persistStatusSnapshot();
+    void this.#recordIssueArtifact(
+      this.#createRunnerSpawnObservation(session, event),
+    );
     this.#logger.info("Runner process attached to active issue", {
       issueNumber,
       runnerPid: event.pid,
