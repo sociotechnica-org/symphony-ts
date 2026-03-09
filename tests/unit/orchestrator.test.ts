@@ -1367,6 +1367,61 @@ describe("BootstrapOrchestrator", () => {
     expect(attempt.runnerPid).toBe(runnerPid);
   });
 
+  it("preserves a captured runner pid when a spawned run fails without session context", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(82)],
+    });
+    tracker.setLifecycleSequence(82, [lifecycle("missing", "symphony/82")]);
+    const runnerPid = 8765;
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            maxFollowUpAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(_session, options): Promise<RunResult> {
+          await options?.onSpawn?.({
+            pid: runnerPid,
+            spawnedAt: "2026-03-09T16:35:00.000Z",
+          });
+          throw new Error("runner crashed after spawn");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 82,
+        reason: "Error: runner crashed after spawn",
+      },
+    ]);
+
+    const attempt = await readIssueArtifactAttempt(
+      baseConfig.workspace.root,
+      82,
+      1,
+    );
+    expect(attempt.outcome).toBe("failed");
+    expect(attempt.sessionId).toBeNull();
+    expect(attempt.runnerPid).toBe(runnerPid);
+  });
+
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(78)],

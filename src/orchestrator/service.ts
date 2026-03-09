@@ -1239,10 +1239,7 @@ export class BootstrapOrchestrator implements Orchestrator {
               startedAt: options.session?.startedAt ?? null,
               finishedAt: options.observedAt,
               lifecycle: options.lifecycle ?? null,
-              runnerPid:
-                options.session === undefined
-                  ? null
-                  : (options.runnerPid ?? null),
+              runnerPid: options.runnerPid ?? null,
             }),
       session: sessionArtifacts?.session,
       logPointers: sessionArtifacts?.logPointers,
