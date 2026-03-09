@@ -1470,7 +1470,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   #createPullRequestArtifactSnapshot(
     lifecycle: PullRequestLifecycle | null,
   ): IssueArtifactPullRequestSnapshot | null {
-    if (lifecycle?.pullRequest === null || lifecycle === null) {
+    if (lifecycle === null || lifecycle.pullRequest === null) {
       return null;
     }
     return {
