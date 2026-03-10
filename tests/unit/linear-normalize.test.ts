@@ -174,13 +174,29 @@ describe("normalizeLinearIssueSnapshot", () => {
   });
 
   it("accepts assignee identity matches by id as well as email", () => {
-    const snapshot = normalizeLinearIssueSnapshot(
+    const byId = normalizeLinearIssueSnapshot(
       createIssuePayload(),
       "issue",
       { configuredAssignee: "USER-1" },
     );
+    const byEmail = normalizeLinearIssueSnapshot(
+      createIssuePayload(),
+      "issue",
+      { configuredAssignee: "worker@example.test" },
+    );
 
-    expect(snapshot.assignedToWorker).toBe(true);
+    expect(byId.assignedToWorker).toBe(true);
+    expect(byEmail.assignedToWorker).toBe(true);
+  });
+
+  it("does not treat assignee display names as stable routing identities", () => {
+    const snapshot = normalizeLinearIssueSnapshot(
+      createIssuePayload(),
+      "issue",
+      { configuredAssignee: "Worker Example" },
+    );
+
+    expect(snapshot.assignedToWorker).toBe(false);
   });
 
   it("fails clearly when required fields are missing", () => {

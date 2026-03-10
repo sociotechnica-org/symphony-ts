@@ -393,7 +393,7 @@ function matchesConfiguredAssignee(
   }
 
   const normalizedConfiguredAssignee = normalizeAssigneeKey(configuredAssignee);
-  return [assignee.id, assignee.name, assignee.email].some(
+  return [assignee.id, assignee.email].some(
     (value) =>
       value !== null &&
       normalizeAssigneeKey(value) === normalizedConfiguredAssignee,
