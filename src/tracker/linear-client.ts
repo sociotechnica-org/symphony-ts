@@ -1,5 +1,11 @@
-import { TrackerError } from "../domain/errors.js";
 import type { LinearTrackerConfig } from "../domain/workflow.js";
+import { TrackerError } from "../domain/errors.js";
+import {
+  requireArray,
+  requireBoolean,
+  requireNullableString,
+  requireObject,
+} from "./linear-parse.js";
 
 export interface LinearRawWorkflowState {
   readonly id: string;
@@ -90,48 +96,6 @@ export interface LinearIssueUpdateResult {
 
 export interface LinearCommentCreateResult {
   readonly commentCreate: LinearRawIssueMutation;
-}
-
-function requireObject(
-  value: unknown,
-  field: string,
-): Readonly<Record<string, unknown>> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new TrackerError(
-      `Linear GraphQL request failed: expected object for ${field}`,
-    );
-  }
-  return value as Record<string, unknown>;
-}
-
-function requireArray(value: unknown, field: string): readonly unknown[] {
-  if (!Array.isArray(value)) {
-    throw new TrackerError(
-      `Linear GraphQL request failed: expected array for ${field}`,
-    );
-  }
-  return value;
-}
-
-function requireBoolean(value: unknown, field: string): boolean {
-  if (typeof value !== "boolean") {
-    throw new TrackerError(
-      `Linear GraphQL request failed: expected boolean for ${field}`,
-    );
-  }
-  return value;
-}
-
-function requireNullableString(value: unknown, field: string): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    throw new TrackerError(
-      `Linear GraphQL request failed: expected string or null for ${field}`,
-    );
-  }
-  return value;
 }
 
 interface GraphQLErrorPayload {
@@ -277,6 +241,8 @@ const COMMENT_CREATE_MUTATION = `
   }
 `;
 
+const GRAPHQL_VALIDATION_PREFIX = "Linear GraphQL request failed";
+
 export class LinearClient {
   readonly #config: LinearTrackerConfig;
   readonly #fetch: typeof fetch;
@@ -314,6 +280,8 @@ export class LinearClient {
       after = pageInfo.endCursor;
     }
 
+    // TypeScript cannot prove the loop above runs at least once.
+    // #requireProjectIssuesPage throws before returning if project is null.
     if (project === null) {
       throw new TrackerError(
         "Linear GraphQL request failed for GetProjectIssuesPage: missing project payload",
@@ -444,30 +412,40 @@ export class LinearClient {
   #requireProjectIssuesPage(
     page: LinearProjectIssuesPageResult,
   ): LinearRawProjectWithIssues {
-    const root = requireObject(page, "GetProjectIssuesPage.data");
+    const root = requireObject(
+      page,
+      "GetProjectIssuesPage.data",
+      GRAPHQL_VALIDATION_PREFIX,
+    );
     const project = requireObject(
       root["project"],
       "GetProjectIssuesPage.data.project",
+      GRAPHQL_VALIDATION_PREFIX,
     );
     const issues = requireObject(
       project["issues"],
       "GetProjectIssuesPage.data.project.issues",
+      GRAPHQL_VALIDATION_PREFIX,
     );
     requireArray(
       issues["nodes"],
       "GetProjectIssuesPage.data.project.issues.nodes",
+      GRAPHQL_VALIDATION_PREFIX,
     );
     const pageInfo = requireObject(
       issues["pageInfo"],
       "GetProjectIssuesPage.data.project.issues.pageInfo",
+      GRAPHQL_VALIDATION_PREFIX,
     );
     requireBoolean(
       pageInfo["hasNextPage"],
       "GetProjectIssuesPage.data.project.issues.pageInfo.hasNextPage",
+      GRAPHQL_VALIDATION_PREFIX,
     );
     requireNullableString(
       pageInfo["endCursor"],
       "GetProjectIssuesPage.data.project.issues.pageInfo.endCursor",
+      GRAPHQL_VALIDATION_PREFIX,
     );
     return project as unknown as LinearRawProjectWithIssues;
   }

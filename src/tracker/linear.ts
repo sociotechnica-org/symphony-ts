@@ -234,6 +234,11 @@ export class LinearTracker implements Tracker {
 
   async #loadProject(): Promise<LinearProjectSnapshot> {
     const data = await this.#client.fetchProject();
+    if (data.project === null) {
+      throw new TrackerError(
+        `Linear project not found: ${this.#config.projectSlug}`,
+      );
+    }
     return normalizeLinearProject(data.project);
   }
 

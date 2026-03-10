@@ -1,6 +1,14 @@
 import type { RuntimeIssue } from "../domain/issue.js";
 import { TrackerError } from "../domain/errors.js";
 import {
+  requireArray,
+  requireBoolean,
+  requireNullableString,
+  requireNumber,
+  requireObject,
+  requireString,
+} from "./linear-parse.js";
+import {
   parseLinearWorkpad,
   type LinearWorkpadEntry,
 } from "./linear-workpad.js";
@@ -42,13 +50,6 @@ export interface LinearProjectSnapshot {
   readonly states: readonly LinearWorkflowState[];
 }
 
-export interface LinearIssuePageSnapshot {
-  readonly project: LinearProjectSnapshot;
-  readonly issues: readonly LinearIssueSnapshot[];
-  readonly hasNextPage: boolean;
-  readonly endCursor: string | null;
-}
-
 export interface LinearProjectIssuesSnapshot {
   readonly project: LinearProjectSnapshot;
   readonly issues: readonly LinearIssueSnapshot[];
@@ -69,41 +70,6 @@ export function normalizeLinearProject(value: unknown): LinearProjectSnapshot {
     slugId: requireString(record["slugId"], "project.slugId"),
     name: requireString(record["name"], "project.name"),
     states,
-  };
-}
-
-export function normalizeLinearIssuePage(
-  value: unknown,
-): LinearIssuePageSnapshot {
-  const record = requireObject(value, "page");
-  const projectRecord = requireObject(record["project"], "project");
-  const project = normalizeLinearProject(projectRecord);
-  const issuesConnection = requireObject(
-    projectRecord["issues"],
-    "project.issues",
-  );
-  const issues = requireArray(
-    issuesConnection["nodes"],
-    "project.issues.nodes",
-  ).map((entry, index) =>
-    normalizeLinearIssue(entry, `project.issues.nodes[${index}]`),
-  );
-  const pageInfo = requireObject(
-    issuesConnection["pageInfo"],
-    "project.issues.pageInfo",
-  );
-
-  return {
-    project,
-    issues,
-    hasNextPage: requireBoolean(
-      pageInfo["hasNextPage"],
-      "project.issues.pageInfo.hasNextPage",
-    ),
-    endCursor: requireNullableString(
-      pageInfo["endCursor"],
-      "project.issues.pageInfo.endCursor",
-    ),
   };
 }
 
@@ -237,52 +203,4 @@ function normalizeLinearComment(value: unknown, field: string): LinearComment {
         ? null
         : requireNullableString(user["email"], `${field}.user.email`),
   };
-}
-
-function requireObject(
-  value: unknown,
-  field: string,
-): Readonly<Record<string, unknown>> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new TrackerError(`Expected object for ${field}`);
-  }
-  return value as Record<string, unknown>;
-}
-
-function requireArray(value: unknown, field: string): readonly unknown[] {
-  if (!Array.isArray(value)) {
-    throw new TrackerError(`Expected array for ${field}`);
-  }
-  return value;
-}
-
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new TrackerError(`Expected non-empty string for ${field}`);
-  }
-  return value;
-}
-
-function requireNullableString(value: unknown, field: string): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    throw new TrackerError(`Expected string or null for ${field}`);
-  }
-  return value;
-}
-
-function requireNumber(value: unknown, field: string): number {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    throw new TrackerError(`Expected number for ${field}`);
-  }
-  return value;
-}
-
-function requireBoolean(value: unknown, field: string): boolean {
-  if (typeof value !== "boolean") {
-    throw new TrackerError(`Expected boolean for ${field}`);
-  }
-  return value;
 }
