@@ -115,7 +115,7 @@ export class LinearTracker implements Tracker {
     this.#logger.info("Claimed Linear issue", {
       issueNumber,
       identifier: claimed.identifier,
-      nextState: nextStateName ?? claimed.state.name,
+      nextState: claimed.state.name,
     });
     return claimed.runtimeIssue;
   }

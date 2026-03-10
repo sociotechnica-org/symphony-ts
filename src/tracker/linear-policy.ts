@@ -36,7 +36,7 @@ export function classifyLinearIssue(
     return "completed";
   }
 
-  if (config.terminalStates.includes(issue.state.name)) {
+  if (matchesConfiguredStateName(config.terminalStates, issue.state.name)) {
     return "running";
   }
 
@@ -56,14 +56,19 @@ export function classifyLinearIssue(
     return "running";
   }
 
-  return config.activeStates.includes(issue.state.name) ? "ready" : "ignored";
+  return matchesConfiguredStateName(config.activeStates, issue.state.name)
+    ? "ready"
+    : "ignored";
 }
 
 export function resolveLinearClaimStateName(
   issue: LinearIssueSnapshot,
   config: LinearTrackerConfig,
 ): string | null {
-  const currentIndex = config.activeStates.indexOf(issue.state.name);
+  const currentIndex = indexOfConfiguredStateName(
+    config.activeStates,
+    issue.state.name,
+  );
   if (currentIndex < 0) {
     return null;
   }
@@ -83,8 +88,9 @@ export function resolveLinearTerminalStateName(
   config: LinearTrackerConfig,
 ): string {
   for (const stateName of config.terminalStates) {
-    if (project.states.some((state) => state.name === stateName)) {
-      return stateName;
+    const projectStateName = findProjectStateName(project, stateName);
+    if (projectStateName !== null) {
+      return projectStateName;
     }
   }
   throw new TrackerError(
@@ -110,7 +116,7 @@ export function createLinearHandoffLifecycle(
     issue.workpad?.status === "handoff-ready" ||
     issue.workpad?.status === "completed";
 
-  if (config.terminalStates.includes(stateName)) {
+  if (matchesConfiguredStateName(config.terminalStates, stateName)) {
     return linearLifecycle(
       "handoff-ready",
       branchName,
@@ -158,7 +164,7 @@ export function createLinearHandoffLifecycle(
     );
   }
 
-  if (config.activeStates.includes(stateName)) {
+  if (matchesConfiguredStateName(config.activeStates, stateName)) {
     return missingLinearLifecycle(
       branchName,
       `Linear issue ${issue.identifier} is still active in '${stateName}'`,
@@ -226,13 +232,15 @@ function latestLinearReviewSignal(
   comments: readonly LinearComment[],
 ): LinearReviewSignal | null {
   return (
-    [...comments]
+    comments
+      .map((comment, index) => ({ comment, index }))
       .sort((left, right) => {
         const timeDiff =
-          Date.parse(left.createdAt) - Date.parse(right.createdAt);
-        return timeDiff !== 0 ? timeDiff : left.id.localeCompare(right.id);
+          Date.parse(left.comment.createdAt) -
+          Date.parse(right.comment.createdAt);
+        return timeDiff !== 0 ? timeDiff : left.index - right.index;
       })
-      .map((comment) => parseLinearReviewSignal(comment.body))
+      .map(({ comment }) => parseLinearReviewSignal(comment.body))
       .filter((signal): signal is LinearReviewSignal => signal !== null)
       .at(-1) ?? null
   );
@@ -277,4 +285,31 @@ function isLinearReviewWorkflowState(stateName: string): boolean {
 
 function sameStateName(left: string, right: string): boolean {
   return left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
+}
+
+function matchesConfiguredStateName(
+  configuredStateNames: readonly string[],
+  stateName: string,
+): boolean {
+  return indexOfConfiguredStateName(configuredStateNames, stateName) >= 0;
+}
+
+function indexOfConfiguredStateName(
+  configuredStateNames: readonly string[],
+  stateName: string,
+): number {
+  return configuredStateNames.findIndex((candidate) =>
+    sameStateName(candidate, stateName),
+  );
+}
+
+function findProjectStateName(
+  project: LinearProjectSnapshot,
+  configuredStateName: string,
+): string | null {
+  return (
+    project.states.find((state) =>
+      sameStateName(state.name, configuredStateName),
+    )?.name ?? null
+  );
 }

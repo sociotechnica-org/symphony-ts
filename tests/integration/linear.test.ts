@@ -269,6 +269,35 @@ describe("LinearTracker", () => {
     );
   });
 
+  it("matches configured active and terminal states case-insensitively", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 18,
+      title: "Case insensitive workflow config",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, {
+        activeStates: ["todo", "in progress"],
+        terminalStates: ["done", "canceled"],
+      }),
+      new JsonLogger(),
+    );
+
+    const claimed = await tracker.claimIssue(18);
+    expect(claimed?.state).toBe("In Progress");
+
+    await tracker.completeIssue(18);
+
+    const completedIssue = server.getIssue("symphony-linear", 18);
+    expect(completedIssue.stateName).toBe("Done");
+    expect((await tracker.inspectIssueHandoff("symphony/18")).kind).toBe(
+      "handoff-ready",
+    );
+  });
+
   it("maps Human Review to awaiting-human-handoff", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",

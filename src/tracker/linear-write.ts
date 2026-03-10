@@ -72,7 +72,9 @@ export function resolveLinearStateByName(
   project: LinearProjectSnapshot,
   stateName: string,
 ): LinearWorkflowState {
-  const match = project.states.find((state) => state.name === stateName);
+  const match = project.states.find((state) =>
+    sameStateName(state.name, stateName),
+  );
   if (match !== undefined) {
     return match;
   }
@@ -92,4 +94,8 @@ function requireProjectForStateUpdate(
   throw new TrackerError(
     `Linear issue update for ${issueId} requires project workflow state lookup`,
   );
+}
+
+function sameStateName(left: string, right: string): boolean {
+  return left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
 }

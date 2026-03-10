@@ -221,6 +221,50 @@ describe("createLinearHandoffLifecycle", () => {
 
     expect(lifecycle.kind).toBe("handoff-ready");
   });
+
+  it("matches configured state names case-insensitively", () => {
+    const lowercaseConfig = {
+      ...config,
+      activeStates: ["todo", "in progress"],
+      terminalStates: ["done"],
+    };
+
+    expect(
+      createLinearHandoffLifecycle(
+        createIssue("In Progress"),
+        "symphony/1",
+        lowercaseConfig,
+      ).kind,
+    ).toBe("missing-target");
+    expect(
+      createLinearHandoffLifecycle(
+        createIssue("Done"),
+        "symphony/1",
+        lowercaseConfig,
+      ).kind,
+    ).toBe("handoff-ready");
+  });
+
+  it("uses comment order when review signals share the same timestamp", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Human Review", {
+        comments: [
+          createComment("Plan review: approved", {
+            id: "comment-z",
+            createdAt: "2026-03-10T00:00:00.000Z",
+          }),
+          createComment("Plan review: changes-requested", {
+            id: "comment-a",
+            createdAt: "2026-03-10T00:00:00.000Z",
+          }),
+        ],
+      }),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
 });
 
 describe("resolveLinearClaimStateName", () => {
@@ -296,6 +340,20 @@ describe("resolveLinearTerminalStateName", () => {
     ).toBe("Done");
   });
 
+  it("matches configured terminal states case-insensitively", () => {
+    expect(
+      resolveLinearTerminalStateName(PROJECT, {
+        kind: "linear",
+        endpoint: "https://linear.example/graphql",
+        apiKey: "token",
+        projectSlug: "symphony-linear",
+        assignee: null,
+        activeStates: ["Todo", "In Progress"],
+        terminalStates: ["closed", "done"],
+      }),
+    ).toBe("Done");
+  });
+
   it("fails clearly when the project exposes none of the configured terminal states", () => {
     expect(() =>
       resolveLinearTerminalStateName(PROJECT, {
@@ -319,12 +377,16 @@ describe("resolveLinearHumanReviewStateName", () => {
   });
 });
 
-function createComment(body: string): LinearComment {
+function createComment(
+  body: string,
+  overrides: Partial<LinearComment> = {},
+): LinearComment {
   return {
     id: body,
     body,
     createdAt: "2026-03-10T00:00:00.000Z",
     userName: "Reviewer",
     userEmail: "reviewer@example.test",
+    ...overrides,
   };
 }
