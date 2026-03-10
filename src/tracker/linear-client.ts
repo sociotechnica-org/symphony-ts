@@ -1,6 +1,139 @@
 import { TrackerError } from "../domain/errors.js";
 import type { LinearTrackerConfig } from "../domain/workflow.js";
 
+export interface LinearRawWorkflowState {
+  readonly id: string;
+  readonly name: string;
+  readonly type: string;
+  readonly position: number;
+}
+
+export interface LinearRawCommentUser {
+  readonly name: string | null;
+  readonly email: string | null;
+}
+
+export interface LinearRawComment {
+  readonly id: string;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly user: LinearRawCommentUser | null;
+}
+
+export interface LinearRawIssue {
+  readonly id: string;
+  readonly identifier: string;
+  readonly number: number;
+  readonly title: string;
+  readonly description: string | null;
+  readonly url: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly state: LinearRawWorkflowState;
+  readonly comments: {
+    readonly nodes: readonly LinearRawComment[];
+  };
+}
+
+export interface LinearRawProject {
+  readonly id: string;
+  readonly slugId: string;
+  readonly name: string;
+  readonly states: {
+    readonly nodes: readonly LinearRawWorkflowState[];
+  };
+}
+
+interface LinearRawPageInfo {
+  readonly hasNextPage: boolean;
+  readonly endCursor: string | null;
+}
+
+interface LinearRawProjectIssuesConnection {
+  readonly nodes: readonly LinearRawIssue[];
+  readonly pageInfo: LinearRawPageInfo;
+}
+
+interface LinearRawProjectWithIssues extends LinearRawProject {
+  readonly issues: LinearRawProjectIssuesConnection;
+}
+
+interface LinearRawProjectWithIssue extends LinearRawProject {
+  readonly issue: LinearRawIssue | null;
+}
+
+interface LinearRawIssueMutation {
+  readonly success: boolean;
+  readonly issue: LinearRawIssue | null;
+}
+
+export interface LinearProjectQueryResult {
+  readonly project: LinearRawProject | null;
+}
+
+interface LinearProjectIssuesPageResult {
+  readonly project: LinearRawProjectWithIssues | null;
+}
+
+export interface LinearProjectIssuesResult {
+  readonly project: LinearRawProject;
+  readonly issues: readonly LinearRawIssue[];
+}
+
+export interface LinearProjectIssueResult {
+  readonly project: LinearRawProjectWithIssue | null;
+}
+
+export interface LinearIssueUpdateResult {
+  readonly issueUpdate: LinearRawIssueMutation;
+}
+
+export interface LinearCommentCreateResult {
+  readonly commentCreate: LinearRawIssueMutation;
+}
+
+function requireObject(
+  value: unknown,
+  field: string,
+): Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TrackerError(
+      `Linear GraphQL request failed: expected object for ${field}`,
+    );
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireArray(value: unknown, field: string): readonly unknown[] {
+  if (!Array.isArray(value)) {
+    throw new TrackerError(
+      `Linear GraphQL request failed: expected array for ${field}`,
+    );
+  }
+  return value;
+}
+
+function requireBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new TrackerError(
+      `Linear GraphQL request failed: expected boolean for ${field}`,
+    );
+  }
+  return value;
+}
+
+function requireNullableString(value: unknown, field: string): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new TrackerError(
+      `Linear GraphQL request failed: expected string or null for ${field}`,
+    );
+  }
+  return value;
+}
+
 interface GraphQLErrorPayload {
   readonly message?: unknown;
 }
@@ -14,6 +147,10 @@ interface UpdateIssueRequest {
   readonly id: string;
   readonly description?: string;
   readonly stateId?: string;
+}
+
+interface LinearClientOptions {
+  readonly fetch?: typeof fetch;
 }
 
 const LINEAR_PROJECT_ISSUES_PAGE_SIZE = 50;
@@ -142,18 +279,85 @@ const COMMENT_CREATE_MUTATION = `
 
 export class LinearClient {
   readonly #config: LinearTrackerConfig;
+  readonly #fetch: typeof fetch;
 
-  constructor(config: LinearTrackerConfig) {
+  constructor(config: LinearTrackerConfig, options: LinearClientOptions = {}) {
     this.#config = config;
+    this.#fetch = options.fetch ?? fetch;
   }
 
-  async fetchProject(): Promise<unknown> {
+  async fetchProject(): Promise<LinearProjectQueryResult> {
     return await this.#request("GetProject", GET_PROJECT_QUERY, {
       slugId: this.#config.projectSlug,
     });
   }
 
-  async fetchProjectIssuesPage(after: string | null): Promise<unknown> {
+  async fetchProjectIssues(): Promise<LinearProjectIssuesResult> {
+    const issues: LinearRawIssue[] = [];
+    let after: string | null = null;
+    let project: LinearRawProject | null = null;
+
+    while (true) {
+      const page = this.#requireProjectIssuesPage(
+        await this.#fetchProjectIssuesPage(after),
+      );
+
+      if (project === null) {
+        project = this.#projectFromIssuePage(page);
+      }
+      issues.push(...page.issues.nodes);
+
+      const pageInfo = page.issues.pageInfo;
+      if (!pageInfo.hasNextPage || pageInfo.endCursor === null) {
+        break;
+      }
+      after = pageInfo.endCursor;
+    }
+
+    if (project === null) {
+      throw new TrackerError(
+        "Linear GraphQL request failed for GetProjectIssuesPage: missing project payload",
+      );
+    }
+
+    return {
+      project,
+      issues,
+    };
+  }
+
+  async fetchProjectIssue(
+    issueNumber: number,
+  ): Promise<LinearProjectIssueResult> {
+    return await this.#request("GetProjectIssue", GET_PROJECT_ISSUE_QUERY, {
+      slugId: this.#config.projectSlug,
+      number: issueNumber,
+    });
+  }
+
+  async updateIssue(
+    input: UpdateIssueRequest,
+  ): Promise<LinearIssueUpdateResult> {
+    return await this.#request(
+      this.#updateIssueOperation(input),
+      this.#updateIssueMutation(input),
+      this.#updateIssueVariables(input),
+    );
+  }
+
+  async createComment(
+    issueId: string,
+    body: string,
+  ): Promise<LinearCommentCreateResult> {
+    return await this.#request("CreateComment", COMMENT_CREATE_MUTATION, {
+      issueId,
+      body,
+    });
+  }
+
+  async #fetchProjectIssuesPage(
+    after: string | null,
+  ): Promise<LinearProjectIssuesPageResult> {
     return await this.#request(
       "GetProjectIssuesPage",
       GET_PROJECT_ISSUES_PAGE_QUERY,
@@ -165,28 +369,6 @@ export class LinearClient {
     );
   }
 
-  async fetchProjectIssue(issueNumber: number): Promise<unknown> {
-    return await this.#request("GetProjectIssue", GET_PROJECT_ISSUE_QUERY, {
-      slugId: this.#config.projectSlug,
-      number: issueNumber,
-    });
-  }
-
-  async updateIssue(input: UpdateIssueRequest): Promise<unknown> {
-    return await this.#request(
-      this.#updateIssueOperation(input),
-      this.#updateIssueMutation(input),
-      this.#updateIssueVariables(input),
-    );
-  }
-
-  async createComment(issueId: string, body: string): Promise<unknown> {
-    return await this.#request("CreateComment", COMMENT_CREATE_MUTATION, {
-      issueId,
-      body,
-    });
-  }
-
   async #request<T>(
     operationName: string,
     query: string,
@@ -194,7 +376,7 @@ export class LinearClient {
   ): Promise<T> {
     let response: Response;
     try {
-      response = await fetch(this.#config.endpoint, {
+      response = await this.#fetch(this.#config.endpoint, {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.#config.apiKey}`,
@@ -220,7 +402,16 @@ export class LinearClient {
       );
     }
 
-    const payload = (await response.json()) as GraphQLResponse<T>;
+    let payload: GraphQLResponse<T>;
+    try {
+      payload = (await response.json()) as GraphQLResponse<T>;
+    } catch (error) {
+      throw new TrackerError(
+        `Linear GraphQL request failed for ${operationName}: invalid JSON response`,
+        { cause: error as Error },
+      );
+    }
+
     if ((payload.errors?.length ?? 0) > 0) {
       const messages = payload.errors
         ?.map((entry) =>
@@ -239,6 +430,46 @@ export class LinearClient {
       );
     }
     return payload.data;
+  }
+
+  #projectFromIssuePage(project: LinearRawProjectWithIssues): LinearRawProject {
+    return {
+      id: project.id,
+      slugId: project.slugId,
+      name: project.name,
+      states: project.states,
+    };
+  }
+
+  #requireProjectIssuesPage(
+    page: LinearProjectIssuesPageResult,
+  ): LinearRawProjectWithIssues {
+    const root = requireObject(page, "GetProjectIssuesPage.data");
+    const project = requireObject(
+      root["project"],
+      "GetProjectIssuesPage.data.project",
+    );
+    const issues = requireObject(
+      project["issues"],
+      "GetProjectIssuesPage.data.project.issues",
+    );
+    requireArray(
+      issues["nodes"],
+      "GetProjectIssuesPage.data.project.issues.nodes",
+    );
+    const pageInfo = requireObject(
+      issues["pageInfo"],
+      "GetProjectIssuesPage.data.project.issues.pageInfo",
+    );
+    requireBoolean(
+      pageInfo["hasNextPage"],
+      "GetProjectIssuesPage.data.project.issues.pageInfo.hasNextPage",
+    );
+    requireNullableString(
+      pageInfo["endCursor"],
+      "GetProjectIssuesPage.data.project.issues.pageInfo.endCursor",
+    );
+    return project as unknown as LinearRawProjectWithIssues;
   }
 
   #updateIssueOperation(input: UpdateIssueRequest): string {

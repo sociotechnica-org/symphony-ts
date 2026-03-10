@@ -49,6 +49,11 @@ export interface LinearIssuePageSnapshot {
   readonly endCursor: string | null;
 }
 
+export interface LinearProjectIssuesSnapshot {
+  readonly project: LinearProjectSnapshot;
+  readonly issues: readonly LinearIssueSnapshot[];
+}
+
 export function normalizeLinearProject(value: unknown): LinearProjectSnapshot {
   const record = requireObject(value, "project");
   const statesConnection = requireObject(record["states"], "project.states");
@@ -99,6 +104,21 @@ export function normalizeLinearIssuePage(
       pageInfo["endCursor"],
       "project.issues.pageInfo.endCursor",
     ),
+  };
+}
+
+export function normalizeLinearProjectIssuesResult(
+  value: unknown,
+): LinearProjectIssuesSnapshot {
+  const record = requireObject(value, "projectIssues");
+  const issues = requireArray(record["issues"], "projectIssues.issues").map(
+    (entry, index) =>
+      normalizeLinearIssue(entry, `projectIssues.issues[${index}]`),
+  );
+
+  return {
+    project: normalizeLinearProject(record["project"]),
+    issues,
   };
 }
 

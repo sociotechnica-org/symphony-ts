@@ -45,6 +45,8 @@ interface MockLinearRequest {
   readonly operationName: string;
   readonly query: string;
   readonly variables: Readonly<Record<string, unknown>>;
+  readonly authorization: string | null;
+  readonly contentType: string | null;
 }
 
 type MockOperationFailure =
@@ -271,6 +273,14 @@ export class MockLinearServer {
       operationName,
       query,
       variables,
+      authorization:
+        typeof request.headers.authorization === "string"
+          ? request.headers.authorization
+          : null,
+      contentType:
+        typeof request.headers["content-type"] === "string"
+          ? request.headers["content-type"]
+          : null,
     });
 
     const failure = this.#shiftFailure(operationName);
