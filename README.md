@@ -13,8 +13,8 @@ OpenAI released [the Symphony spec](https://github.com/openai/symphony) to addre
 **What makes symphony-ts different:**
 
 - **Runs locally.** Point it at a repo and it starts working issues. No servers to deploy, no accounts to create.
-- **Adapter pattern for everything.** Pluggable trackers (GitHub today, Linear planned) and pluggable workers (local Codex today, remote workers planned). Swap any layer without touching the others.
-- **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in GitHub Issues itself. Run multiple factory instances with no centralized coordination.
+- **Adapter pattern for everything.** Pluggable trackers (GitHub and Linear) and pluggable workers (local Codex today, remote workers planned). Swap any layer without touching the others.
+- **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in your tracker (GitHub Issues or Linear). Run multiple factory instances with no centralized coordination.
 - **Visibility.** The tracker gives you real-time visibility into the whole factory. A local status surface shows worker-level detail.
 - **It builds itself.** Symphony works `symphony-ts` issues and opens PRs back into this repo. The [self-hosting loop](docs/guides/self-hosting-loop.md) is how we develop it.
 
@@ -112,9 +112,9 @@ agent:
 
 The prompt template below the YAML front matter uses Liquid syntax with access to `issue`, `config`, and `pull_request` variables. See the checked-in [`WORKFLOW.md`](WORKFLOW.md) for the full template.
 
-### Linear Workflow Config Example
+### Linear Tracker
 
-Workflow loading also supports a Linear tracker config shape for upcoming adapter work:
+Symphony also supports Linear as a tracker. Set `tracker.kind: linear` in your `WORKFLOW.md`:
 
 ```yaml
 tracker:
@@ -134,7 +134,7 @@ tracker:
     - Done
 ```
 
-In this slice, `loadWorkflow` validates and normalizes that config, but `symphony run` still requires the GitHub bootstrap tracker until the Linear adapter lands.
+The Linear adapter supports project-scoped GraphQL polling, paginated issue reads, issue comment writes, a Symphony-owned workpad section in the issue description, and state transitions through the tracker edge. Integration tests use a mock Linear GraphQL server, so no real Linear workspace is required to run the test suite.
 
 ## Architecture
 
@@ -146,7 +146,7 @@ Symphony follows the [Symphony spec](https://github.com/openai/symphony/blob/mai
 | Configuration | `src/config/` — YAML + Liquid parsing                     | —                                     |
 | Coordination  | `src/orchestrator/` — polling, retries, reconciliation    | —                                     |
 | Execution     | `src/runner/` + `src/workspace/` — agent subprocess + git | Yes — change `agent.command`          |
-| Integration   | `src/tracker/` — GitHub bootstrap adapter                 | Yes — implement a new tracker adapter |
+| Integration   | `src/tracker/` — GitHub and Linear adapters               | Yes — implement a new tracker adapter |
 | Observability | `src/observability/` — structured logs + status           | —                                     |
 
 ### Repository Map
@@ -161,7 +161,7 @@ src/
   observability/             Structured logging
   orchestrator/              Polling, retries, dispatch
   runner/                    Codex subprocess execution
-  tracker/                   GitHub bootstrap tracker
+  tracker/                   GitHub and Linear tracker adapters
   workspace/                 Local git workspace management
 tests/
   unit/                      Small contract tests
@@ -205,20 +205,20 @@ Tests run in three layers: unit tests for pure logic, integration tests for adap
 
 ## Status & Roadmap
 
-**Current phase: 1.2** — single local instance, GitHub Issues tracker, local Codex runner.
+**Current phase: 1.2** — single local instance, GitHub Issues and Linear trackers, local Codex runner.
 
 What works today:
 
-- Full issue lifecycle from `symphony:ready` through merge-ready PR
+- Full issue lifecycle from ready through merge-ready PR
+- GitHub Issues and Linear tracker adapters
 - Plan review station with human approval gate
 - CI and automated review follow-up loop
 - Orphaned run recovery on restart
-- Local factory status surface
+- Local factory status surface and per-issue reporting
 - Self-hosting: Symphony builds itself
 
 What's planned:
 
-- Linear tracker adapter
 - Remote worker backends (Devin, NiteShift, remote dev boxes)
 - Multi-instance coordination
 - Operator agent for factory-level oversight
