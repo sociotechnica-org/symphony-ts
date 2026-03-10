@@ -1,5 +1,5 @@
 import path from "node:path";
-import { loadWorkflow } from "../config/workflow.js";
+import { loadWorkflowWorkspaceRoot } from "../config/workflow.js";
 import { writeIssueReport } from "../observability/issue-report.js";
 
 export interface ReportCliArgs {
@@ -37,11 +37,8 @@ export function parseReportArgs(argv: readonly string[]): ReportCliArgs {
 
 export async function runReportCli(argv: readonly string[]): Promise<void> {
   const args = parseReportArgs(argv);
-  const workflow = await loadWorkflow(args.workflowPath);
-  const generated = await writeIssueReport(
-    workflow.config.workspace.root,
-    args.issueNumber,
-  );
+  const workspaceRoot = await loadWorkflowWorkspaceRoot(args.workflowPath);
+  const generated = await writeIssueReport(workspaceRoot, args.issueNumber);
   process.stdout.write(
     `Generated issue report for #${args.issueNumber.toString()}\nreport.json: ${generated.outputPaths.reportJsonFile}\nreport.md: ${generated.outputPaths.reportMarkdownFile}\n`,
   );

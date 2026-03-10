@@ -47,11 +47,26 @@ interface PromptRenderInput {
   readonly config: ResolvedConfig;
 }
 
+interface ParsedWorkflow {
+  readonly frontMatter: RawWorkflow;
+  readonly body: string;
+}
+
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new ConfigError(`Expected non-empty string for ${field}`);
   }
   return value;
+}
+
+function requireUrlString(value: unknown, field: string): string {
+  const resolved = requireString(value, field);
+  try {
+    new URL(resolved);
+  } catch {
+    throw new ConfigError(`${field} must be a valid URL, got '${resolved}'`);
+  }
+  return resolved;
 }
 
 function requireNumber(value: unknown, field: string): number {
@@ -200,6 +215,20 @@ function parseFrontMatter(raw: string): {
     frontMatter: parsed as RawWorkflow,
     body: bodySource.trim(),
   };
+}
+
+async function readWorkflowSource(workflowPath: string): Promise<string> {
+  try {
+    return await fs.readFile(workflowPath, "utf8");
+  } catch (error) {
+    throw new WorkflowError(`Failed to read workflow file at ${workflowPath}`, {
+      cause: error as Error,
+    });
+  }
+}
+
+async function readParsedWorkflow(workflowPath: string): Promise<ParsedWorkflow> {
+  return parseFrontMatter(await readWorkflowSource(workflowPath));
 }
 
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
@@ -359,7 +388,7 @@ function resolveLinearTrackerConfig(
     endpoint:
       tracker["endpoint"] === undefined
         ? DEFAULT_LINEAR_ENDPOINT
-        : requireString(tracker["endpoint"], "tracker.endpoint"),
+        : requireUrlString(tracker["endpoint"], "tracker.endpoint"),
     apiKey,
     projectSlug,
     assignee: resolveOptionalEnvBackedSecret(
@@ -412,19 +441,35 @@ function resolveRetryConfig(value: unknown): {
 export async function loadWorkflow(
   workflowPath: string,
 ): Promise<WorkflowDefinition> {
-  let raw: string;
-  try {
-    raw = await fs.readFile(workflowPath, "utf8");
-  } catch (error) {
-    throw new WorkflowError(`Failed to read workflow file at ${workflowPath}`, {
-      cause: error as Error,
-    });
-  }
-
-  const parsed = parseFrontMatter(raw);
+  const parsed = await readParsedWorkflow(workflowPath);
   return {
     config: resolveConfig(parsed.frontMatter, workflowPath),
     promptTemplate: parsed.body,
+  };
+}
+
+export async function loadWorkflowWorkspaceRoot(
+  workflowPath: string,
+): Promise<string> {
+  const parsed = await readParsedWorkflow(workflowPath);
+  const workspace = requireObject(parsed.frontMatter.workspace, "workspace");
+  return path.resolve(
+    path.dirname(workflowPath),
+    requireString(workspace["root"], "workspace.root"),
+  );
+}
+
+function redactPromptConfig(config: ResolvedConfig): ResolvedConfig {
+  if (config.tracker.kind !== "linear") {
+    return config;
+  }
+
+  return {
+    ...config,
+    tracker: {
+      ...config.tracker,
+      apiKey: "[redacted]",
+    },
   };
 }
 
@@ -437,7 +482,7 @@ async function renderPromptTemplate(
       issue: input.issue,
       attempt: input.attempt,
       pull_request: input.pullRequest,
-      config: input.config,
+      config: redactPromptConfig(input.config),
     });
   } catch (error) {
     throw new WorkflowError(

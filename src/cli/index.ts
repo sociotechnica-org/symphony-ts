@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createPromptBuilder, loadWorkflow } from "../config/workflow.js";
+import {
+  createPromptBuilder,
+  loadWorkflow,
+  loadWorkflowWorkspaceRoot,
+} from "../config/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
 import {
   deriveStatusFilePath,
@@ -135,8 +139,8 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 }
 
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {
-  const workflow = await loadWorkflow(workflowPath);
-  return deriveStatusFilePath(workflow.config.workspace.root);
+  const workspaceRoot = await loadWorkflowWorkspaceRoot(workflowPath);
+  return deriveStatusFilePath(workspaceRoot);
 }
 
 function readOptionValue(args: readonly string[], flag: string): string | null {

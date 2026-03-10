@@ -141,4 +141,72 @@ describe("report CLI", () => {
       `No local issue artifacts found for issue #44 at ${path.join(tempDir, ".var", "factory", "issues", "44")}`,
     );
   });
+
+  it("derives the workspace root for report generation without requiring a linear API key", async () => {
+    const tempDir = await createTempDir("symphony-report-cli-linear-");
+    tempRoots.push(tempDir);
+    const workflowPath = path.join(tempDir, "WORKFLOW.md");
+    const previousApiKey = process.env.LINEAR_API_KEY;
+    delete process.env.LINEAR_API_KEY;
+    await fs.writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: linear
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-linear
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 2
+    backoff_ms: 0
+workspace:
+  root: ./.tmp/workspaces
+  repo_url: /tmp/repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: false
+hooks:
+  after_create: []
+agent:
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`,
+      "utf8",
+    );
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    try {
+      await expect(
+        runReportCli([
+          "node",
+          "symphony-report",
+          "issue",
+          "--issue",
+          "44",
+          "--workflow",
+          workflowPath,
+        ]),
+      ).resolves.toBeUndefined();
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = previousApiKey;
+      }
+    }
+
+    await expect(
+      fs.readFile(
+        path.join(tempDir, ".var", "reports", "issues", "44", "report.json"),
+        "utf8",
+      ),
+    ).resolves.toContain('"githubActivity"');
+  });
 });

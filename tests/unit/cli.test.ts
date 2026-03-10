@@ -86,6 +86,42 @@ Prompt body
   return workflowPath;
 }
 
+async function writeLinearWorkflowWithoutToken(rootDir: string): Promise<string> {
+  const workflowPath = createWorkflow(rootDir);
+  await fs.writeFile(
+    workflowPath,
+    `---
+tracker:
+  kind: linear
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-linear
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 2
+    backoff_ms: 0
+workspace:
+  root: ./.tmp/workspaces
+  repo_url: /tmp/repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: false
+hooks:
+  after_create: []
+agent:
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`,
+    "utf8",
+  );
+  return workflowPath;
+}
+
 function createSnapshot(): FactoryStatusSnapshot {
   return {
     version: 1,
@@ -243,6 +279,43 @@ describe("runCli status", () => {
     }
 
     expect(chunks.join("")).toBe(rawSnapshot);
+  });
+
+  it("derives the status snapshot path without requiring a linear API key", async () => {
+    const tempDir = await createTempDir("symphony-cli-status-linear-");
+    const workflowPath = await writeLinearWorkflowWithoutToken(tempDir);
+    const previousApiKey = process.env.LINEAR_API_KEY;
+    delete process.env.LINEAR_API_KEY;
+    const statusPath = path.join(tempDir, ".tmp", "status.json");
+    await fs.mkdir(path.dirname(statusPath), { recursive: true });
+    await fs.writeFile(
+      statusPath,
+      `${JSON.stringify(createSnapshot(), null, 2)}\n`,
+      "utf8",
+    );
+
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      chunks.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
+
+    try {
+      await runCli(["node", "symphony", "status", "--workflow", workflowPath]);
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = previousApiKey;
+      }
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(chunks.join("")).toContain("Factory: idle");
   });
 
   it("fails with a clear message when the snapshot is missing", async () => {
