@@ -134,7 +134,15 @@ tracker:
     - Done
 ```
 
-The Linear adapter supports project-scoped GraphQL polling, paginated issue reads, issue comment writes, a Symphony-owned workpad section in the issue description, and state transitions through the tracker edge. Integration tests use a mock Linear GraphQL server, so no real Linear workspace is required to run the test suite.
+The current Linear slice supports:
+
+- project-scoped GraphQL polling
+- paginated issue reads
+- issue comment writes
+- a Symphony-owned workpad section in the issue description
+- active-to-terminal state transitions through the tracker edge
+
+Integration tests use a mock Linear GraphQL server under `tests/support/mock-linear-server.ts`, so no real Linear workspace is required to run the test suite.
 
 ## Architecture
 

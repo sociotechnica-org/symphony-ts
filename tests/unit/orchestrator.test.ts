@@ -140,6 +140,14 @@ class SequencedTracker implements Tracker {
     }
   }
 
+  subject(): string {
+    return "test/tracker";
+  }
+
+  isHumanReviewFeedback(authorLogin: string | null): boolean {
+    return authorLogin !== null && authorLogin !== "greptile[bot]";
+  }
+
   setLifecycleSequence(
     issueNumber: number,
     sequence: readonly HandoffLifecycle[],
