@@ -29,7 +29,7 @@ hooks:
 agent:
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   prompt_transport: stdin
-  timeout_ms: 1800000
+  timeout_ms: 5400000
   env:
     GITHUB_REPO: sociotechnica-org/symphony-ts
 ---
