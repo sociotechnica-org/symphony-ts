@@ -52,6 +52,7 @@ function parsePlanReviewComment(
   const normalized = firstLine.toLowerCase();
   if (
     normalized === "plan status: plan-ready" ||
+    // Legacy human-authored marker; the trailing period is intentional.
     normalized === "plan ready for review."
   ) {
     return { signal: "plan-ready", comment };

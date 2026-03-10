@@ -9,6 +9,7 @@ import {
   classifyLinearIssue,
   createLinearHandoffLifecycle,
   extractIssueNumberFromBranchName,
+  isLinearReviewWorkflowState,
   linearTrackerSubject,
   missingLinearLifecycle,
   resolveLinearClaimStateName,
@@ -164,11 +165,13 @@ export class LinearTracker implements Tracker {
         },
       );
     }
+    const alreadyInReviewState = isLinearReviewWorkflowState(issue.state.name);
     await this.#writer.updateIssue(
       {
         id: issue.id,
         description: updatedDescription,
         ...(humanReviewStateName === null ||
+        alreadyInReviewState ||
         sameLinearStateName(humanReviewStateName, issue.state.name)
           ? {}
           : { stateName: humanReviewStateName }),

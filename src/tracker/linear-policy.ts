@@ -266,6 +266,7 @@ function parseLinearReviewSignal(body: string): LinearReviewSignal | null {
   const normalized = firstLine.toLowerCase();
   if (
     normalized === "plan status: plan-ready" ||
+    // Legacy human-authored marker; the trailing period is intentional.
     normalized === "plan ready for review."
   ) {
     return "plan-ready";
@@ -282,7 +283,7 @@ function parseLinearReviewSignal(body: string): LinearReviewSignal | null {
   return null;
 }
 
-function isLinearReviewWorkflowState(stateName: string): boolean {
+export function isLinearReviewWorkflowState(stateName: string): boolean {
   return (
     sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME) ||
     sameLinearStateName(stateName, REWORK_STATE_NAME) ||

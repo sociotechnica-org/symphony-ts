@@ -256,6 +256,38 @@ describe("LinearTracker", () => {
     );
   });
 
+  it("does not move a successful run backward from Rework into Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 21,
+      title: "Manual rework handoff",
+      stateName: "Rework",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/21", null);
+
+    expect(server.getIssue("symphony-linear", 21).stateName).toBe("Rework");
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
+
+  it("does not move a successful run backward from Merging into Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 22,
+      title: "Manual merge handoff",
+      stateName: "Merging",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/22", null);
+
+    expect(server.getIssue("symphony-linear", 22).stateName).toBe("Merging");
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+  });
+
   it("marks failed issues in the workpad and exposes them via fetchFailedIssues", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
