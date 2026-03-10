@@ -68,6 +68,37 @@ describe("LinearTracker", () => {
     expect(server.countRequests("GetProjectIssuesPage")).toBe(2);
   });
 
+  it("breaks defensively when Linear reports another page without an end cursor", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 1,
+      title: "Issue 1",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 2,
+      title: "Issue 2",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 3,
+      title: "Issue 3",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+    server.forceNullEndCursorWithNextPage();
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready.map((issue) => issue.number)).toEqual([1, 2]);
+    expect(server.countRequests("GetProjectIssuesPage")).toBe(1);
+  });
+
   it("surfaces GraphQL errors distinctly from transport success", async () => {
     server.enqueueGraphQLError(
       "GetProjectIssuesPage",

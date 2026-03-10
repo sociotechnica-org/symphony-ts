@@ -135,7 +135,8 @@ export function linearTrackerSubject(config: LinearTrackerConfig): string {
 export function extractIssueNumberFromBranchName(
   branchName: string,
 ): number | null {
-  const match = branchName.match(/(\d+)$/u);
+  const branchLeaf = branchName.split("/").at(-1) ?? branchName;
+  const match = branchLeaf.match(/^(\d+)(?:-|$)/u);
   if (!match || match[1] === undefined) {
     return null;
   }

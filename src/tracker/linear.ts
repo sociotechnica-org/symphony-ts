@@ -95,7 +95,7 @@ export class LinearTracker implements Tracker {
       updatedAt: new Date().toISOString(),
     });
 
-    normalizeLinearIssueMutationResult(
+    const claimed = normalizeLinearIssueMutationResult(
       await this.#client.updateIssue({
         id: issue.id,
         description: updatedDescription,
@@ -103,16 +103,16 @@ export class LinearTracker implements Tracker {
       }),
       "issueUpdate",
     );
-    const updated = normalizeLinearIssueMutationResult(
+    normalizeLinearIssueMutationResult(
       await this.#client.createComment(issue.id, CLAIM_COMMENT),
       "commentCreate",
     );
     this.#logger.info("Claimed Linear issue", {
       issueNumber,
-      identifier: updated.identifier,
-      nextState: nextState?.name ?? updated.state.name,
+      identifier: claimed.identifier,
+      nextState: nextState?.name ?? claimed.state.name,
     });
-    return updated.runtimeIssue;
+    return claimed.runtimeIssue;
   }
 
   async inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle> {
@@ -251,7 +251,7 @@ export class LinearTracker implements Tracker {
         this.#projectPromise = Promise.resolve(page.project);
       }
       issues.push(...page.issues);
-      if (!page.hasNextPage) {
+      if (!page.hasNextPage || page.endCursor === null) {
         break;
       }
       after = page.endCursor;

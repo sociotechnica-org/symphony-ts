@@ -87,6 +87,7 @@ export class MockLinearServer {
   readonly #failures = new Map<string, MockOperationFailure[]>();
   readonly #server = http.createServer(this.#handle.bind(this));
   #baseUrl = "";
+  #forceNullEndCursorWithNextPage = false;
 
   async start(): Promise<void> {
     this.#server.listen(0, "127.0.0.1");
@@ -223,6 +224,10 @@ export class MockLinearServer {
     });
   }
 
+  forceNullEndCursorWithNextPage(): void {
+    this.#forceNullEndCursorWithNextPage = true;
+  }
+
   async #handle(
     request: IncomingMessage,
     response: ServerResponse,
@@ -339,8 +344,13 @@ export class MockLinearServer {
     const startIndex =
       after === null ? 0 : issues.findIndex((issue) => issue.id === after) + 1;
     const pageIssues = issues.slice(startIndex, startIndex + PAGE_SIZE);
+    const hasNextPage = startIndex + PAGE_SIZE < issues.length;
     const endCursor =
-      pageIssues.length === 0 ? null : pageIssues[pageIssues.length - 1]!.id;
+      this.#forceNullEndCursorWithNextPage && hasNextPage
+        ? null
+        : pageIssues.length === 0
+          ? null
+          : pageIssues[pageIssues.length - 1]!.id;
 
     return {
       project: {
@@ -350,7 +360,7 @@ export class MockLinearServer {
             this.#serializeIssue(project, issue),
           ),
           pageInfo: {
-            hasNextPage: startIndex + PAGE_SIZE < issues.length,
+            hasNextPage,
             endCursor,
           },
         },
