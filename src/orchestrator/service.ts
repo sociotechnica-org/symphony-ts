@@ -4,7 +4,11 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
 import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
-import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
+import type {
+  GitHubBootstrapTrackerConfig,
+  PromptBuilder,
+  ResolvedConfig,
+} from "../domain/workflow.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -60,8 +64,23 @@ interface QueueEntry {
   readonly source: "ready" | "running";
 }
 
+function requireBootstrapConfig(
+  config: ResolvedConfig,
+): ResolvedConfig & { readonly tracker: GitHubBootstrapTrackerConfig } {
+  if (config.tracker.kind !== "github-bootstrap") {
+    throw new Error(
+      "BootstrapOrchestrator requires tracker.kind 'github-bootstrap'",
+    );
+  }
+  return config as ResolvedConfig & {
+    readonly tracker: GitHubBootstrapTrackerConfig;
+  };
+}
+
 export class BootstrapOrchestrator implements Orchestrator {
-  readonly #config: ResolvedConfig;
+  readonly #config: ResolvedConfig & {
+    readonly tracker: GitHubBootstrapTrackerConfig;
+  };
   readonly #promptBuilder: PromptBuilder;
   readonly #tracker: Tracker;
   readonly #workspaceManager: WorkspaceManager;
@@ -83,7 +102,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     logger: Logger,
     issueArtifactStore?: IssueArtifactStore,
   ) {
-    this.#config = config;
+    this.#config = requireBootstrapConfig(config);
     this.#promptBuilder = promptBuilder;
     this.#tracker = tracker;
     this.#workspaceManager = workspaceManager;

@@ -6,7 +6,7 @@ import type {
   PullRequestCheck,
   PullRequestCheckStatus,
 } from "../domain/pull-request.js";
-import type { TrackerConfig } from "../domain/workflow.js";
+import type { GitHubBootstrapTrackerConfig } from "../domain/workflow.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -336,12 +336,12 @@ export function toRuntimeIssue(
 }
 
 export class GitHubClient {
-  readonly #config: TrackerConfig;
+  readonly #config: GitHubBootstrapTrackerConfig;
   readonly #tokenPromise: Promise<string>;
   readonly #repoOwner: string;
   readonly #repoName: string;
 
-  constructor(config: TrackerConfig) {
+  constructor(config: GitHubBootstrapTrackerConfig) {
     this.#config = config;
     this.#tokenPromise = resolveToken();
     const [repoOwner, repoName] = config.repo.split("/");

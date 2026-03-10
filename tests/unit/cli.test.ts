@@ -50,6 +50,42 @@ Prompt body
   return workflowPath;
 }
 
+async function writeLinearWorkflow(rootDir: string): Promise<string> {
+  const workflowPath = createWorkflow(rootDir);
+  await fs.writeFile(
+    workflowPath,
+    `---
+tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: symphony-linear
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 2
+    backoff_ms: 0
+workspace:
+  root: ./.tmp/workspaces
+  repo_url: /tmp/repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: false
+hooks:
+  after_create: []
+agent:
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`,
+    "utf8",
+  );
+  return workflowPath;
+}
+
 function createSnapshot(): FactoryStatusSnapshot {
   return {
     version: 1,
@@ -293,5 +329,29 @@ describe("runCli status", () => {
     }
 
     expect(chunks.join("")).toContain('"factoryState": "idle"');
+  });
+});
+
+describe("runCli run", () => {
+  it("fails clearly when workflow config is linear but the runtime adapter is not implemented", async () => {
+    const tempDir = await createTempDir("symphony-cli-run-linear-");
+    const workflowPath = await writeLinearWorkflow(tempDir);
+
+    try {
+      await expect(
+        runCli([
+          "node",
+          "symphony",
+          "run",
+          "--once",
+          "--workflow",
+          workflowPath,
+        ]),
+      ).rejects.toThrowError(
+        "tracker.kind 'linear' is not yet supported by `symphony run`; workflow loading and validation are available, but the Linear tracker adapter has not been implemented yet.",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

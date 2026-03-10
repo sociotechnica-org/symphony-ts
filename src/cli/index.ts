@@ -10,7 +10,7 @@ import {
 } from "../observability/status.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
 import { LocalRunner } from "../runner/local.js";
-import { GitHubBootstrapTracker } from "../tracker/github-bootstrap.js";
+import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
 
 export type CliArgs =
@@ -107,7 +107,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   const logger = new JsonLogger();
   const workflow = await loadWorkflow(args.workflowPath);
   const promptBuilder = createPromptBuilder(workflow);
-  const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
+  const tracker = createTracker(workflow.config.tracker, logger);
   const workspace = new LocalWorkspaceManager(
     workflow.config.workspace,
     workflow.config.hooks.afterCreate,

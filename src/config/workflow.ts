@@ -5,8 +5,11 @@ import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type {
+  GitHubBootstrapTrackerConfig,
+  LinearTrackerConfig,
   PromptBuilder,
   ResolvedConfig,
+  TrackerConfig,
   WorkflowDefinition,
 } from "../domain/workflow.js";
 
@@ -22,6 +25,17 @@ const liquid = new Liquid({
   strictFilters: true,
   strictVariables: true,
 });
+
+const DEFAULT_LINEAR_ENDPOINT = "https://api.linear.app/graphql";
+const DEFAULT_LINEAR_ACTIVE_STATES = ["Todo", "In Progress"] as const;
+const DEFAULT_LINEAR_TERMINAL_STATES = [
+  "Closed",
+  "Cancelled",
+  "Canceled",
+  "Duplicate",
+  "Done",
+] as const;
+const SUPPORTED_TRACKER_KINDS = ["github-bootstrap", "linear"] as const;
 
 interface PromptRenderInput {
   readonly issue: {
@@ -46,11 +60,74 @@ function requireNumber(value: unknown, field: string): number {
   return value;
 }
 
+function requireObject(
+  value: unknown,
+  field: string,
+): Readonly<Record<string, unknown>> {
+  if (value === undefined) {
+    return {};
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError(`Expected object for ${field}`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireOptionalString(value: unknown, field: string): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new ConfigError(`Expected string for ${field}`);
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 function requireStringArray(value: unknown, field: string): readonly string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
     throw new ConfigError(`Expected string array for ${field}`);
   }
   return value;
+}
+
+function normalizeSecretValue(value: string | null | undefined): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function resolveEnvReferenceName(value: string): string | null {
+  const match = value.match(/^\$([A-Za-z_][A-Za-z0-9_]*)$/u);
+  return match?.[1] ?? null;
+}
+
+function resolveEnvBackedSecret(
+  value: unknown,
+  field: string,
+  fallbackEnvName: string,
+): string | null {
+  if (value === undefined || value === null) {
+    return normalizeSecretValue(process.env[fallbackEnvName]);
+  }
+  if (typeof value !== "string") {
+    throw new ConfigError(`Expected string for ${field}`);
+  }
+
+  const trimmed = value.trim();
+  const referencedEnvName = resolveEnvReferenceName(trimmed);
+  if (referencedEnvName === null) {
+    return normalizeSecretValue(trimmed);
+  }
+
+  const referencedValue = process.env[referencedEnvName];
+  if (referencedValue === undefined) {
+    return normalizeSecretValue(process.env[fallbackEnvName]);
+  }
+
+  return normalizeSecretValue(referencedValue);
 }
 
 function parseFrontMatter(raw: string): {
@@ -88,39 +165,15 @@ function parseFrontMatter(raw: string): {
 }
 
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
-  const tracker = raw.tracker ?? {};
-  const polling = raw.polling ?? {};
-  const workspace = raw.workspace ?? {};
-  const hooks = raw.hooks ?? {};
-  const agent = raw.agent ?? {};
+  const tracker = requireObject(raw.tracker, "tracker");
+  const polling = requireObject(raw.polling, "polling");
+  const workspace = requireObject(raw.workspace, "workspace");
+  const hooks = requireObject(raw.hooks, "hooks");
+  const agent = requireObject(raw.agent, "agent");
 
   const resolved: ResolvedConfig = {
     workflowPath,
-    tracker: {
-      kind: "github-bootstrap",
-      repo: requireString(tracker["repo"], "tracker.repo"),
-      apiUrl: requireString(tracker["api_url"], "tracker.api_url"),
-      readyLabel: requireString(tracker["ready_label"], "tracker.ready_label"),
-      runningLabel: requireString(
-        tracker["running_label"],
-        "tracker.running_label",
-      ),
-      failedLabel: requireString(
-        tracker["failed_label"],
-        "tracker.failed_label",
-      ),
-      successComment: requireString(
-        tracker["success_comment"],
-        "tracker.success_comment",
-      ),
-      reviewBotLogins:
-        tracker["review_bot_logins"] === undefined
-          ? []
-          : requireStringArray(
-              tracker["review_bot_logins"],
-              "tracker.review_bot_logins",
-            ),
-    },
+    tracker: resolveTrackerConfig(tracker),
     polling: {
       intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
       maxConcurrentRuns: requireNumber(
@@ -178,6 +231,110 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   }
 
   return resolved;
+}
+
+function resolveTrackerConfig(
+  tracker: Readonly<Record<string, unknown>>,
+): TrackerConfig {
+  const kind = resolveTrackerKind(tracker["kind"]);
+  if (kind === "github-bootstrap") {
+    return resolveGitHubBootstrapTrackerConfig(tracker);
+  }
+  return resolveLinearTrackerConfig(tracker);
+}
+
+function resolveTrackerKind(value: unknown): TrackerConfig["kind"] {
+  if (value === undefined || value === null) {
+    return "github-bootstrap";
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ConfigError("Expected non-empty string for tracker.kind");
+  }
+
+  const normalizedKind = value.trim();
+  if (normalizedKind === "github-bootstrap" || normalizedKind === "linear") {
+    return normalizedKind;
+  }
+
+  throw new ConfigError(
+    `Unsupported tracker.kind '${normalizedKind}'. Supported kinds: ${SUPPORTED_TRACKER_KINDS.join(", ")}`,
+  );
+}
+
+function resolveGitHubBootstrapTrackerConfig(
+  tracker: Readonly<Record<string, unknown>>,
+): GitHubBootstrapTrackerConfig {
+  return {
+    kind: "github-bootstrap",
+    repo: requireString(tracker["repo"], "tracker.repo"),
+    apiUrl: requireString(tracker["api_url"], "tracker.api_url"),
+    readyLabel: requireString(tracker["ready_label"], "tracker.ready_label"),
+    runningLabel: requireString(
+      tracker["running_label"],
+      "tracker.running_label",
+    ),
+    failedLabel: requireString(tracker["failed_label"], "tracker.failed_label"),
+    successComment: requireString(
+      tracker["success_comment"],
+      "tracker.success_comment",
+    ),
+    reviewBotLogins:
+      tracker["review_bot_logins"] === undefined
+        ? []
+        : requireStringArray(
+            tracker["review_bot_logins"],
+            "tracker.review_bot_logins",
+          ),
+  };
+}
+
+function resolveLinearTrackerConfig(
+  tracker: Readonly<Record<string, unknown>>,
+): LinearTrackerConfig {
+  const apiKey = resolveEnvBackedSecret(
+    tracker["api_key"],
+    "tracker.api_key",
+    "LINEAR_API_KEY",
+  );
+  if (apiKey === null) {
+    throw new ConfigError(
+      "Linear tracker requires tracker.api_key or LINEAR_API_KEY",
+    );
+  }
+
+  const projectSlug = requireOptionalString(
+    tracker["project_slug"],
+    "tracker.project_slug",
+  );
+  if (projectSlug === null) {
+    throw new ConfigError("Linear tracker requires tracker.project_slug");
+  }
+
+  return {
+    kind: "linear",
+    endpoint:
+      tracker["endpoint"] === undefined
+        ? DEFAULT_LINEAR_ENDPOINT
+        : requireString(tracker["endpoint"], "tracker.endpoint"),
+    apiKey,
+    projectSlug,
+    assignee: resolveEnvBackedSecret(
+      tracker["assignee"],
+      "tracker.assignee",
+      "LINEAR_ASSIGNEE",
+    ),
+    activeStates:
+      tracker["active_states"] === undefined
+        ? DEFAULT_LINEAR_ACTIVE_STATES
+        : requireStringArray(tracker["active_states"], "tracker.active_states"),
+    terminalStates:
+      tracker["terminal_states"] === undefined
+        ? DEFAULT_LINEAR_TERMINAL_STATES
+        : requireStringArray(
+            tracker["terminal_states"],
+            "tracker.terminal_states",
+          ),
+  };
 }
 
 function resolveRetryConfig(value: unknown): {

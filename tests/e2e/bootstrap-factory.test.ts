@@ -95,6 +95,9 @@ async function createOrchestrator(
   workflowPath: string,
 ): Promise<BootstrapOrchestrator> {
   const workflow = await loadWorkflow(workflowPath);
+  if (workflow.config.tracker.kind !== "github-bootstrap") {
+    throw new Error("expected github-bootstrap tracker config");
+  }
   const logger = new JsonLogger();
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
