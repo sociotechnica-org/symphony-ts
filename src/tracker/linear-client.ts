@@ -50,12 +50,12 @@ export interface LinearRawProject {
   };
 }
 
-interface LinearRawPageInfo {
+export interface LinearRawPageInfo {
   readonly hasNextPage: boolean;
   readonly endCursor: string | null;
 }
 
-interface LinearRawProjectIssuesConnection {
+export interface LinearRawProjectIssuesConnection {
   readonly nodes: readonly LinearRawIssue[];
   readonly pageInfo: LinearRawPageInfo;
 }

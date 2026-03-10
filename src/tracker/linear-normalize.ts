@@ -93,6 +93,9 @@ export function normalizeLinearIssueResult(value: unknown): {
   readonly issue: LinearIssueSnapshot | null;
 } {
   const record = requireObject(value, "projectIssue");
+  if (record["project"] === null || record["project"] === undefined) {
+    throw new TrackerError("Linear project not found in issue result");
+  }
   const projectRecord = requireObject(record["project"], "project");
 
   return {
