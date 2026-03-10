@@ -157,6 +157,23 @@ describe("LinearClient", () => {
     );
   });
 
+  it("surfaces invalid JSON responses with the operation name", async () => {
+    const invalidJsonFetch: typeof fetch = async () =>
+      new Response("not json", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain",
+        },
+      });
+    const client = new LinearClient(createConfig(server), {
+      fetch: invalidJsonFetch,
+    });
+
+    await expect(client.fetchProject()).rejects.toThrowError(
+      /GetProject: invalid JSON response/i,
+    );
+  });
+
   it("surfaces transport failures deterministically", async () => {
     const failingFetch: typeof fetch = async () => {
       throw new Error("simulated transport failure");
