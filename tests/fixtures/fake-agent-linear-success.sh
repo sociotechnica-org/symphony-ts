@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROMPT="$(cat)"
+printf '%s' "$PROMPT" > .agent-prompt.txt
+
+git config user.name "Symphony Test Agent"
+git config user.email "symphony-agent@example.com"
+
+echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER}" > IMPLEMENTED.txt
+git add .agent-prompt.txt IMPLEMENTED.txt
+git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER}"
+git push origin "HEAD:${SYMPHONY_BRANCH_NAME}"
