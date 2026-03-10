@@ -319,9 +319,7 @@ export class LinearClient {
     });
   }
 
-  async #fetchProjectIssuesPage(
-    after: string | null,
-  ): Promise<unknown> {
+  async #fetchProjectIssuesPage(after: string | null): Promise<unknown> {
     return await this.#request<unknown>(
       "GetProjectIssuesPage",
       GET_PROJECT_ISSUES_PAGE_QUERY,
@@ -405,9 +403,7 @@ export class LinearClient {
     };
   }
 
-  #requireProjectIssuesPage(
-    page: unknown,
-  ): LinearRawProjectWithIssues {
+  #requireProjectIssuesPage(page: unknown): LinearRawProjectWithIssues {
     const root = requireObject(
       page,
       "GetProjectIssuesPage.data",
