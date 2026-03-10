@@ -99,7 +99,7 @@ interface GraphQLErrorPayload {
 }
 
 interface GraphQLResponse<T> {
-  readonly data?: T;
+  readonly data?: T | null;
   readonly errors?: readonly GraphQLErrorPayload[];
 }
 
