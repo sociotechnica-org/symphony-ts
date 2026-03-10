@@ -22,6 +22,7 @@ import {
   type LinearIssueSnapshot,
   type LinearProjectSnapshot,
 } from "./linear-normalize.js";
+import { sameLinearStateName } from "./linear-state-name.js";
 import { LinearIssueWriter } from "./linear-write.js";
 import { writeLinearWorkpad } from "./linear-workpad.js";
 
@@ -159,7 +160,7 @@ export class LinearTracker implements Tracker {
         id: issue.id,
         description: updatedDescription,
         ...(humanReviewStateName === null ||
-        humanReviewStateName === issue.state.name
+        sameLinearStateName(humanReviewStateName, issue.state.name)
           ? {}
           : { stateName: humanReviewStateName }),
       },
@@ -201,7 +202,9 @@ export class LinearTracker implements Tracker {
           branchName: null,
           updatedAt: new Date().toISOString(),
         }),
-        stateName: terminalStateName,
+        ...(sameLinearStateName(terminalStateName, issue.state.name)
+          ? {}
+          : { stateName: terminalStateName }),
       },
       project,
     );

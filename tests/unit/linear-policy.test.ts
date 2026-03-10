@@ -310,7 +310,7 @@ describe("resolveLinearClaimStateName", () => {
     ).toBeNull();
   });
 
-  it("returns null when the next configured active state would be a duplicate no-op", () => {
+  it("returns null when the next configured active state would be a duplicate no-op even across case differences", () => {
     expect(
       resolveLinearClaimStateName(createIssue("In Progress"), {
         kind: "linear",
@@ -318,7 +318,7 @@ describe("resolveLinearClaimStateName", () => {
         apiKey: "token",
         projectSlug: "symphony-linear",
         assignee: null,
-        activeStates: ["Todo", "In Progress", "In Progress"],
+        activeStates: ["Todo", "in progress", "IN PROGRESS"],
         terminalStates: ["Done"],
       }),
     ).toBeNull();

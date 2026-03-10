@@ -298,6 +298,25 @@ describe("LinearTracker", () => {
     );
   });
 
+  it("updates only the workpad when completeIssue is called on an already-terminal issue", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 19,
+      title: "Already done",
+      stateName: "Done",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+
+    await tracker.completeIssue(19);
+
+    expect(server.getIssue("symphony-linear", 19).stateName).toBe("Done");
+    expect(server.countRequests("UpdateIssueDescription")).toBe(1);
+    expect(server.countRequests("UpdateIssueState")).toBe(0);
+    expect(server.countRequests("UpdateIssueDescriptionAndState")).toBe(0);
+  });
+
   it("maps Human Review to awaiting-human-handoff", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",

@@ -6,6 +6,7 @@ import type {
   LinearIssueSnapshot,
   LinearProjectSnapshot,
 } from "./linear-normalize.js";
+import { sameLinearStateName } from "./linear-state-name.js";
 
 export type LinearIssueClassification =
   | "ready"
@@ -76,7 +77,10 @@ export function resolveLinearClaimStateName(
   const nextStateName = config.activeStates[currentIndex + 1] ?? null;
   // Treat duplicate adjacent entries as a degenerate no-op transition rather
   // than attempting to "advance" the issue into the state it already has.
-  if (nextStateName === null || nextStateName === issue.state.name) {
+  if (
+    nextStateName === null ||
+    sameLinearStateName(nextStateName, issue.state.name)
+  ) {
     return null;
   }
 
@@ -124,7 +128,7 @@ export function createLinearHandoffLifecycle(
     );
   }
 
-  if (sameStateName(stateName, REWORK_STATE_NAME)) {
+  if (sameLinearStateName(stateName, REWORK_STATE_NAME)) {
     return linearLifecycle(
       "actionable-follow-up",
       branchName,
@@ -132,7 +136,7 @@ export function createLinearHandoffLifecycle(
     );
   }
 
-  if (sameStateName(stateName, MERGING_STATE_NAME)) {
+  if (sameLinearStateName(stateName, MERGING_STATE_NAME)) {
     return linearLifecycle(
       "awaiting-system-checks",
       branchName,
@@ -140,7 +144,10 @@ export function createLinearHandoffLifecycle(
     );
   }
 
-  if (sameStateName(stateName, HUMAN_REVIEW_STATE_NAME) || hasHandoffMarker) {
+  if (
+    sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME) ||
+    hasHandoffMarker
+  ) {
     if (reviewSignal === "changes-requested") {
       return linearLifecycle(
         "actionable-follow-up",
@@ -182,7 +189,7 @@ export function resolveLinearHumanReviewStateName(
 ): string | null {
   return (
     project.states.find((state) =>
-      sameStateName(state.name, HUMAN_REVIEW_STATE_NAME),
+      sameLinearStateName(state.name, HUMAN_REVIEW_STATE_NAME),
     )?.name ?? null
   );
 }
@@ -277,14 +284,10 @@ function parseLinearReviewSignal(body: string): LinearReviewSignal | null {
 
 function isLinearReviewWorkflowState(stateName: string): boolean {
   return (
-    sameStateName(stateName, HUMAN_REVIEW_STATE_NAME) ||
-    sameStateName(stateName, REWORK_STATE_NAME) ||
-    sameStateName(stateName, MERGING_STATE_NAME)
+    sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME) ||
+    sameLinearStateName(stateName, REWORK_STATE_NAME) ||
+    sameLinearStateName(stateName, MERGING_STATE_NAME)
   );
-}
-
-function sameStateName(left: string, right: string): boolean {
-  return left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
 }
 
 function matchesConfiguredStateName(
@@ -299,7 +302,7 @@ function indexOfConfiguredStateName(
   stateName: string,
 ): number {
   return configuredStateNames.findIndex((candidate) =>
-    sameStateName(candidate, stateName),
+    sameLinearStateName(candidate, stateName),
   );
 }
 
@@ -309,7 +312,7 @@ function findProjectStateName(
 ): string | null {
   return (
     project.states.find((state) =>
-      sameStateName(state.name, configuredStateName),
+      sameLinearStateName(state.name, configuredStateName),
     )?.name ?? null
   );
 }
