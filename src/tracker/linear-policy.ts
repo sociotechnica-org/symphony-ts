@@ -35,6 +35,10 @@ export function classifyLinearIssue(
     return "completed";
   }
 
+  // Linear workflow state is the primary recovery signal. If a human moved the
+  // ticket into a configured terminal state, keep it in the running/recovery
+  // set until Symphony records the final completed workpad, even when an older
+  // failed workpad entry is still present.
   if (matchesConfiguredStateName(config.terminalStates, issue.state.name)) {
     return "running";
   }

@@ -293,6 +293,15 @@ describe("classifyLinearIssue", () => {
     ).toBe("failed");
   });
 
+  it("treats terminal states with stale failed workpads as running recovery cases", () => {
+    expect(
+      classifyLinearIssue(
+        createIssue("Done", { workpadStatus: "failed" }),
+        config,
+      ),
+    ).toBe("running");
+  });
+
   it("treats failed workpads in review workflow states as running", () => {
     expect(
       classifyLinearIssue(
