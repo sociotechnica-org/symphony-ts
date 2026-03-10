@@ -225,6 +225,8 @@ const GET_PROJECT_QUERY = `
   }
 `;
 
+// Assignee routing stays in normalization/policy so the adapter can apply the
+// configured-worker contract without a separate viewer lookup.
 const GET_PROJECT_ISSUES_PAGE_QUERY = `
   query GetProjectIssuesPage($slugId: String!, $after: String) {
     project(slugId: $slugId) {

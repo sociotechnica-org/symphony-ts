@@ -221,7 +221,7 @@ export function normalizeLinearIssueSnapshot(
     number: runtimeIssue.number,
     title: runtimeIssue.title,
     description: runtimeIssue.description,
-    priority: normalizeNullableNumber(record["priority"], `${field}.priority`),
+    priority: normalizeLinearPriority(record["priority"], `${field}.priority`),
     branchName: requireNullableString(
       record["branchName"],
       `${field}.branchName`,
@@ -365,7 +365,7 @@ function normalizeLinearBlockedBy(
   return blockedBy;
 }
 
-function normalizeNullableNumber(value: unknown, field: string): number | null {
+function normalizeLinearPriority(value: unknown, field: string): number | null {
   if (value === null || value === undefined) {
     return null;
   }
