@@ -2,6 +2,7 @@ import { TrackerError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { LinearTrackerConfig } from "../domain/workflow.js";
 import type {
+  LinearComment,
   LinearIssueSnapshot,
   LinearProjectSnapshot,
 } from "./linear-normalize.js";
@@ -13,6 +14,16 @@ export type LinearIssueClassification =
   | "completed"
   | "ignored";
 
+type LinearReviewSignal =
+  | "plan-ready"
+  | "changes-requested"
+  | "approved"
+  | "waived";
+
+const HUMAN_REVIEW_STATE_NAME = "Human Review";
+const REWORK_STATE_NAME = "Rework";
+const MERGING_STATE_NAME = "Merging";
+
 export function classifyLinearIssue(
   issue: LinearIssueSnapshot,
   config: LinearTrackerConfig,
@@ -21,28 +32,31 @@ export function classifyLinearIssue(
     return "ignored";
   }
 
-  if (config.terminalStates.includes(issue.state.name)) {
+  if (issue.workpad?.status === "completed") {
     return "completed";
   }
 
-  switch (issue.workpad?.status) {
-    case "failed":
-      return "failed";
-    case "running":
-    case "retry-scheduled":
-    case "handoff-ready":
-      return "running";
-    case "completed":
-      return "completed";
-    default:
-      break;
+  if (config.terminalStates.includes(issue.state.name)) {
+    return "running";
   }
 
-  if (config.activeStates.includes(issue.state.name)) {
-    return "ready";
+  if (
+    issue.workpad?.status === "failed" &&
+    !isLinearReviewWorkflowState(issue.state.name)
+  ) {
+    return "failed";
   }
 
-  return "ignored";
+  if (
+    issue.workpad?.status === "running" ||
+    issue.workpad?.status === "retry-scheduled" ||
+    issue.workpad?.status === "handoff-ready" ||
+    isLinearReviewWorkflowState(issue.state.name)
+  ) {
+    return "running";
+  }
+
+  return config.activeStates.includes(issue.state.name) ? "ready" : "ignored";
 }
 
 export function resolveLinearClaimStateName(
@@ -90,27 +104,80 @@ export function createLinearHandoffLifecycle(
     );
   }
 
-  if (
+  const reviewSignal = latestLinearReviewSignal(issue.comments);
+  const stateName = issue.state.name;
+  const hasHandoffMarker =
     issue.workpad?.status === "handoff-ready" ||
-    issue.workpad?.status === "completed" ||
-    config.terminalStates.includes(issue.state.name)
-  ) {
-    return {
-      kind: "handoff-ready",
+    issue.workpad?.status === "completed";
+
+  if (config.terminalStates.includes(stateName)) {
+    return linearLifecycle(
+      "handoff-ready",
       branchName,
-      pullRequest: null,
-      checks: [],
-      pendingCheckNames: [],
-      failingCheckNames: [],
-      actionableReviewFeedback: [],
-      unresolvedThreadIds: [],
-      summary: `Linear issue ${issue.identifier} is ready for completion`,
-    };
+      `Linear issue ${issue.identifier} reached terminal state '${stateName}'`,
+    );
+  }
+
+  if (sameStateName(stateName, REWORK_STATE_NAME)) {
+    return linearLifecycle(
+      "actionable-follow-up",
+      branchName,
+      `Linear issue ${issue.identifier} is waiting on rework in '${stateName}'`,
+    );
+  }
+
+  if (sameStateName(stateName, MERGING_STATE_NAME)) {
+    return linearLifecycle(
+      "awaiting-system-checks",
+      branchName,
+      `Linear issue ${issue.identifier} is waiting for landing in '${stateName}'`,
+    );
+  }
+
+  if (sameStateName(stateName, HUMAN_REVIEW_STATE_NAME) || hasHandoffMarker) {
+    if (reviewSignal === "changes-requested") {
+      return linearLifecycle(
+        "actionable-follow-up",
+        branchName,
+        `Linear issue ${issue.identifier} has requested rework`,
+      );
+    }
+
+    if (reviewSignal === "approved" || reviewSignal === "waived") {
+      return linearLifecycle(
+        "awaiting-system-checks",
+        branchName,
+        `Linear issue ${issue.identifier} was approved and is waiting for landing`,
+      );
+    }
+
+    return linearLifecycle(
+      "awaiting-human-handoff",
+      branchName,
+      `Linear issue ${issue.identifier} is waiting for human review`,
+    );
+  }
+
+  if (config.activeStates.includes(stateName)) {
+    return missingLinearLifecycle(
+      branchName,
+      `Linear issue ${issue.identifier} is still active in '${stateName}'`,
+    );
   }
 
   return missingLinearLifecycle(
     branchName,
-    `Linear issue ${issue.identifier} has not reached handoff-ready`,
+    `Linear issue ${issue.identifier} has no recognized handoff state in '${stateName}'`,
+  );
+}
+
+export function resolveLinearHumanReviewStateName(
+  project: LinearProjectSnapshot,
+): string | null {
+  return (
+    project.states.find((state) =>
+      sameStateName(state.name, HUMAN_REVIEW_STATE_NAME),
+    )?.name ?? null
   );
 }
 
@@ -118,17 +185,7 @@ export function missingLinearLifecycle(
   branchName: string,
   summary: string,
 ): HandoffLifecycle {
-  return {
-    kind: "missing-target",
-    branchName,
-    pullRequest: null,
-    checks: [],
-    pendingCheckNames: [],
-    failingCheckNames: [],
-    actionableReviewFeedback: [],
-    unresolvedThreadIds: [],
-    summary,
-  };
+  return linearLifecycle("missing-target", branchName, summary);
 }
 
 export function linearTrackerSubject(config: LinearTrackerConfig): string {
@@ -145,4 +202,79 @@ export function extractIssueNumberFromBranchName(
   }
   const issueNumber = Number(match[1]);
   return Number.isNaN(issueNumber) ? null : issueNumber;
+}
+
+function linearLifecycle(
+  kind: HandoffLifecycle["kind"],
+  branchName: string,
+  summary: string,
+): HandoffLifecycle {
+  return {
+    kind,
+    branchName,
+    pullRequest: null,
+    checks: [],
+    pendingCheckNames: [],
+    failingCheckNames: [],
+    actionableReviewFeedback: [],
+    unresolvedThreadIds: [],
+    summary,
+  };
+}
+
+function latestLinearReviewSignal(
+  comments: readonly LinearComment[],
+): LinearReviewSignal | null {
+  return (
+    [...comments]
+      .sort((left, right) => {
+        const timeDiff =
+          Date.parse(left.createdAt) - Date.parse(right.createdAt);
+        return timeDiff !== 0 ? timeDiff : left.id.localeCompare(right.id);
+      })
+      .map((comment) => parseLinearReviewSignal(comment.body))
+      .filter((signal): signal is LinearReviewSignal => signal !== null)
+      .at(-1) ?? null
+  );
+}
+
+function parseLinearReviewSignal(body: string): LinearReviewSignal | null {
+  const firstLine = body
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .find((line) => line !== "");
+
+  if (!firstLine) {
+    return null;
+  }
+
+  const normalized = firstLine.toLowerCase();
+  if (
+    normalized === "plan status: plan-ready" ||
+    normalized === "plan ready for review."
+  ) {
+    return "plan-ready";
+  }
+  if (normalized === "plan review: changes-requested") {
+    return "changes-requested";
+  }
+  if (normalized === "plan review: approved") {
+    return "approved";
+  }
+  if (normalized === "plan review: waived") {
+    return "waived";
+  }
+  return null;
+}
+
+function isLinearReviewWorkflowState(stateName: string): boolean {
+  return (
+    sameStateName(stateName, HUMAN_REVIEW_STATE_NAME) ||
+    sameStateName(stateName, REWORK_STATE_NAME) ||
+    sameStateName(stateName, MERGING_STATE_NAME)
+  );
+}
+
+function sameStateName(left: string, right: string): boolean {
+  return left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
 }

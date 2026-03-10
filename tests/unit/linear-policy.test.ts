@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  createLinearHandoffLifecycle,
   extractIssueNumberFromBranchName,
   resolveLinearClaimStateName,
+  resolveLinearHumanReviewStateName,
   resolveLinearTerminalStateName,
 } from "../../src/tracker/linear-policy.js";
 import type {
+  LinearComment,
   LinearIssueSnapshot,
   LinearProjectSnapshot,
 } from "../../src/tracker/linear-normalize.js";
+import { writeLinearWorkpad } from "../../src/tracker/linear-workpad.js";
 
 const PROJECT: LinearProjectSnapshot = {
   id: "project-1",
@@ -30,18 +34,51 @@ const PROJECT: LinearProjectSnapshot = {
       id: "state-done",
       name: "Done",
       type: "completed",
+      position: 5,
+    },
+    {
+      id: "state-human-review",
+      name: "Human Review",
+      type: "started",
       position: 2,
+    },
+    {
+      id: "state-rework",
+      name: "Rework",
+      type: "started",
+      position: 3,
+    },
+    {
+      id: "state-merging",
+      name: "Merging",
+      type: "started",
+      position: 4,
     },
   ],
 };
 
-function createIssue(stateName: string): LinearIssueSnapshot {
+function createIssue(
+  stateName: string,
+  options: {
+    readonly comments?: readonly LinearComment[];
+    readonly workpadStatus?: "handoff-ready" | "completed";
+  } = {},
+): LinearIssueSnapshot {
+  const description =
+    options.workpadStatus === undefined
+      ? ""
+      : writeLinearWorkpad("", {
+          status: options.workpadStatus,
+          summary: "Ready for review",
+          branchName: "symphony/1",
+          updatedAt: "2026-03-10T00:00:00.000Z",
+        });
   return {
     id: "issue-1",
     identifier: "SYM-1",
     number: 1,
     title: "Issue 1",
-    description: "",
+    description,
     priority: null,
     branchName: null,
     url: "https://linear.example/SYM-1",
@@ -52,14 +89,22 @@ function createIssue(stateName: string): LinearIssueSnapshot {
     assignedToWorker: true,
     labels: [],
     blockedBy: [],
-    comments: [],
-    workpad: null,
+    comments: options.comments ?? [],
+    workpad:
+      options.workpadStatus === undefined
+        ? null
+        : {
+            status: options.workpadStatus,
+            summary: "Ready for review",
+            branchName: "symphony/1",
+            updatedAt: "2026-03-10T00:00:00.000Z",
+          },
     runtimeIssue: {
       id: "issue-1",
       identifier: "SYM-1",
       number: 1,
       title: "Issue 1",
-      description: "",
+      description,
       labels: [],
       state: stateName,
       url: "https://linear.example/SYM-1",
@@ -82,6 +127,99 @@ describe("extractIssueNumberFromBranchName", () => {
 
   it("returns null when the branch leaf does not start with an issue number", () => {
     expect(extractIssueNumberFromBranchName("symphony/linear-70")).toBeNull();
+  });
+});
+
+describe("createLinearHandoffLifecycle", () => {
+  const config = {
+    kind: "linear" as const,
+    endpoint: "https://linear.example/graphql",
+    apiKey: "token",
+    projectSlug: "symphony-linear",
+    assignee: null,
+    activeStates: ["Todo", "In Progress"],
+    terminalStates: ["Done"],
+  };
+
+  it("maps Human Review to awaiting-human-handoff", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Human Review"),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
+  it("maps Human Review with changes-requested to actionable-follow-up", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Human Review", {
+        comments: [
+          createComment(
+            "Plan review: changes-requested\n\nRequired changes\n- Fix it.",
+          ),
+        ],
+      }),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
+
+  it("maps handoff-ready workpad plus approved review to awaiting-system-checks", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("In Progress", {
+        workpadStatus: "handoff-ready",
+        comments: [
+          createComment("Plan review: approved\n\nSummary\n- Approved."),
+        ],
+      }),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+  });
+
+  it("maps Rework to actionable-follow-up", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Rework"),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
+
+  it("maps Merging to awaiting-system-checks", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Merging"),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+  });
+
+  it("maps configured active states to missing-target before handoff", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("In Progress"),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("missing-target");
+  });
+
+  it("maps configured terminal states to handoff-ready", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Done"),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("handoff-ready");
   });
 });
 
@@ -174,3 +312,19 @@ describe("resolveLinearTerminalStateName", () => {
     );
   });
 });
+
+describe("resolveLinearHumanReviewStateName", () => {
+  it("returns Human Review when the project exposes that state", () => {
+    expect(resolveLinearHumanReviewStateName(PROJECT)).toBe("Human Review");
+  });
+});
+
+function createComment(body: string): LinearComment {
+  return {
+    id: body,
+    body,
+    createdAt: "2026-03-10T00:00:00.000Z",
+    userName: "Reviewer",
+    userEmail: "reviewer@example.test",
+  };
+}

@@ -248,6 +248,38 @@ export class MockLinearServer {
     };
   }
 
+  addComment(input: {
+    readonly projectSlug: string;
+    readonly issueNumber: number;
+    readonly body: string;
+    readonly createdAt?: string;
+    readonly userName?: string | null;
+    readonly userEmail?: string | null;
+  }): void {
+    const issue = this.#requireIssue(input.projectSlug, input.issueNumber);
+    issue.comments.push({
+      id: randomUUID(),
+      body: input.body,
+      createdAt: input.createdAt ?? new Date().toISOString(),
+      user: {
+        name: input.userName ?? "Reviewer",
+        email: input.userEmail ?? "reviewer@example.test",
+      },
+    });
+    issue.updatedAt = new Date().toISOString();
+  }
+
+  updateIssueState(
+    projectSlug: string,
+    issueNumber: number,
+    stateName: string,
+  ): void {
+    const issue = this.#requireIssue(projectSlug, issueNumber);
+    const project = this.#requireProject(projectSlug);
+    issue.stateId = this.#requireProjectState(project, stateName).id;
+    issue.updatedAt = new Date().toISOString();
+  }
+
   countRequests(operationName: string): number {
     return this.#requests.filter(
       (request) => request.operationName === operationName,

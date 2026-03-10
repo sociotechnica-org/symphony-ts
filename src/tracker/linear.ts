@@ -12,6 +12,7 @@ import {
   linearTrackerSubject,
   missingLinearLifecycle,
   resolveLinearClaimStateName,
+  resolveLinearHumanReviewStateName,
   resolveLinearTerminalStateName,
 } from "./linear-policy.js";
 import {
@@ -142,17 +143,28 @@ export class LinearTracker implements Tracker {
         `Could not extract issue number from branch ${branchName}`,
       );
     }
-    const issue = await this.#getIssueSnapshot(issueNumber);
+    const [project, issue] = await Promise.all([
+      this.#project(),
+      this.#getIssueSnapshot(issueNumber),
+    ]);
     const updatedDescription = writeLinearWorkpad(issue.description, {
       status: "handoff-ready",
       summary: `Run finished for ${branchName}`,
       branchName,
       updatedAt: new Date().toISOString(),
     });
-    await this.#writer.updateIssue({
-      id: issue.id,
-      description: updatedDescription,
-    });
+    const humanReviewStateName = resolveLinearHumanReviewStateName(project);
+    await this.#writer.updateIssue(
+      {
+        id: issue.id,
+        description: updatedDescription,
+        ...(humanReviewStateName === null ||
+        humanReviewStateName === issue.state.name
+          ? {}
+          : { stateName: humanReviewStateName }),
+      },
+      project,
+    );
     await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
     return await this.inspectIssueHandoff(branchName);
   }
