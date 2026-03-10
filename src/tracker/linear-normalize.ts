@@ -336,7 +336,7 @@ function normalizeLinearBlockedBy(
       continue;
     }
     const relation = entry as Record<string, unknown>;
-    if (typeof relation["type"] !== "string" || relation["type"] !== "blocks") {
+    if (relation["type"] !== "blocks") {
       continue;
     }
     if (relation["issue"] === null || relation["issue"] === undefined) {
