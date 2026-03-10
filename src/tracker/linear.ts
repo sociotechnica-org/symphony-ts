@@ -102,10 +102,12 @@ export class LinearTracker implements Tracker {
         ...(nextState === null ? {} : { stateId: nextState.id }),
       }),
       "issueUpdate",
+      this.#normalizeOptions(),
     );
     normalizeLinearIssueMutationResult(
       await this.#client.createComment(issue.id, CLAIM_COMMENT),
       "commentCreate",
+      this.#normalizeOptions(),
     );
     this.#logger.info("Claimed Linear issue", {
       issueNumber,
@@ -151,10 +153,12 @@ export class LinearTracker implements Tracker {
         description: updatedDescription,
       }),
       "issueUpdate",
+      this.#normalizeOptions(),
     );
     normalizeLinearIssueMutationResult(
       await this.#client.createComment(issue.id, HANDOFF_READY_COMMENT),
       "commentCreate",
+      this.#normalizeOptions(),
     );
     return await this.inspectIssueHandoff(branchName);
   }
@@ -172,10 +176,12 @@ export class LinearTracker implements Tracker {
         }),
       }),
       "issueUpdate",
+      this.#normalizeOptions(),
     );
     normalizeLinearIssueMutationResult(
       await this.#client.createComment(issue.id, `${RETRY_PREFIX} ${reason}`),
       "commentCreate",
+      this.#normalizeOptions(),
     );
   }
 
@@ -195,10 +201,12 @@ export class LinearTracker implements Tracker {
         stateId: terminalState.id,
       }),
       "issueUpdate",
+      this.#normalizeOptions(),
     );
     normalizeLinearIssueMutationResult(
       await this.#client.createComment(issue.id, COMPLETION_COMMENT),
       "commentCreate",
+      this.#normalizeOptions(),
     );
   }
 
@@ -215,10 +223,12 @@ export class LinearTracker implements Tracker {
         }),
       }),
       "issueUpdate",
+      this.#normalizeOptions(),
     );
     normalizeLinearIssueMutationResult(
       await this.#client.createComment(issue.id, `${FAILURE_PREFIX} ${reason}`),
       "commentCreate",
+      this.#normalizeOptions(),
     );
   }
 
@@ -245,6 +255,7 @@ export class LinearTracker implements Tracker {
   async #fetchProjectIssues(): Promise<readonly LinearIssueSnapshot[]> {
     const result = normalizeLinearProjectIssuesResult(
       await this.#client.fetchProjectIssues(),
+      this.#normalizeOptions(),
     );
     if (this.#projectPromise === null) {
       this.#projectPromise = Promise.resolve(result.project);
@@ -265,10 +276,17 @@ export class LinearTracker implements Tracker {
   ): Promise<LinearIssueSnapshot | null> {
     const result = normalizeLinearIssueResult(
       await this.#client.fetchProjectIssue(issueNumber),
+      this.#normalizeOptions(),
     );
     if (this.#projectPromise === null) {
       this.#projectPromise = Promise.resolve(result.project);
     }
     return result.issue;
+  }
+
+  #normalizeOptions() {
+    return {
+      configuredAssignee: this.#config.assignee,
+    } as const;
   }
 }

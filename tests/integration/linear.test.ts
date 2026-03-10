@@ -45,6 +45,7 @@ describe("LinearTracker", () => {
       title: "Issue 1",
       stateName: "Todo",
       assigneeEmail: "worker@example.test",
+      labels: ["Backend"],
     });
     server.seedIssue({
       projectSlug: "symphony-linear",
@@ -52,6 +53,7 @@ describe("LinearTracker", () => {
       title: "Issue 2",
       stateName: "Todo",
       assigneeEmail: "worker@example.test",
+      labels: ["Needs Review"],
     });
     server.seedIssue({
       projectSlug: "symphony-linear",
@@ -65,7 +67,42 @@ describe("LinearTracker", () => {
     const ready = await tracker.fetchReadyIssues();
 
     expect(ready.map((issue) => issue.number)).toEqual([1, 2, 3]);
+    expect(ready[0]?.labels).toEqual(["backend"]);
+    expect(ready[1]?.labels).toEqual(["needs review"]);
     expect(server.countRequests("GetProjectIssuesPage")).toBe(2);
+  });
+
+  it("filters ready issues by normalized assignee routing instead of GraphQL query parameters", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 1,
+      title: "Assigned to worker",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 2,
+      title: "Assigned elsewhere",
+      stateName: "Todo",
+      assigneeEmail: "other@example.test",
+    });
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 3,
+      title: "Unassigned",
+      stateName: "Todo",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const ready = await tracker.fetchReadyIssues();
+    const request = server.requests("GetProjectIssuesPage")[0];
+
+    expect(ready.map((issue) => issue.number)).toEqual([1]);
+    expect(request?.variables).toEqual({
+      slugId: "symphony-linear",
+      after: null,
+    });
   });
 
   it("breaks defensively when Linear reports another page without an end cursor", async () => {

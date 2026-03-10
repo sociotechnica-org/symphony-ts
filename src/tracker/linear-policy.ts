@@ -18,6 +18,10 @@ export function classifyLinearIssue(
   issue: LinearIssueSnapshot,
   config: LinearTrackerConfig,
 ): LinearIssueClassification {
+  if (!issue.assignedToWorker) {
+    return "ignored";
+  }
+
   if (config.terminalStates.includes(issue.state.name)) {
     return "completed";
   }
