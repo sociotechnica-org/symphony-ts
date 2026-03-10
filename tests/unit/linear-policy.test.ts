@@ -113,6 +113,20 @@ describe("resolveLinearClaimStateName", () => {
       }),
     ).toBeNull();
   });
+
+  it("returns null when the current state is the last configured active state", () => {
+    expect(
+      resolveLinearClaimStateName(createIssue("In Progress"), {
+        kind: "linear",
+        endpoint: "https://linear.example/graphql",
+        apiKey: "token",
+        projectSlug: "symphony-linear",
+        assignee: null,
+        activeStates: ["Todo", "In Progress"],
+        terminalStates: ["Done"],
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("resolveLinearTerminalStateName", () => {

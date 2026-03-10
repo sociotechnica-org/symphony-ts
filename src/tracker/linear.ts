@@ -86,8 +86,10 @@ export class LinearTracker implements Tracker {
   }
 
   async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
-    const project = await this.#project();
-    const issue = await this.#getIssueSnapshot(issueNumber);
+    const [project, issue] = await Promise.all([
+      this.#project(),
+      this.#getIssueSnapshot(issueNumber),
+    ]);
     if (classifyLinearIssue(issue, this.#config) !== "ready") {
       return null;
     }
@@ -170,8 +172,10 @@ export class LinearTracker implements Tracker {
   }
 
   async completeIssue(issueNumber: number): Promise<void> {
-    const project = await this.#project();
-    const issue = await this.#getIssueSnapshot(issueNumber);
+    const [project, issue] = await Promise.all([
+      this.#project(),
+      this.#getIssueSnapshot(issueNumber),
+    ]);
     const terminalStateName = resolveLinearTerminalStateName(
       project,
       this.#config,

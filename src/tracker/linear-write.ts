@@ -49,16 +49,12 @@ export class LinearIssueWriter {
       throw new TrackerError("Linear issue update requires at least one field");
     }
 
-    if (hasStateName && project === undefined) {
-      throw new TrackerError(
-        `Linear issue update for ${input.id} requires project workflow state lookup`,
-      );
-    }
-
-    const stateId =
-      !hasStateName || project === undefined
-        ? undefined
-        : resolveLinearStateByName(project, input.stateName).id;
+    const stateId = !hasStateName
+      ? undefined
+      : resolveLinearStateByName(
+          requireProjectForStateUpdate(project, input.id),
+          input.stateName,
+        ).id;
 
     return normalizeLinearIssueMutationResult(
       await this.#client.updateIssue({
@@ -82,5 +78,18 @@ export function resolveLinearStateByName(
   }
   throw new TrackerError(
     `Linear project ${project.slugId} is missing configured state '${stateName}'`,
+  );
+}
+
+function requireProjectForStateUpdate(
+  project: LinearProjectSnapshot | undefined,
+  issueId: string,
+): LinearProjectSnapshot {
+  if (project !== undefined) {
+    return project;
+  }
+
+  throw new TrackerError(
+    `Linear issue update for ${issueId} requires project workflow state lookup`,
   );
 }
