@@ -82,10 +82,12 @@ function requireNumber(value: unknown, field: string): number {
   return value;
 }
 
-function requireObject(
+function coerceOptionalObject(
   value: unknown,
   field: string,
 ): Readonly<Record<string, unknown>> {
+  // Omitted top-level sections keep the legacy "{}" parsing path, but an
+  // explicit YAML null is treated as malformed boundary input and fails early.
   if (value === undefined) {
     return {};
   }
@@ -240,11 +242,11 @@ async function readParsedWorkflow(
 }
 
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
-  const tracker = requireObject(raw.tracker, "tracker");
-  const polling = requireObject(raw.polling, "polling");
-  const workspace = requireObject(raw.workspace, "workspace");
-  const hooks = requireObject(raw.hooks, "hooks");
-  const agent = requireObject(raw.agent, "agent");
+  const tracker = coerceOptionalObject(raw.tracker, "tracker");
+  const polling = coerceOptionalObject(raw.polling, "polling");
+  const workspace = coerceOptionalObject(raw.workspace, "workspace");
+  const hooks = coerceOptionalObject(raw.hooks, "hooks");
+  const agent = coerceOptionalObject(raw.agent, "agent");
 
   const resolved: ResolvedConfig = {
     workflowPath,
@@ -462,7 +464,10 @@ export async function loadWorkflowWorkspaceRoot(
   workflowPath: string,
 ): Promise<string> {
   const parsed = await readParsedWorkflow(workflowPath);
-  const workspace = requireObject(parsed.frontMatter.workspace, "workspace");
+  const workspace = coerceOptionalObject(
+    parsed.frontMatter.workspace,
+    "workspace",
+  );
   return path.resolve(
     path.dirname(workflowPath),
     requireString(workspace["root"], "workspace.root"),

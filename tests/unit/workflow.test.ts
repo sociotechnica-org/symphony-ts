@@ -314,6 +314,23 @@ ${buildSharedWorkflowSections()}`,
     );
   });
 
+  it("fails early when a top-level workflow section is explicitly null", async () => {
+    const dir = await createTempDir("workflow-null-tracker-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected object for tracker",
+    );
+  });
+
   it("fails clearly when a linear workflow is missing a token", async () => {
     const dir = await createTempDir("workflow-linear-missing-token-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
