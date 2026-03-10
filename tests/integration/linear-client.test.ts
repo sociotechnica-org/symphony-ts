@@ -77,6 +77,7 @@ describe("LinearClient", () => {
 
     expect(result.project.slugId).toBe("symphony-linear");
     expect(result.issues.map((issue) => issue.number)).toEqual([1, 2, 3]);
+    // The mock Linear server pages two issues at a time, so 3 seeded issues require 2 requests.
     expect(server.countRequests("GetProjectIssuesPage")).toBe(2);
   });
 
@@ -107,6 +108,7 @@ describe("LinearClient", () => {
     const client = new LinearClient(createConfig(server));
     const result = await client.fetchProjectIssues();
 
+    // The first mock page returns issues 1 and 2; the client stops when hasNextPage=true but endCursor=null.
     expect(result.issues.map((issue) => issue.number)).toEqual([1, 2]);
     expect(server.countRequests("GetProjectIssuesPage")).toBe(1);
   });
