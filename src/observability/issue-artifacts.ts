@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import { writeJsonFileAtomic } from "./atomic-file.js";
 
 export const ISSUE_ARTIFACT_SCHEMA_VERSION = 1 as const;
 
@@ -483,20 +483,9 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
-  const directory = path.dirname(filePath);
-  const tempPath = path.join(
-    directory,
-    `.issue-artifact.${process.pid.toString()}.${randomUUID()}.tmp`,
-  );
-
-  await fs.mkdir(directory, { recursive: true });
-  await fs.writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  try {
-    await fs.rename(tempPath, filePath);
-  } catch (error) {
-    await fs.rm(tempPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
+  await writeJsonFileAtomic(filePath, value, {
+    tempPrefix: ".issue-artifact",
+  });
 }
 
 async function appendJsonLineIfChanged(

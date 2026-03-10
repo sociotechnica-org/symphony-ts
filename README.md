@@ -59,6 +59,8 @@ Per-issue reporting artifacts are also written locally under
 for one issue (`issue.json`, `events.jsonl`, per-attempt snapshots,
 per-session snapshots, and log pointers) so later report generation can read
 local state without coupling itself to orchestrator control flow.
+Generated per-issue reports are written separately under
+`.var/reports/issues/<issue-number>/report.json` and `report.md`.
 
 ## Technical Plan Review Station
 
@@ -142,6 +144,12 @@ Print the machine-readable snapshot:
 pnpm tsx bin/symphony.ts status --json
 ```
 
+Generate a per-issue report from local artifacts:
+
+```bash
+pnpm tsx bin/symphony-report.ts issue --issue 44
+```
+
 By default, the checked-in `WORKFLOW.md` targets:
 
 - repo: `sociotechnica-org/symphony-ts`
@@ -210,6 +218,8 @@ The `status` CLI reads that file and renders either a simple terminal view or th
 for future tooling.
 Issue-level reporting artifacts are written separately under `.var/factory/issues/`
 so they survive workspace cleanup.
+Generated per-issue reports are written under `.var/reports/issues/<issue-number>/`
+when `pnpm tsx bin/symphony-report.ts issue --issue <issue-number>` is run.
 
 ### 5. Watch the issue lifecycle
 
