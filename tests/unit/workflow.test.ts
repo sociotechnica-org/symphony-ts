@@ -163,6 +163,40 @@ ${buildSharedWorkflowSections()}`,
     }
   });
 
+  it("does not inherit an assignee filter from ambient env when tracker.assignee is omitted", async () => {
+    const dir = await createTempDir("workflow-linear-no-assignee-env-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    const previousAssignee = process.env.LINEAR_ASSIGNEE;
+    process.env.LINEAR_ASSIGNEE = "ambient-worker@example.com";
+
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    try {
+      const workflow = await loadWorkflow(workflowPath);
+      if (workflow.config.tracker.kind !== "linear") {
+        throw new Error("expected linear tracker config");
+      }
+
+      expect(workflow.config.tracker.assignee).toBeNull();
+    } finally {
+      if (previousAssignee === undefined) {
+        delete process.env.LINEAR_ASSIGNEE;
+      } else {
+        process.env.LINEAR_ASSIGNEE = previousAssignee;
+      }
+    }
+  });
+
   it("fails clearly when tracker.kind is unsupported", async () => {
     const dir = await createTempDir("workflow-unsupported-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
@@ -178,6 +212,24 @@ ${buildSharedWorkflowSections()}`,
 
     await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
       "Unsupported tracker.kind 'linear-preview'. Supported kinds: github-bootstrap, linear",
+    );
+  });
+
+  it("fails clearly when tracker.kind is explicitly blank", async () => {
+    const dir = await createTempDir("workflow-blank-kind-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind:
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected non-empty string for tracker.kind",
     );
   });
 
@@ -248,6 +300,27 @@ ${buildSharedWorkflowSections()}`,
 
     await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
       "Expected string array for tracker.active_states",
+    );
+  });
+
+  it("fails clearly when linear state lists are empty", async () => {
+    const dir = await createTempDir("workflow-linear-empty-states-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+  active_states: []
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected non-empty string array for tracker.active_states",
     );
   });
 });

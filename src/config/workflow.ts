@@ -92,6 +92,17 @@ function requireStringArray(value: unknown, field: string): readonly string[] {
   return value;
 }
 
+function requireNonEmptyStringArray(
+  value: unknown,
+  field: string,
+): readonly string[] {
+  const items = requireStringArray(value, field);
+  if (items.length === 0) {
+    throw new ConfigError(`Expected non-empty string array for ${field}`);
+  }
+  return items;
+}
+
 function normalizeSecretValue(value: string | null | undefined): string | null {
   if (typeof value !== "string") {
     return null;
@@ -131,6 +142,26 @@ function resolveEnvBackedSecret(
   }
 
   return normalizeSecretValue(referencedValue);
+}
+
+function resolveOptionalEnvBackedSecret(
+  value: unknown,
+  field: string,
+): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new ConfigError(`Expected string for ${field}`);
+  }
+
+  const trimmed = value.trim();
+  const referencedEnvName = resolveEnvReferenceName(trimmed);
+  if (referencedEnvName === null) {
+    return normalizeSecretValue(trimmed);
+  }
+
+  return normalizeSecretValue(process.env[referencedEnvName]);
 }
 
 function isSupportedTrackerKind(value: string): value is SupportedTrackerKind {
@@ -243,17 +274,23 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
 function resolveTrackerConfig(
   tracker: Readonly<Record<string, unknown>>,
 ): TrackerConfig {
-  const kind = resolveTrackerKind(tracker["kind"]);
-  if (kind === "github-bootstrap") {
-    return resolveGitHubBootstrapTrackerConfig(tracker);
+  const kind = resolveTrackerKind(tracker);
+  switch (kind) {
+    case "github-bootstrap":
+      return resolveGitHubBootstrapTrackerConfig(tracker);
+    case "linear":
+      return resolveLinearTrackerConfig(tracker);
   }
-  return resolveLinearTrackerConfig(tracker);
 }
 
-function resolveTrackerKind(value: unknown): TrackerConfig["kind"] {
-  if (value === undefined || value === null) {
+function resolveTrackerKind(
+  tracker: Readonly<Record<string, unknown>>,
+): TrackerConfig["kind"] {
+  if (!Object.hasOwn(tracker, "kind")) {
     return "github-bootstrap";
   }
+
+  const value = tracker["kind"];
   if (typeof value !== "string" || value.trim() === "") {
     throw new ConfigError("Expected non-empty string for tracker.kind");
   }
@@ -325,19 +362,21 @@ function resolveLinearTrackerConfig(
         : requireString(tracker["endpoint"], "tracker.endpoint"),
     apiKey,
     projectSlug,
-    assignee: resolveEnvBackedSecret(
+    assignee: resolveOptionalEnvBackedSecret(
       tracker["assignee"],
       "tracker.assignee",
-      "LINEAR_ASSIGNEE",
     ),
     activeStates:
       tracker["active_states"] === undefined
         ? DEFAULT_LINEAR_ACTIVE_STATES
-        : requireStringArray(tracker["active_states"], "tracker.active_states"),
+        : requireNonEmptyStringArray(
+            tracker["active_states"],
+            "tracker.active_states",
+          ),
     terminalStates:
       tracker["terminal_states"] === undefined
         ? DEFAULT_LINEAR_TERMINAL_STATES
-        : requireStringArray(
+        : requireNonEmptyStringArray(
             tracker["terminal_states"],
             "tracker.terminal_states",
           ),
