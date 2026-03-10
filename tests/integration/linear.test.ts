@@ -191,6 +191,7 @@ describe("LinearTracker", () => {
 
     const lifecycle = await tracker.reconcileSuccessfulRun("symphony/7", null);
     expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(server.countRequests("GetProjectIssue")).toBe(2);
     const handoffIssue = server.getIssue("symphony-linear", 7);
     expect(handoffIssue.stateName).toBe("Human Review");
     expect(handoffIssue.comments).toContain(

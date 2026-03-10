@@ -171,7 +171,7 @@ export class LinearTracker implements Tracker {
       issue.state.name,
       this.#config,
     );
-    await this.#writer.updateIssue(
+    const updatedIssue = await this.#writer.updateIssue(
       {
         id: issue.id,
         description: updatedDescription,
@@ -188,7 +188,7 @@ export class LinearTracker implements Tracker {
     if (!skipHandoffReadyComment) {
       await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
     }
-    return await this.inspectIssueHandoff(branchName);
+    return createLinearHandoffLifecycle(updatedIssue, branchName, this.#config);
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
