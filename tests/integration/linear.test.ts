@@ -4,7 +4,10 @@ import type { LinearTrackerConfig } from "../../src/domain/workflow.js";
 import { LinearTracker } from "../../src/tracker/linear.js";
 import { MockLinearServer } from "../support/mock-linear-server.js";
 
-function createConfig(server: MockLinearServer): LinearTrackerConfig {
+function createConfig(
+  server: MockLinearServer,
+  overrides: Partial<LinearTrackerConfig> = {},
+): LinearTrackerConfig {
   return {
     kind: "linear",
     endpoint: server.baseUrl,
@@ -13,6 +16,7 @@ function createConfig(server: MockLinearServer): LinearTrackerConfig {
     assignee: "worker@example.test",
     activeStates: ["Todo", "In Progress"],
     terminalStates: ["Done", "Canceled"],
+    ...overrides,
   };
 }
 
@@ -201,6 +205,48 @@ describe("LinearTracker", () => {
     expect(failed.map((issue) => issue.number)).toEqual([9]);
     expect(server.getIssue("symphony-linear", 9).comments).toContain(
       "Symphony failed this run: runner exited with 1",
+    );
+  });
+
+  it("fails loudly when the configured claim state is missing from the project workflow", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 10,
+      title: "Issue 10",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, {
+        activeStates: ["Todo", "Working"],
+      }),
+      new JsonLogger(),
+    );
+
+    await expect(tracker.claimIssue(10)).rejects.toThrowError(
+      /Linear project symphony-linear is missing configured state 'Working'/i,
+    );
+  });
+
+  it("fails loudly when the configured terminal states are absent from the project workflow", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 11,
+      title: "Issue 11",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, {
+        terminalStates: ["Closed"],
+      }),
+      new JsonLogger(),
+    );
+
+    await expect(tracker.completeIssue(11)).rejects.toThrowError(
+      /Linear project symphony-linear does not expose any configured terminal state/i,
     );
   });
 });

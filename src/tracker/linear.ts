@@ -11,17 +11,17 @@ import {
   extractIssueNumberFromBranchName,
   linearTrackerSubject,
   missingLinearLifecycle,
-  resolveLinearClaimState,
-  resolveLinearTerminalState,
+  resolveLinearClaimStateName,
+  resolveLinearTerminalStateName,
 } from "./linear-policy.js";
 import {
-  normalizeLinearIssueMutationResult,
   normalizeLinearProjectIssuesResult,
   normalizeLinearIssueResult,
   normalizeLinearProject,
   type LinearIssueSnapshot,
   type LinearProjectSnapshot,
 } from "./linear-normalize.js";
+import { LinearIssueWriter } from "./linear-write.js";
 import { writeLinearWorkpad } from "./linear-workpad.js";
 
 const CLAIM_COMMENT = "Symphony claimed this issue for implementation.";
@@ -35,12 +35,17 @@ export class LinearTracker implements Tracker {
   readonly #config: LinearTrackerConfig;
   readonly #logger: Logger;
   readonly #client: LinearClient;
+  readonly #writer: LinearIssueWriter;
   #projectPromise: Promise<LinearProjectSnapshot> | null = null;
 
   constructor(config: LinearTrackerConfig, logger: Logger) {
     this.#config = config;
     this.#logger = logger;
     this.#client = new LinearClient(config);
+    this.#writer = new LinearIssueWriter(
+      this.#client,
+      this.#normalizeOptions(),
+    );
   }
 
   subject(): string {
@@ -87,7 +92,7 @@ export class LinearTracker implements Tracker {
       return null;
     }
 
-    const nextState = resolveLinearClaimState(project, issue, this.#config);
+    const nextStateName = resolveLinearClaimStateName(issue, this.#config);
     const updatedDescription = writeLinearWorkpad(issue.description, {
       status: "running",
       summary: "Claimed by Symphony",
@@ -95,24 +100,16 @@ export class LinearTracker implements Tracker {
       updatedAt: new Date().toISOString(),
     });
 
-    const claimed = normalizeLinearIssueMutationResult(
-      await this.#client.updateIssue({
-        id: issue.id,
-        description: updatedDescription,
-        ...(nextState === null ? {} : { stateId: nextState.id }),
-      }),
-      "issueUpdate",
-      this.#normalizeOptions(),
-    );
-    normalizeLinearIssueMutationResult(
-      await this.#client.createComment(issue.id, CLAIM_COMMENT),
-      "commentCreate",
-      this.#normalizeOptions(),
-    );
+    const claimed = await this.#writer.updateIssue(project, {
+      id: issue.id,
+      description: updatedDescription,
+      ...(nextStateName === null ? {} : { stateName: nextStateName }),
+    });
+    await this.#writer.createComment(issue.id, CLAIM_COMMENT);
     this.#logger.info("Claimed Linear issue", {
       issueNumber,
       identifier: claimed.identifier,
-      nextState: nextState?.name ?? claimed.state.name,
+      nextState: nextStateName ?? claimed.state.name,
     });
     return claimed.runtimeIssue;
   }
@@ -147,89 +144,60 @@ export class LinearTracker implements Tracker {
       branchName,
       updatedAt: new Date().toISOString(),
     });
-    normalizeLinearIssueMutationResult(
-      await this.#client.updateIssue({
-        id: issue.id,
-        description: updatedDescription,
-      }),
-      "issueUpdate",
-      this.#normalizeOptions(),
-    );
-    normalizeLinearIssueMutationResult(
-      await this.#client.createComment(issue.id, HANDOFF_READY_COMMENT),
-      "commentCreate",
-      this.#normalizeOptions(),
-    );
+    await this.#writer.updateIssue(await this.#project(), {
+      id: issue.id,
+      description: updatedDescription,
+    });
+    await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
     return await this.inspectIssueHandoff(branchName);
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
     const issue = await this.#getIssueSnapshot(issueNumber);
-    normalizeLinearIssueMutationResult(
-      await this.#client.updateIssue({
-        id: issue.id,
-        description: writeLinearWorkpad(issue.description, {
-          status: "retry-scheduled",
-          summary: reason,
-          branchName: null,
-          updatedAt: new Date().toISOString(),
-        }),
+    await this.#writer.updateIssue(await this.#project(), {
+      id: issue.id,
+      description: writeLinearWorkpad(issue.description, {
+        status: "retry-scheduled",
+        summary: reason,
+        branchName: null,
+        updatedAt: new Date().toISOString(),
       }),
-      "issueUpdate",
-      this.#normalizeOptions(),
-    );
-    normalizeLinearIssueMutationResult(
-      await this.#client.createComment(issue.id, `${RETRY_PREFIX} ${reason}`),
-      "commentCreate",
-      this.#normalizeOptions(),
-    );
+    });
+    await this.#writer.createComment(issue.id, `${RETRY_PREFIX} ${reason}`);
   }
 
   async completeIssue(issueNumber: number): Promise<void> {
     const project = await this.#project();
     const issue = await this.#getIssueSnapshot(issueNumber);
-    const terminalState = resolveLinearTerminalState(project, this.#config);
-    normalizeLinearIssueMutationResult(
-      await this.#client.updateIssue({
-        id: issue.id,
-        description: writeLinearWorkpad(issue.description, {
-          status: "completed",
-          summary: "Completed by Symphony",
-          branchName: null,
-          updatedAt: new Date().toISOString(),
-        }),
-        stateId: terminalState.id,
+    const terminalStateName = resolveLinearTerminalStateName(
+      project,
+      this.#config,
+    );
+    await this.#writer.updateIssue(project, {
+      id: issue.id,
+      description: writeLinearWorkpad(issue.description, {
+        status: "completed",
+        summary: "Completed by Symphony",
+        branchName: null,
+        updatedAt: new Date().toISOString(),
       }),
-      "issueUpdate",
-      this.#normalizeOptions(),
-    );
-    normalizeLinearIssueMutationResult(
-      await this.#client.createComment(issue.id, COMPLETION_COMMENT),
-      "commentCreate",
-      this.#normalizeOptions(),
-    );
+      stateName: terminalStateName,
+    });
+    await this.#writer.createComment(issue.id, COMPLETION_COMMENT);
   }
 
   async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
     const issue = await this.#getIssueSnapshot(issueNumber);
-    normalizeLinearIssueMutationResult(
-      await this.#client.updateIssue({
-        id: issue.id,
-        description: writeLinearWorkpad(issue.description, {
-          status: "failed",
-          summary: reason,
-          branchName: null,
-          updatedAt: new Date().toISOString(),
-        }),
+    await this.#writer.updateIssue(await this.#project(), {
+      id: issue.id,
+      description: writeLinearWorkpad(issue.description, {
+        status: "failed",
+        summary: reason,
+        branchName: null,
+        updatedAt: new Date().toISOString(),
       }),
-      "issueUpdate",
-      this.#normalizeOptions(),
-    );
-    normalizeLinearIssueMutationResult(
-      await this.#client.createComment(issue.id, `${FAILURE_PREFIX} ${reason}`),
-      "commentCreate",
-      this.#normalizeOptions(),
-    );
+    });
+    await this.#writer.createComment(issue.id, `${FAILURE_PREFIX} ${reason}`);
   }
 
   async #project(): Promise<LinearProjectSnapshot> {
