@@ -6,6 +6,10 @@ import type {
   LinearIssueSnapshot,
   LinearProjectSnapshot,
 } from "./linear-normalize.js";
+import {
+  parsePlanReviewSignal,
+  type PlanReviewSignal,
+} from "./plan-review-signal.js";
 import { sameLinearStateName } from "./linear-state-name.js";
 
 export type LinearIssueClassification =
@@ -14,12 +18,6 @@ export type LinearIssueClassification =
   | "failed"
   | "completed"
   | "ignored";
-
-type LinearReviewSignal =
-  | "plan-ready"
-  | "changes-requested"
-  | "approved"
-  | "waived";
 
 const HUMAN_REVIEW_STATE_NAME = "Human Review";
 const REWORK_STATE_NAME = "Rework";
@@ -100,6 +98,13 @@ export function resolveLinearTerminalStateName(
   throw new TrackerError(
     `Linear project ${project.slugId} does not expose any configured terminal state`,
   );
+}
+
+export function isLinearTerminalWorkflowState(
+  stateName: string,
+  config: LinearTrackerConfig,
+): boolean {
+  return matchesConfiguredStateName(config.terminalStates, stateName);
 }
 
 export function createLinearHandoffLifecycle(
@@ -237,7 +242,7 @@ function linearLifecycle(
 
 function latestLinearReviewSignal(
   comments: readonly LinearComment[],
-): LinearReviewSignal | null {
+): PlanReviewSignal | null {
   return (
     comments
       .map((comment, index) => ({ comment, index }))
@@ -247,40 +252,10 @@ function latestLinearReviewSignal(
           Date.parse(right.comment.createdAt);
         return timeDiff !== 0 ? timeDiff : left.index - right.index;
       })
-      .map(({ comment }) => parseLinearReviewSignal(comment.body))
-      .filter((signal): signal is LinearReviewSignal => signal !== null)
+      .map(({ comment }) => parsePlanReviewSignal(comment.body))
+      .filter((signal): signal is PlanReviewSignal => signal !== null)
       .at(-1) ?? null
   );
-}
-
-function parseLinearReviewSignal(body: string): LinearReviewSignal | null {
-  const firstLine = body
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .find((line) => line !== "");
-
-  if (!firstLine) {
-    return null;
-  }
-
-  const normalized = firstLine.toLowerCase();
-  if (
-    normalized === "plan status: plan-ready" ||
-    // Legacy human-authored marker; the trailing period is intentional.
-    normalized === "plan ready for review."
-  ) {
-    return "plan-ready";
-  }
-  if (normalized === "plan review: changes-requested") {
-    return "changes-requested";
-  }
-  if (normalized === "plan review: approved") {
-    return "approved";
-  }
-  if (normalized === "plan review: waived") {
-    return "waived";
-  }
-  return null;
 }
 
 export function isLinearReviewWorkflowState(stateName: string): boolean {

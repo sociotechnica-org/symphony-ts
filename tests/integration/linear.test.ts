@@ -288,6 +288,22 @@ describe("LinearTracker", () => {
     expect(lifecycle.kind).toBe("awaiting-system-checks");
   });
 
+  it("does not move a successful run backward from Done into Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 23,
+      title: "Manual terminal handoff",
+      stateName: "Done",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/23", null);
+
+    expect(server.getIssue("symphony-linear", 23).stateName).toBe("Done");
+    expect(lifecycle.kind).toBe("handoff-ready");
+  });
+
   it("marks failed issues in the workpad and exposes them via fetchFailedIssues", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
