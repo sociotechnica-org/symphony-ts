@@ -5,6 +5,10 @@ import {
   generateIssueReport,
   writeIssueReport,
 } from "../../src/observability/issue-report.js";
+import {
+  ISSUE_ARTIFACT_SCHEMA_VERSION,
+  deriveIssueArtifactPaths,
+} from "../../src/observability/issue-artifacts.js";
 import { createTempDir } from "../support/git.js";
 import {
   deriveWorkspaceRoot,
@@ -195,4 +199,61 @@ describe("issue report generation", () => {
       ),
     ]);
   });
+
+  it.each(["approved", "waived"] as const)(
+    "does not keep awaiting plan review after a %s handoff event",
+    async (decisionKind) => {
+      const tempDir = await createTempDir(
+        `symphony-issue-report-${decisionKind}-`,
+      );
+      tempRoots.push(tempDir);
+      const workspaceRoot = deriveWorkspaceRoot(tempDir);
+      const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+      await fs.mkdir(artifactPaths.issueRoot, { recursive: true });
+      await fs.writeFile(
+        artifactPaths.eventsFile,
+        [
+          {
+            version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+            kind: "claimed",
+            issueNumber: 44,
+            observedAt: "2026-03-09T10:00:00.000Z",
+            attemptNumber: null,
+            sessionId: null,
+            details: {},
+          },
+          {
+            version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+            kind: "plan-ready",
+            issueNumber: 44,
+            observedAt: "2026-03-09T10:02:00.000Z",
+            attemptNumber: null,
+            sessionId: null,
+            details: {},
+          },
+          {
+            version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+            kind: decisionKind,
+            issueNumber: 44,
+            observedAt: "2026-03-09T10:03:00.000Z",
+            attemptNumber: null,
+            sessionId: null,
+            details: {},
+          },
+        ]
+          .map((event) => JSON.stringify(event))
+          .join("\n"),
+        "utf8",
+      );
+
+      const generated = await generateIssueReport(workspaceRoot, 44, {
+        generatedAt: "2026-03-09T13:50:00.000Z",
+      });
+
+      expect(generated.report.summary.outcome).toBe("claimed");
+      expect(generated.report.summary.outcome).not.toBe(
+        "awaiting-plan-review",
+      );
+    },
+  );
 });

@@ -1232,6 +1232,9 @@ function inferOutcomeFromEvents(
     if (event.kind === "runner-spawned") {
       return "running";
     }
+    if (event.kind === "approved" || event.kind === "waived") {
+      return "claimed";
+    }
     if (event.kind === "plan-ready") {
       return "awaiting-plan-review";
     }
