@@ -251,9 +251,7 @@ describe("issue report generation", () => {
       });
 
       expect(generated.report.summary.outcome).toBe("claimed");
-      expect(generated.report.summary.outcome).not.toBe(
-        "awaiting-plan-review",
-      );
+      expect(generated.report.summary.outcome).not.toBe("awaiting-plan-review");
     },
   );
 });
