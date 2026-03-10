@@ -77,10 +77,6 @@ export interface LinearProjectQueryResult {
   readonly project: LinearRawProject | null;
 }
 
-interface LinearProjectIssuesPageResult {
-  readonly project: LinearRawProjectWithIssues | null;
-}
-
 export interface LinearProjectIssuesResult {
   readonly project: LinearRawProject;
   readonly issues: readonly LinearRawIssue[];
@@ -325,8 +321,8 @@ export class LinearClient {
 
   async #fetchProjectIssuesPage(
     after: string | null,
-  ): Promise<LinearProjectIssuesPageResult> {
-    return await this.#request(
+  ): Promise<unknown> {
+    return await this.#request<unknown>(
       "GetProjectIssuesPage",
       GET_PROJECT_ISSUES_PAGE_QUERY,
       {
@@ -410,7 +406,7 @@ export class LinearClient {
   }
 
   #requireProjectIssuesPage(
-    page: LinearProjectIssuesPageResult,
+    page: unknown,
   ): LinearRawProjectWithIssues {
     const root = requireObject(
       page,
