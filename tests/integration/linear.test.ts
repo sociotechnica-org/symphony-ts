@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonLogger } from "../../src/observability/logger.js";
+import type { Logger } from "../../src/observability/logger.js";
 import type { LinearTrackerConfig } from "../../src/domain/workflow.js";
 import { LinearTracker } from "../../src/tracker/linear.js";
 import { MockLinearServer } from "../support/mock-linear-server.js";
@@ -18,6 +19,18 @@ function createConfig(
     terminalStates: ["Done", "Canceled"],
     ...overrides,
   };
+}
+
+class CapturingLogger implements Logger {
+  readonly warnings: string[] = [];
+
+  info(_message: string, _data?: Record<string, unknown>): void {}
+
+  warn(message: string, _data?: Record<string, unknown>): void {
+    this.warnings.push(message);
+  }
+
+  error(_message: string, _data?: Record<string, unknown>): void {}
 }
 
 describe("LinearTracker", () => {
@@ -204,6 +217,42 @@ describe("LinearTracker", () => {
     expect(completedIssue.stateName).toBe("Done");
     expect(completedIssue.comments).toContain(
       "Symphony completed this issue successfully.",
+    );
+  });
+
+  it("warns when a successful run cannot move into Human Review because the project lacks that state", async () => {
+    const logger = new CapturingLogger();
+    server.seedProject({
+      slugId: "no-review-state",
+      name: "No Review State",
+      states: [
+        { name: "Todo", type: "unstarted" },
+        { name: "In Progress", type: "started" },
+        { name: "Done", type: "completed" },
+        { name: "Canceled", type: "canceled" },
+      ],
+    });
+    server.seedIssue({
+      projectSlug: "no-review-state",
+      number: 20,
+      title: "No review column",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, { projectSlug: "no-review-state" }),
+      logger,
+    );
+
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/20", null);
+
+    expect(server.getIssue("no-review-state", 20).stateName).toBe(
+      "In Progress",
+    );
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(logger.warnings).toContain(
+      "Linear project has no 'Human Review' state; issue will not be moved after a successful run",
     );
   });
 

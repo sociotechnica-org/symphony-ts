@@ -155,6 +155,15 @@ export class LinearTracker implements Tracker {
       updatedAt: new Date().toISOString(),
     });
     const humanReviewStateName = resolveLinearHumanReviewStateName(project);
+    if (humanReviewStateName === null) {
+      this.#logger.warn(
+        "Linear project has no 'Human Review' state; issue will not be moved after a successful run",
+        {
+          issueNumber,
+          identifier: issue.identifier,
+        },
+      );
+    }
     await this.#writer.updateIssue(
       {
         id: issue.id,
