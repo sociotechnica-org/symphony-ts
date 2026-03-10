@@ -68,6 +68,7 @@ function createIssue(
       | "handoff-ready"
       | "completed"
       | "failed";
+    readonly workpadUpdatedAt?: string;
   } = {},
 ): LinearIssueSnapshot {
   const description =
@@ -77,7 +78,7 @@ function createIssue(
           status: options.workpadStatus,
           summary: "Ready for review",
           branchName: "symphony/1",
-          updatedAt: "2026-03-10T00:00:00.000Z",
+          updatedAt: options.workpadUpdatedAt ?? "2026-03-10T00:00:00.000Z",
         });
   return {
     id: "issue-1",
@@ -103,7 +104,7 @@ function createIssue(
             status: options.workpadStatus,
             summary: "Ready for review",
             branchName: "symphony/1",
-            updatedAt: "2026-03-10T00:00:00.000Z",
+            updatedAt: options.workpadUpdatedAt ?? "2026-03-10T00:00:00.000Z",
           },
     runtimeIssue: {
       id: "issue-1",
@@ -192,6 +193,24 @@ describe("createLinearHandoffLifecycle", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("In Progress", {
         workpadStatus: "handoff-ready",
+      }),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
+  it("ignores stale approved comments from a prior handoff cycle", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Human Review", {
+        workpadStatus: "handoff-ready",
+        workpadUpdatedAt: "2026-03-10T00:05:00.000Z",
+        comments: [
+          createComment("Plan review: approved", {
+            createdAt: "2026-03-10T00:00:00.000Z",
+          }),
+        ],
       }),
       "symphony/1",
       config,

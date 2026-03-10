@@ -127,7 +127,10 @@ export function createLinearHandoffLifecycle(
     );
   }
 
-  const reviewSignal = latestLinearReviewSignal(issue.comments);
+  const reviewSignal = latestLinearReviewSignal(
+    issue.comments,
+    currentLinearHandoffStartedAt(issue),
+  );
   const stateName = issue.state.name;
   const hasHandoffMarker = issue.workpad?.status === "handoff-ready";
 
@@ -248,10 +251,20 @@ function linearLifecycle(
 
 function latestLinearReviewSignal(
   comments: readonly LinearComment[],
+  handoffStartedAt: string | null,
 ): PlanReviewSignal | null {
+  const handoffStartTime =
+    handoffStartedAt === null ? Number.NaN : Date.parse(handoffStartedAt);
+
   return (
     comments
       .map((comment, index) => ({ comment, index }))
+      .filter(({ comment }) => {
+        if (Number.isNaN(handoffStartTime)) {
+          return true;
+        }
+        return Date.parse(comment.createdAt) >= handoffStartTime;
+      })
       .sort((left, right) => {
         const timeDiff =
           Date.parse(left.comment.createdAt) -
@@ -262,6 +275,17 @@ function latestLinearReviewSignal(
       .filter((signal): signal is PlanReviewSignal => signal !== null)
       .at(-1) ?? null
   );
+}
+
+function currentLinearHandoffStartedAt(
+  issue: LinearIssueSnapshot,
+): string | null {
+  // Review decisions belong to the current handoff cycle only. Once Symphony
+  // records a fresh handoff-ready workpad entry for a new run, older approval
+  // or rework comments should not carry forward automatically.
+  return issue.workpad?.status === "handoff-ready"
+    ? issue.workpad.updatedAt
+    : null;
 }
 
 export function isLinearReviewWorkflowState(stateName: string): boolean {

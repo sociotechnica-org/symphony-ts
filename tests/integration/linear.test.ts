@@ -257,6 +257,30 @@ describe("LinearTracker", () => {
     );
   });
 
+  it("returns awaiting-human-handoff when a stale approved comment exists from a prior run", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 25,
+      title: "Fresh run after older approval",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
+    server.addComment({
+      projectSlug: "symphony-linear",
+      issueNumber: 25,
+      body: "Plan review: approved\n\nSummary\n- Approved to merge.",
+      createdAt: "2026-03-10T00:00:00.000Z",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/25", null);
+
+    expect(server.getIssue("symphony-linear", 25).stateName).toBe(
+      "Human Review",
+    );
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
   it("does not move a successful run backward from Rework into Human Review", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
