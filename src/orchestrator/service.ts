@@ -68,7 +68,7 @@ function requireBootstrapConfig(
   config: ResolvedConfig,
 ): ResolvedConfig & { readonly tracker: GitHubBootstrapTrackerConfig } {
   if (config.tracker.kind !== "github-bootstrap") {
-    throw new Error(
+    throw new OrchestratorError(
       "BootstrapOrchestrator requires tracker.kind 'github-bootstrap'",
     );
   }

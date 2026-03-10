@@ -1,4 +1,5 @@
 import type { TrackerConfig } from "../domain/workflow.js";
+import { TrackerError } from "../domain/errors.js";
 import type { Logger } from "../observability/logger.js";
 import type { Tracker } from "./service.js";
 import { GitHubBootstrapTracker } from "./github-bootstrap.js";
@@ -8,7 +9,7 @@ export function createTracker(config: TrackerConfig, logger: Logger): Tracker {
     case "github-bootstrap":
       return new GitHubBootstrapTracker(config, logger);
     case "linear":
-      throw new Error(
+      throw new TrackerError(
         "tracker.kind 'linear' is not yet supported by `symphony run`; workflow loading and validation are available, but the Linear tracker adapter has not been implemented yet.",
       );
     default:
