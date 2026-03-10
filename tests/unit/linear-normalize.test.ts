@@ -174,11 +174,9 @@ describe("normalizeLinearIssueSnapshot", () => {
   });
 
   it("accepts assignee identity matches by id as well as email", () => {
-    const byId = normalizeLinearIssueSnapshot(
-      createIssuePayload(),
-      "issue",
-      { configuredAssignee: "USER-1" },
-    );
+    const byId = normalizeLinearIssueSnapshot(createIssuePayload(), "issue", {
+      configuredAssignee: "USER-1",
+    });
     const byEmail = normalizeLinearIssueSnapshot(
       createIssuePayload(),
       "issue",
