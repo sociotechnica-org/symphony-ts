@@ -453,6 +453,9 @@ export class LinearClient {
       "GetProjectIssuesPage.data.project.issues.pageInfo.endCursor",
       GRAPHQL_VALIDATION_PREFIX,
     );
+    // Only pagination-critical fields are validated here. Base project fields
+    // such as id, slugId, name, and states are validated downstream in
+    // normalizeLinearProject().
     return project as unknown as LinearRawProjectWithIssues;
   }
 
