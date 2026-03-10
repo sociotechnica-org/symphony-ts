@@ -227,7 +227,9 @@ async function readWorkflowSource(workflowPath: string): Promise<string> {
   }
 }
 
-async function readParsedWorkflow(workflowPath: string): Promise<ParsedWorkflow> {
+async function readParsedWorkflow(
+  workflowPath: string,
+): Promise<ParsedWorkflow> {
   return parseFrontMatter(await readWorkflowSource(workflowPath));
 }
 

@@ -86,7 +86,9 @@ Prompt body
   return workflowPath;
 }
 
-async function writeLinearWorkflowWithoutToken(rootDir: string): Promise<string> {
+async function writeLinearWorkflowWithoutToken(
+  rootDir: string,
+): Promise<string> {
   const workflowPath = createWorkflow(rootDir);
   await fs.writeFile(
     workflowPath,
