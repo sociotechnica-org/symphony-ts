@@ -30,7 +30,6 @@ import {
 import type { Runner, RunnerSessionDescription } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
-import { linearTrackerSubject } from "../tracker/linear-policy.js";
 import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
@@ -1028,9 +1027,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #trackerSubject(): string {
-    return this.#config.tracker.kind === "github-bootstrap"
-      ? this.#config.tracker.repo
-      : linearTrackerSubject(this.#config.tracker);
+    return this.#tracker.subject();
   }
 
   #createIssueEvent(
@@ -1520,17 +1517,8 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #hasHumanReviewFeedback(lifecycle: HandoffLifecycle): boolean {
-    const reviewBotLogins = new Set(
-      (this.#config.tracker.kind === "github-bootstrap"
-        ? this.#config.tracker.reviewBotLogins
-        : []
-      ).map((login) => login.toLowerCase()),
-    );
     return lifecycle.actionableReviewFeedback.some((feedback) => {
-      const authorLogin = feedback.authorLogin;
-      return (
-        authorLogin !== null && !reviewBotLogins.has(authorLogin.toLowerCase())
-      );
+      return this.#tracker.isHumanReviewFeedback(feedback.authorLogin);
     });
   }
 

@@ -71,9 +71,10 @@ export function normalizeLinearIssuePage(
   value: unknown,
 ): LinearIssuePageSnapshot {
   const record = requireObject(value, "page");
-  const project = normalizeLinearProject(record["project"]);
+  const projectRecord = requireObject(record["project"], "project");
+  const project = normalizeLinearProject(projectRecord);
   const issuesConnection = requireObject(
-    requireObject(record["project"], "project")["issues"],
+    projectRecord["issues"],
     "project.issues",
   );
   const issues = requireArray(

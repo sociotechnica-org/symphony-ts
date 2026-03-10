@@ -9,6 +9,7 @@ import {
   classifyLinearIssue,
   createLinearHandoffLifecycle,
   extractIssueNumberFromBranchName,
+  linearTrackerSubject,
   missingLinearLifecycle,
   resolveLinearClaimState,
   resolveLinearTerminalState,
@@ -40,6 +41,14 @@ export class LinearTracker implements Tracker {
     this.#config = config;
     this.#logger = logger;
     this.#client = new LinearClient(config);
+  }
+
+  subject(): string {
+    return linearTrackerSubject(this.#config);
+  }
+
+  isHumanReviewFeedback(authorLogin: string | null): boolean {
+    return authorLogin !== null;
   }
 
   async ensureLabels(): Promise<void> {
@@ -136,57 +145,81 @@ export class LinearTracker implements Tracker {
       branchName,
       updatedAt: new Date().toISOString(),
     });
-    await this.#client.updateIssue({
-      id: issue.id,
-      description: updatedDescription,
-    });
-    await this.#client.createComment(issue.id, HANDOFF_READY_COMMENT);
+    normalizeLinearIssueMutationResult(
+      await this.#client.updateIssue({
+        id: issue.id,
+        description: updatedDescription,
+      }),
+      "issueUpdate",
+    );
+    normalizeLinearIssueMutationResult(
+      await this.#client.createComment(issue.id, HANDOFF_READY_COMMENT),
+      "commentCreate",
+    );
     return await this.inspectIssueHandoff(branchName);
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
     const issue = await this.#getIssueSnapshot(issueNumber);
-    await this.#client.updateIssue({
-      id: issue.id,
-      description: writeLinearWorkpad(issue.description, {
-        status: "retry-scheduled",
-        summary: reason,
-        branchName: null,
-        updatedAt: new Date().toISOString(),
+    normalizeLinearIssueMutationResult(
+      await this.#client.updateIssue({
+        id: issue.id,
+        description: writeLinearWorkpad(issue.description, {
+          status: "retry-scheduled",
+          summary: reason,
+          branchName: null,
+          updatedAt: new Date().toISOString(),
+        }),
       }),
-    });
-    await this.#client.createComment(issue.id, `${RETRY_PREFIX} ${reason}`);
+      "issueUpdate",
+    );
+    normalizeLinearIssueMutationResult(
+      await this.#client.createComment(issue.id, `${RETRY_PREFIX} ${reason}`),
+      "commentCreate",
+    );
   }
 
   async completeIssue(issueNumber: number): Promise<void> {
     const project = await this.#project();
     const issue = await this.#getIssueSnapshot(issueNumber);
     const terminalState = resolveLinearTerminalState(project, this.#config);
-    await this.#client.updateIssue({
-      id: issue.id,
-      description: writeLinearWorkpad(issue.description, {
-        status: "completed",
-        summary: "Completed by Symphony",
-        branchName: null,
-        updatedAt: new Date().toISOString(),
+    normalizeLinearIssueMutationResult(
+      await this.#client.updateIssue({
+        id: issue.id,
+        description: writeLinearWorkpad(issue.description, {
+          status: "completed",
+          summary: "Completed by Symphony",
+          branchName: null,
+          updatedAt: new Date().toISOString(),
+        }),
+        stateId: terminalState.id,
       }),
-      stateId: terminalState.id,
-    });
-    await this.#client.createComment(issue.id, COMPLETION_COMMENT);
+      "issueUpdate",
+    );
+    normalizeLinearIssueMutationResult(
+      await this.#client.createComment(issue.id, COMPLETION_COMMENT),
+      "commentCreate",
+    );
   }
 
   async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
     const issue = await this.#getIssueSnapshot(issueNumber);
-    await this.#client.updateIssue({
-      id: issue.id,
-      description: writeLinearWorkpad(issue.description, {
-        status: "failed",
-        summary: reason,
-        branchName: null,
-        updatedAt: new Date().toISOString(),
+    normalizeLinearIssueMutationResult(
+      await this.#client.updateIssue({
+        id: issue.id,
+        description: writeLinearWorkpad(issue.description, {
+          status: "failed",
+          summary: reason,
+          branchName: null,
+          updatedAt: new Date().toISOString(),
+        }),
       }),
-    });
-    await this.#client.createComment(issue.id, `${FAILURE_PREFIX} ${reason}`);
+      "issueUpdate",
+    );
+    normalizeLinearIssueMutationResult(
+      await this.#client.createComment(issue.id, `${FAILURE_PREFIX} ${reason}`),
+      "commentCreate",
+    );
   }
 
   async #project(): Promise<LinearProjectSnapshot> {

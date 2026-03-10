@@ -32,6 +32,19 @@ export class GitHubBootstrapTracker implements Tracker {
     this.#client = new GitHubClient(config);
   }
 
+  subject(): string {
+    return this.#config.repo;
+  }
+
+  isHumanReviewFeedback(authorLogin: string | null): boolean {
+    if (authorLogin === null) {
+      return false;
+    }
+    return !this.#config.reviewBotLogins
+      .map((login) => login.toLowerCase())
+      .includes(authorLogin.toLowerCase());
+  }
+
   async ensureLabels(): Promise<void> {
     if (this.#ensureLabelsPromise === null) {
       this.#ensureLabelsPromise = this.#doEnsureLabels().catch((error) => {
