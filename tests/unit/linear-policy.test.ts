@@ -127,6 +127,20 @@ describe("resolveLinearClaimStateName", () => {
       }),
     ).toBeNull();
   });
+
+  it("returns null when the next configured active state would be a duplicate no-op", () => {
+    expect(
+      resolveLinearClaimStateName(createIssue("In Progress"), {
+        kind: "linear",
+        endpoint: "https://linear.example/graphql",
+        apiKey: "token",
+        projectSlug: "symphony-linear",
+        assignee: null,
+        activeStates: ["Todo", "In Progress", "In Progress"],
+        terminalStates: ["Done"],
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("resolveLinearTerminalStateName", () => {

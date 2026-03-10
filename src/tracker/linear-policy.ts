@@ -55,6 +55,8 @@ export function resolveLinearClaimStateName(
   }
 
   const nextStateName = config.activeStates[currentIndex + 1] ?? null;
+  // Treat duplicate adjacent entries as a degenerate no-op transition rather
+  // than attempting to "advance" the issue into the state it already has.
   if (nextStateName === null || nextStateName === issue.state.name) {
     return null;
   }
