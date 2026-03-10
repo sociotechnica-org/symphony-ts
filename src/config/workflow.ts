@@ -467,17 +467,30 @@ export async function loadWorkflowWorkspaceRoot(
   );
 }
 
-function redactPromptConfig(config: ResolvedConfig): ResolvedConfig {
-  if (config.tracker.kind !== "linear") {
-    return config;
-  }
+function exhaustiveTrackerConfig(tracker: never): never {
+  throw new ConfigError(
+    `Unsupported tracker config '${JSON.stringify(tracker)}'`,
+  );
+}
 
+function redactTrackerConfig(tracker: TrackerConfig): TrackerConfig {
+  switch (tracker.kind) {
+    case "github-bootstrap":
+      return tracker;
+    case "linear":
+      return {
+        ...tracker,
+        apiKey: "[redacted]",
+      };
+    default:
+      return exhaustiveTrackerConfig(tracker);
+  }
+}
+
+function redactPromptConfig(config: ResolvedConfig): ResolvedConfig {
   return {
     ...config,
-    tracker: {
-      ...config.tracker,
-      apiKey: "[redacted]",
-    },
+    tracker: redactTrackerConfig(config.tracker),
   };
 }
 
