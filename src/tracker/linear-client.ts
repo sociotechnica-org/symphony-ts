@@ -60,11 +60,11 @@ interface LinearRawProjectIssuesConnection {
   readonly pageInfo: LinearRawPageInfo;
 }
 
-interface LinearRawProjectWithIssues extends LinearRawProject {
+export interface LinearRawProjectWithIssues extends LinearRawProject {
   readonly issues: LinearRawProjectIssuesConnection;
 }
 
-interface LinearRawProjectWithIssue extends LinearRawProject {
+export interface LinearRawProjectWithIssue extends LinearRawProject {
   readonly issue: LinearRawIssue | null;
 }
 
