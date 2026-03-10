@@ -269,6 +269,9 @@ describe("LinearTracker", () => {
     const lifecycle = await tracker.reconcileSuccessfulRun("symphony/21", null);
 
     expect(server.getIssue("symphony-linear", 21).stateName).toBe("Rework");
+    expect(server.getIssue("symphony-linear", 21).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
     expect(lifecycle.kind).toBe("actionable-follow-up");
   });
 
@@ -285,6 +288,9 @@ describe("LinearTracker", () => {
     const lifecycle = await tracker.reconcileSuccessfulRun("symphony/22", null);
 
     expect(server.getIssue("symphony-linear", 22).stateName).toBe("Merging");
+    expect(server.getIssue("symphony-linear", 22).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
     expect(lifecycle.kind).toBe("awaiting-system-checks");
   });
 

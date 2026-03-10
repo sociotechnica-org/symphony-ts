@@ -9,7 +9,9 @@ import {
   classifyLinearIssue,
   createLinearHandoffLifecycle,
   extractIssueNumberFromBranchName,
+  isLinearMergingWorkflowState,
   isLinearReviewWorkflowState,
+  isLinearReworkWorkflowState,
   isLinearTerminalWorkflowState,
   linearTrackerSubject,
   missingLinearLifecycle,
@@ -183,7 +185,11 @@ export class LinearTracker implements Tracker {
       },
       project,
     );
-    if (!alreadyTerminalState) {
+    const skipHandoffReadyComment =
+      alreadyTerminalState ||
+      isLinearReworkWorkflowState(issue.state.name) ||
+      isLinearMergingWorkflowState(issue.state.name);
+    if (!skipHandoffReadyComment) {
       await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
     }
     return await this.inspectIssueHandoff(branchName);

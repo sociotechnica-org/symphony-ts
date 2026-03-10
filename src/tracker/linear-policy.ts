@@ -41,6 +41,10 @@ export function classifyLinearIssue(
 
   if (
     issue.workpad?.status === "failed" &&
+    // Review workflow states take precedence over a failed workpad. If a human
+    // moved the ticket into Human Review, Rework, or Merging while a run was
+    // in flight, the issue is still under active supervision rather than part
+    // of the generic failed queue.
     !isLinearReviewWorkflowState(issue.state.name)
   ) {
     return "failed";
@@ -258,10 +262,22 @@ function latestLinearReviewSignal(
 
 export function isLinearReviewWorkflowState(stateName: string): boolean {
   return (
-    sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME) ||
-    sameLinearStateName(stateName, REWORK_STATE_NAME) ||
-    sameLinearStateName(stateName, MERGING_STATE_NAME)
+    isLinearHumanReviewWorkflowState(stateName) ||
+    isLinearReworkWorkflowState(stateName) ||
+    isLinearMergingWorkflowState(stateName)
   );
+}
+
+export function isLinearHumanReviewWorkflowState(stateName: string): boolean {
+  return sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME);
+}
+
+export function isLinearReworkWorkflowState(stateName: string): boolean {
+  return sameLinearStateName(stateName, REWORK_STATE_NAME);
+}
+
+export function isLinearMergingWorkflowState(stateName: string): boolean {
+  return sameLinearStateName(stateName, MERGING_STATE_NAME);
 }
 
 function matchesConfiguredStateName(

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyLinearIssue,
   createLinearHandoffLifecycle,
   extractIssueNumberFromBranchName,
   resolveLinearClaimStateName,
@@ -61,7 +62,12 @@ function createIssue(
   stateName: string,
   options: {
     readonly comments?: readonly LinearComment[];
-    readonly workpadStatus?: "handoff-ready" | "completed";
+    readonly workpadStatus?:
+      | "running"
+      | "retry-scheduled"
+      | "handoff-ready"
+      | "completed"
+      | "failed";
   } = {},
 ): LinearIssueSnapshot {
   const description =
@@ -264,6 +270,48 @@ describe("createLinearHandoffLifecycle", () => {
     );
 
     expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
+});
+
+describe("classifyLinearIssue", () => {
+  const config = {
+    kind: "linear" as const,
+    endpoint: "https://linear.example/graphql",
+    apiKey: "token",
+    projectSlug: "symphony-linear",
+    assignee: null,
+    activeStates: ["Todo", "In Progress"],
+    terminalStates: ["Done"],
+  };
+
+  it("treats failed workpads in active states as failed issues", () => {
+    expect(
+      classifyLinearIssue(
+        createIssue("In Progress", { workpadStatus: "failed" }),
+        config,
+      ),
+    ).toBe("failed");
+  });
+
+  it("treats failed workpads in review workflow states as running", () => {
+    expect(
+      classifyLinearIssue(
+        createIssue("Human Review", { workpadStatus: "failed" }),
+        config,
+      ),
+    ).toBe("running");
+    expect(
+      classifyLinearIssue(
+        createIssue("Rework", { workpadStatus: "failed" }),
+        config,
+      ),
+    ).toBe("running");
+    expect(
+      classifyLinearIssue(
+        createIssue("Merging", { workpadStatus: "failed" }),
+        config,
+      ),
+    ).toBe("running");
   });
 });
 
