@@ -364,7 +364,8 @@ function normalizeNullableNumber(value: unknown, field: string): number | null {
   if (value === null || value === undefined) {
     return null;
   }
-  return requireNumber(value, field);
+  const normalized = requireNumber(value, field);
+  return normalized === 0 ? null : normalized;
 }
 
 function matchesConfiguredAssignee(

@@ -123,6 +123,15 @@ describe("normalizeLinearIssueSnapshot", () => {
     expect(snapshot.blockedBy).toEqual([]);
   });
 
+  it("normalizes Linear priority 0 to null for unset priority", () => {
+    const snapshot = normalizeLinearIssueSnapshot(
+      createIssuePayload({ priority: 0 }),
+      "issue",
+    );
+
+    expect(snapshot.priority).toBeNull();
+  });
+
   it("marks unassigned or differently assigned issues as not routed to the worker", () => {
     const unassigned = normalizeLinearIssueSnapshot(
       createIssuePayload({ assignee: null }),
