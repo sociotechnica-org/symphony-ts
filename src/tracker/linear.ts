@@ -177,14 +177,15 @@ export class LinearTracker implements Tracker {
         description: updatedDescription,
         ...(humanReviewStateName === null ||
         alreadyInReviewState ||
-        alreadyTerminalState ||
-        sameLinearStateName(humanReviewStateName, issue.state.name)
+        alreadyTerminalState
           ? {}
           : { stateName: humanReviewStateName }),
       },
       project,
     );
-    await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
+    if (!alreadyTerminalState) {
+      await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
+    }
     return await this.inspectIssueHandoff(branchName);
   }
 

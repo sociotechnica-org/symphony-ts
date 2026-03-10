@@ -121,9 +121,7 @@ export function createLinearHandoffLifecycle(
 
   const reviewSignal = latestLinearReviewSignal(issue.comments);
   const stateName = issue.state.name;
-  const hasHandoffMarker =
-    issue.workpad?.status === "handoff-ready" ||
-    issue.workpad?.status === "completed";
+  const hasHandoffMarker = issue.workpad?.status === "handoff-ready";
 
   if (matchesConfiguredStateName(config.terminalStates, stateName)) {
     return linearLifecycle(

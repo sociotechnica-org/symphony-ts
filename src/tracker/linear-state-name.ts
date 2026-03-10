@@ -1,3 +1,3 @@
 export function sameLinearStateName(left: string, right: string): boolean {
-  return left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
+  return left.localeCompare(right, "en", { sensitivity: "accent" }) === 0;
 }

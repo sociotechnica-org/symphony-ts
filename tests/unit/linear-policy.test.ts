@@ -375,6 +375,15 @@ describe("resolveLinearHumanReviewStateName", () => {
   it("returns Human Review when the project exposes that state", () => {
     expect(resolveLinearHumanReviewStateName(PROJECT)).toBe("Human Review");
   });
+
+  it("returns null when the project does not expose Human Review", () => {
+    const projectWithoutReview: LinearProjectSnapshot = {
+      ...PROJECT,
+      states: PROJECT.states.filter((state) => state.name !== "Human Review"),
+    };
+
+    expect(resolveLinearHumanReviewStateName(projectWithoutReview)).toBeNull();
+  });
 });
 
 function createComment(

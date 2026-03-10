@@ -301,6 +301,9 @@ describe("LinearTracker", () => {
     const lifecycle = await tracker.reconcileSuccessfulRun("symphony/23", null);
 
     expect(server.getIssue("symphony-linear", 23).stateName).toBe("Done");
+    expect(server.getIssue("symphony-linear", 23).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
     expect(lifecycle.kind).toBe("handoff-ready");
   });
 
