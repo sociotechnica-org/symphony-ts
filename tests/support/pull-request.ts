@@ -1,8 +1,8 @@
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type {
-  PullRequestLifecycle,
+  HandoffLifecycle,
   ReviewFeedback,
-} from "../../src/domain/pull-request.js";
+} from "../../src/domain/handoff.js";
 
 export function createIssue(
   number: number,
@@ -24,7 +24,7 @@ export function createIssue(
 }
 
 export function createLifecycle(
-  kind: PullRequestLifecycle["kind"],
+  kind: HandoffLifecycle["kind"],
   branchName: string,
   options?: {
     failingCheckNames?: readonly string[];
@@ -32,12 +32,12 @@ export function createLifecycle(
     actionableReviewFeedback?: readonly ReviewFeedback[];
     unresolvedThreadIds?: readonly string[];
   },
-): PullRequestLifecycle {
+): HandoffLifecycle {
   return {
     kind,
     branchName,
     pullRequest:
-      kind === "missing" || kind === "awaiting-plan-review"
+      kind === "missing-target" || kind === "awaiting-human-handoff"
         ? null
         : {
             number: 1,

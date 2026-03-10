@@ -33,7 +33,7 @@ function createSnapshot(
       retries: 1,
     },
     lastAction: {
-      kind: "awaiting-review",
+      kind: "awaiting-system-checks",
       summary: "Waiting for PR checks to appear on https://example.test/pr/12",
       at: "2026-03-06T12:00:00.000Z",
       issueNumber: 12,
@@ -45,7 +45,7 @@ function createSnapshot(
         title: "Expose factory status",
         source: "running",
         runSequence: 2,
-        status: "awaiting-review",
+        status: "awaiting-system-checks",
         summary:
           "Waiting for PR checks to appear on https://example.test/pr/12",
         workspacePath: "/tmp/workspaces/12",
@@ -273,7 +273,9 @@ describe("factory status helpers", () => {
     expect(output).toContain(
       "Counts: ready=1 tracker_running=2 failed=0 local=0 retries=1",
     );
-    expect(output).toContain("#12 Expose factory status [awaiting-review]");
+    expect(output).toContain(
+      "#12 Expose factory status [awaiting-system-checks]",
+    );
     expect(output).toContain("PR: #12 https://example.test/pr/12");
     expect(output).toContain("Pending checks: CI");
     expect(output).toContain("Retries:");

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
+import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { RetryState } from "../domain/retry.js";
 import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
 import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
@@ -379,22 +379,22 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     lockDir: string,
-    initialLifecycle?: PullRequestLifecycle,
+    initialLifecycle?: HandoffLifecycle,
   ): Promise<void> {
     const branchName = this.#branchName(issue.number);
     const issueSource = initialLifecycle !== undefined ? "ready" : "running";
     const lifecycle =
       initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 
-    if (lifecycle.kind === "ready") {
+    if (lifecycle.kind === "handoff-ready") {
       await this.#completeIssue(issue);
       await this.#cleanupIssueWorkspaceIfNeeded(issue);
       return;
     }
 
     if (
-      lifecycle.kind === "awaiting-review" ||
-      lifecycle.kind === "awaiting-plan-review"
+      lifecycle.kind === "awaiting-system-checks" ||
+      lifecycle.kind === "awaiting-human-handoff"
     ) {
       noteLifecycleForIssue(
         this.#state.status,
@@ -425,7 +425,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       attempt,
       lockDir,
       issueSource,
-      lifecycle.kind === "missing" ? null : lifecycle,
+      lifecycle.kind === "missing-target" ? null : lifecycle,
     );
   }
 
@@ -434,7 +434,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
     lockDir: string,
     source: "ready" | "running",
-    pullRequest: PullRequestLifecycle | null,
+    pullRequest: HandoffLifecycle | null,
   ): Promise<void> {
     upsertActiveIssue(this.#state.status, issue, {
       source,
@@ -540,7 +540,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         pullRequest,
       );
 
-      if (nextLifecycle.kind === "ready") {
+      if (nextLifecycle.kind === "handoff-ready") {
         await this.#completeIssue(issue, {
           attemptNumber: attempt,
           branchName: workspace.branchName,
@@ -551,7 +551,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
 
-      if (nextLifecycle.kind === "missing") {
+      if (nextLifecycle.kind === "missing-target") {
         await this.#handleFailure(
           session,
           attempt,
@@ -569,7 +569,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspace.branchName,
         nextLifecycle,
       );
-      this.#logger.info("Issue remains in PR lifecycle", {
+      this.#logger.info("Issue remains in handoff lifecycle", {
         issueNumber: issue.number,
         branchName: workspace.branchName,
         runSessionId: session.id,
@@ -695,7 +695,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
   }
 
-  async #refreshLifecycle(branchName: string): Promise<PullRequestLifecycle> {
+  async #refreshLifecycle(branchName: string): Promise<HandoffLifecycle> {
     return await this.#tracker.inspectIssueHandoff(branchName);
   }
 
@@ -782,10 +782,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     return `${this.#config.workspace.branchPrefix}${issueNumber.toString()}`;
   }
 
-  #missingLifecycle(issueNumber: number): PullRequestLifecycle {
+  #missingLifecycle(issueNumber: number): HandoffLifecycle {
     const branchName = this.#branchName(issueNumber);
     return {
-      kind: "missing",
+      kind: "missing-target",
       branchName,
       pullRequest: null,
       checks: [],
@@ -937,7 +937,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly branchName?: string | null;
       readonly session?: RunSession;
       readonly finishedAt?: string;
-      readonly lifecycle?: PullRequestLifecycle | null;
+      readonly lifecycle?: HandoffLifecycle | null;
     },
   ): Promise<void> {
     const runnerPid = this.#currentRunnerPid(issue.number);
@@ -1051,7 +1051,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     session: RunSession,
-    lifecycle: PullRequestLifecycle | null,
+    lifecycle: HandoffLifecycle | null,
   ): IssueArtifactObservation {
     const sessionArtifacts = this.#createSessionObservationArtifacts(session);
     return {
@@ -1079,7 +1079,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     branchName: string,
-    lifecycle: PullRequestLifecycle,
+    lifecycle: HandoffLifecycle,
     options?: {
       readonly session?: RunSession;
       readonly finishedAt?: string | undefined;
@@ -1198,7 +1198,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly branchName?: string | null | undefined;
       readonly session?: RunSession | undefined;
       readonly runnerPid?: number | null | undefined;
-      readonly lifecycle?: PullRequestLifecycle | null | undefined;
+      readonly lifecycle?: HandoffLifecycle | null | undefined;
     },
   ): IssueArtifactObservation {
     const sessionArtifacts =
@@ -1290,10 +1290,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     sessionId: string | null,
-    lifecycle: PullRequestLifecycle,
+    lifecycle: HandoffLifecycle,
     observedAt: string,
   ): IssueArtifactEvent | null {
-    if (lifecycle.kind === "awaiting-plan-review") {
+    if (lifecycle.kind === "awaiting-human-handoff") {
       return this.#createIssueEvent("plan-ready", issue, {
         observedAt,
         attemptNumber: attempt,
@@ -1303,8 +1303,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     if (
-      lifecycle.kind !== "awaiting-review" &&
-      lifecycle.kind !== "needs-follow-up"
+      lifecycle.kind !== "awaiting-system-checks" &&
+      lifecycle.kind !== "actionable-follow-up"
     ) {
       return null;
     }
@@ -1324,20 +1324,20 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createLifecycleOutcome(
-    lifecycle: PullRequestLifecycle,
+    lifecycle: HandoffLifecycle,
   ): Extract<
     IssueArtifactOutcome,
     "awaiting-plan-review" | "awaiting-review" | "needs-follow-up"
   > {
     switch (lifecycle.kind) {
-      case "awaiting-plan-review":
+      case "awaiting-human-handoff":
         return "awaiting-plan-review";
-      case "awaiting-review":
+      case "awaiting-system-checks":
         return "awaiting-review";
-      case "needs-follow-up":
+      case "actionable-follow-up":
         return "needs-follow-up";
-      case "missing":
-      case "ready":
+      case "missing-target":
+      case "handoff-ready":
         break;
     }
     throw new OrchestratorError(
@@ -1346,7 +1346,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createLifecycleEventDetails(
-    lifecycle: PullRequestLifecycle,
+    lifecycle: HandoffLifecycle,
   ): Readonly<Record<string, unknown>> {
     return {
       branch: lifecycle.branchName,
@@ -1394,7 +1394,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly sessionId: string | null;
       readonly startedAt: string | null;
       readonly finishedAt?: string | null;
-      readonly lifecycle?: PullRequestLifecycle | null;
+      readonly lifecycle?: HandoffLifecycle | null;
       readonly runnerPid?: number | null;
     },
   ): IssueArtifactAttemptSnapshot {
@@ -1465,7 +1465,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createPullRequestArtifactSnapshot(
-    lifecycle: PullRequestLifecycle | null,
+    lifecycle: HandoffLifecycle | null,
   ): IssueArtifactPullRequestSnapshot | null {
     if (lifecycle === null || lifecycle.pullRequest === null) {
       return null;
@@ -1478,7 +1478,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createReviewArtifactSnapshot(
-    lifecycle: PullRequestLifecycle | null,
+    lifecycle: HandoffLifecycle | null,
   ): IssueArtifactReviewSnapshot | null {
     if (lifecycle === null) {
       return null;
@@ -1490,7 +1490,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createCheckArtifactSnapshot(
-    lifecycle: PullRequestLifecycle | null,
+    lifecycle: HandoffLifecycle | null,
   ): IssueArtifactCheckSnapshot | null {
     if (lifecycle === null) {
       return null;
@@ -1505,14 +1505,14 @@ export class BootstrapOrchestrator implements Orchestrator {
     return this.#state.status.activeIssues.get(issueNumber)?.runnerPid ?? null;
   }
 
-  #followUpFailureMessage(lifecycle: PullRequestLifecycle): string {
+  #followUpFailureMessage(lifecycle: HandoffLifecycle): string {
     if (!this.#hasHumanReviewFeedback(lifecycle)) {
       return lifecycle.summary;
     }
     return `${lifecycle.summary}; human review feedback remains unresolved`;
   }
 
-  #hasHumanReviewFeedback(lifecycle: PullRequestLifecycle): boolean {
+  #hasHumanReviewFeedback(lifecycle: HandoffLifecycle): boolean {
     const reviewBotLogins = new Set(
       this.#config.tracker.reviewBotLogins.map((login) => login.toLowerCase()),
     );

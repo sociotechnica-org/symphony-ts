@@ -1,5 +1,5 @@
+import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { PullRequestLifecycle } from "../domain/pull-request.js";
 
 export interface Tracker {
   ensureLabels(): Promise<void>;
@@ -8,11 +8,11 @@ export interface Tracker {
   fetchFailedIssues(): Promise<readonly RuntimeIssue[]>;
   getIssue(issueNumber: number): Promise<RuntimeIssue>;
   claimIssue(issueNumber: number): Promise<RuntimeIssue | null>;
-  inspectIssueHandoff(branchName: string): Promise<PullRequestLifecycle>;
+  inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle>;
   reconcileSuccessfulRun(
     branchName: string,
-    lifecycle: PullRequestLifecycle | null,
-  ): Promise<PullRequestLifecycle>;
+    lifecycle: HandoffLifecycle | null,
+  ): Promise<HandoffLifecycle>;
   recordRetry(issueNumber: number, reason: string): Promise<void>;
   completeIssue(issueNumber: number): Promise<void>;
   markIssueFailed(issueNumber: number, reason: string): Promise<void>;

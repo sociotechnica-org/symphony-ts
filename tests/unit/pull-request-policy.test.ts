@@ -33,8 +33,8 @@ describe("pull-request-policy", () => {
       first.nextNoCheckObservation ?? undefined,
     );
 
-    expect(first.lifecycle.kind).toBe("awaiting-review");
-    expect(second.lifecycle.kind).toBe("ready");
+    expect(first.lifecycle.kind).toBe("awaiting-system-checks");
+    expect(second.lifecycle.kind).toBe("handoff-ready");
   });
 
   it("waits on human-only review feedback without scheduling follow-up", () => {
@@ -57,7 +57,7 @@ describe("pull-request-policy", () => {
       undefined,
     ).lifecycle;
 
-    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
     expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
   });
 
@@ -96,7 +96,7 @@ describe("pull-request-policy", () => {
       undefined,
     ).lifecycle;
 
-    expect(lifecycle.kind).toBe("needs-follow-up");
+    expect(lifecycle.kind).toBe("actionable-follow-up");
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
     expect(lifecycle.unresolvedThreadIds).toEqual(["thread-2"]);
   });
@@ -110,7 +110,7 @@ describe("pull-request-policy", () => {
       undefined,
     ).lifecycle;
 
-    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
     expect(lifecycle.pendingCheckNames).toEqual(["integration"]);
     expect(lifecycle.failingCheckNames).toEqual(["lint"]);
   });
@@ -137,7 +137,7 @@ describe("pull-request-policy", () => {
       undefined,
     ).lifecycle;
 
-    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
     expect(lifecycle.pendingCheckNames).toEqual(["integration"]);
     expect(lifecycle.actionableReviewFeedback).toEqual(feedback);
   });

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
+import type { HandoffLifecycle } from "../../src/domain/handoff.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
-import type { PullRequestLifecycle } from "../../src/domain/pull-request.js";
 import type { RunResult, RunSession } from "../../src/domain/run.js";
 import type { PreparedWorkspace } from "../../src/domain/workspace.js";
 import type {
@@ -121,7 +121,7 @@ class SequencedTracker implements Tracker {
   readonly readyIssues = new Map<number, RuntimeIssue>();
   readonly runningIssues = new Map<number, RuntimeIssue>();
   readonly failedIssues = new Map<number, RuntimeIssue>();
-  readonly lifecycleSequences = new Map<number, PullRequestLifecycle[]>();
+  readonly lifecycleSequences = new Map<number, HandoffLifecycle[]>();
   readonly completed: number[] = [];
   readonly retried: Array<{ issueNumber: number; reason: string }> = [];
   readonly failed: Array<{ issueNumber: number; reason: string }> = [];
@@ -142,7 +142,7 @@ class SequencedTracker implements Tracker {
 
   setLifecycleSequence(
     issueNumber: number,
-    sequence: readonly PullRequestLifecycle[],
+    sequence: readonly HandoffLifecycle[],
   ): void {
     this.lifecycleSequences.set(issueNumber, [...sequence]);
   }
@@ -179,7 +179,7 @@ class SequencedTracker implements Tracker {
     return claimed;
   }
 
-  async inspectIssueHandoff(branchName: string): Promise<PullRequestLifecycle> {
+  async inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle> {
     const issueNumber = Number(branchName.split("/").at(-1));
     if (Number.isNaN(issueNumber)) {
       throw new Error(`Invalid branch name ${branchName}`);
@@ -196,15 +196,15 @@ class SequencedTracker implements Tracker {
 
   async reconcileSuccessfulRun(
     branchName: string,
-    lifecycle: PullRequestLifecycle | null,
-  ): Promise<PullRequestLifecycle> {
+    lifecycle: HandoffLifecycle | null,
+  ): Promise<HandoffLifecycle> {
     if (lifecycle !== null && lifecycle.unresolvedThreadIds.length > 0) {
       this.resolvedThreadBatches.push([...lifecycle.unresolvedThreadIds]);
     }
     if (lifecycle === null) {
       const issueNumber = Number(branchName.split("/").at(-1));
       const sequence = this.lifecycleSequences.get(issueNumber);
-      if (sequence?.[0]?.kind === "missing") {
+      if (sequence?.[0]?.kind === "missing-target") {
         sequence.shift();
       }
     }
@@ -472,16 +472,16 @@ describe("BootstrapOrchestrator", () => {
         ready: [createIssue(1), createIssue(2), createIssue(3)],
       });
       tracker.setLifecycleSequence(1, [
-        lifecycle("missing", "symphony/1"),
-        lifecycle("ready", "symphony/1"),
+        lifecycle("missing-target", "symphony/1"),
+        lifecycle("handoff-ready", "symphony/1"),
       ]);
       tracker.setLifecycleSequence(2, [
-        lifecycle("missing", "symphony/2"),
-        lifecycle("ready", "symphony/2"),
+        lifecycle("missing-target", "symphony/2"),
+        lifecycle("handoff-ready", "symphony/2"),
       ]);
       tracker.setLifecycleSequence(3, [
-        lifecycle("missing", "symphony/3"),
-        lifecycle("ready", "symphony/3"),
+        lifecycle("missing-target", "symphony/3"),
+        lifecycle("handoff-ready", "symphony/3"),
       ]);
       const runner = new ConcurrencyRunner();
       const orchestrator = new BootstrapOrchestrator(
@@ -525,8 +525,8 @@ describe("BootstrapOrchestrator", () => {
         ready: [createIssue(1)],
       });
       tracker.setLifecycleSequence(1, [
-        lifecycle("missing", "symphony/1"),
-        lifecycle("ready", "symphony/1"),
+        lifecycle("missing-target", "symphony/1"),
+        lifecycle("handoff-ready", "symphony/1"),
       ]);
       const logger = new NullLogger();
       const orchestrator = new BootstrapOrchestrator(
@@ -581,7 +581,7 @@ describe("BootstrapOrchestrator", () => {
       running: [createIssue(7, "symphony:running")],
     });
     tracker.setLifecycleSequence(7, [
-      lifecycle("awaiting-review", "symphony/7", {
+      lifecycle("awaiting-system-checks", "symphony/7", {
         pendingCheckNames: ["CI"],
       }),
     ]);
@@ -617,8 +617,8 @@ describe("BootstrapOrchestrator", () => {
         ready: [createIssue(32)],
       });
       tracker.setLifecycleSequence(32, [
-        lifecycle("missing", "symphony/32"),
-        lifecycle("awaiting-plan-review", "symphony/32"),
+        lifecycle("missing-target", "symphony/32"),
+        lifecycle("awaiting-human-handoff", "symphony/32"),
       ]);
       const runner = new RecordingRunner();
       const orchestrator = new BootstrapOrchestrator(
@@ -645,7 +645,7 @@ describe("BootstrapOrchestrator", () => {
       const snapshot = await readFactoryStatusSnapshot(
         deriveStatusFilePath(tempRoot),
       );
-      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-plan-review");
+      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-human-handoff");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -658,8 +658,8 @@ describe("BootstrapOrchestrator", () => {
         running: [createIssue(79, "symphony:running")],
       });
       tracker.setLifecycleSequence(79, [
-        lifecycle("missing", "symphony/79"),
-        lifecycle("awaiting-review", "symphony/79", {
+        lifecycle("missing-target", "symphony/79"),
+        lifecycle("awaiting-system-checks", "symphony/79", {
           pendingCheckNames: ["CI"],
         }),
       ]);
@@ -685,7 +685,7 @@ describe("BootstrapOrchestrator", () => {
       );
       expect(snapshot.activeIssues).toHaveLength(1);
       expect(snapshot.activeIssues[0]?.source).toBe("running");
-      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-review");
+      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-system-checks");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -698,7 +698,7 @@ describe("BootstrapOrchestrator", () => {
         running: [createIssue(70, "symphony:running")],
       });
       tracker.setLifecycleSequence(70, [
-        lifecycle("needs-follow-up", "symphony/70", {
+        lifecycle("actionable-follow-up", "symphony/70", {
           failingCheckNames: ["CI"],
         }),
       ]);
@@ -745,7 +745,9 @@ describe("BootstrapOrchestrator", () => {
       const tracker = new SequencedTracker({
         running: [createIssue(71, "symphony:running")],
       });
-      tracker.setLifecycleSequence(71, [lifecycle("ready", "symphony/71")]);
+      tracker.setLifecycleSequence(71, [
+        lifecycle("handoff-ready", "symphony/71"),
+      ]);
       const lockDir = path.join(tempRoot, ".symphony-locks", "71");
       await fs.mkdir(lockDir, { recursive: true });
       await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
@@ -779,10 +781,12 @@ describe("BootstrapOrchestrator", () => {
       ready: [createIssue(78)],
       running: [createIssue(77, "symphony:running")],
     });
-    tracker.setLifecycleSequence(77, [lifecycle("ready", "symphony/77")]);
+    tracker.setLifecycleSequence(77, [
+      lifecycle("handoff-ready", "symphony/77"),
+    ]);
     tracker.setLifecycleSequence(78, [
-      lifecycle("missing", "symphony/78"),
-      lifecycle("ready", "symphony/78"),
+      lifecycle("missing-target", "symphony/78"),
+      lifecycle("handoff-ready", "symphony/78"),
     ]);
     const logger = new NullLogger();
     const originalReconcile = LocalIssueLeaseManager.prototype.reconcile;
@@ -835,7 +839,7 @@ describe("BootstrapOrchestrator", () => {
         running: [issue],
       });
       tracker.setLifecycleSequence(72, [
-        lifecycle("awaiting-review", "symphony/72"),
+        lifecycle("awaiting-system-checks", "symphony/72"),
       ]);
       const orchestrator = new BootstrapOrchestrator(
         {
@@ -874,7 +878,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new SequencedTracker({
       running: [createIssue(72, "symphony:running")],
     });
-    tracker.setLifecycleSequence(72, [lifecycle("ready", "symphony/72")]);
+    tracker.setLifecycleSequence(72, [
+      lifecycle("handoff-ready", "symphony/72"),
+    ]);
     const lockDir = path.join(tempRoot, ".symphony-locks", "72");
     await fs.mkdir(lockDir, { recursive: true });
     await fs.writeFile(path.join(lockDir, "pid"), "4242\n", "utf8");
@@ -916,8 +922,8 @@ describe("BootstrapOrchestrator", () => {
       running: [createIssue(71, "symphony:running")],
     });
     tracker.setLifecycleSequence(71, [
-      lifecycle("awaiting-review", "symphony/71"),
-      lifecycle("ready", "symphony/71"),
+      lifecycle("awaiting-system-checks", "symphony/71"),
+      lifecycle("handoff-ready", "symphony/71"),
     ]);
     const workspace = new CleanupFailingWorkspaceManager();
     const logger = new NullLogger();
@@ -958,7 +964,7 @@ describe("BootstrapOrchestrator", () => {
       running: [createIssue(8, "symphony:running")],
     });
     tracker.setLifecycleSequence(8, [
-      lifecycle("needs-follow-up", "symphony/8", {
+      lifecycle("actionable-follow-up", "symphony/8", {
         failingCheckNames: ["CI"],
         unresolvedThreadIds: ["thread-1"],
         actionableReviewFeedback: [
@@ -975,7 +981,7 @@ describe("BootstrapOrchestrator", () => {
           },
         ],
       }),
-      lifecycle("ready", "symphony/8"),
+      lifecycle("handoff-ready", "symphony/8"),
     ]);
     const runner = new RecordingRunner();
     const workspace = new CleanupFailingWorkspaceManager();
@@ -1008,7 +1014,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new SequencedTracker({
       running: [createIssue(81, "symphony:running")],
     });
-    tracker.setLifecycleSequence(81, [lifecycle("ready", "symphony/81")]);
+    tracker.setLifecycleSequence(81, [
+      lifecycle("handoff-ready", "symphony/81"),
+    ]);
     const workspace = new CleanupFailingWorkspaceManager();
     let runnerCalls = 0;
     const orchestrator = new BootstrapOrchestrator(
@@ -1047,17 +1055,17 @@ describe("BootstrapOrchestrator", () => {
       ready: [createIssue(9)],
     });
     tracker.setLifecycleSequence(9, [
-      lifecycle("missing", "symphony/9"),
-      lifecycle("awaiting-review", "symphony/9", {
+      lifecycle("missing-target", "symphony/9"),
+      lifecycle("awaiting-system-checks", "symphony/9", {
         pendingCheckNames: ["CI"],
       }),
-      lifecycle("awaiting-review", "symphony/9", {
+      lifecycle("awaiting-system-checks", "symphony/9", {
         pendingCheckNames: ["CI"],
       }),
-      lifecycle("needs-follow-up", "symphony/9", {
+      lifecycle("actionable-follow-up", "symphony/9", {
         failingCheckNames: ["CI"],
       }),
-      lifecycle("ready", "symphony/9"),
+      lifecycle("handoff-ready", "symphony/9"),
     ]);
     const runner = new RecordingRunner();
     const orchestrator = new BootstrapOrchestrator(
@@ -1082,7 +1090,7 @@ describe("BootstrapOrchestrator", () => {
       running: [createIssue(73, "symphony:running")],
     });
     tracker.setLifecycleSequence(73, [
-      lifecycle("needs-follow-up", "symphony/73", {
+      lifecycle("actionable-follow-up", "symphony/73", {
         actionableReviewFeedback: [
           {
             id: "feedback-1",
@@ -1098,7 +1106,7 @@ describe("BootstrapOrchestrator", () => {
         ],
         unresolvedThreadIds: ["thread-1"],
       }),
-      lifecycle("needs-follow-up", "symphony/73", {
+      lifecycle("actionable-follow-up", "symphony/73", {
         actionableReviewFeedback: [
           {
             id: "feedback-2",
@@ -1130,7 +1138,7 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([
       {
         issueNumber: 73,
-        reason: "needs-follow-up for symphony/73",
+        reason: "actionable-follow-up for symphony/73",
       },
     ]);
   });
@@ -1140,11 +1148,11 @@ describe("BootstrapOrchestrator", () => {
       ready: [createIssue(74)],
     });
     tracker.setLifecycleSequence(74, [
-      lifecycle("missing", "symphony/74"),
-      lifecycle("awaiting-review", "symphony/74", {
+      lifecycle("missing-target", "symphony/74"),
+      lifecycle("awaiting-system-checks", "symphony/74", {
         pendingCheckNames: ["CI"],
       }),
-      lifecycle("needs-follow-up", "symphony/74", {
+      lifecycle("actionable-follow-up", "symphony/74", {
         failingCheckNames: ["CI"],
         actionableReviewFeedback: [
           {
@@ -1161,7 +1169,7 @@ describe("BootstrapOrchestrator", () => {
         ],
         unresolvedThreadIds: ["thread-1"],
       }),
-      lifecycle("needs-follow-up", "symphony/74", {
+      lifecycle("actionable-follow-up", "symphony/74", {
         failingCheckNames: ["CI"],
         actionableReviewFeedback: [
           {
@@ -1178,7 +1186,7 @@ describe("BootstrapOrchestrator", () => {
         ],
         unresolvedThreadIds: ["thread-2"],
       }),
-      lifecycle("ready", "symphony/74"),
+      lifecycle("handoff-ready", "symphony/74"),
     ]);
     const runner = new RecordingRunner();
     const orchestrator = new BootstrapOrchestrator(
@@ -1204,14 +1212,14 @@ describe("BootstrapOrchestrator", () => {
       ready: [createIssue(13)],
     });
     tracker.setLifecycleSequence(13, [
-      lifecycle("missing", "symphony/13"),
-      lifecycle("awaiting-review", "symphony/13", {
+      lifecycle("missing-target", "symphony/13"),
+      lifecycle("awaiting-system-checks", "symphony/13", {
         pendingCheckNames: ["CI"],
       }),
-      lifecycle("needs-follow-up", "symphony/13", {
+      lifecycle("actionable-follow-up", "symphony/13", {
         failingCheckNames: ["CI"],
       }),
-      lifecycle("ready", "symphony/13"),
+      lifecycle("handoff-ready", "symphony/13"),
     ]);
     const runner = new RecordingRunner();
     const orchestrator = new BootstrapOrchestrator(
@@ -1236,7 +1244,7 @@ describe("BootstrapOrchestrator", () => {
       JSON.stringify({
         issue: "sociotechnica-org/symphony-ts#13",
         attempt: 2,
-        pullRequest: "needs-follow-up",
+        pullRequest: "actionable-follow-up",
       }),
     ]);
   });
@@ -1245,7 +1253,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(10)],
     });
-    tracker.setLifecycleSequence(10, [lifecycle("missing", "symphony/10")]);
+    tracker.setLifecycleSequence(10, [
+      lifecycle("missing-target", "symphony/10"),
+    ]);
     const runnerCalls: number[] = [];
     const runner: Runner = {
       describeSession() {
@@ -1294,7 +1304,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(77)],
     });
-    tracker.setLifecycleSequence(77, [lifecycle("missing", "symphony/77")]);
+    tracker.setLifecycleSequence(77, [
+      lifecycle("missing-target", "symphony/77"),
+    ]);
     const runnerPid = 4321;
     const orchestrator = new BootstrapOrchestrator(
       {
@@ -1371,7 +1383,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(82)],
     });
-    tracker.setLifecycleSequence(82, [lifecycle("missing", "symphony/82")]);
+    tracker.setLifecycleSequence(82, [
+      lifecycle("missing-target", "symphony/82"),
+    ]);
     const runnerPid = 8765;
     const orchestrator = new BootstrapOrchestrator(
       {
@@ -1426,7 +1440,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(78)],
     });
-    tracker.setLifecycleSequence(78, [lifecycle("missing", "symphony/78")]);
+    tracker.setLifecycleSequence(78, [
+      lifecycle("missing-target", "symphony/78"),
+    ]);
     const artifactStore = new RecordingIssueArtifactStore();
     const orchestrator = new BootstrapOrchestrator(
       {
@@ -1484,7 +1500,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(81)],
     });
-    tracker.setLifecycleSequence(81, [lifecycle("missing", "symphony/81")]);
+    tracker.setLifecycleSequence(81, [
+      lifecycle("missing-target", "symphony/81"),
+    ]);
     let describeSessionCalls = 0;
     const orchestrator = new BootstrapOrchestrator(
       baseConfig,
@@ -1520,12 +1538,12 @@ describe("BootstrapOrchestrator", () => {
       ready: [createIssue(79), createIssue(80)],
     });
     tracker.setLifecycleSequence(79, [
-      lifecycle("missing", "symphony/79"),
-      lifecycle("ready", "symphony/79"),
+      lifecycle("missing-target", "symphony/79"),
+      lifecycle("handoff-ready", "symphony/79"),
     ]);
     tracker.setLifecycleSequence(80, [
-      lifecycle("missing", "symphony/80"),
-      lifecycle("ready", "symphony/80"),
+      lifecycle("missing-target", "symphony/80"),
+      lifecycle("handoff-ready", "symphony/80"),
     ]);
     const artifactStore = new PerIssueBlockingArtifactStore(79);
     const runner = new BlockingRecordingRunner([79, 80]);
@@ -1555,7 +1573,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new RetryRecordingFailingTracker({
       ready: [createIssue(11)],
     });
-    tracker.setLifecycleSequence(11, [lifecycle("missing", "symphony/11")]);
+    tracker.setLifecycleSequence(11, [
+      lifecycle("missing-target", "symphony/11"),
+    ]);
     const logger = new NullLogger();
     const orchestrator = new BootstrapOrchestrator(
       baseConfig,
@@ -1592,7 +1612,9 @@ describe("BootstrapOrchestrator", () => {
     const tracker = new FailOnceMarkIssueFailedTracker({
       ready: [createIssue(75)],
     });
-    tracker.setLifecycleSequence(75, [lifecycle("missing", "symphony/75")]);
+    tracker.setLifecycleSequence(75, [
+      lifecycle("missing-target", "symphony/75"),
+    ]);
     const runnerCalls: number[] = [];
     const logger = new NullLogger();
     const orchestrator = new BootstrapOrchestrator(
@@ -1651,7 +1673,9 @@ describe("BootstrapOrchestrator", () => {
       const tracker = new SequencedTracker({
         ready: [createIssue(76)],
       });
-      tracker.setLifecycleSequence(76, [lifecycle("missing", "symphony/76")]);
+      tracker.setLifecycleSequence(76, [
+        lifecycle("missing-target", "symphony/76"),
+      ]);
       const started = createDeferred<void>();
       const orchestrator = new BootstrapOrchestrator(
         {
@@ -1713,12 +1737,12 @@ describe("BootstrapOrchestrator", () => {
     const firstTracker = new SequencedTracker({ ready: [issue] });
     const secondTracker = new SequencedTracker({ ready: [issue] });
     firstTracker.setLifecycleSequence(12, [
-      lifecycle("missing", "symphony/12"),
-      lifecycle("ready", "symphony/12"),
+      lifecycle("missing-target", "symphony/12"),
+      lifecycle("handoff-ready", "symphony/12"),
     ]);
     secondTracker.setLifecycleSequence(12, [
-      lifecycle("missing", "symphony/12"),
-      lifecycle("ready", "symphony/12"),
+      lifecycle("missing-target", "symphony/12"),
+      lifecycle("handoff-ready", "symphony/12"),
     ]);
     const runner = new RecordingRunner();
 

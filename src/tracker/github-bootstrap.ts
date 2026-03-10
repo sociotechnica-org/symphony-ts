@@ -1,5 +1,5 @@
+import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { TrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { GitHubClient } from "./github-client.js";
@@ -22,7 +22,7 @@ export class GitHubBootstrapTracker implements Tracker {
     string,
     {
       readonly issueUpdatedAt: string;
-      readonly lifecycle: PullRequestLifecycle | null;
+      readonly lifecycle: HandoffLifecycle | null;
     }
   >();
 
@@ -79,7 +79,7 @@ export class GitHubBootstrapTracker implements Tracker {
     return updated;
   }
 
-  async inspectIssueHandoff(branchName: string): Promise<PullRequestLifecycle> {
+  async inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle> {
     const pullRequest = await this.#client.findOpenPullRequest(branchName);
     if (pullRequest === null) {
       this.#noCheckObservations.delete(branchName);
@@ -114,8 +114,8 @@ export class GitHubBootstrapTracker implements Tracker {
 
   async reconcileSuccessfulRun(
     branchName: string,
-    lifecycle: PullRequestLifecycle | null,
-  ): Promise<PullRequestLifecycle> {
+    lifecycle: HandoffLifecycle | null,
+  ): Promise<HandoffLifecycle> {
     if (lifecycle !== null && lifecycle.unresolvedThreadIds.length > 0) {
       await this.#client.resolveReviewThreads(lifecycle.unresolvedThreadIds);
     }
@@ -125,7 +125,7 @@ export class GitHubBootstrapTracker implements Tracker {
 
   async #inspectPlanReviewHandoff(
     branchName: string,
-  ): Promise<PullRequestLifecycle | null> {
+  ): Promise<HandoffLifecycle | null> {
     const issueNumber = this.#issueNumberFromBranchName(branchName);
     if (issueNumber === null) {
       return null;

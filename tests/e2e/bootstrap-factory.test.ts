@@ -170,11 +170,11 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(status.factoryState).toBe("blocked");
     expect(status.counts.running).toBe(1);
-    expect(status.lastAction?.kind).toBe("awaiting-review");
+    expect(status.lastAction?.kind).toBe("awaiting-system-checks");
     expect(status.activeIssues).toHaveLength(1);
     expect(status.activeIssues[0]).toMatchObject({
       issueNumber: 1,
-      status: "awaiting-review",
+      status: "awaiting-system-checks",
       branchName: "symphony/1",
     });
     expect(status.activeIssues[0]?.pullRequest?.number).toBe(1);

@@ -1,5 +1,5 @@
+import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { RetryState } from "../domain/retry.js";
 
 export interface FollowUpRuntimeState {
@@ -77,13 +77,13 @@ export function noteLifecycleObservation(
   state: FollowUpRuntimeState,
   issueNumber: number,
   attempt: number,
-  lifecycle: PullRequestLifecycle,
+  lifecycle: HandoffLifecycle,
   maxFollowUpAttempts: number,
 ): FollowUpBudgetDecision {
   const nextRunSequence = attempt + 1;
   state.nextRunSequenceByIssueNumber.set(issueNumber, nextRunSequence);
 
-  if (lifecycle.kind !== "needs-follow-up") {
+  if (lifecycle.kind !== "actionable-follow-up") {
     return {
       kind: "continue",
       nextRunSequence,

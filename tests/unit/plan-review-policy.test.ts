@@ -34,7 +34,7 @@ describe("plan-review-policy", () => {
       ],
     );
 
-    expect(lifecycle?.kind).toBe("awaiting-plan-review");
+    expect(lifecycle?.kind).toBe("awaiting-human-handoff");
   });
 
   it("waits when the latest relevant signal uses the legacy plan-ready marker", () => {
@@ -51,7 +51,7 @@ describe("plan-review-policy", () => {
       ],
     );
 
-    expect(lifecycle?.kind).toBe("awaiting-plan-review");
+    expect(lifecycle?.kind).toBe("awaiting-human-handoff");
   });
 
   it("does not wait when a later approval exists", () => {
@@ -140,7 +140,7 @@ describe("plan-review-policy", () => {
       ],
     );
 
-    expect(lifecycle?.kind).toBe("awaiting-plan-review");
+    expect(lifecycle?.kind).toBe("awaiting-human-handoff");
   });
 
   it("requests an acknowledgement comment for approved reviews", () => {

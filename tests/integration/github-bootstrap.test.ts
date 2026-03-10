@@ -78,7 +78,7 @@ describe("GitHubBootstrapTracker", () => {
     ]);
 
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
-      "ready",
+      "handoff-ready",
     );
 
     await tracker.completeIssue(7);
@@ -91,11 +91,11 @@ describe("GitHubBootstrapTracker", () => {
     const tracker = createTracker(server);
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("missing");
+    expect(lifecycle.kind).toBe("missing-target");
     expect(lifecycle.summary).toMatch(/no open pull request/i);
   });
 
-  it("reports awaiting-plan-review when the latest issue handoff is plan-ready", async () => {
+  it("reports awaiting-human-handoff when the latest issue handoff is plan-ready", async () => {
     const tracker = createTracker(server);
 
     server.addIssueComment({
@@ -105,11 +105,11 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
     expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
   });
 
-  it("reports awaiting-plan-review for the legacy plan-ready wording", async () => {
+  it("reports awaiting-human-handoff for the legacy plan-ready wording", async () => {
     const tracker = createTracker(server);
 
     server.addIssueComment({
@@ -119,7 +119,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
     expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
   });
 
@@ -141,9 +141,9 @@ describe("GitHubBootstrapTracker", () => {
     const first = await tracker.inspectIssueHandoff("symphony/7");
     const second = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(first.kind).toBe("missing");
+    expect(first.kind).toBe("missing-target");
     expect(first.summary).toMatch(/no open pull request/i);
-    expect(second.kind).toBe("missing");
+    expect(second.kind).toBe("missing-target");
     expect(second.summary).toMatch(/no open pull request/i);
     expect(
       server
@@ -181,7 +181,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-plan-review");
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
     expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
   });
 
@@ -196,8 +196,8 @@ describe("GitHubBootstrapTracker", () => {
     const first = await tracker.inspectIssueHandoff("symphony/7");
     const second = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(first.kind).toBe("awaiting-plan-review");
-    expect(second.kind).toBe("awaiting-plan-review");
+    expect(first.kind).toBe("awaiting-human-handoff");
+    expect(second.kind).toBe("awaiting-human-handoff");
     expect(server.countRequests("GET issues/7")).toBe(2);
     expect(server.countRequests("GET issues/7/comments")).toBe(1);
   });
@@ -220,8 +220,8 @@ describe("GitHubBootstrapTracker", () => {
     const first = await tracker.inspectIssueHandoff("symphony/7");
     const second = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(first.kind).toBe("missing");
-    expect(second.kind).toBe("missing");
+    expect(first.kind).toBe("missing-target");
+    expect(second.kind).toBe("missing-target");
     expect(server.countRequests("GET issues/7")).toBe(2);
     expect(server.countRequests("GET issues/7/comments")).toBe(2);
     expect(
@@ -251,8 +251,8 @@ describe("GitHubBootstrapTracker", () => {
     const first = await tracker.inspectIssueHandoff("symphony/7");
     const second = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(first.kind).toBe("missing");
-    expect(second.kind).toBe("missing");
+    expect(first.kind).toBe("missing-target");
+    expect(second.kind).toBe("missing-target");
     expect(
       server
         .getIssue(7)
@@ -262,7 +262,7 @@ describe("GitHubBootstrapTracker", () => {
     ).toHaveLength(1);
   });
 
-  it("reports awaiting-review while checks are pending", async () => {
+  it("reports awaiting-system-checks while checks are pending", async () => {
     const tracker = createTracker(server);
 
     await server.recordPullRequest({
@@ -277,7 +277,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
     expect(lifecycle.pendingCheckNames).toEqual(["CI"]);
   });
 
@@ -296,7 +296,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-review");
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
     expect(lifecycle.pendingCheckNames).toEqual(["Bugbot"]);
   });
 
@@ -315,7 +315,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("ready");
+    expect(lifecycle.kind).toBe("handoff-ready");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
@@ -335,7 +335,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("ready");
+    expect(lifecycle.kind).toBe("handoff-ready");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
@@ -351,11 +351,11 @@ describe("GitHubBootstrapTracker", () => {
 
     const first = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(first.kind).toBe("awaiting-review");
+    expect(first.kind).toBe("awaiting-system-checks");
     expect(first.summary).toMatch(/waiting for pr checks to appear/i);
 
     const second = await tracker.inspectIssueHandoff("symphony/7");
-    expect(second.kind).toBe("ready");
+    expect(second.kind).toBe("handoff-ready");
     expect(second.summary).toMatch(/merge-ready/i);
   });
 
@@ -399,7 +399,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("needs-follow-up");
+    expect(lifecycle.kind).toBe("actionable-follow-up");
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
     expect(lifecycle.unresolvedThreadIds).toEqual([threadId]);
     expect(lifecycle.actionableReviewFeedback).toHaveLength(2);
@@ -417,7 +417,7 @@ describe("GitHubBootstrapTracker", () => {
       lifecycle,
     );
     expect(server.isReviewThreadResolved(threadId)).toBe(true);
-    expect(refreshed.kind).toBe("ready");
+    expect(refreshed.kind).toBe("handoff-ready");
   });
 
   it("does not auto-resolve human review threads after a follow-up push", async () => {
@@ -449,7 +449,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("needs-follow-up");
+    expect(lifecycle.kind).toBe("actionable-follow-up");
     expect(lifecycle.unresolvedThreadIds).toEqual([botThreadId]);
     expect(lifecycle.actionableReviewFeedback).toHaveLength(2);
 
@@ -460,7 +460,7 @@ describe("GitHubBootstrapTracker", () => {
 
     expect(server.isReviewThreadResolved(botThreadId)).toBe(true);
     expect(server.isReviewThreadResolved(humanThreadId)).toBe(false);
-    expect(refreshed.kind).toBe("awaiting-review");
+    expect(refreshed.kind).toBe("awaiting-system-checks");
     expect(refreshed.actionableReviewFeedback).toHaveLength(1);
     expect(refreshed.actionableReviewFeedback[0]?.authorLogin).toBe(
       "jessmartin",
@@ -492,12 +492,12 @@ describe("GitHubBootstrapTracker", () => {
     });
 
     const first = await tracker.inspectIssueHandoff("symphony/8");
-    expect(first.kind).toBe("awaiting-review");
+    expect(first.kind).toBe("awaiting-system-checks");
 
     await tracker.completeIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("ready");
+    expect(second.kind).toBe("handoff-ready");
   });
 
   it("preserves no-check stabilization for other branches when another issue is claimed", async () => {
@@ -524,12 +524,12 @@ describe("GitHubBootstrapTracker", () => {
     });
 
     const first = await tracker.inspectIssueHandoff("symphony/8");
-    expect(first.kind).toBe("awaiting-review");
+    expect(first.kind).toBe("awaiting-system-checks");
 
     await tracker.claimIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("ready");
+    expect(second.kind).toBe("handoff-ready");
   });
 
   it("deduplicates two concurrent ensureLabels calls", async () => {
