@@ -4,7 +4,6 @@ import type { LinearTrackerConfig } from "../domain/workflow.js";
 import type {
   LinearIssueSnapshot,
   LinearProjectSnapshot,
-  LinearWorkflowState,
 } from "./linear-normalize.js";
 
 export type LinearIssueClassification =
@@ -46,32 +45,32 @@ export function classifyLinearIssue(
   return "ignored";
 }
 
-export function resolveLinearClaimState(
-  project: LinearProjectSnapshot,
+export function resolveLinearClaimStateName(
   issue: LinearIssueSnapshot,
   config: LinearTrackerConfig,
-): LinearWorkflowState | null {
+): string | null {
   const currentIndex = config.activeStates.indexOf(issue.state.name);
   if (currentIndex < 0) {
     return null;
   }
 
   const nextStateName = config.activeStates[currentIndex + 1] ?? null;
+  // Treat duplicate adjacent entries as a degenerate no-op transition rather
+  // than attempting to "advance" the issue into the state it already has.
   if (nextStateName === null || nextStateName === issue.state.name) {
     return null;
   }
 
-  return resolveStateByName(project, nextStateName);
+  return nextStateName;
 }
 
-export function resolveLinearTerminalState(
+export function resolveLinearTerminalStateName(
   project: LinearProjectSnapshot,
   config: LinearTrackerConfig,
-): LinearWorkflowState {
+): string {
   for (const stateName of config.terminalStates) {
-    const match = project.states.find((state) => state.name === stateName);
-    if (match !== undefined) {
-      return match;
+    if (project.states.some((state) => state.name === stateName)) {
+      return stateName;
     }
   }
   throw new TrackerError(
@@ -146,17 +145,4 @@ export function extractIssueNumberFromBranchName(
   }
   const issueNumber = Number(match[1]);
   return Number.isNaN(issueNumber) ? null : issueNumber;
-}
-
-function resolveStateByName(
-  project: LinearProjectSnapshot,
-  stateName: string,
-): LinearWorkflowState {
-  const match = project.states.find((state) => state.name === stateName);
-  if (match !== undefined) {
-    return match;
-  }
-  throw new TrackerError(
-    `Linear project ${project.slugId} is missing configured state '${stateName}'`,
-  );
 }

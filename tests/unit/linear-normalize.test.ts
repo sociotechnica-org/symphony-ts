@@ -231,6 +231,20 @@ describe("normalizeLinearIssueResult", () => {
 });
 
 describe("normalizeLinearIssueMutationResult", () => {
+  it("throws a clear error when a mutation reports success=false", () => {
+    expect(() =>
+      normalizeLinearIssueMutationResult(
+        {
+          issueUpdate: {
+            success: false,
+            issue: createIssuePayload(),
+          },
+        },
+        "issueUpdate",
+      ),
+    ).toThrowError(/Linear mutation issueUpdate reported success=false/i);
+  });
+
   it("throws a clear error when a successful mutation returns no issue", () => {
     expect(() =>
       normalizeLinearIssueMutationResult(
