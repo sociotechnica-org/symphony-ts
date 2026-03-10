@@ -16,7 +16,7 @@ import {
 } from "./linear-policy.js";
 import {
   normalizeLinearIssueMutationResult,
-  normalizeLinearIssuePage,
+  normalizeLinearProjectIssuesResult,
   normalizeLinearIssueResult,
   normalizeLinearProject,
   type LinearIssueSnapshot,
@@ -233,31 +233,23 @@ export class LinearTracker implements Tracker {
   }
 
   async #loadProject(): Promise<LinearProjectSnapshot> {
-    const data = (await this.#client.fetchProject()) as {
-      readonly project: unknown;
-    };
+    const data = await this.#client.fetchProject();
+    if (data.project == null) {
+      throw new TrackerError(
+        `Linear project not found: ${this.#config.projectSlug}`,
+      );
+    }
     return normalizeLinearProject(data.project);
   }
 
   async #fetchProjectIssues(): Promise<readonly LinearIssueSnapshot[]> {
-    const issues: LinearIssueSnapshot[] = [];
-    let after: string | null = null;
-
-    while (true) {
-      const page = normalizeLinearIssuePage(
-        await this.#client.fetchProjectIssuesPage(after),
-      );
-      if (this.#projectPromise === null) {
-        this.#projectPromise = Promise.resolve(page.project);
-      }
-      issues.push(...page.issues);
-      if (!page.hasNextPage || page.endCursor === null) {
-        break;
-      }
-      after = page.endCursor;
+    const result = normalizeLinearProjectIssuesResult(
+      await this.#client.fetchProjectIssues(),
+    );
+    if (this.#projectPromise === null) {
+      this.#projectPromise = Promise.resolve(result.project);
     }
-
-    return issues;
+    return result.issues;
   }
 
   async #getIssueSnapshot(issueNumber: number): Promise<LinearIssueSnapshot> {
