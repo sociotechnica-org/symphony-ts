@@ -142,6 +142,15 @@ describe("normalizeLinearIssueSnapshot", () => {
     ).toThrowError(/Expected Linear priority in range 1-4 or 0/i);
   });
 
+  it("fails clearly when the priority is not a Linear enum integer", () => {
+    expect(() =>
+      normalizeLinearIssueSnapshot(
+        createIssuePayload({ priority: 1.5 }),
+        "issue",
+      ),
+    ).toThrowError(/Expected Linear priority in range 1-4 or 0/i);
+  });
+
   it("marks unassigned or differently assigned issues as not routed to the worker", () => {
     const unassigned = normalizeLinearIssueSnapshot(
       createIssuePayload({ assignee: null }),

@@ -373,7 +373,7 @@ function normalizeLinearPriority(value: unknown, field: string): number | null {
   if (normalized === 0) {
     return null;
   }
-  if (normalized < 1 || normalized > 4) {
+  if (!Number.isInteger(normalized) || normalized < 1 || normalized > 4) {
     throw new TrackerError(
       `Expected Linear priority in range 1-4 or 0 for ${field}, got ${normalized}`,
     );
