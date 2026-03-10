@@ -28,16 +28,39 @@ export interface LinearComment {
   readonly userEmail: string | null;
 }
 
+export interface LinearIssueAssigneeSnapshot {
+  readonly id: string;
+  readonly name: string | null;
+  readonly email: string | null;
+}
+
+export interface LinearIssueRelationSnapshot {
+  readonly id: string;
+  readonly identifier: string;
+  readonly title: string;
+  readonly state: string;
+}
+
+export interface LinearIssueNormalizationOptions {
+  readonly configuredAssignee: string | null;
+}
+
 export interface LinearIssueSnapshot {
   readonly id: string;
   readonly identifier: string;
   readonly number: number;
   readonly title: string;
   readonly description: string;
+  readonly priority: number | null;
+  readonly branchName: string | null;
   readonly url: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly state: LinearWorkflowState;
+  readonly assignee: LinearIssueAssigneeSnapshot | null;
+  readonly assignedToWorker: boolean;
+  readonly labels: readonly string[];
+  readonly blockedBy: readonly LinearIssueRelationSnapshot[];
   readonly comments: readonly LinearComment[];
   readonly workpad: LinearWorkpadEntry | null;
   readonly runtimeIssue: RuntimeIssue;
@@ -54,6 +77,10 @@ export interface LinearProjectIssuesSnapshot {
   readonly project: LinearProjectSnapshot;
   readonly issues: readonly LinearIssueSnapshot[];
 }
+
+const DEFAULT_OPTIONS: LinearIssueNormalizationOptions = {
+  configuredAssignee: null,
+};
 
 export function normalizeLinearProject(value: unknown): LinearProjectSnapshot {
   const record = requireObject(value, "project");
@@ -75,11 +102,16 @@ export function normalizeLinearProject(value: unknown): LinearProjectSnapshot {
 
 export function normalizeLinearProjectIssuesResult(
   value: unknown,
+  options: LinearIssueNormalizationOptions = DEFAULT_OPTIONS,
 ): LinearProjectIssuesSnapshot {
   const record = requireObject(value, "projectIssues");
   const issues = requireArray(record["issues"], "projectIssues.issues").map(
     (entry, index) =>
-      normalizeLinearIssue(entry, `projectIssues.issues[${index}]`),
+      normalizeLinearIssueSnapshot(
+        entry,
+        `projectIssues.issues[${index}]`,
+        options,
+      ),
   );
 
   return {
@@ -88,7 +120,10 @@ export function normalizeLinearProjectIssuesResult(
   };
 }
 
-export function normalizeLinearIssueResult(value: unknown): {
+export function normalizeLinearIssueResult(
+  value: unknown,
+  options: LinearIssueNormalizationOptions = DEFAULT_OPTIONS,
+): {
   readonly project: LinearProjectSnapshot;
   readonly issue: LinearIssueSnapshot | null;
 } {
@@ -103,13 +138,18 @@ export function normalizeLinearIssueResult(value: unknown): {
     issue:
       projectRecord["issue"] === null || projectRecord["issue"] === undefined
         ? null
-        : normalizeLinearIssue(projectRecord["issue"], "project.issue"),
+        : normalizeLinearIssueSnapshot(
+            projectRecord["issue"],
+            "project.issue",
+            options,
+          ),
   };
 }
 
 export function normalizeLinearIssueMutationResult(
   value: unknown,
   field: "issueUpdate" | "commentCreate",
+  options: LinearIssueNormalizationOptions = DEFAULT_OPTIONS,
 ): LinearIssueSnapshot {
   const root = requireObject(value, field);
   const mutation = requireObject(root[field], field);
@@ -117,12 +157,17 @@ export function normalizeLinearIssueMutationResult(
   if (!success) {
     throw new TrackerError(`Linear mutation ${field} reported success=false`);
   }
-  return normalizeLinearIssue(mutation["issue"], `${field}.issue`);
+  return normalizeLinearIssueSnapshot(
+    mutation["issue"],
+    `${field}.issue`,
+    options,
+  );
 }
 
-function normalizeLinearIssue(
+export function normalizeLinearIssueSnapshot(
   value: unknown,
   field: string,
+  options: LinearIssueNormalizationOptions = DEFAULT_OPTIONS,
 ): LinearIssueSnapshot {
   const record = requireObject(value, field);
   const description = requireNullableString(
@@ -139,6 +184,17 @@ function normalizeLinearIssue(
   ).map((entry, index) =>
     normalizeLinearComment(entry, `${field}.comments.nodes[${index}]`),
   );
+  const state = normalizeLinearWorkflowState(record["state"], `${field}.state`);
+  const assignee = normalizeLinearAssignee(
+    record["assignee"],
+    `${field}.assignee`,
+  );
+  const labels = normalizeLinearLabels(record["labels"], `${field}.labels`);
+  const blockedBy = normalizeLinearBlockedBy(
+    record["inverseRelations"],
+    `${field}.inverseRelations`,
+  );
+  const normalizedDescription = description ?? "";
   const workpad = parseLinearWorkpad(description);
 
   const runtimeIssue: RuntimeIssue = {
@@ -146,12 +202,9 @@ function normalizeLinearIssue(
     identifier: requireString(record["identifier"], `${field}.identifier`),
     number: requireNumber(record["number"], `${field}.number`),
     title: requireString(record["title"], `${field}.title`),
-    description: description ?? "",
-    labels: [],
-    state: requireString(
-      requireObject(record["state"], `${field}.state`)["name"],
-      `${field}.state.name`,
-    ),
+    description: normalizedDescription,
+    labels,
+    state: state.name,
     url: requireString(record["url"], `${field}.url`),
     createdAt: requireString(record["createdAt"], `${field}.createdAt`),
     updatedAt: requireString(record["updatedAt"], `${field}.updatedAt`),
@@ -163,10 +216,22 @@ function normalizeLinearIssue(
     number: runtimeIssue.number,
     title: runtimeIssue.title,
     description: runtimeIssue.description,
+    priority: normalizeNullableNumber(record["priority"], `${field}.priority`),
+    branchName: requireNullableString(
+      record["branchName"],
+      `${field}.branchName`,
+    ),
     url: runtimeIssue.url,
     createdAt: runtimeIssue.createdAt,
     updatedAt: runtimeIssue.updatedAt,
-    state: normalizeLinearWorkflowState(record["state"], `${field}.state`),
+    state,
+    assignee,
+    assignedToWorker: matchesConfiguredAssignee(
+      assignee,
+      options.configuredAssignee,
+    ),
+    labels,
+    blockedBy,
     comments,
     workpad,
     runtimeIssue,
@@ -206,4 +271,129 @@ function normalizeLinearComment(value: unknown, field: string): LinearComment {
         ? null
         : requireNullableString(user["email"], `${field}.user.email`),
   };
+}
+
+function normalizeLinearAssignee(
+  value: unknown,
+  field: string,
+): LinearIssueAssigneeSnapshot | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const record = requireObject(value, field);
+  return {
+    id: requireString(record["id"], `${field}.id`),
+    name: requireNullableString(record["name"], `${field}.name`),
+    email: requireNullableString(record["email"], `${field}.email`),
+  };
+}
+
+function normalizeLinearLabels(
+  value: unknown,
+  field: string,
+): readonly string[] {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  const connection = requireObject(value, field);
+  return requireArray(connection["nodes"], `${field}.nodes`).flatMap(
+    (entry, index) => {
+      if (entry === null || entry === undefined) {
+        return [];
+      }
+      const record = requireObject(entry, `${field}.nodes[${index}]`);
+      const name = requireNullableString(
+        record["name"],
+        `${field}.nodes[${index}].name`,
+      );
+      const normalized = normalizeLabel(name);
+      return normalized === null ? [] : [normalized];
+    },
+  );
+}
+
+function normalizeLinearBlockedBy(
+  value: unknown,
+  field: string,
+): readonly LinearIssueRelationSnapshot[] {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  const connection = requireObject(value, field);
+  const nodes = requireArray(connection["nodes"], `${field}.nodes`);
+  const blockedBy: LinearIssueRelationSnapshot[] = [];
+
+  for (const [index, entry] of nodes.entries()) {
+    if (
+      entry === null ||
+      entry === undefined ||
+      typeof entry !== "object" ||
+      Array.isArray(entry)
+    ) {
+      continue;
+    }
+    const relation = entry as Record<string, unknown>;
+    if (typeof relation["type"] !== "string" || relation["type"] !== "blocks") {
+      continue;
+    }
+    if (relation["issue"] === null || relation["issue"] === undefined) {
+      continue;
+    }
+
+    const issueField = `${field}.nodes[${index}].issue`;
+    const issue = requireObject(relation["issue"], issueField);
+    const state = requireObject(issue["state"], `${issueField}.state`);
+    blockedBy.push({
+      id: requireString(issue["id"], `${issueField}.id`),
+      identifier: requireString(
+        issue["identifier"],
+        `${issueField}.identifier`,
+      ),
+      title: requireString(issue["title"], `${issueField}.title`),
+      state: requireString(state["name"], `${issueField}.state.name`),
+    });
+  }
+
+  return blockedBy;
+}
+
+function normalizeNullableNumber(value: unknown, field: string): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return requireNumber(value, field);
+}
+
+function matchesConfiguredAssignee(
+  assignee: LinearIssueAssigneeSnapshot | null,
+  configuredAssignee: string | null,
+): boolean {
+  if (configuredAssignee === null || configuredAssignee.trim() === "") {
+    return true;
+  }
+  if (assignee === null) {
+    return false;
+  }
+
+  const normalizedConfiguredAssignee = normalizeAssigneeKey(configuredAssignee);
+  return [assignee.id, assignee.name, assignee.email].some(
+    (value) =>
+      value !== null &&
+      normalizeAssigneeKey(value) === normalizedConfiguredAssignee,
+  );
+}
+
+function normalizeAssigneeKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeLabel(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "" ? null : normalized;
 }

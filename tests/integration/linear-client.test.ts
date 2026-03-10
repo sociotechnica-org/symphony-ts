@@ -62,7 +62,7 @@ describe("LinearClient", () => {
       number: 2,
       title: "Issue 2",
       stateName: "Todo",
-      assigneeEmail: "worker@example.test",
+      assigneeEmail: "other@example.test",
     });
     server.seedIssue({
       projectSlug: "symphony-linear",
@@ -74,9 +74,14 @@ describe("LinearClient", () => {
 
     const client = new LinearClient(createConfig(server));
     const result = await client.fetchProjectIssues();
+    const request = server.requests("GetProjectIssuesPage")[0];
 
     expect(result.project.slugId).toBe("symphony-linear");
     expect(result.issues.map((issue) => issue.number)).toEqual([1, 2, 3]);
+    expect(request?.variables).toEqual({
+      slugId: "symphony-linear",
+      after: null,
+    });
     // The mock Linear server pages two issues at a time, so 3 seeded issues require 2 requests.
     expect(server.countRequests("GetProjectIssuesPage")).toBe(2);
   });
@@ -114,13 +119,26 @@ describe("LinearClient", () => {
   });
 
   it("returns typed project issue and mutation payloads", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 6,
+      title: "Dependency",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
     const issue = server.seedIssue({
       projectSlug: "symphony-linear",
       number: 7,
       title: "Issue 7",
       description: "Before",
       stateName: "Todo",
+      assigneeId: "user-7",
+      assigneeName: "Worker Example",
       assigneeEmail: "worker@example.test",
+      labels: ["Backend", "Needs Review"],
+      priority: 3,
+      branchName: "feature/linear-7",
+      inverseRelations: [{ type: "blocks", issueNumber: 6 }],
     });
     const client = new LinearClient(createConfig(server));
 
@@ -132,6 +150,30 @@ describe("LinearClient", () => {
     const commentResult = await client.createComment(issue.id, "Tracked");
 
     expect(projectIssue.project?.issue?.number).toBe(7);
+    expect(projectIssue.project?.issue?.assignee).toEqual({
+      id: "user-7",
+      name: "Worker Example",
+      email: "worker@example.test",
+    });
+    expect(projectIssue.project?.issue?.labels.nodes).toEqual([
+      { name: "Backend" },
+      { name: "Needs Review" },
+    ]);
+    expect(projectIssue.project?.issue?.priority).toBe(3);
+    expect(projectIssue.project?.issue?.branchName).toBe("feature/linear-7");
+    expect(projectIssue.project?.issue?.inverseRelations.nodes).toEqual([
+      {
+        type: "blocks",
+        issue: {
+          id: expect.any(String),
+          identifier: "SYMPHONY-LINEAR-6",
+          title: "Dependency",
+          state: {
+            name: "In Progress",
+          },
+        },
+      },
+    ]);
     expect(updateResult.issueUpdate.success).toBe(true);
     expect(updateResult.issueUpdate.issue?.description).toBe("After");
     expect(commentResult.commentCreate.success).toBe(true);

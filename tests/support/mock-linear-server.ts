@@ -27,7 +27,11 @@ interface MockLinearIssue {
   readonly createdAt: string;
   updatedAt: string;
   stateId: string;
-  readonly assigneeEmail: string | null;
+  readonly assignee: MockLinearAssignee | null;
+  readonly labels: readonly string[];
+  readonly priority: number | null;
+  readonly branchName: string | null;
+  readonly inverseRelations: readonly MockLinearIssueRelation[];
   readonly comments: MockLinearComment[];
 }
 
@@ -39,6 +43,17 @@ interface MockLinearComment {
     readonly name: string | null;
     readonly email: string | null;
   };
+}
+
+interface MockLinearAssignee {
+  readonly id: string;
+  readonly name: string | null;
+  readonly email: string | null;
+}
+
+interface MockLinearIssueRelation {
+  readonly type: string;
+  readonly issueId: string | null;
 }
 
 interface MockLinearRequest {
@@ -142,7 +157,16 @@ export class MockLinearServer {
     readonly title: string;
     readonly description?: string;
     readonly stateName: string;
+    readonly assigneeId?: string | null;
+    readonly assigneeName?: string | null;
     readonly assigneeEmail?: string | null;
+    readonly labels?: readonly string[];
+    readonly priority?: number | null;
+    readonly branchName?: string | null;
+    readonly inverseRelations?: ReadonlyArray<{
+      readonly type: string;
+      readonly issueNumber?: number | null;
+    }>;
     readonly identifier?: string;
   }): MockLinearIssue {
     const project = this.#requireProject(input.projectSlug);
@@ -161,7 +185,26 @@ export class MockLinearServer {
       createdAt: now,
       updatedAt: now,
       stateId: state.id,
-      assigneeEmail: input.assigneeEmail ?? null,
+      assignee:
+        input.assigneeEmail === undefined &&
+        input.assigneeId === undefined &&
+        input.assigneeName === undefined
+          ? null
+          : {
+              id: input.assigneeId ?? randomUUID(),
+              name: input.assigneeName ?? null,
+              email: input.assigneeEmail ?? null,
+            },
+      labels: input.labels ?? [],
+      priority: input.priority ?? null,
+      branchName: input.branchName ?? null,
+      inverseRelations: (input.inverseRelations ?? []).map((relation) => ({
+        type: relation.type,
+        issueId:
+          relation.issueNumber === undefined || relation.issueNumber === null
+            ? null
+            : this.#requireIssue(input.projectSlug, relation.issueNumber).id,
+      })),
       comments: [],
     };
     this.#issues.set(issue.id, issue);
@@ -180,6 +223,9 @@ export class MockLinearServer {
     readonly title: string;
     readonly description: string;
     readonly stateName: string;
+    readonly labels: readonly string[];
+    readonly branchName: string | null;
+    readonly priority: number | null;
     readonly comments: readonly string[];
   } {
     const issue = this.#requireIssue(projectSlug, issueNumber);
@@ -189,6 +235,9 @@ export class MockLinearServer {
       title: issue.title,
       description: issue.description,
       stateName: this.#requireStateById(project, issue.stateId).name,
+      labels: issue.labels,
+      branchName: issue.branchName,
+      priority: issue.priority,
       comments: issue.comments.map((comment) => comment.body),
     };
   }
@@ -345,11 +394,8 @@ export class MockLinearServer {
     const project = this.#requireProject(
       requireString(variables["slugId"], "slugId"),
     );
-    const assignee = requireOptionalString(variables["assignee"], "assignee");
     const after = requireOptionalString(variables["after"], "after");
-    const issues = this.#projectIssues(project.slugId).filter(
-      (issue) => assignee === null || issue.assigneeEmail === assignee,
-    );
+    const issues = this.#projectIssues(project.slugId);
 
     const startIndex =
       after === null ? 0 : issues.findIndex((issue) => issue.id === after) + 1;
@@ -463,9 +509,33 @@ export class MockLinearServer {
       number: issue.number,
       title: issue.title,
       description: issue.description,
+      priority: issue.priority,
+      branchName: issue.branchName,
       url: issue.url,
       createdAt: issue.createdAt,
       updatedAt: issue.updatedAt,
+      assignee:
+        issue.assignee === null
+          ? null
+          : {
+              id: issue.assignee.id,
+              name: issue.assignee.name,
+              email: issue.assignee.email,
+            },
+      labels: {
+        nodes: issue.labels.map((name) => ({
+          name,
+        })),
+      },
+      inverseRelations: {
+        nodes: issue.inverseRelations.map((relation) => ({
+          type: relation.type,
+          issue:
+            relation.issueId === null
+              ? null
+              : this.#serializeRelationIssue(relation.issueId),
+        })),
+      },
       state: {
         id: state.id,
         name: state.name,
@@ -482,6 +552,20 @@ export class MockLinearServer {
             email: comment.user.email,
           },
         })),
+      },
+    };
+  }
+
+  #serializeRelationIssue(issueId: string) {
+    const issue = this.#requireIssueById(issueId);
+    const project = this.#projectForIssue(issue);
+    const state = this.#requireStateById(project, issue.stateId);
+    return {
+      id: issue.id,
+      identifier: issue.identifier,
+      title: issue.title,
+      state: {
+        name: state.name,
       },
     };
   }

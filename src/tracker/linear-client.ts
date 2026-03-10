@@ -26,15 +26,50 @@ export interface LinearRawComment {
   readonly user: LinearRawCommentUser | null;
 }
 
+export interface LinearRawIssueAssignee {
+  readonly id: string;
+  readonly name: string | null;
+  readonly email: string | null;
+}
+
+export interface LinearRawIssueLabel {
+  readonly name: string | null;
+}
+
+export interface LinearRawIssueRelationIssueState {
+  readonly name: string;
+}
+
+export interface LinearRawIssueRelationIssue {
+  readonly id: string;
+  readonly identifier: string;
+  readonly title: string;
+  readonly state: LinearRawIssueRelationIssueState;
+}
+
+export interface LinearRawIssueRelation {
+  readonly type: string;
+  readonly issue: LinearRawIssueRelationIssue | null;
+}
+
 export interface LinearRawIssue {
   readonly id: string;
   readonly identifier: string;
   readonly number: number;
   readonly title: string;
   readonly description: string | null;
+  readonly priority: number | null;
+  readonly branchName: string | null;
   readonly url: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly assignee: LinearRawIssueAssignee | null;
+  readonly labels: {
+    readonly nodes: readonly LinearRawIssueLabel[];
+  };
+  readonly inverseRelations: {
+    readonly nodes: readonly LinearRawIssueRelation[];
+  };
   readonly state: LinearRawWorkflowState;
   readonly comments: {
     readonly nodes: readonly LinearRawComment[];
@@ -135,9 +170,34 @@ const ISSUE_FIELDS = `
   number
   title
   description
+  priority
+  branchName
   url
   createdAt
   updatedAt
+  assignee {
+    id
+    name
+    email
+  }
+  labels {
+    nodes {
+      name
+    }
+  }
+  inverseRelations {
+    nodes {
+      type
+      issue {
+        id
+        identifier
+        title
+        state {
+          name
+        }
+      }
+    }
+  }
   state {
     id
     name
@@ -166,10 +226,10 @@ const GET_PROJECT_QUERY = `
 `;
 
 const GET_PROJECT_ISSUES_PAGE_QUERY = `
-  query GetProjectIssuesPage($slugId: String!, $after: String, $assignee: String) {
+  query GetProjectIssuesPage($slugId: String!, $after: String) {
     project(slugId: $slugId) {
       ${PROJECT_FIELDS}
-      issues(first: ${LINEAR_PROJECT_ISSUES_PAGE_SIZE}, after: $after, assignee: $assignee) {
+      issues(first: ${LINEAR_PROJECT_ISSUES_PAGE_SIZE}, after: $after) {
         nodes {
           ${ISSUE_FIELDS}
         }
@@ -340,7 +400,6 @@ export class LinearClient {
       {
         slugId: this.#config.projectSlug,
         after,
-        assignee: this.#config.assignee,
       },
     );
   }
