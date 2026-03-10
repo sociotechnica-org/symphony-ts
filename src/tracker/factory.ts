@@ -11,5 +11,11 @@ export function createTracker(config: TrackerConfig, logger: Logger): Tracker {
       throw new Error(
         "tracker.kind 'linear' is not yet supported by `symphony run`; workflow loading and validation are available, but the Linear tracker adapter has not been implemented yet.",
       );
+    default:
+      return exhaustiveTrackerConfig(config);
   }
+}
+
+function exhaustiveTrackerConfig(config: never): never {
+  throw new Error(`Unsupported tracker config '${JSON.stringify(config)}'`);
 }
