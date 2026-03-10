@@ -13,7 +13,10 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "dev": "tsx watch bin/symphony.ts"
+    "dev": "tsx watch bin/symphony.ts",
+    "safe:run": "tsx bin/symphony-safe.ts run",
+    "safe:run:once": "tsx bin/symphony-safe.ts run --once",
+    "safe:status": "tsx bin/symphony-safe.ts status"
   },
   "dependencies": {
     "liquidjs": "^10.24.0",

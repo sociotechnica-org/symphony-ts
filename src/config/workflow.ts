@@ -264,7 +264,10 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         path.dirname(workflowPath),
         requireString(workspace["root"], "workspace.root"),
       ),
-      repoUrl: requireString(workspace["repo_url"], "workspace.repo_url"),
+      repoUrl: resolveWorkspaceRepoUrl(
+        requireString(workspace["repo_url"], "workspace.repo_url"),
+        workflowPath,
+      ),
       branchPrefix: requireString(
         workspace["branch_prefix"],
         "workspace.branch_prefix",
@@ -308,6 +311,21 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   }
 
   return resolved;
+}
+
+function resolveWorkspaceRepoUrl(repoUrl: string, workflowPath: string): string {
+  if (isRemoteRepoUrl(repoUrl)) {
+    return repoUrl;
+  }
+
+  return path.resolve(path.dirname(workflowPath), repoUrl);
+}
+
+function isRemoteRepoUrl(value: string): boolean {
+  return (
+    /^[a-z][a-z0-9+.-]*:\/\//iu.test(value) ||
+    /^[^\s@]+@[^\s:]+:.+/u.test(value)
+  );
 }
 
 function resolveTrackerConfig(

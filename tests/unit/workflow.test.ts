@@ -92,6 +92,48 @@ ${buildSharedWorkflowSections()}`,
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
   });
 
+  it("resolves a local workspace repo path relative to the workflow file", async () => {
+    const dir = await createTempDir("workflow-local-repo-url-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+workspace:
+  root: ./.tmp/ws
+  repo_url: ./github/upstream
+  branch_prefix: symphony/
+  cleanup_on_success: true
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+hooks:
+  after_create: []
+agent:
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.workspace.repoUrl).toBe(
+      path.resolve(dir, "github", "upstream"),
+    );
+  });
+
   it("loads a valid linear workflow with upstream defaults", async () => {
     const dir = await createTempDir("workflow-linear-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

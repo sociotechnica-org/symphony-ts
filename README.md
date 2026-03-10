@@ -126,10 +126,22 @@ Run one poll cycle:
 pnpm tsx bin/symphony.ts run --once
 ```
 
+Run one poll cycle with the safer startup wrapper that refreshes the local GitHub mirror first:
+
+```bash
+pnpm safe:run:once
+```
+
 Run continuously:
 
 ```bash
 pnpm tsx bin/symphony.ts run
+```
+
+Run continuously with the safer startup wrapper:
+
+```bash
+pnpm safe:run
 ```
 
 Inspect the latest local factory status:
@@ -155,6 +167,13 @@ By default, the checked-in `WORKFLOW.md` targets:
 - repo: `sociotechnica-org/symphony-ts`
 - tracker: GitHub bootstrap adapter
 - runner: local Codex CLI
+- workspace source: local mirror under `github/upstream`
+
+The `safe:run` scripts update `github/upstream` from the current `origin` remote before each `run`
+start, then workspaces clone from that local mirror instead of cloning directly from GitHub.
+
+The checked-in workflow also treats GitHub-authored issue and PR text as untrusted metadata and
+does not inject issue bodies or review-feedback bodies into the Codex prompt.
 
 ## Linear Workflow Config Example
 
