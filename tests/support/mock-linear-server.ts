@@ -192,9 +192,9 @@ export class MockLinearServer {
       updatedAt: now,
       stateId: state.id,
       assignee:
-        input.assigneeEmail === undefined &&
-        input.assigneeId === undefined &&
-        input.assigneeName === undefined
+        input.assigneeEmail == null &&
+        input.assigneeId == null &&
+        input.assigneeName == null
           ? null
           : {
               id: input.assigneeId ?? randomUUID(),

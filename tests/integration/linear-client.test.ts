@@ -181,6 +181,21 @@ describe("LinearClient", () => {
     expect(server.getIssue("symphony-linear", 7).comments).toContain("Tracked");
   });
 
+  it("treats explicit null assignee seed fields as an unassigned issue", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 8,
+      title: "Issue 8",
+      stateName: "Todo",
+      assigneeEmail: null,
+    });
+    const client = new LinearClient(createConfig(server));
+
+    const projectIssue = await client.fetchProjectIssue(8);
+
+    expect(projectIssue.project?.issue?.assignee).toBeNull();
+  });
+
   it("surfaces GraphQL errors distinctly from HTTP failures", async () => {
     const client = new LinearClient(createConfig(server));
     server.enqueueGraphQLError("GetProject", "simulated GraphQL failure");

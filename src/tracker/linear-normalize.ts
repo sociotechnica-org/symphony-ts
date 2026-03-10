@@ -169,6 +169,14 @@ export function normalizeLinearIssueMutationResult(
   );
 }
 
+/**
+ * Normalize a raw Linear issue payload into a stable adapter snapshot.
+ *
+ * `options.configuredAssignee` controls the derived `assignedToWorker` flag:
+ * - `null` or blank (default) means no worker filter is configured, so
+ *   `assignedToWorker` is always `true`
+ * - a non-empty string matches only normalized assignee `id` or `email`
+ */
 export function normalizeLinearIssueSnapshot(
   value: unknown,
   field: string,

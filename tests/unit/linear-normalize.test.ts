@@ -133,6 +133,19 @@ describe("normalizeLinearIssueSnapshot", () => {
     expect(snapshot.priority).toBeNull();
   });
 
+  it("silently skips a 'blocks' relation whose issue is null", () => {
+    const snapshot = normalizeLinearIssueSnapshot(
+      createIssuePayload({
+        inverseRelations: {
+          nodes: [{ type: "blocks", issue: null }],
+        },
+      }),
+      "issue",
+    );
+
+    expect(snapshot.blockedBy).toEqual([]);
+  });
+
   it("fails clearly when the priority is outside Linear's supported range", () => {
     expect(() =>
       normalizeLinearIssueSnapshot(
