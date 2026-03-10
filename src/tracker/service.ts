@@ -2,6 +2,8 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 
 export interface Tracker {
+  subject(): string;
+  isHumanReviewFeedback(authorLogin: string | null): boolean;
   ensureLabels(): Promise<void>;
   fetchReadyIssues(): Promise<readonly RuntimeIssue[]>;
   fetchRunningIssues(): Promise<readonly RuntimeIssue[]>;

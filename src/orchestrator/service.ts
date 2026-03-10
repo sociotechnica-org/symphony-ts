@@ -4,11 +4,7 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
 import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
-import type {
-  GitHubBootstrapTrackerConfig,
-  PromptBuilder,
-  ResolvedConfig,
-} from "../domain/workflow.js";
+import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -64,23 +60,8 @@ interface QueueEntry {
   readonly source: "ready" | "running";
 }
 
-function requireBootstrapConfig(
-  config: ResolvedConfig,
-): ResolvedConfig & { readonly tracker: GitHubBootstrapTrackerConfig } {
-  if (config.tracker.kind !== "github-bootstrap") {
-    throw new OrchestratorError(
-      "BootstrapOrchestrator requires tracker.kind 'github-bootstrap'",
-    );
-  }
-  return config as ResolvedConfig & {
-    readonly tracker: GitHubBootstrapTrackerConfig;
-  };
-}
-
 export class BootstrapOrchestrator implements Orchestrator {
-  readonly #config: ResolvedConfig & {
-    readonly tracker: GitHubBootstrapTrackerConfig;
-  };
+  readonly #config: ResolvedConfig;
   readonly #promptBuilder: PromptBuilder;
   readonly #tracker: Tracker;
   readonly #workspaceManager: WorkspaceManager;
@@ -102,7 +83,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     logger: Logger,
     issueArtifactStore?: IssueArtifactStore,
   ) {
-    this.#config = requireBootstrapConfig(config);
+    this.#config = config;
     this.#promptBuilder = promptBuilder;
     this.#tracker = tracker;
     this.#workspaceManager = workspaceManager;
@@ -1033,7 +1014,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     return {
       issueNumber: issue.number,
       issueIdentifier: issue.identifier,
-      repo: this.#config.tracker.repo,
+      repo: this.#trackerSubject(),
       title: issue.title,
       issueUrl: issue.url,
       branch: options.branchName,
@@ -1043,6 +1024,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       latestAttemptNumber: options.latestAttemptNumber,
       latestSessionId: options.latestSessionId,
     } as const;
+  }
+
+  #trackerSubject(): string {
+    return this.#tracker.subject();
   }
 
   #createIssueEvent(
@@ -1532,14 +1517,8 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #hasHumanReviewFeedback(lifecycle: HandoffLifecycle): boolean {
-    const reviewBotLogins = new Set(
-      this.#config.tracker.reviewBotLogins.map((login) => login.toLowerCase()),
-    );
     return lifecycle.actionableReviewFeedback.some((feedback) => {
-      const authorLogin = feedback.authorLogin;
-      return (
-        authorLogin !== null && !reviewBotLogins.has(authorLogin.toLowerCase())
-      );
+      return this.#tracker.isHumanReviewFeedback(feedback.authorLogin);
     });
   }
 

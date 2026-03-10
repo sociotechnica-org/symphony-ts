@@ -178,7 +178,15 @@ tracker:
     - Done
 ```
 
-In this slice, `loadWorkflow` validates and normalizes that config, but `symphony run` still requires the GitHub bootstrap tracker until the Linear adapter lands.
+`symphony run` can now instantiate a Linear tracker as well. The current Linear slice is intentionally narrow:
+
+- project-scoped GraphQL polling
+- paginated issue reads
+- issue comment writes
+- a Symphony-owned workpad section in the issue description
+- active-to-terminal state transitions through the tracker edge
+
+CI coverage uses the checked-in mock Linear GraphQL server under `tests/support/mock-linear-server.ts`, so no real Linear workspace is required for integration or end-to-end tests.
 
 ## How to Use Symphony to Build Symphony
 
