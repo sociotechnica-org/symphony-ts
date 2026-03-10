@@ -151,6 +151,12 @@ export class MockLinearServer {
     return project;
   }
 
+  /**
+   * Seed a mock issue.
+   *
+   * When `inverseRelations` references other issues by `issueNumber`, those
+   * issues must already exist in the same project before this call.
+   */
   seedIssue(input: {
     readonly projectSlug: string;
     readonly number: number;

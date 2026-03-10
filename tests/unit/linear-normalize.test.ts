@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeLinearIssueResult,
+  normalizeLinearIssueMutationResult,
   normalizeLinearIssueSnapshot,
 } from "../../src/tracker/linear-normalize.js";
 
@@ -132,6 +133,15 @@ describe("normalizeLinearIssueSnapshot", () => {
     expect(snapshot.priority).toBeNull();
   });
 
+  it("fails clearly when the priority is outside Linear's supported range", () => {
+    expect(() =>
+      normalizeLinearIssueSnapshot(
+        createIssuePayload({ priority: 5 }),
+        "issue",
+      ),
+    ).toThrowError(/Expected Linear priority in range 1-4 or 0/i);
+  });
+
   it("marks unassigned or differently assigned issues as not routed to the worker", () => {
     const unassigned = normalizeLinearIssueSnapshot(
       createIssuePayload({ assignee: null }),
@@ -181,5 +191,23 @@ describe("normalizeLinearIssueResult", () => {
         project: null,
       }),
     ).toThrowError(/Linear project not found in issue result/);
+  });
+});
+
+describe("normalizeLinearIssueMutationResult", () => {
+  it("throws a clear error when a successful mutation returns no issue", () => {
+    expect(() =>
+      normalizeLinearIssueMutationResult(
+        {
+          issueUpdate: {
+            success: true,
+            issue: null,
+          },
+        },
+        "issueUpdate",
+      ),
+    ).toThrowError(
+      /Linear mutation issueUpdate reported success=true but returned no issue/i,
+    );
   });
 });

@@ -157,6 +157,11 @@ export function normalizeLinearIssueMutationResult(
   if (!success) {
     throw new TrackerError(`Linear mutation ${field} reported success=false`);
   }
+  if (mutation["issue"] === null || mutation["issue"] === undefined) {
+    throw new TrackerError(
+      `Linear mutation ${field} reported success=true but returned no issue`,
+    );
+  }
   return normalizeLinearIssueSnapshot(
     mutation["issue"],
     `${field}.issue`,
@@ -365,7 +370,15 @@ function normalizeNullableNumber(value: unknown, field: string): number | null {
     return null;
   }
   const normalized = requireNumber(value, field);
-  return normalized === 0 ? null : normalized;
+  if (normalized === 0) {
+    return null;
+  }
+  if (normalized < 1 || normalized > 4) {
+    throw new TrackerError(
+      `Expected Linear priority in range 1-4 or 0 for ${field}, got ${normalized}`,
+    );
+  }
+  return normalized;
 }
 
 function matchesConfiguredAssignee(
