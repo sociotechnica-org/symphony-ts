@@ -168,6 +168,19 @@ describe("LinearClient", () => {
     );
   });
 
+  it("surfaces non-Error transport failures deterministically", async () => {
+    const failingFetch: typeof fetch = async () => {
+      throw "simulated string transport failure";
+    };
+    const client = new LinearClient(createConfig(server), {
+      fetch: failingFetch,
+    });
+
+    await expect(client.fetchProject()).rejects.toThrowError(
+      /GetProject: simulated string transport failure/i,
+    );
+  });
+
   it("turns malformed paginated payloads into TrackerError failures", async () => {
     const malformedFetch: typeof fetch = async () =>
       new Response(

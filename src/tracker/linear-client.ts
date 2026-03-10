@@ -239,6 +239,20 @@ const COMMENT_CREATE_MUTATION = `
 
 const GRAPHQL_VALIDATION_PREFIX = "Linear GraphQL request failed";
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return String(error);
+}
+
+function errorOptions(error: unknown): ErrorOptions | undefined {
+  return error instanceof Error ? { cause: error } : undefined;
+}
+
 export class LinearClient {
   readonly #config: LinearTrackerConfig;
   readonly #fetch: typeof fetch;
@@ -352,8 +366,8 @@ export class LinearClient {
       });
     } catch (error) {
       throw new TrackerError(
-        `Linear GraphQL request failed for ${operationName}: ${(error as Error).message}`,
-        { cause: error as Error },
+        `Linear GraphQL request failed for ${operationName}: ${errorMessage(error)}`,
+        errorOptions(error),
       );
     }
 
@@ -370,7 +384,7 @@ export class LinearClient {
     } catch (error) {
       throw new TrackerError(
         `Linear GraphQL request failed for ${operationName}: invalid JSON response`,
-        { cause: error as Error },
+        errorOptions(error),
       );
     }
 
