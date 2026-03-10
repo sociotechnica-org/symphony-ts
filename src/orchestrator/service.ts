@@ -30,6 +30,7 @@ import {
 import type { Runner, RunnerSessionDescription } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
+import { linearTrackerSubject } from "../tracker/linear-policy.js";
 import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
@@ -1029,7 +1030,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   #trackerSubject(): string {
     return this.#config.tracker.kind === "github-bootstrap"
       ? this.#config.tracker.repo
-      : `linear/${this.#config.tracker.projectSlug}`;
+      : linearTrackerSubject(this.#config.tracker);
   }
 
   #createIssueEvent(

@@ -86,7 +86,7 @@ export class LinearTracker implements Tracker {
       updatedAt: new Date().toISOString(),
     });
 
-    let updated = normalizeLinearIssueMutationResult(
+    normalizeLinearIssueMutationResult(
       await this.#client.updateIssue({
         id: issue.id,
         description: updatedDescription,
@@ -94,7 +94,7 @@ export class LinearTracker implements Tracker {
       }),
       "issueUpdate",
     );
-    updated = normalizeLinearIssueMutationResult(
+    const updated = normalizeLinearIssueMutationResult(
       await this.#client.createComment(issue.id, CLAIM_COMMENT),
       "commentCreate",
     );

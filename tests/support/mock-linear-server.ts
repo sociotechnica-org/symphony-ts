@@ -303,6 +303,9 @@ export class MockLinearServer {
         });
         return;
       case "UpdateIssue":
+      case "UpdateIssueDescription":
+      case "UpdateIssueState":
+      case "UpdateIssueDescriptionAndState":
         json(response, 200, {
           data: {
             issueUpdate: this.#handleIssueUpdate(variables),

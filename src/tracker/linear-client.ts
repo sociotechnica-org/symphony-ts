@@ -10,6 +10,14 @@ interface GraphQLResponse<T> {
   readonly errors?: readonly GraphQLErrorPayload[];
 }
 
+interface UpdateIssueRequest {
+  readonly id: string;
+  readonly description?: string;
+  readonly stateId?: string;
+}
+
+const LINEAR_PROJECT_ISSUES_PAGE_SIZE = 50;
+
 const PROJECT_FIELDS = `
   id
   slugId
@@ -64,7 +72,7 @@ const GET_PROJECT_ISSUES_PAGE_QUERY = `
   query GetProjectIssuesPage($slugId: String!, $after: String, $assignee: String) {
     project(slugId: $slugId) {
       ${PROJECT_FIELDS}
-      issues(first: 2, after: $after, assignee: $assignee) {
+      issues(first: ${LINEAR_PROJECT_ISSUES_PAGE_SIZE}, after: $after, assignee: $assignee) {
         nodes {
           ${ISSUE_FIELDS}
         }
@@ -88,8 +96,30 @@ const GET_PROJECT_ISSUE_QUERY = `
   }
 `;
 
-const ISSUE_UPDATE_MUTATION = `
-  mutation UpdateIssue($id: String!, $description: String, $stateId: String) {
+const ISSUE_UPDATE_DESCRIPTION_MUTATION = `
+  mutation UpdateIssueDescription($id: String!, $description: String) {
+    issueUpdate(id: $id, input: { description: $description }) {
+      success
+      issue {
+        ${ISSUE_FIELDS}
+      }
+    }
+  }
+`;
+
+const ISSUE_UPDATE_STATE_MUTATION = `
+  mutation UpdateIssueState($id: String!, $stateId: String) {
+    issueUpdate(id: $id, input: { stateId: $stateId }) {
+      success
+      issue {
+        ${ISSUE_FIELDS}
+      }
+    }
+  }
+`;
+
+const ISSUE_UPDATE_DESCRIPTION_AND_STATE_MUTATION = `
+  mutation UpdateIssueDescriptionAndState($id: String!, $description: String, $stateId: String) {
     issueUpdate(id: $id, input: { description: $description, stateId: $stateId }) {
       success
       issue {
@@ -142,16 +172,12 @@ export class LinearClient {
     });
   }
 
-  async updateIssue(input: {
-    readonly id: string;
-    readonly description?: string;
-    readonly stateId?: string;
-  }): Promise<unknown> {
-    return await this.#request("UpdateIssue", ISSUE_UPDATE_MUTATION, {
-      id: input.id,
-      description: input.description ?? null,
-      stateId: input.stateId ?? null,
-    });
+  async updateIssue(input: UpdateIssueRequest): Promise<unknown> {
+    return await this.#request(
+      this.#updateIssueOperation(input),
+      this.#updateIssueMutation(input),
+      this.#updateIssueVariables(input),
+    );
   }
 
   async createComment(issueId: string, body: string): Promise<unknown> {
@@ -213,5 +239,48 @@ export class LinearClient {
       );
     }
     return payload.data;
+  }
+
+  #updateIssueOperation(input: UpdateIssueRequest): string {
+    const hasDescription = input.description !== undefined;
+    const hasStateId = input.stateId !== undefined;
+    if (hasDescription && hasStateId) {
+      return "UpdateIssueDescriptionAndState";
+    }
+    if (hasDescription) {
+      return "UpdateIssueDescription";
+    }
+    if (hasStateId) {
+      return "UpdateIssueState";
+    }
+    throw new TrackerError("Linear issue update requires at least one field");
+  }
+
+  #updateIssueMutation(input: UpdateIssueRequest): string {
+    const hasDescription = input.description !== undefined;
+    const hasStateId = input.stateId !== undefined;
+    if (hasDescription && hasStateId) {
+      return ISSUE_UPDATE_DESCRIPTION_AND_STATE_MUTATION;
+    }
+    if (hasDescription) {
+      return ISSUE_UPDATE_DESCRIPTION_MUTATION;
+    }
+    if (hasStateId) {
+      return ISSUE_UPDATE_STATE_MUTATION;
+    }
+    throw new TrackerError("Linear issue update requires at least one field");
+  }
+
+  #updateIssueVariables(
+    input: UpdateIssueRequest,
+  ): Readonly<Record<string, unknown>> {
+    const variables: Record<string, unknown> = { id: input.id };
+    if (input.description !== undefined) {
+      variables["description"] = input.description;
+    }
+    if (input.stateId !== undefined) {
+      variables["stateId"] = input.stateId;
+    }
+    return variables;
   }
 }
