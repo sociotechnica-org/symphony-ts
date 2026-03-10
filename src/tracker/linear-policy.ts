@@ -276,11 +276,11 @@ function isLinearHumanReviewWorkflowState(stateName: string): boolean {
   return sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME);
 }
 
-export function isLinearReworkWorkflowState(stateName: string): boolean {
+function isLinearReworkWorkflowState(stateName: string): boolean {
   return sameLinearStateName(stateName, REWORK_STATE_NAME);
 }
 
-export function isLinearMergingWorkflowState(stateName: string): boolean {
+function isLinearMergingWorkflowState(stateName: string): boolean {
   return sameLinearStateName(stateName, MERGING_STATE_NAME);
 }
 
