@@ -73,8 +73,7 @@ agent:
   command: ${options.agentCommand}
   prompt_transport: stdin
   timeout_ms: 30000
-  env:
-    GITHUB_REPO: sociotechnica-org/symphony-ts
+  env: {}
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 Description: {{ issue.description }}
@@ -136,9 +135,11 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       MOCK_GITHUB_API_URL: server.baseUrl,
       PATH: `${fixturePath}:${originalEnv.PATH ?? ""}`,
     };
+    delete process.env["SYMPHONY_REPO"];
   });
 
   afterEach(async () => {
+    // Restores full original env including SYMPHONY_REPO if it was set
     process.env = { ...originalEnv };
     await server.stop();
     await fs.rm(tempDir, { recursive: true, force: true });
