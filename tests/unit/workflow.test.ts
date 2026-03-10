@@ -7,23 +7,19 @@ import {
 } from "../../src/config/workflow.js";
 import { createTempDir } from "../support/git.js";
 
-describe("workflow config", () => {
-  it("loads workflow config and renders prompt strictly", async () => {
-    const dir = await createTempDir("workflow-");
-    const workflowPath = path.join(dir, "WORKFLOW.md");
-    await fs.writeFile(
-      workflowPath,
-      `---
-tracker:
-  repo: sociotechnica-org/symphony-ts
-  api_url: https://api.github.com
-  ready_label: symphony:ready
-  running_label: symphony:running
-  failed_label: symphony:failed
-  success_comment: done
-  review_bot_logins:
-    - greptile[bot]
-polling:
+function buildWorkflow(
+  frontMatter: string,
+  promptBody = "Prompt body",
+): string {
+  return `---
+${frontMatter}
+---
+${promptBody}
+`;
+}
+
+function buildSharedWorkflowSections(): string {
+  return `polling:
   interval_ms: 1000
   max_concurrent_runs: 1
   retry:
@@ -43,9 +39,28 @@ agent:
   prompt_transport: stdin
   timeout_ms: 1000
   env:
-    FOO: bar
----
-Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
+    FOO: bar`;
+}
+
+describe("workflow config", () => {
+  it("loads workflow config and renders prompt strictly", async () => {
+    const dir = await createTempDir("workflow-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  review_bot_logins:
+    - greptile[bot]
+${buildSharedWorkflowSections()}`,
+        "Issue {{ issue.identifier }} / {{ config.tracker.repo }}",
+      ),
       "utf8",
     );
 
@@ -53,6 +68,7 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
     expect(workflow.config.workspace.root).toContain(
       `${path.sep}.tmp${path.sep}ws`,
     );
+    expect(workflow.config.tracker.kind).toBe("github-bootstrap");
     expect(workflow.config.polling.retry.maxAttempts).toBe(2);
     expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
     const promptBuilder = createPromptBuilder(workflow);
@@ -74,5 +90,378 @@ Issue {{ issue.identifier }} / {{ config.tracker.repo }}`,
     });
     expect(rendered).toContain("repo#1");
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
+  });
+
+  it("loads a valid linear workflow with upstream defaults", async () => {
+    const dir = await createTempDir("workflow-linear-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.tracker).toEqual({
+      kind: "linear",
+      endpoint: "https://api.linear.app/graphql",
+      apiKey: "linear-token",
+      projectSlug: "team-project",
+      assignee: null,
+      activeStates: ["Todo", "In Progress"],
+      terminalStates: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+    });
+  });
+
+  it("redacts the linear API key from prompt rendering while preserving the runtime config", async () => {
+    const dir = await createTempDir("workflow-linear-redacted-prompt-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+        "token={{ config.tracker.apiKey }}",
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    if (workflow.config.tracker.kind !== "linear") {
+      throw new Error("expected linear tracker config");
+    }
+
+    expect(workflow.config.tracker.apiKey).toBe("linear-token");
+
+    const promptBuilder = createPromptBuilder(workflow);
+    const rendered = await promptBuilder.build({
+      issue: {
+        id: "1",
+        identifier: "repo#1",
+        number: 1,
+        title: "T",
+        description: "D",
+        labels: ["a"],
+        state: "open",
+        url: "https://example.test/issues/1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      attempt: null,
+      pullRequest: null,
+    });
+
+    expect(rendered).toBe("token=[redacted]");
+  });
+
+  it("loads a linear workflow token and assignee from env-backed values", async () => {
+    const dir = await createTempDir("workflow-linear-env-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    const previousApiKey = process.env.LINEAR_API_KEY;
+    const previousWorker = process.env.LINEAR_WORKER;
+
+    try {
+      process.env.LINEAR_API_KEY = "env-linear-token";
+      process.env.LINEAR_WORKER = "worker@example.com";
+
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
+  kind: linear
+  api_key: $MISSING_LINEAR_SECRET
+  project_slug: team-project
+  assignee: $LINEAR_WORKER
+${buildSharedWorkflowSections()}`,
+        ),
+        "utf8",
+      );
+
+      const workflow = await loadWorkflow(workflowPath);
+      if (workflow.config.tracker.kind !== "linear") {
+        throw new Error("expected linear tracker config");
+      }
+
+      expect(workflow.config.tracker.apiKey).toBe("env-linear-token");
+      expect(workflow.config.tracker.assignee).toBe("worker@example.com");
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = previousApiKey;
+      }
+      if (previousWorker === undefined) {
+        delete process.env.LINEAR_WORKER;
+      } else {
+        process.env.LINEAR_WORKER = previousWorker;
+      }
+    }
+  });
+
+  it("does not inherit an assignee filter from ambient env when tracker.assignee is omitted", async () => {
+    const dir = await createTempDir("workflow-linear-no-assignee-env-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    const previousAssignee = process.env.LINEAR_ASSIGNEE;
+
+    try {
+      process.env.LINEAR_ASSIGNEE = "ambient-worker@example.com";
+
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+        ),
+        "utf8",
+      );
+
+      const workflow = await loadWorkflow(workflowPath);
+      if (workflow.config.tracker.kind !== "linear") {
+        throw new Error("expected linear tracker config");
+      }
+
+      expect(workflow.config.tracker.assignee).toBeNull();
+    } finally {
+      if (previousAssignee === undefined) {
+        delete process.env.LINEAR_ASSIGNEE;
+      } else {
+        process.env.LINEAR_ASSIGNEE = previousAssignee;
+      }
+    }
+  });
+
+  it("treats an explicit unset assignee env reference as no assignee filter", async () => {
+    const dir = await createTempDir("workflow-linear-unset-assignee-env-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    const previousUnsetAssignee = process.env.MISSING_LINEAR_ASSIGNEE;
+
+    try {
+      delete process.env.MISSING_LINEAR_ASSIGNEE;
+
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+  assignee: $MISSING_LINEAR_ASSIGNEE
+${buildSharedWorkflowSections()}`,
+        ),
+        "utf8",
+      );
+
+      const workflow = await loadWorkflow(workflowPath);
+      if (workflow.config.tracker.kind !== "linear") {
+        throw new Error("expected linear tracker config");
+      }
+
+      expect(workflow.config.tracker.assignee).toBeNull();
+    } finally {
+      if (previousUnsetAssignee === undefined) {
+        delete process.env.MISSING_LINEAR_ASSIGNEE;
+      } else {
+        process.env.MISSING_LINEAR_ASSIGNEE = previousUnsetAssignee;
+      }
+    }
+  });
+
+  it("fails clearly when tracker.kind is unsupported", async () => {
+    const dir = await createTempDir("workflow-unsupported-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear-preview
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Unsupported tracker.kind 'linear-preview'. Supported kinds: github-bootstrap, linear",
+    );
+  });
+
+  it("fails clearly when tracker.kind is explicitly blank", async () => {
+    const dir = await createTempDir("workflow-blank-kind-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind:
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected non-empty string for tracker.kind",
+    );
+  });
+
+  it("fails early when a top-level workflow section is explicitly null", async () => {
+    const dir = await createTempDir("workflow-null-tracker-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected object for tracker",
+    );
+  });
+
+  it("fails clearly when a linear workflow is missing a token", async () => {
+    const dir = await createTempDir("workflow-linear-missing-token-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    const previousApiKey = process.env.LINEAR_API_KEY;
+
+    try {
+      delete process.env.LINEAR_API_KEY;
+
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
+  kind: linear
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+        ),
+        "utf8",
+      );
+
+      await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+        "Linear tracker requires tracker.api_key or LINEAR_API_KEY",
+      );
+    } finally {
+      if (previousApiKey === undefined) {
+        delete process.env.LINEAR_API_KEY;
+      } else {
+        process.env.LINEAR_API_KEY = previousApiKey;
+      }
+    }
+  });
+
+  it("fails clearly when a linear workflow endpoint is not a valid URL", async () => {
+    const dir = await createTempDir("workflow-linear-bad-endpoint-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  endpoint: api.linear.app/graphql
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "tracker.endpoint must be a valid URL, got 'api.linear.app/graphql'",
+    );
+  });
+
+  it("fails clearly when a linear workflow endpoint uses an unsupported URL scheme", async () => {
+    const dir = await createTempDir("workflow-linear-ftp-endpoint-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  endpoint: ftp://api.linear.app/graphql
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "tracker.endpoint must use https:// or http://, got 'ftp://api.linear.app/graphql'",
+    );
+  });
+
+  it("fails clearly when a linear workflow is missing project scope", async () => {
+    const dir = await createTempDir("workflow-linear-missing-project-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Linear tracker requires tracker.project_slug",
+    );
+  });
+
+  it("fails clearly when linear state lists are malformed", async () => {
+    const dir = await createTempDir("workflow-linear-bad-states-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+  active_states: not-a-list
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected string array for tracker.active_states",
+    );
+  });
+
+  it("fails clearly when linear state lists are empty", async () => {
+    const dir = await createTempDir("workflow-linear-empty-states-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+  active_states: []
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected non-empty string array for tracker.active_states",
+    );
   });
 });

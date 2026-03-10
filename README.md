@@ -156,6 +156,30 @@ By default, the checked-in `WORKFLOW.md` targets:
 - tracker: GitHub bootstrap adapter
 - runner: local Codex CLI
 
+## Linear Workflow Config Example
+
+Workflow loading also supports a Linear tracker config shape for upcoming adapter work:
+
+```yaml
+tracker:
+  kind: linear
+  endpoint: https://api.linear.app/graphql
+  api_key: $LINEAR_API_KEY
+  project_slug: symphony-0c79b11b75ea
+  assignee: $LINEAR_ASSIGNEE
+  active_states:
+    - Todo
+    - In Progress
+  terminal_states:
+    - Closed
+    - Cancelled
+    - Canceled
+    - Duplicate
+    - Done
+```
+
+In this slice, `loadWorkflow` validates and normalizes that config, but `symphony run` still requires the GitHub bootstrap tracker until the Linear adapter lands.
+
 ## How to Use Symphony to Build Symphony
 
 This is the recursive local setup: Symphony runs against the `symphony-ts` GitHub repo and works `symphony-ts` issues by opening PRs back to that same repo.

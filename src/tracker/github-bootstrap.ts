@@ -1,6 +1,6 @@
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { TrackerConfig } from "../domain/workflow.js";
+import type { GitHubBootstrapTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { GitHubClient } from "./github-client.js";
 import { evaluatePlanReviewProtocol } from "./plan-review-policy.js";
@@ -13,7 +13,7 @@ import { createPullRequestSnapshot } from "./pull-request-snapshot.js";
 import type { Tracker } from "./service.js";
 
 export class GitHubBootstrapTracker implements Tracker {
-  readonly #config: TrackerConfig;
+  readonly #config: GitHubBootstrapTrackerConfig;
   readonly #logger: Logger;
   readonly #client: GitHubClient;
   #ensureLabelsPromise: Promise<void> | null = null;
@@ -26,7 +26,7 @@ export class GitHubBootstrapTracker implements Tracker {
     }
   >();
 
-  constructor(config: TrackerConfig, logger: Logger) {
+  constructor(config: GitHubBootstrapTrackerConfig, logger: Logger) {
     this.#config = config;
     this.#logger = logger;
     this.#client = new GitHubClient(config);

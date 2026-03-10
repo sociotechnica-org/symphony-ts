@@ -7,7 +7,7 @@ export interface RetryPolicy {
   readonly backoffMs: number;
 }
 
-export interface TrackerConfig {
+export interface GitHubBootstrapTrackerConfig {
   readonly kind: "github-bootstrap";
   readonly repo: string;
   readonly apiUrl: string;
@@ -17,6 +17,18 @@ export interface TrackerConfig {
   readonly successComment: string;
   readonly reviewBotLogins: readonly string[];
 }
+
+export interface LinearTrackerConfig {
+  readonly kind: "linear";
+  readonly endpoint: string;
+  readonly apiKey: string;
+  readonly projectSlug: string;
+  readonly assignee: string | null;
+  readonly activeStates: readonly string[];
+  readonly terminalStates: readonly string[];
+}
+
+export type TrackerConfig = GitHubBootstrapTrackerConfig | LinearTrackerConfig;
 
 export interface PollingConfig {
   readonly intervalMs: number;

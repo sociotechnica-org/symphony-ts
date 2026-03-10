@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createPromptBuilder, loadWorkflow } from "../config/workflow.js";
+import {
+  createPromptBuilder,
+  loadWorkflow,
+  loadWorkflowWorkspaceRoot,
+} from "../config/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
 import {
   deriveStatusFilePath,
@@ -10,7 +14,7 @@ import {
 } from "../observability/status.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
 import { LocalRunner } from "../runner/local.js";
-import { GitHubBootstrapTracker } from "../tracker/github-bootstrap.js";
+import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
 
 export type CliArgs =
@@ -107,7 +111,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   const logger = new JsonLogger();
   const workflow = await loadWorkflow(args.workflowPath);
   const promptBuilder = createPromptBuilder(workflow);
-  const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
+  const tracker = createTracker(workflow.config.tracker, logger);
   const workspace = new LocalWorkspaceManager(
     workflow.config.workspace,
     workflow.config.hooks.afterCreate,
@@ -135,8 +139,8 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 }
 
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {
-  const workflow = await loadWorkflow(workflowPath);
-  return deriveStatusFilePath(workflow.config.workspace.root);
+  const workspaceRoot = await loadWorkflowWorkspaceRoot(workflowPath);
+  return deriveStatusFilePath(workspaceRoot);
 }
 
 function readOptionValue(args: readonly string[], flag: string): string | null {
