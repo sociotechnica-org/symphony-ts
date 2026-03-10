@@ -111,14 +111,14 @@ Not applicable for this slice. The work is transport-only and does not change or
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected client behavior |
-| --- | --- | --- |
-| request cannot reach the Linear endpoint | operation name, endpoint, thrown fetch error | throw `TrackerError` naming the operation and transport failure |
-| Linear returns non-2xx HTTP status | operation name, status code, response body text if available | throw `TrackerError` naming the operation and HTTP status |
-| Linear returns `errors` in a 200 GraphQL payload | operation name, GraphQL error messages | throw `TrackerError` naming the operation and GraphQL error text |
-| Linear returns no `data` field and no GraphQL errors | operation name, parsed JSON payload | throw `TrackerError` naming the missing data payload |
-| page response reports `hasNextPage: true` with a usable cursor | current page payload | continue fetching subsequent pages in the client helper |
-| page response reports `hasNextPage: true` with `endCursor: null` | current page payload | stop defensively and return accumulated results without looping forever |
+| Observed condition                                               | Local facts available                                        | Expected client behavior                                                |
+| ---------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| request cannot reach the Linear endpoint                         | operation name, endpoint, thrown fetch error                 | throw `TrackerError` naming the operation and transport failure         |
+| Linear returns non-2xx HTTP status                               | operation name, status code, response body text if available | throw `TrackerError` naming the operation and HTTP status               |
+| Linear returns `errors` in a 200 GraphQL payload                 | operation name, GraphQL error messages                       | throw `TrackerError` naming the operation and GraphQL error text        |
+| Linear returns no `data` field and no GraphQL errors             | operation name, parsed JSON payload                          | throw `TrackerError` naming the missing data payload                    |
+| page response reports `hasNextPage: true` with a usable cursor   | current page payload                                         | continue fetching subsequent pages in the client helper                 |
+| page response reports `hasNextPage: true` with `endCursor: null` | current page payload                                         | stop defensively and return accumulated results without looping forever |
 
 ## Storage / Persistence Contract
 
