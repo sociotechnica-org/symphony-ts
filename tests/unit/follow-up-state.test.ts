@@ -18,7 +18,7 @@ describe("follow-up-state", () => {
       state,
       issue.number,
       1,
-      createLifecycle("awaiting-review", "symphony/16"),
+      createLifecycle("awaiting-system-checks", "symphony/16"),
       2,
     );
 
@@ -30,7 +30,7 @@ describe("follow-up-state", () => {
       state,
       issue.number,
       2,
-      createLifecycle("needs-follow-up", "symphony/16"),
+      createLifecycle("actionable-follow-up", "symphony/16"),
       2,
     );
 
@@ -47,7 +47,7 @@ describe("follow-up-state", () => {
       state,
       issue.number,
       1,
-      createLifecycle("awaiting-review", "symphony/17"),
+      createLifecycle("awaiting-system-checks", "symphony/17"),
       2,
     );
 
@@ -55,14 +55,14 @@ describe("follow-up-state", () => {
       state,
       issue.number,
       2,
-      createLifecycle("needs-follow-up", "symphony/17"),
+      createLifecycle("actionable-follow-up", "symphony/17"),
       2,
     );
     const secondFollowUp = noteLifecycleObservation(
       state,
       issue.number,
       3,
-      createLifecycle("needs-follow-up", "symphony/17"),
+      createLifecycle("actionable-follow-up", "symphony/17"),
       2,
     );
 
@@ -78,7 +78,7 @@ describe("follow-up-state", () => {
       state,
       issue.number,
       1,
-      createLifecycle("needs-follow-up", "symphony/18"),
+      createLifecycle("actionable-follow-up", "symphony/18"),
       3,
     );
 
@@ -102,7 +102,7 @@ describe("follow-up-state", () => {
       state,
       19,
       2,
-      createLifecycle("needs-follow-up", "symphony/19"),
+      createLifecycle("actionable-follow-up", "symphony/19"),
       1,
     );
 
@@ -118,14 +118,14 @@ describe("follow-up-state", () => {
       state,
       issue.number,
       1,
-      createLifecycle("awaiting-review", "symphony/20"),
+      createLifecycle("awaiting-system-checks", "symphony/20"),
       2,
     );
     noteLifecycleObservation(
       state,
       issue.number,
       2,
-      createLifecycle("needs-follow-up", "symphony/20"),
+      createLifecycle("actionable-follow-up", "symphony/20"),
       2,
     );
 

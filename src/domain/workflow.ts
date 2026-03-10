@@ -1,5 +1,5 @@
 import type { RuntimeIssue } from "./issue.js";
-import type { PullRequestLifecycle } from "./pull-request.js";
+import type { HandoffLifecycle } from "./handoff.js";
 
 export interface RetryPolicy {
   readonly maxAttempts: number;
@@ -60,6 +60,6 @@ export interface PromptBuilder {
   build(input: {
     readonly issue: RuntimeIssue;
     readonly attempt: number | null;
-    readonly pullRequest: PullRequestLifecycle | null;
+    readonly pullRequest: HandoffLifecycle | null;
   }): Promise<string>;
 }

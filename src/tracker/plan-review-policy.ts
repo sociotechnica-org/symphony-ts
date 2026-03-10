@@ -1,4 +1,4 @@
-import type { PullRequestLifecycle } from "../domain/pull-request.js";
+import type { HandoffLifecycle } from "../domain/handoff.js";
 
 export interface IssueCommentSnapshot {
   readonly id: number;
@@ -29,7 +29,7 @@ interface ParsedPlanReviewAcknowledgement {
 
 export interface PlanReviewProtocolEvaluation {
   readonly latestSignal: ParsedPlanReviewComment | null;
-  readonly lifecycle: PullRequestLifecycle | null;
+  readonly lifecycle: HandoffLifecycle | null;
   readonly acknowledgement: {
     readonly signal: PlanReviewDecisionSignal;
     readonly reviewCommentId: number;
@@ -201,7 +201,7 @@ export function evaluatePlanReviewProtocol(
   return {
     latestSignal,
     lifecycle: {
-      kind: "awaiting-plan-review",
+      kind: "awaiting-human-handoff",
       branchName,
       pullRequest: null,
       checks: [],
@@ -219,6 +219,6 @@ export function evaluatePlanReviewLifecycle(
   branchName: string,
   issueUrl: string,
   comments: readonly IssueCommentSnapshot[],
-): PullRequestLifecycle | null {
+): HandoffLifecycle | null {
   return evaluatePlanReviewProtocol(branchName, issueUrl, comments).lifecycle;
 }

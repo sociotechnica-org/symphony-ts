@@ -1,5 +1,5 @@
+import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { PullRequestLifecycle } from "../domain/pull-request.js";
 import type { RetryState } from "../domain/retry.js";
 import type {
   FactoryActiveIssueSnapshot,
@@ -144,19 +144,19 @@ export function noteLifecycleForIssue(
   source: "ready" | "running",
   runSequence: number,
   branchName: string,
-  lifecycle: PullRequestLifecycle,
+  lifecycle: HandoffLifecycle,
 ): void {
   upsertActiveIssue(state, issue, {
     source,
     runSequence,
     branchName,
     status:
-      lifecycle.kind === "needs-follow-up"
-        ? "needs-follow-up"
-        : lifecycle.kind === "awaiting-plan-review"
-          ? "awaiting-plan-review"
-          : lifecycle.kind === "awaiting-review"
-            ? "awaiting-review"
+      lifecycle.kind === "actionable-follow-up"
+        ? "actionable-follow-up"
+        : lifecycle.kind === "awaiting-human-handoff"
+          ? "awaiting-human-handoff"
+          : lifecycle.kind === "awaiting-system-checks"
+            ? "awaiting-system-checks"
             : "queued",
     summary: lifecycle.summary,
     pullRequest:
@@ -176,9 +176,9 @@ export function noteLifecycleForIssue(
       unresolvedThreadCount: lifecycle.unresolvedThreadIds.length,
     },
     blockedReason:
-      lifecycle.kind === "awaiting-plan-review" ||
-      lifecycle.kind === "awaiting-review" ||
-      lifecycle.kind === "needs-follow-up"
+      lifecycle.kind === "awaiting-human-handoff" ||
+      lifecycle.kind === "awaiting-system-checks" ||
+      lifecycle.kind === "actionable-follow-up"
         ? lifecycle.summary
         : null,
   });

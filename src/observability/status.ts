@@ -10,9 +10,9 @@ export type FactoryIssueStatus =
   | "queued"
   | "preparing"
   | "running"
-  | "awaiting-plan-review"
-  | "awaiting-review"
-  | "needs-follow-up";
+  | "awaiting-human-handoff"
+  | "awaiting-system-checks"
+  | "actionable-follow-up";
 
 export interface FactoryWorkerSnapshot {
   readonly instanceId: string;
@@ -418,9 +418,9 @@ function parseActiveIssue(
         "queued",
         "preparing",
         "running",
-        "awaiting-plan-review",
-        "awaiting-review",
-        "needs-follow-up",
+        "awaiting-human-handoff",
+        "awaiting-system-checks",
+        "actionable-follow-up",
       ],
       filePath,
       `${field}.status`,

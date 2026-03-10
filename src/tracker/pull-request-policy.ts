@@ -1,7 +1,4 @@
-import type {
-  PullRequestLifecycle,
-  ReviewFeedback,
-} from "../domain/pull-request.js";
+import type { HandoffLifecycle, ReviewFeedback } from "../domain/handoff.js";
 import type { PullRequestSnapshot } from "./pull-request-snapshot.js";
 
 export interface NoCheckObservation {
@@ -10,7 +7,7 @@ export interface NoCheckObservation {
 }
 
 export interface PullRequestPolicyResult {
-  readonly lifecycle: PullRequestLifecycle;
+  readonly lifecycle: HandoffLifecycle;
   readonly nextNoCheckObservation: NoCheckObservation | null;
 }
 
@@ -37,9 +34,9 @@ function summarizeLifecycle(
 
 export function missingPullRequestLifecycle(
   branchName: string,
-): PullRequestLifecycle {
+): HandoffLifecycle {
   return {
-    kind: "missing",
+    kind: "missing-target",
     branchName,
     pullRequest: null,
     checks: [],
@@ -62,7 +59,7 @@ export function evaluatePullRequestLifecycle(
   ) {
     return {
       lifecycle: {
-        kind: "needs-follow-up",
+        kind: "actionable-follow-up",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,
@@ -84,7 +81,7 @@ export function evaluatePullRequestLifecycle(
   if (snapshot.failingCheckNames.length > 0) {
     return {
       lifecycle: {
-        kind: "awaiting-review",
+        kind: "awaiting-system-checks",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,
@@ -106,7 +103,7 @@ export function evaluatePullRequestLifecycle(
   if (snapshot.pendingCheckNames.length > 0) {
     return {
       lifecycle: {
-        kind: "awaiting-review",
+        kind: "awaiting-system-checks",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,
@@ -128,7 +125,7 @@ export function evaluatePullRequestLifecycle(
   if (snapshot.actionableReviewFeedback.length > 0) {
     return {
       lifecycle: {
-        kind: "awaiting-review",
+        kind: "awaiting-system-checks",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,
@@ -154,7 +151,7 @@ export function evaluatePullRequestLifecycle(
     if (!sawSameNoCheckLifecycle) {
       return {
         lifecycle: {
-          kind: "awaiting-review",
+          kind: "awaiting-system-checks",
           branchName: snapshot.branchName,
           pullRequest: snapshot.pullRequest,
           checks: snapshot.checks,
@@ -171,7 +168,7 @@ export function evaluatePullRequestLifecycle(
 
   return {
     lifecycle: {
-      kind: "ready",
+      kind: "handoff-ready",
       branchName: snapshot.branchName,
       pullRequest: snapshot.pullRequest,
       checks: snapshot.checks,

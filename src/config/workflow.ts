@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
-import type { PullRequestLifecycle } from "../domain/pull-request.js";
+import type { HandoffLifecycle } from "../domain/handoff.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -28,7 +28,7 @@ interface PromptRenderInput {
     readonly identifier: string;
   };
   readonly attempt: number | null;
-  readonly pullRequest: PullRequestLifecycle | null;
+  readonly pullRequest: HandoffLifecycle | null;
   readonly config: ResolvedConfig;
 }
 
