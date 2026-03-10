@@ -400,7 +400,7 @@ export class LinearClient {
         `Linear GraphQL request failed for ${operationName}: ${messages}`,
       );
     }
-    if (payload.data === undefined) {
+    if (payload.data === undefined || payload.data === null) {
       throw new TrackerError(
         `Linear GraphQL request failed for ${operationName}: missing data payload`,
       );

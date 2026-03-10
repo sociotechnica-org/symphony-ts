@@ -174,6 +174,23 @@ describe("LinearClient", () => {
     );
   });
 
+  it("surfaces null GraphQL data payloads with the operation name", async () => {
+    const nullDataFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ data: null }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+    const client = new LinearClient(createConfig(server), {
+      fetch: nullDataFetch,
+    });
+
+    await expect(client.fetchProject()).rejects.toThrowError(
+      /GetProject: missing data payload/i,
+    );
+  });
+
   it("surfaces transport failures deterministically", async () => {
     const failingFetch: typeof fetch = async () => {
       throw new Error("simulated transport failure");
