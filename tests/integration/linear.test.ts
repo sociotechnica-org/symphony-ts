@@ -275,6 +275,27 @@ describe("LinearTracker", () => {
     expect(lifecycle.kind).toBe("actionable-follow-up");
   });
 
+  it("does not post a duplicate handoff-ready comment when a successful run is already in Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 24,
+      title: "Already waiting for review",
+      stateName: "Human Review",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/24", null);
+
+    expect(server.getIssue("symphony-linear", 24).stateName).toBe(
+      "Human Review",
+    );
+    expect(server.getIssue("symphony-linear", 24).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
   it("does not move a successful run backward from Merging into Human Review", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",

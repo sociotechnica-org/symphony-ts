@@ -272,7 +272,7 @@ export function isLinearReviewWorkflowState(stateName: string): boolean {
   );
 }
 
-export function isLinearHumanReviewWorkflowState(stateName: string): boolean {
+function isLinearHumanReviewWorkflowState(stateName: string): boolean {
   return sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME);
 }
 

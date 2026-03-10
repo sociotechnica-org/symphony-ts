@@ -188,6 +188,18 @@ describe("createLinearHandoffLifecycle", () => {
     expect(lifecycle.kind).toBe("awaiting-system-checks");
   });
 
+  it("maps handoff-ready workpad without a review signal to awaiting-human-handoff", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("In Progress", {
+        workpadStatus: "handoff-ready",
+      }),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
   it("maps Rework to actionable-follow-up", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("Rework"),
@@ -201,6 +213,18 @@ describe("createLinearHandoffLifecycle", () => {
   it("maps Merging to awaiting-system-checks", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("Merging"),
+      "symphony/1",
+      config,
+    );
+
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+  });
+
+  it("maps Human Review with waived review to awaiting-system-checks", () => {
+    const lifecycle = createLinearHandoffLifecycle(
+      createIssue("Human Review", {
+        comments: [createComment("Plan review: waived")],
+      }),
       "symphony/1",
       config,
     );
