@@ -363,6 +363,27 @@ ${buildSharedWorkflowSections()}`,
     );
   });
 
+  it("fails clearly when a linear workflow endpoint uses an unsupported URL scheme", async () => {
+    const dir = await createTempDir("workflow-linear-ftp-endpoint-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  endpoint: ftp://api.linear.app/graphql
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "tracker.endpoint must use https:// or http://, got 'ftp://api.linear.app/graphql'",
+    );
+  });
+
   it("fails clearly when a linear workflow is missing project scope", async () => {
     const dir = await createTempDir("workflow-linear-missing-project-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

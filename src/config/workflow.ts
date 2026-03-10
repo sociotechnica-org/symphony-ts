@@ -61,10 +61,16 @@ function requireString(value: unknown, field: string): string {
 
 function requireUrlString(value: unknown, field: string): string {
   const resolved = requireString(value, field);
+  let url: URL;
   try {
-    new URL(resolved);
+    url = new URL(resolved);
   } catch {
     throw new ConfigError(`${field} must be a valid URL, got '${resolved}'`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new ConfigError(
+      `${field} must use https:// or http://, got '${resolved}'`,
+    );
   }
   return resolved;
 }
