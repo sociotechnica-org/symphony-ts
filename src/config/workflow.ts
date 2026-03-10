@@ -317,6 +317,8 @@ function resolveTrackerConfig(
       return resolveGitHubBootstrapTrackerConfig(tracker);
     case "linear":
       return resolveLinearTrackerConfig(tracker);
+    default:
+      return exhaustiveTrackerConfig(kind);
   }
 }
 

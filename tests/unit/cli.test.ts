@@ -285,7 +285,6 @@ describe("runCli status", () => {
 
   it("derives the status snapshot path without requiring a linear API key", async () => {
     const tempDir = await createTempDir("symphony-cli-status-linear-");
-    const workflowPath = await writeLinearWorkflowWithoutToken(tempDir);
     const previousApiKey = process.env.LINEAR_API_KEY;
     const statusPath = path.join(tempDir, ".tmp", "status.json");
 
@@ -301,6 +300,7 @@ describe("runCli status", () => {
 
     try {
       delete process.env.LINEAR_API_KEY;
+      const workflowPath = await writeLinearWorkflowWithoutToken(tempDir);
       await fs.mkdir(path.dirname(statusPath), { recursive: true });
       await fs.writeFile(
         statusPath,
@@ -411,9 +411,9 @@ describe("runCli status", () => {
 describe("runCli run", () => {
   it("fails clearly when workflow config is linear but the runtime adapter is not implemented", async () => {
     const tempDir = await createTempDir("symphony-cli-run-linear-");
-    const workflowPath = await writeLinearWorkflow(tempDir);
 
     try {
+      const workflowPath = await writeLinearWorkflow(tempDir);
       await expect(
         runCli([
           "node",
