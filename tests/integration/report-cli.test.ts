@@ -147,10 +147,13 @@ describe("report CLI", () => {
     tempRoots.push(tempDir);
     const workflowPath = path.join(tempDir, "WORKFLOW.md");
     const previousApiKey = process.env.LINEAR_API_KEY;
-    delete process.env.LINEAR_API_KEY;
-    await fs.writeFile(
-      workflowPath,
-      `---
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+
+    try {
+      delete process.env.LINEAR_API_KEY;
+      await fs.writeFile(
+        workflowPath,
+        `---
 tracker:
   kind: linear
   api_key: $LINEAR_API_KEY
@@ -177,12 +180,10 @@ agent:
 ---
 Prompt body
 `,
-      "utf8",
-    );
-    const workspaceRoot = deriveWorkspaceRoot(tempDir);
-    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+        "utf8",
+      );
+      await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
 
-    try {
       await expect(
         runReportCli([
           "node",

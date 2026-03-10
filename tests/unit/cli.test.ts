@@ -287,14 +287,7 @@ describe("runCli status", () => {
     const tempDir = await createTempDir("symphony-cli-status-linear-");
     const workflowPath = await writeLinearWorkflowWithoutToken(tempDir);
     const previousApiKey = process.env.LINEAR_API_KEY;
-    delete process.env.LINEAR_API_KEY;
     const statusPath = path.join(tempDir, ".tmp", "status.json");
-    await fs.mkdir(path.dirname(statusPath), { recursive: true });
-    await fs.writeFile(
-      statusPath,
-      `${JSON.stringify(createSnapshot(), null, 2)}\n`,
-      "utf8",
-    );
 
     const chunks: string[] = [];
     vi.spyOn(process.stdout, "write").mockImplementation(((
@@ -307,6 +300,14 @@ describe("runCli status", () => {
     }) as typeof process.stdout.write);
 
     try {
+      delete process.env.LINEAR_API_KEY;
+      await fs.mkdir(path.dirname(statusPath), { recursive: true });
+      await fs.writeFile(
+        statusPath,
+        `${JSON.stringify(createSnapshot(), null, 2)}\n`,
+        "utf8",
+      );
+
       await runCli(["node", "symphony", "status", "--workflow", workflowPath]);
     } finally {
       if (previousApiKey === undefined) {

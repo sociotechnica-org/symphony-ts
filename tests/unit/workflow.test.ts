@@ -169,23 +169,23 @@ ${buildSharedWorkflowSections()}`,
     const previousApiKey = process.env.LINEAR_API_KEY;
     const previousWorker = process.env.LINEAR_WORKER;
 
-    process.env.LINEAR_API_KEY = "env-linear-token";
-    process.env.LINEAR_WORKER = "worker@example.com";
+    try {
+      process.env.LINEAR_API_KEY = "env-linear-token";
+      process.env.LINEAR_WORKER = "worker@example.com";
 
-    await fs.writeFile(
-      workflowPath,
-      buildWorkflow(
-        `tracker:
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
   kind: linear
   api_key: $MISSING_LINEAR_SECRET
   project_slug: team-project
   assignee: $LINEAR_WORKER
 ${buildSharedWorkflowSections()}`,
-      ),
-      "utf8",
-    );
+        ),
+        "utf8",
+      );
 
-    try {
       const workflow = await loadWorkflow(workflowPath);
       if (workflow.config.tracker.kind !== "linear") {
         throw new Error("expected linear tracker config");
@@ -211,21 +211,22 @@ ${buildSharedWorkflowSections()}`,
     const dir = await createTempDir("workflow-linear-no-assignee-env-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
     const previousAssignee = process.env.LINEAR_ASSIGNEE;
-    process.env.LINEAR_ASSIGNEE = "ambient-worker@example.com";
 
-    await fs.writeFile(
-      workflowPath,
-      buildWorkflow(
-        `tracker:
+    try {
+      process.env.LINEAR_ASSIGNEE = "ambient-worker@example.com";
+
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
   kind: linear
   api_key: linear-token
   project_slug: team-project
 ${buildSharedWorkflowSections()}`,
-      ),
-      "utf8",
-    );
+        ),
+        "utf8",
+      );
 
-    try {
       const workflow = await loadWorkflow(workflowPath);
       if (workflow.config.tracker.kind !== "linear") {
         throw new Error("expected linear tracker config");
@@ -245,22 +246,23 @@ ${buildSharedWorkflowSections()}`,
     const dir = await createTempDir("workflow-linear-unset-assignee-env-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
     const previousUnsetAssignee = process.env.MISSING_LINEAR_ASSIGNEE;
-    delete process.env.MISSING_LINEAR_ASSIGNEE;
 
-    await fs.writeFile(
-      workflowPath,
-      buildWorkflow(
-        `tracker:
+    try {
+      delete process.env.MISSING_LINEAR_ASSIGNEE;
+
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
   kind: linear
   api_key: linear-token
   project_slug: team-project
   assignee: $MISSING_LINEAR_ASSIGNEE
 ${buildSharedWorkflowSections()}`,
-      ),
-      "utf8",
-    );
+        ),
+        "utf8",
+      );
 
-    try {
       const workflow = await loadWorkflow(workflowPath);
       if (workflow.config.tracker.kind !== "linear") {
         throw new Error("expected linear tracker config");
@@ -316,20 +318,21 @@ ${buildSharedWorkflowSections()}`,
     const dir = await createTempDir("workflow-linear-missing-token-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
     const previousApiKey = process.env.LINEAR_API_KEY;
-    delete process.env.LINEAR_API_KEY;
 
-    await fs.writeFile(
-      workflowPath,
-      buildWorkflow(
-        `tracker:
+    try {
+      delete process.env.LINEAR_API_KEY;
+
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
   kind: linear
   project_slug: team-project
 ${buildSharedWorkflowSections()}`,
-      ),
-      "utf8",
-    );
+        ),
+        "utf8",
+      );
 
-    try {
       await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
         "Linear tracker requires tracker.api_key or LINEAR_API_KEY",
       );
