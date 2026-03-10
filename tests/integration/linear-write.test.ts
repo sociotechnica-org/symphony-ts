@@ -78,11 +78,14 @@ describe("LinearIssueWriter", () => {
     }
     const project = normalizeLinearProject(projectResult.project);
 
-    const updated = await writer.updateIssue(project, {
-      id: issue.id,
-      description: "After",
-      stateName: "In Progress",
-    });
+    const updated = await writer.updateIssue(
+      {
+        id: issue.id,
+        description: "After",
+        stateName: "In Progress",
+      },
+      project,
+    );
     const request = server.requests("UpdateIssueDescriptionAndState")[0];
 
     expect(updated.description).toBe("After");
@@ -94,6 +97,38 @@ describe("LinearIssueWriter", () => {
       description: "After",
     });
     expect(typeof request?.variables["stateId"]).toBe("string");
+  });
+
+  it("updates issue description without requiring a project snapshot", async () => {
+    const issue = server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 11,
+      title: "Issue 11",
+      description: "Before",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+    const client = new LinearClient(createConfig(server));
+    const writer = new LinearIssueWriter(client, {
+      configuredAssignee: "worker@example.test",
+    });
+
+    const updated = await writer.updateIssue({
+      id: issue.id,
+      description: "After only",
+    });
+    const request = server.requests("UpdateIssueDescription")[0];
+
+    expect(updated.description).toBe("After only");
+    expect(updated.state.name).toBe("Todo");
+    expect(server.getIssue("symphony-linear", 11).description).toBe(
+      "After only",
+    );
+    expect(server.countRequests("GetProject")).toBe(0);
+    expect(request?.variables).toEqual({
+      id: issue.id,
+      description: "After only",
+    });
   });
 
   it("surfaces failed comment writes without leaking GraphQL parsing details", async () => {
@@ -135,10 +170,37 @@ describe("LinearIssueWriter", () => {
     server.enqueueGraphQLError("UpdateIssueState", "simulated update failure");
 
     await expect(
-      writer.updateIssue(project, {
-        id: issue.id,
-        stateName: "In Progress",
-      }),
+      writer.updateIssue(
+        {
+          id: issue.id,
+          stateName: "In Progress",
+        },
+        project,
+      ),
     ).rejects.toThrowError(/UpdateIssueState: simulated update failure/i);
+  });
+
+  it("fails fast when no issue fields are provided", async () => {
+    const issue = server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 12,
+      title: "Issue 12",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+    const client = new LinearClient(createConfig(server));
+    const writer = new LinearIssueWriter(client, {
+      configuredAssignee: "worker@example.test",
+    });
+
+    await expect(
+      writer.updateIssue({
+        id: issue.id,
+      }),
+    ).rejects.toThrowError(/Linear issue update requires at least one field/i);
+    expect(server.countRequests("UpdateIssue")).toBe(0);
+    expect(server.countRequests("UpdateIssueDescription")).toBe(0);
+    expect(server.countRequests("UpdateIssueState")).toBe(0);
+    expect(server.countRequests("UpdateIssueDescriptionAndState")).toBe(0);
   });
 });

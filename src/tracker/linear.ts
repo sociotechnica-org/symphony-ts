@@ -100,11 +100,14 @@ export class LinearTracker implements Tracker {
       updatedAt: new Date().toISOString(),
     });
 
-    const claimed = await this.#writer.updateIssue(project, {
-      id: issue.id,
-      description: updatedDescription,
-      ...(nextStateName === null ? {} : { stateName: nextStateName }),
-    });
+    const claimed = await this.#writer.updateIssue(
+      {
+        id: issue.id,
+        description: updatedDescription,
+        ...(nextStateName === null ? {} : { stateName: nextStateName }),
+      },
+      project,
+    );
     await this.#writer.createComment(issue.id, CLAIM_COMMENT);
     this.#logger.info("Claimed Linear issue", {
       issueNumber,
@@ -144,7 +147,7 @@ export class LinearTracker implements Tracker {
       branchName,
       updatedAt: new Date().toISOString(),
     });
-    await this.#writer.updateIssue(await this.#project(), {
+    await this.#writer.updateIssue({
       id: issue.id,
       description: updatedDescription,
     });
@@ -154,7 +157,7 @@ export class LinearTracker implements Tracker {
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
     const issue = await this.#getIssueSnapshot(issueNumber);
-    await this.#writer.updateIssue(await this.#project(), {
+    await this.#writer.updateIssue({
       id: issue.id,
       description: writeLinearWorkpad(issue.description, {
         status: "retry-scheduled",
@@ -173,22 +176,25 @@ export class LinearTracker implements Tracker {
       project,
       this.#config,
     );
-    await this.#writer.updateIssue(project, {
-      id: issue.id,
-      description: writeLinearWorkpad(issue.description, {
-        status: "completed",
-        summary: "Completed by Symphony",
-        branchName: null,
-        updatedAt: new Date().toISOString(),
-      }),
-      stateName: terminalStateName,
-    });
+    await this.#writer.updateIssue(
+      {
+        id: issue.id,
+        description: writeLinearWorkpad(issue.description, {
+          status: "completed",
+          summary: "Completed by Symphony",
+          branchName: null,
+          updatedAt: new Date().toISOString(),
+        }),
+        stateName: terminalStateName,
+      },
+      project,
+    );
     await this.#writer.createComment(issue.id, COMPLETION_COMMENT);
   }
 
   async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
     const issue = await this.#getIssueSnapshot(issueNumber);
-    await this.#writer.updateIssue(await this.#project(), {
+    await this.#writer.updateIssue({
       id: issue.id,
       description: writeLinearWorkpad(issue.description, {
         status: "failed",

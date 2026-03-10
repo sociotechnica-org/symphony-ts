@@ -38,20 +38,32 @@ export class LinearIssueWriter {
   }
 
   async updateIssue(
-    project: LinearProjectSnapshot,
     input: LinearIssueWriteInput,
+    project?: LinearProjectSnapshot,
   ): Promise<LinearIssueSnapshot> {
+    const hasDescription = input.description !== undefined;
+    const hasStateName =
+      input.stateName !== undefined && input.stateName !== null;
+
+    if (!hasDescription && !hasStateName) {
+      throw new TrackerError("Linear issue update requires at least one field");
+    }
+
+    if (hasStateName && project === undefined) {
+      throw new TrackerError(
+        `Linear issue update for ${input.id} requires project workflow state lookup`,
+      );
+    }
+
     const stateId =
-      input.stateName === undefined || input.stateName === null
+      !hasStateName || project === undefined
         ? undefined
         : resolveLinearStateByName(project, input.stateName).id;
 
     return normalizeLinearIssueMutationResult(
       await this.#client.updateIssue({
         id: input.id,
-        ...(input.description === undefined
-          ? {}
-          : { description: input.description }),
+        ...(hasDescription ? { description: input.description } : {}),
         ...(stateId === undefined ? {} : { stateId }),
       }),
       "issueUpdate",
