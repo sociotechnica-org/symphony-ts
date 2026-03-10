@@ -36,6 +36,7 @@ const DEFAULT_LINEAR_TERMINAL_STATES = [
   "Done",
 ] as const;
 const SUPPORTED_TRACKER_KINDS = ["github-bootstrap", "linear"] as const;
+type SupportedTrackerKind = (typeof SUPPORTED_TRACKER_KINDS)[number];
 
 interface PromptRenderInput {
   readonly issue: {
@@ -122,12 +123,18 @@ function resolveEnvBackedSecret(
     return normalizeSecretValue(trimmed);
   }
 
+  // Match the Elixir config seam: an unset explicit env reference falls back
+  // to the default env var for this field instead of failing immediately.
   const referencedValue = process.env[referencedEnvName];
   if (referencedValue === undefined) {
     return normalizeSecretValue(process.env[fallbackEnvName]);
   }
 
   return normalizeSecretValue(referencedValue);
+}
+
+function isSupportedTrackerKind(value: string): value is SupportedTrackerKind {
+  return (SUPPORTED_TRACKER_KINDS as readonly string[]).includes(value);
 }
 
 function parseFrontMatter(raw: string): {
@@ -252,7 +259,7 @@ function resolveTrackerKind(value: unknown): TrackerConfig["kind"] {
   }
 
   const normalizedKind = value.trim();
-  if (normalizedKind === "github-bootstrap" || normalizedKind === "linear") {
+  if (isSupportedTrackerKind(normalizedKind)) {
     return normalizedKind;
   }
 
