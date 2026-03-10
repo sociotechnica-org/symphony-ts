@@ -68,7 +68,7 @@ export interface LinearRawProjectWithIssue extends LinearRawProject {
   readonly issue: LinearRawIssue | null;
 }
 
-interface LinearRawIssueMutation {
+export interface LinearRawIssueMutation {
   readonly success: boolean;
   readonly issue: LinearRawIssue | null;
 }
