@@ -9,6 +9,7 @@ import type {
   ResolvedConfig,
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
+import type { LivenessProbe } from "../../src/orchestrator/liveness-probe.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import {
   deriveFactoryRuntimeRoot,
@@ -51,6 +52,20 @@ function createDeferred<T>(): {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+function createObservableStalledProbe(): LivenessProbe {
+  return {
+    async capture(options) {
+      return {
+        logSizeBytes: 1,
+        workspaceDiffHash: null,
+        prHeadSha: options.prHeadSha,
+        hasActionableFeedback: options.hasActionableFeedback,
+        capturedAt: Date.now(),
+      };
+    },
+  };
 }
 
 const baseConfig: ResolvedConfig = {
@@ -107,10 +122,20 @@ const staticPromptBuilder: PromptBuilder = {
 
 class NullLogger implements Logger {
   readonly errors: string[] = [];
+  readonly warnings: Array<{
+    message: string;
+    data?: Record<string, unknown>;
+  }> = [];
 
   info(_message: string, _data?: Record<string, unknown>): void {}
 
-  warn(_message: string, _data?: Record<string, unknown>): void {}
+  warn(message: string, data?: Record<string, unknown>): void {
+    if (data === undefined) {
+      this.warnings.push({ message });
+      return;
+    }
+    this.warnings.push({ message, data });
+  }
 
   error(message: string, _data?: Record<string, unknown>): void {
     this.errors.push(message);
@@ -1834,5 +1859,377 @@ describe("BootstrapOrchestrator", () => {
       /^sociotechnica-org\/symphony-ts#12\/attempt-1-/,
     );
     expect(new Set(runner.sessionIds).size).toBe(2);
+  });
+});
+
+describe("BootstrapOrchestrator watchdog", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir("symphony-watchdog-test-");
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("aborts a stalled runner when watchdog detects no progress", async () => {
+    const issue = createIssue(99);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(99, [
+      lifecycle("missing-target", "symphony/99"),
+      lifecycle("handoff-ready", "symphony/99"),
+    ]);
+
+    const runStarted = createDeferred<void>();
+    let runAborted = false;
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        runStarted.resolve();
+        // Simulate a runner that stalls indefinitely until aborted
+        return new Promise<RunResult>((resolve, reject) => {
+          const handleAbort = (): void => {
+            runAborted = true;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    const staticProbe = createObservableStalledProbe();
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0, // immediate stall detection for testing
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      new NullLogger(),
+      undefined,
+      staticProbe,
+    );
+
+    // Start runOnce in background — it will start the runner and then check watchdog
+    const runOncePromise = orchestrator.runOnce();
+
+    // Wait for the runner to start
+    await runStarted.promise;
+
+    // The runOnce should eventually abort the stalled runner via watchdog
+    // and handle the resulting error
+    await runOncePromise;
+
+    expect(runAborted).toBe(true);
+  });
+
+  it("does not recover beyond maxRecoveryAttempts across retries", async () => {
+    const issue = createIssue(88);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(88, [
+      lifecycle("missing-target", "symphony/88"),
+      lifecycle("handoff-ready", "symphony/88"),
+    ]);
+
+    let abortCount = 0;
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        return new Promise<RunResult>((resolve, reject) => {
+          const handleAbort = (): void => {
+            abortCount += 1;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      logger,
+      undefined,
+      createObservableStalledProbe(),
+    );
+
+    // First runOnce — should use the only recovery budget and schedule a retry.
+    await orchestrator.runOnce();
+    expect(abortCount).toBe(1);
+
+    // Second runOnce resumes the same issue from retry state. The watchdog should
+    // abort terminally instead of resetting the recovery budget.
+    await orchestrator.runOnce();
+
+    expect(abortCount).toBe(2);
+    expect(tracker.retried).toHaveLength(1);
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 88,
+        reason: "Aborted",
+      },
+    ]);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).toBe("issue-failed");
+  });
+
+  it("aborts a stalled runner even when recovery is exhausted", async () => {
+    const issue = createIssue(66);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(66, [
+      lifecycle("missing-target", "symphony/66"),
+      lifecycle("handoff-ready", "symphony/66"),
+    ]);
+
+    let abortCount = 0;
+    const abortSnapshot = createDeferred<{
+      kind: string | null;
+      issueNumber: number | null;
+      summary: string | null;
+    }>();
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        return new Promise<RunResult>((_resolve, reject) => {
+          const handleAbort = (): void => {
+            abortCount += 1;
+            void readFactoryStatusSnapshot(deriveStatusFilePath(tmpDir))
+              .then((snapshot) => {
+                abortSnapshot.resolve({
+                  kind: snapshot.lastAction?.kind ?? null,
+                  issueNumber: snapshot.lastAction?.issueNumber ?? null,
+                  summary: snapshot.lastAction?.summary ?? null,
+                });
+              })
+              .catch(() => {
+                abortSnapshot.resolve({
+                  kind: null,
+                  issueNumber: null,
+                  summary: null,
+                });
+              });
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 0,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      new NullLogger(),
+      undefined,
+      createObservableStalledProbe(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(abortCount).toBe(1);
+    await expect(abortSnapshot.promise).resolves.toMatchObject({
+      kind: "watchdog-recovery-exhausted",
+      issueNumber: 66,
+    });
+    await expect(abortSnapshot.promise).resolves.toMatchObject({
+      summary: expect.stringContaining("recovery limit reached"),
+    });
+  });
+
+  it("stops the watchdog when the runner throws before completion", async () => {
+    const issue = createIssue(77);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(77, [
+      lifecycle("missing-target", "symphony/77"),
+    ]);
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const { NullLivenessProbe } =
+      await import("../../src/orchestrator/liveness-probe.js");
+
+    const failingRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run() {
+        throw new Error("runner crashed");
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      failingRunner,
+      logger,
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    await orchestrator.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
+    expect(
+      tracker.retried.some(({ reason }) => reason.includes("Stall detected")),
+    ).toBe(false);
+  });
+
+  it("warns when watchdog is enabled without a liveness probe", async () => {
+    const issue = createIssue(55);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(55, [
+      lifecycle("handoff-ready", "symphony/55"),
+    ]);
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const successfulRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run() {
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        };
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      successfulRunner,
+      logger,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(logger.warnings).toContainEqual({
+      message:
+        "Watchdog is enabled but no liveness probe was provided; stall detection is disabled",
+      data: { issueNumber: 55 },
+    });
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery-exhausted");
   });
 });

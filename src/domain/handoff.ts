@@ -12,6 +12,7 @@ export interface PullRequestHandle {
   readonly number: number;
   readonly url: string;
   readonly branchName: string;
+  readonly headSha: string | null;
   readonly latestCommitAt: string | null;
 }
 

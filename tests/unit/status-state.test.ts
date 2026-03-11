@@ -62,6 +62,7 @@ describe("upsertActiveIssue", () => {
       pullRequest: {
         number: 12,
         url: "https://example.test/pulls/12",
+        headSha: "head-sha-12",
         latestCommitAt: "2026-03-06T11:02:00.000Z",
       },
       blockedReason: "Waiting on review",

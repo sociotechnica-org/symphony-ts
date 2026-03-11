@@ -129,6 +129,7 @@ export class GitHubBootstrapTracker implements Tracker {
           number: pullRequest.number,
           url: pullRequest.html_url,
           branchName: pullRequest.head.ref,
+          headSha: pullRequest.head.sha,
           latestCommitAt: null,
         },
         checks: [],

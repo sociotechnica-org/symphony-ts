@@ -11,6 +11,7 @@ function createSnapshot(
       number: 16,
       url: "https://example.test/pulls/16",
       branchName: "symphony/16",
+      headSha: "head-sha-16",
       latestCommitAt: "2026-03-06T00:00:00.000Z",
     },
     landingState: "open",

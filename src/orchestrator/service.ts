@@ -4,7 +4,11 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
 import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
-import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
+import type {
+  PromptBuilder,
+  ResolvedConfig,
+  WatchdogConfig,
+} from "../domain/workflow.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -39,6 +43,13 @@ import {
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
 import { createOrchestratorState } from "./state.js";
+import type { LivenessProbe } from "./liveness-probe.js";
+import {
+  type StallReason,
+  checkStall,
+  canRecover,
+  DEFAULT_WATCHDOG_CONFIG,
+} from "./stall-detector.js";
 import {
   adjustTrackerIssueCounts,
   buildFactoryStatusSnapshot,
@@ -48,6 +59,12 @@ import {
   setTrackerIssueCounts,
   upsertActiveIssue,
 } from "./status-state.js";
+import {
+  clearActiveWatchdogEntry,
+  clearWatchdogIssueState,
+  initWatchdogEntry,
+  recordWatchdogRecovery,
+} from "./watchdog-state.js";
 
 export interface Orchestrator {
   runOnce(): Promise<void>;
@@ -72,6 +89,8 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #leaseManager: LocalIssueLeaseManager;
   readonly #issueArtifactStore: IssueArtifactStore;
   readonly #statusFilePath: string;
+  readonly #livenessProbe: LivenessProbe | null;
+  readonly #watchdogConfig: WatchdogConfig;
   #shutdownSignal: AbortSignal | undefined;
 
   constructor(
@@ -82,6 +101,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     runner: Runner,
     logger: Logger,
     issueArtifactStore?: IssueArtifactStore,
+    livenessProbe?: LivenessProbe,
   ) {
     this.#config = config;
     this.#promptBuilder = promptBuilder;
@@ -96,6 +116,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#issueArtifactStore =
       issueArtifactStore ?? new LocalIssueArtifactStore(config.workspace.root);
     this.#statusFilePath = deriveStatusFilePath(config.workspace.root);
+    this.#watchdogConfig = config.polling.watchdog ?? DEFAULT_WATCHDOG_CONFIG;
+    this.#livenessProbe = livenessProbe ?? null;
   }
 
   async runOnce(): Promise<void> {
@@ -478,6 +500,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           : {
               number: pullRequest.pullRequest.number,
               url: pullRequest.pullRequest.url,
+              headSha: pullRequest.pullRequest.headSha,
               latestCommitAt: pullRequest.pullRequest.latestCommitAt,
             },
       checks: {
@@ -511,6 +534,13 @@ export class BootstrapOrchestrator implements Orchestrator {
       shutdownSignal.addEventListener("abort", handleShutdown, { once: true });
     }
     this.#state.runAbortControllers.set(issue.number, abortController);
+    this.#initWatchdogEntry(issue.number);
+
+    const watchdogStop = new AbortController();
+    const watchdogPromise = this.#runWatchdogLoop(
+      issue.number,
+      watchdogStop.signal,
+    );
 
     let result: RunResult;
     try {
@@ -521,8 +551,11 @@ export class BootstrapOrchestrator implements Orchestrator {
         },
       });
     } finally {
+      watchdogStop.abort();
+      await watchdogPromise;
       shutdownSignal?.removeEventListener("abort", handleShutdown);
       this.#state.runAbortControllers.delete(issue.number);
+      clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
     }
 
     if (result.exitCode !== 0) {
@@ -638,6 +671,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.completeIssue(issue.number);
     this.#state.retries.delete(issue.number);
+    clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
@@ -944,6 +978,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
     this.#state.retries.delete(issue.number);
+    clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
@@ -1369,6 +1404,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           : {
               number: lifecycle.pullRequest.number,
               url: lifecycle.pullRequest.url,
+              headSha: lifecycle.pullRequest.headSha,
               latestCommitAt: lifecycle.pullRequest.latestCommitAt,
             },
       checks: {
@@ -1485,6 +1521,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     return {
       number: lifecycle.pullRequest.number,
       url: lifecycle.pullRequest.url,
+      headSha: lifecycle.pullRequest.headSha,
       latestCommitAt: lifecycle.pullRequest.latestCommitAt,
     };
   }
@@ -1630,5 +1667,113 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
       signal.addEventListener("abort", handleAbort, { once: true });
     });
+  }
+  #initWatchdogEntry(issueNumber: number): void {
+    if (
+      !this.#watchdogConfig.enabled ||
+      this.#livenessProbe === null ||
+      this.#state.watchdog.activeEntries.has(issueNumber)
+    ) {
+      return;
+    }
+    const now = Date.now();
+    initWatchdogEntry(this.#state.watchdog, issueNumber, {
+      logSizeBytes: null,
+      workspaceDiffHash: null,
+      prHeadSha: null,
+      hasActionableFeedback: false,
+      capturedAt: now,
+    });
+  }
+
+  async #runWatchdogLoop(
+    issueNumber: number,
+    stopSignal: AbortSignal,
+  ): Promise<void> {
+    if (!this.#watchdogConfig.enabled) {
+      return;
+    }
+    if (this.#livenessProbe === null) {
+      this.#logger.warn(
+        "Watchdog is enabled but no liveness probe was provided; stall detection is disabled",
+        { issueNumber },
+      );
+      return;
+    }
+    const entry = this.#state.watchdog.activeEntries.get(issueNumber);
+    if (!entry) {
+      return;
+    }
+    while (!stopSignal.aborted) {
+      await this.#sleep(this.#watchdogConfig.checkIntervalMs, stopSignal);
+      if (stopSignal.aborted) {
+        break;
+      }
+      const activeIssue = this.#state.status.activeIssues.get(issueNumber);
+      try {
+        const snapshot = await this.#livenessProbe.capture({
+          issueNumber,
+          workspacePath: activeIssue?.workspacePath ?? null,
+          runSessionId: activeIssue?.runSessionId ?? null,
+          prHeadSha: activeIssue?.pullRequest?.headSha ?? null,
+          hasActionableFeedback:
+            (activeIssue?.review?.actionableCount ?? 0) > 0,
+        });
+        const result = checkStall(entry, snapshot, this.#watchdogConfig);
+        if (result.stalled && result.reason !== null) {
+          if (canRecover(entry, this.#watchdogConfig)) {
+            await this.#recoverStalledRunner(issueNumber, result.reason);
+            break;
+          }
+          this.#logger.warn("Stalled runner exceeded recovery limit", {
+            issueNumber,
+            reason: result.reason,
+            recoveryCount: entry.recoveryCount,
+          });
+          noteStatusAction(this.#state.status, {
+            kind: "watchdog-recovery-exhausted",
+            summary: `Stall detected (${result.reason}) for issue #${issueNumber.toString()}; recovery limit reached, aborting`,
+            issueNumber,
+          });
+          await this.#persistStatusSnapshot();
+          const controller = this.#state.runAbortControllers.get(issueNumber);
+          if (controller) {
+            controller.abort();
+          }
+          break;
+        }
+      } catch (error) {
+        this.#logger.warn("Watchdog liveness probe failed", {
+          issueNumber,
+          error: this.#normalizeFailure(error as Error),
+        });
+      }
+    }
+  }
+
+  async #recoverStalledRunner(
+    issueNumber: number,
+    reason: StallReason,
+  ): Promise<void> {
+    const entry = this.#state.watchdog.activeEntries.get(issueNumber);
+    if (!entry) {
+      return;
+    }
+    recordWatchdogRecovery(this.#state.watchdog, entry);
+    this.#logger.warn("Recovering stalled runner", {
+      issueNumber,
+      reason,
+      recoveryCount: entry.recoveryCount,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: "watchdog-recovery",
+      summary: `Stall detected (${reason}) for issue #${issueNumber.toString()}; aborting runner`,
+      issueNumber,
+    });
+    await this.#persistStatusSnapshot();
+    const controller = this.#state.runAbortControllers.get(issueNumber);
+    if (controller) {
+      controller.abort();
+    }
   }
 }
