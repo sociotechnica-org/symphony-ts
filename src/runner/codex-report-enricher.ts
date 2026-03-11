@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatErrorMessage } from "../domain/error-format.js";
+import { asFiniteNumber } from "../domain/number-coerce.js";
 import type { IssueArtifactSessionSnapshot } from "../observability/issue-artifacts.js";
 import type {
   IssueReportEnricher,
@@ -415,8 +416,4 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
-}
-
-export function asFiniteNumber(value: unknown): number | null {
-  return Number.isFinite(value) ? (value as number) : null;
 }

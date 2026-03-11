@@ -12,10 +12,8 @@ import type {
   LoadedIssueArtifacts,
 } from "../../src/observability/issue-report.js";
 import { generateIssueReport } from "../../src/observability/issue-report.js";
-import {
-  asFiniteNumber,
-  CodexIssueReportEnricher,
-} from "../../src/runner/codex-report-enricher.js";
+import { asFiniteNumber } from "../../src/domain/number-coerce.js";
+import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
 import { createTempDir } from "../support/git.js";
 import {
   deriveCodexSessionsRoot,
