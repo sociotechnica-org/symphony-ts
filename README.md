@@ -14,19 +14,19 @@ OpenAI released [the Symphony spec](https://github.com/openai/symphony) to addre
 
 - **Runs locally.** Point it at a repo and it starts working issues. No servers to deploy, no accounts to create.
 - **Adapter pattern for everything.** Pluggable trackers (GitHub and Linear) and pluggable workers (local Codex today, remote workers planned). Swap any layer without touching the others.
-- **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in your tracker (GitHub Issues or Linear). Run multiple factory instances with no centralized coordination.
+- **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in your tracker (GitHub Issues or Linear) instead of a separate control plane. Today's bootstrap runtime is designed for one local factory instance; broader multi-instance coordination is planned.
 - **Visibility.** The tracker gives you real-time visibility into the whole factory. A local status surface shows worker-level detail.
 - **It builds itself.** Symphony works `symphony-ts` issues and opens PRs back into this repo. The [self-hosting loop](docs/guides/self-hosting-loop.md) is how we develop it.
 
 ## Quick Start
+
+**Prerequisites:** Node.js 20+, `pnpm`, `git`, [`gh`](https://cli.github.com/) (authenticated), and [`codex`](https://github.com/openai/codex) installed locally.
 
 ```bash
 git clone https://github.com/sociotechnica-org/symphony-ts.git
 cd symphony-ts
 pnpm install
 ```
-
-**Prerequisites:** Node.js 20+, `pnpm`, `git`, [`gh`](https://cli.github.com/) (authenticated), and [`codex`](https://github.com/openai/codex) installed locally.
 
 Your target repo needs three labels: `symphony:ready`, `symphony:running`, `symphony:failed`.
 
@@ -105,6 +105,7 @@ agent:
 | `polling.interval_ms`          | How often to check for new work                                |
 | `polling.max_concurrent_runs`  | Local concurrency cap                                          |
 | `workspace.root`               | Where isolated workspaces are created                          |
+| `workspace.repo_url`           | SSH or HTTPS URL of the repository cloned for each workspace   |
 | `workspace.branch_prefix`      | Issue branch naming prefix                                     |
 | `agent.command`                | Subprocess command to launch the coding agent                  |
 | `agent.timeout_ms`             | Max wall-clock time per agent run                              |
