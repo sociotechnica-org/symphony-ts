@@ -21,7 +21,6 @@ polling:
     backoff_ms: 5000
 workspace:
   root: ./.tmp/workspaces
-  repo_url: git@github.com:sociotechnica-org/symphony-ts.git
   branch_prefix: symphony/
   cleanup_on_success: true
 hooks:
@@ -30,8 +29,7 @@ agent:
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   prompt_transport: stdin
   timeout_ms: 5400000
-  env:
-    GITHUB_REPO: sociotechnica-org/symphony-ts
+  env: {}
 ---
 
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.

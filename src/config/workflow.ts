@@ -56,7 +56,21 @@ function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new ConfigError(`Expected non-empty string for ${field}`);
   }
-  return value;
+  return value.trim();
+}
+
+function requireGitHubRepo(value: unknown): string {
+  if (value !== undefined && typeof value !== "string") {
+    throw new ConfigError(
+      `tracker.repo must be a non-empty string, got ${JSON.stringify(value)}`,
+    );
+  }
+  if (value === undefined || value.trim() === "") {
+    throw new ConfigError(
+      "tracker.repo is not set; provide it in WORKFLOW.md or set the SYMPHONY_REPO environment variable",
+    );
+  }
+  return value.trim();
 }
 
 function requireUrlString(value: unknown, field: string): string {
@@ -241,6 +255,37 @@ async function readParsedWorkflow(
   return parseFrontMatter(await readWorkflowSource(workflowPath));
 }
 
+function resolveRepoUrl(
+  explicitRepoUrl: unknown,
+  derivedRepoUrl: string | undefined,
+  envOverrideActive: boolean,
+): string {
+  // When SYMPHONY_REPO is set, the derived URL always wins so the factory
+  // polls, clones, and pushes to the same repo.
+  if (derivedRepoUrl !== undefined && envOverrideActive) {
+    if (explicitRepoUrl !== undefined) {
+      console.warn(
+        `[symphony] SYMPHONY_REPO overrides workspace.repo_url; using ${derivedRepoUrl}`,
+      );
+    }
+    return derivedRepoUrl;
+  }
+
+  if (explicitRepoUrl === undefined) {
+    if (derivedRepoUrl !== undefined) {
+      return derivedRepoUrl;
+    }
+    const hint = envOverrideActive
+      ? " (SYMPHONY_REPO is set but has no effect for this tracker kind)"
+      : "";
+    throw new ConfigError(
+      `workspace.repo_url is required when not using github-bootstrap tracker${hint}`,
+    );
+  }
+
+  return requireString(explicitRepoUrl, "workspace.repo_url");
+}
+
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   const tracker = coerceOptionalObject(raw.tracker, "tracker");
   const polling = coerceOptionalObject(raw.polling, "polling");
@@ -248,9 +293,58 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   const hooks = coerceOptionalObject(raw.hooks, "hooks");
   const agent = coerceOptionalObject(raw.agent, "agent");
 
+  // Apply SYMPHONY_REPO env override (github-bootstrap only; ignored by other tracker kinds)
+  const rawRepoEnv = process.env["SYMPHONY_REPO"];
+  const repoOverride =
+    rawRepoEnv !== undefined
+      ? requireString(rawRepoEnv, "SYMPHONY_REPO env var")
+      : undefined;
+  const rawTrackerRepo = tracker["repo"];
+  const effectiveTracker =
+    repoOverride !== undefined ? { ...tracker, repo: repoOverride } : tracker;
+
+  if (
+    repoOverride !== undefined &&
+    typeof rawTrackerRepo === "string" &&
+    rawTrackerRepo.trim() !== repoOverride
+  ) {
+    console.warn(
+      `[symphony] SYMPHONY_REPO="${repoOverride}" overrides tracker.repo="${rawTrackerRepo.trim()}" from WORKFLOW.md`,
+    );
+  }
+
+  const resolvedTracker = resolveTrackerConfig(effectiveTracker);
+
+  if (
+    repoOverride !== undefined &&
+    resolvedTracker.kind !== "github-bootstrap"
+  ) {
+    console.warn(
+      `[symphony] SYMPHONY_REPO is set but ignored for tracker.kind="${resolvedTracker.kind}"`,
+    );
+  }
+
+  // For github-bootstrap trackers, derive repoUrl and inject GITHUB_REPO
+  let derivedRepoUrl: string | undefined;
+  let repo: string | undefined;
+  if (resolvedTracker.kind === "github-bootstrap") {
+    repo = resolvedTracker.repo;
+    try {
+      const gitHost = new URL(resolvedTracker.apiUrl).hostname.replace(
+        /^api\./,
+        "",
+      );
+      derivedRepoUrl = `git@${gitHost}:${repo}.git`;
+    } catch {
+      throw new ConfigError(
+        `tracker.api_url is not a valid URL: ${resolvedTracker.apiUrl}`,
+      );
+    }
+  }
+
   const resolved: ResolvedConfig = {
     workflowPath,
-    tracker: resolveTrackerConfig(tracker),
+    tracker: resolvedTracker,
     polling: {
       intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
       maxConcurrentRuns: requireNumber(
@@ -264,7 +358,11 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         path.dirname(workflowPath),
         requireString(workspace["root"], "workspace.root"),
       ),
-      repoUrl: requireString(workspace["repo_url"], "workspace.repo_url"),
+      repoUrl: resolveRepoUrl(
+        workspace["repo_url"],
+        derivedRepoUrl,
+        repoOverride !== undefined,
+      ),
       branchPrefix: requireString(
         workspace["branch_prefix"],
         "workspace.branch_prefix",
@@ -284,11 +382,14 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         "agent.prompt_transport",
       ) as "stdin" | "file",
       timeoutMs: requireNumber(agent["timeout_ms"], "agent.timeout_ms"),
-      env: Object.fromEntries(
-        Object.entries((agent["env"] ?? {}) as Record<string, unknown>).map(
-          ([key, value]) => [key, String(value)],
+      env: {
+        ...Object.fromEntries(
+          Object.entries((agent["env"] ?? {}) as Record<string, unknown>).map(
+            ([key, value]) => [key, String(value)],
+          ),
         ),
-      ),
+        ...(repo !== undefined ? { GITHUB_REPO: repo } : {}),
+      },
     },
   };
 
@@ -351,7 +452,7 @@ function resolveGitHubBootstrapTrackerConfig(
 ): GitHubBootstrapTrackerConfig {
   return {
     kind: "github-bootstrap",
-    repo: requireString(tracker["repo"], "tracker.repo"),
+    repo: requireGitHubRepo(tracker["repo"]),
     apiUrl: requireString(tracker["api_url"], "tracker.api_url"),
     readyLabel: requireString(tracker["ready_label"], "tracker.ready_label"),
     runningLabel: requireString(

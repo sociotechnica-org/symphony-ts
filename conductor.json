@@ -1,0 +1,7 @@
+{
+  "scripts": {
+    "setup": "pnpm install && pnpm build",
+    "run": "SYMPHONY_REPO=sociotechnica-org/symphony-ts-test pnpm exec tsx bin/symphony.ts run"
+  },
+  "runScriptMode": "nonconcurrent"
+}

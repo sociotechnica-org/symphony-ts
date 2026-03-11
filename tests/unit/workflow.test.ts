@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPromptBuilder,
   loadWorkflow,
@@ -43,6 +43,18 @@ agent:
 }
 
 describe("workflow config", () => {
+  const savedSymphonyRepo = process.env["SYMPHONY_REPO"];
+  beforeEach(() => {
+    delete process.env["SYMPHONY_REPO"];
+  });
+  afterEach(() => {
+    if (savedSymphonyRepo !== undefined) {
+      process.env["SYMPHONY_REPO"] = savedSymphonyRepo;
+    } else {
+      delete process.env["SYMPHONY_REPO"];
+    }
+  });
+
   it("loads workflow config and renders prompt strictly", async () => {
     const dir = await createTempDir("workflow-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
@@ -71,6 +83,9 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.tracker.kind).toBe("github-bootstrap");
     expect(workflow.config.polling.retry.maxAttempts).toBe(2);
     expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
+    expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
+      "sociotechnica-org/symphony-ts",
+    );
     const promptBuilder = createPromptBuilder(workflow);
     const rendered = await promptBuilder.build({
       issue: {
@@ -90,6 +105,211 @@ ${buildSharedWorkflowSections()}`,
     });
     expect(rendered).toContain("repo#1");
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
+  });
+
+  it("derives workspace.repoUrl from tracker.repo and api_url when repo_url is omitted", async () => {
+    const dir = await createTempDir("workflow-derived-url-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: my-org/my-repo
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  command: echo test
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.workspace.repoUrl).toBe(
+      "git@github.com:my-org/my-repo.git",
+    );
+    expect(workflow.config.agent.env["GITHUB_REPO"]).toBe("my-org/my-repo");
+  });
+
+  it("SYMPHONY_REPO overrides tracker.repo and derives repoUrl and GITHUB_REPO", async () => {
+    process.env["SYMPHONY_REPO"] = "my-org/my-test-repo";
+
+    const dir = await createTempDir("workflow-override-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  command: echo test
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+        "Repo: {{ config.tracker.repo }}",
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.tracker.kind).toBe("github-bootstrap");
+    if (workflow.config.tracker.kind === "github-bootstrap") {
+      expect(workflow.config.tracker.repo).toBe("my-org/my-test-repo");
+    }
+    expect(workflow.config.workspace.repoUrl).toBe(
+      "git@github.com:my-org/my-test-repo.git",
+    );
+    expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
+      "my-org/my-test-repo",
+    );
+  });
+
+  it("SYMPHONY_REPO overrides explicit workspace.repo_url", async () => {
+    process.env["SYMPHONY_REPO"] = "my-org/override-repo";
+
+    const dir = await createTempDir("workflow-repo-url-override-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: my-org/original-repo
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const workflow = await loadWorkflow(workflowPath);
+      expect(workflow.config.workspace.repoUrl).toBe(
+        "git@github.com:my-org/override-repo.git",
+      );
+      expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
+        "my-org/override-repo",
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("SYMPHONY_REPO overrides workspace.repo_url"),
+      );
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'SYMPHONY_REPO="my-org/override-repo" overrides tracker.repo="my-org/original-repo"',
+        ),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("throws when SYMPHONY_REPO is empty string", async () => {
+    process.env["SYMPHONY_REPO"] = "";
+    const dir = await createTempDir("workflow-empty-env-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: r
+  running_label: r
+  failed_label: f
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+    await expect(loadWorkflow(workflowPath)).rejects.toThrow(
+      "SYMPHONY_REPO env var",
+    );
+  });
+
+  it("throws with helpful message when neither SYMPHONY_REPO nor tracker.repo is set", async () => {
+    const dir = await createTempDir("workflow-no-repo-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  api_url: https://api.github.com
+  ready_label: r
+  running_label: r
+  failed_label: f
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+    await expect(loadWorkflow(workflowPath)).rejects.toThrow("SYMPHONY_REPO");
+  });
+
+  it("warns when SYMPHONY_REPO is set with a linear tracker", async () => {
+    process.env["SYMPHONY_REPO"] = "my-org/ignored-repo";
+    const dir = await createTempDir("workflow-linear-warn-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const workflow = await loadWorkflow(workflowPath);
+      expect(workflow.config.tracker.kind).toBe("linear");
+      expect(workflow.config.agent.env["GITHUB_REPO"]).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'SYMPHONY_REPO is set but ignored for tracker.kind="linear"',
+        ),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("loads a valid linear workflow with upstream defaults", async () => {
