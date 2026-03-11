@@ -7,7 +7,8 @@ printf '%s' "$PROMPT" > .agent-prompt.txt
 git config user.name "Symphony Test Agent"
 git config user.email "symphony-agent@example.com"
 
-STAMP="$(date +%s%N)"
+# Keep the fixture portable across BSD/macOS and GNU date implementations.
+STAMP="$(date +%s)-$$-${RANDOM}"
 echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER} ${STAMP}" > IMPLEMENTED.txt
 git add .agent-prompt.txt IMPLEMENTED.txt
 git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} ${STAMP}"
