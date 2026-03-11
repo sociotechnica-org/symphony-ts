@@ -35,6 +35,7 @@ Ship stalled-runner detection and bounded auto-recovery for local factory runs, 
 - `maxRecoveryAttempts` currently behaves like a per-run-attempt budget because watchdog recovery state is deleted before the retry path re-enters the issue
 - the stall timer can age while every liveness signal remains `null`, which creates false-positive early-run stalls and misleading `"log-stall"` classification
 - the watchdog log-path convention is implicit instead of being named as a shared contract in code
+- watchdog enablement currently degrades silently if the orchestrator is constructed without a `livenessProbe`, so operators can believe monitoring is active when no stall detection will run
 - the existing plan in this directory was too thin to document the actual runtime-state and failure-handling seam
 
 ## Spec Alignment By Abstraction Level
@@ -155,6 +156,7 @@ Deferred from this slice:
 
 - preserve stall reason classification (`log-stall`, `workspace-stall`, `pr-stall`)
 - preserve structured warnings for probe failure and recovery-limit exhaustion
+- warn explicitly when watchdog config is enabled without a liveness probe so the degraded runtime is inspectable
 - keep the existing `watchdog-recovery` status action only for the retryable recovery path
 - emit a distinct terminal status action when recovery is exhausted so `status.json` does not silently lose the stalled-runner context
 - avoid implying successful recovery when the watchdog is only performing a terminal abort
@@ -168,7 +170,8 @@ Deferred from this slice:
 5. Update the watchdog loop in `src/orchestrator/service.ts` so a confirmed stalled runner is always aborted, even when `maxRecoveryAttempts` has already been reached.
 6. Keep the retry-oriented recovery bookkeeping limited to the recoverable branch so exhausted recovery does not fabricate another retry, but still persist a terminal watchdog status action before aborting.
 7. Add unit coverage for the per-run log probe behavior, the all-signals-null guard, and the cross-retry recovery-budget bound.
-8. Run formatting, lint, typecheck, tests, `codex review --base origin/main`, then update the existing PR with the fixes and resolve the automated review feedback.
+8. Add a watchdog regression test for the enabled-without-probe configuration so the warning path and entry guard stay aligned.
+9. Run formatting, lint, typecheck, tests, `codex review --base origin/main`, then update the existing PR with the fixes and resolve the automated review feedback.
 
 ## Tests And Acceptance Scenarios
 
@@ -178,6 +181,7 @@ Unit coverage:
 - `FsLivenessProbe` falls back to a per-issue log path when no session id is available
 - `checkStall` does not classify a stall while every liveness signal remains unobserved
 - watchdog aborts a stalled runner when recovery is exhausted and does not require a retry budget
+- watchdog enabled without a probe warns and skips monitoring without fabricating active watchdog state
 
 Integration / orchestrator coverage:
 
@@ -192,6 +196,7 @@ Named acceptance scenarios:
 3. Given a stalled run with recovery budget remaining, when the watchdog classifies the stall, then the runner is aborted, the existing retry path can requeue, and observability records the recovery action.
 4. Given a runner that has not yet produced any observable log, workspace, or PR signal, when the watchdog samples repeatedly, then it does not classify a stall until at least one concrete signal exists.
 5. Given a runner that stalls on consecutive retries, when the issue reaches the configured `maxRecoveryAttempts`, then later retries abort terminally instead of resetting the watchdog recovery budget.
+6. Given watchdog config enabled without a liveness probe, when a run starts, then Symphony warns that stall detection is disabled instead of silently pretending to monitor liveness.
 
 ## Exit Criteria
 

@@ -1671,6 +1671,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   #initWatchdogEntry(issueNumber: number): void {
     if (
       !this.#watchdogConfig.enabled ||
+      this.#livenessProbe === null ||
       this.#state.watchdog.activeEntries.has(issueNumber)
     ) {
       return;
@@ -1689,7 +1690,14 @@ export class BootstrapOrchestrator implements Orchestrator {
     issueNumber: number,
     stopSignal: AbortSignal,
   ): Promise<void> {
-    if (!this.#watchdogConfig.enabled || this.#livenessProbe === null) {
+    if (!this.#watchdogConfig.enabled) {
+      return;
+    }
+    if (this.#livenessProbe === null) {
+      this.#logger.warn(
+        "Watchdog is enabled but no liveness probe was provided; stall detection is disabled",
+        { issueNumber },
+      );
       return;
     }
     const entry = this.#state.watchdog.activeEntries.get(issueNumber);

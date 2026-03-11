@@ -122,10 +122,20 @@ const staticPromptBuilder: PromptBuilder = {
 
 class NullLogger implements Logger {
   readonly errors: string[] = [];
+  readonly warnings: Array<{
+    message: string;
+    data?: Record<string, unknown>;
+  }> = [];
 
   info(_message: string, _data?: Record<string, unknown>): void {}
 
-  warn(_message: string, _data?: Record<string, unknown>): void {}
+  warn(message: string, data?: Record<string, unknown>): void {
+    if (data === undefined) {
+      this.warnings.push({ message });
+      return;
+    }
+    this.warnings.push({ message, data });
+  }
 
   error(message: string, _data?: Record<string, unknown>): void {
     this.errors.push(message);
@@ -2159,5 +2169,67 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(
       tracker.retried.some(({ reason }) => reason.includes("Stall detected")),
     ).toBe(false);
+  });
+
+  it("warns when watchdog is enabled without a liveness probe", async () => {
+    const issue = createIssue(55);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(55, [
+      lifecycle("handoff-ready", "symphony/55"),
+    ]);
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const successfulRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run() {
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+        };
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      successfulRunner,
+      logger,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(logger.warnings).toContainEqual({
+      message:
+        "Watchdog is enabled but no liveness probe was provided; stall detection is disabled",
+      data: { issueNumber: 55 },
+    });
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery-exhausted");
   });
 });
