@@ -13,6 +13,7 @@ function createSnapshot(
       branchName: "symphony/16",
       latestCommitAt: "2026-03-06T00:00:00.000Z",
     },
+    landingState: "open",
     checks: [],
     pendingCheckNames: [],
     failingCheckNames: [],
@@ -24,7 +25,7 @@ function createSnapshot(
 }
 
 describe("pull-request-policy", () => {
-  it("stabilizes no-check PRs before reporting ready", () => {
+  it("stabilizes no-check PRs before reporting them as awaiting landing", () => {
     const snapshot = createSnapshot();
 
     const first = evaluatePullRequestLifecycle(snapshot, undefined);
@@ -34,7 +35,19 @@ describe("pull-request-policy", () => {
     );
 
     expect(first.lifecycle.kind).toBe("awaiting-system-checks");
-    expect(second.lifecycle.kind).toBe("handoff-ready");
+    expect(second.lifecycle.kind).toBe("awaiting-landing");
+  });
+
+  it("reports handoff-ready only after merge is observed", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        landingState: "merged",
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.summary).toMatch(/has merged/i);
   });
 
   it("waits on human-only review feedback without scheduling follow-up", () => {

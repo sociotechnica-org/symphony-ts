@@ -23,6 +23,7 @@ export type IssueArtifactOutcome =
   | "attempt-failed"
   | "awaiting-plan-review"
   | "awaiting-review"
+  | "awaiting-landing"
   | "needs-follow-up"
   | "retry-scheduled"
   | "succeeded"

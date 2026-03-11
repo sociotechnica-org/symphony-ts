@@ -1375,7 +1375,9 @@ function inferOutcomeFromEvents(
       return "needs-follow-up";
     }
     if (event.kind === "pr-opened") {
-      return "awaiting-review";
+      return event.details["lifecycleKind"] === "awaiting-landing"
+        ? "awaiting-landing"
+        : "awaiting-review";
     }
     if (event.kind === "runner-spawned") {
       return "running";

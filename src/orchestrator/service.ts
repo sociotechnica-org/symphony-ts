@@ -394,7 +394,8 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     if (
       lifecycle.kind === "awaiting-system-checks" ||
-      lifecycle.kind === "awaiting-human-handoff"
+      lifecycle.kind === "awaiting-human-handoff" ||
+      lifecycle.kind === "awaiting-landing"
     ) {
       noteLifecycleForIssue(
         this.#state.status,
@@ -1308,6 +1309,7 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     if (
       lifecycle.kind !== "awaiting-system-checks" &&
+      lifecycle.kind !== "awaiting-landing" &&
       lifecycle.kind !== "actionable-follow-up"
     ) {
       return null;
@@ -1331,13 +1333,18 @@ export class BootstrapOrchestrator implements Orchestrator {
     lifecycle: HandoffLifecycle,
   ): Extract<
     IssueArtifactOutcome,
-    "awaiting-plan-review" | "awaiting-review" | "needs-follow-up"
+    | "awaiting-plan-review"
+    | "awaiting-review"
+    | "awaiting-landing"
+    | "needs-follow-up"
   > {
     switch (lifecycle.kind) {
       case "awaiting-human-handoff":
         return "awaiting-plan-review";
       case "awaiting-system-checks":
         return "awaiting-review";
+      case "awaiting-landing":
+        return "awaiting-landing";
       case "actionable-follow-up":
         return "needs-follow-up";
       case "missing-target":
@@ -1353,6 +1360,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     lifecycle: HandoffLifecycle,
   ): Readonly<Record<string, unknown>> {
     return {
+      lifecycleKind: lifecycle.kind,
       branch: lifecycle.branchName,
       summary: lifecycle.summary,
       pullRequest:

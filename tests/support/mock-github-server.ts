@@ -9,6 +9,8 @@ interface PullRequestRecord {
   readonly head: string;
   readonly base: string;
   readonly html_url: string;
+  state: "open" | "closed";
+  mergedAt: string | null;
   latestCommitAt: string | null;
   latestCommitSha: string;
   readonly comments: MockPullRequestComment[];
@@ -242,6 +244,8 @@ export class MockGitHubServer {
       head: pr.head,
       base: pr.base,
       html_url: `${this.#baseUrl}/pulls/${number}`,
+      state: "open",
+      mergedAt: null,
       latestCommitAt,
       latestCommitSha: randomUUID(),
       comments: [],
@@ -249,6 +253,12 @@ export class MockGitHubServer {
       checkRuns: [],
       statuses: [],
     });
+  }
+
+  mergePullRequest(head: string, mergedAt = new Date().toISOString()): void {
+    const pullRequest = this.#requirePullRequestByHead(head);
+    pullRequest.state = "closed";
+    pullRequest.mergedAt = mergedAt;
   }
 
   recordBranchPush(head: string, committedAt = new Date().toISOString()): void {
@@ -461,20 +471,32 @@ export class MockGitHubServer {
       const head = url.searchParams.get("head");
       const state = url.searchParams.get("state") ?? "open";
       const pulls = [...this.#prs.values()]
-        .filter(() => state === "open" || state === "all")
+        .filter((pull) => state === "all" || pull.state === state)
         .filter((pull) =>
           head ? `${pathMatch[1]}:${pull.head}` === head : true,
         )
         .map((pull) => ({
           number: pull.number,
           html_url: pull.html_url,
-          state: "open",
+          state: pull.state,
           head: {
             ref: pull.head,
             sha: pull.latestCommitSha,
           },
         }));
       json(response, 200, pulls);
+      return;
+    }
+
+    const mergeMatch = suffix.match(/^pulls\/(\d+)\/merge$/);
+    if (mergeMatch && method === "GET") {
+      const pullRequest = this.#prs.get(Number(mergeMatch[1]));
+      if (!pullRequest || pullRequest.mergedAt === null) {
+        json(response, 404, { message: "pull request not merged" });
+        return;
+      }
+      response.statusCode = 204;
+      response.end();
       return;
     }
 

@@ -67,7 +67,7 @@ When Symphony picks up the issue, it should:
 8. Keep polling that PR for CI and automated review state
 9. Push follow-up commits on the same branch until the PR is actually clean
 
-If the PR reaches a clean merge-ready state, Symphony will comment on the issue and close it.
+If the PR reaches a clean state, Symphony keeps the issue active until the PR is actually merged, then comments on the issue and closes it.
 
 If the run fails, Symphony will either retry it in the running loop or mark it `symphony:failed`.
 

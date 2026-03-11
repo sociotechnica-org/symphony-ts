@@ -93,7 +93,7 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle> {
-    const pullRequest = await this.#client.findOpenPullRequest(branchName);
+    const pullRequest = await this.#client.findPullRequest(branchName);
     if (pullRequest === null) {
       this.#noCheckObservations.delete(branchName);
       const planReviewLifecycle =

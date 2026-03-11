@@ -35,13 +35,18 @@ export interface GitHubIssueCommentResponse {
   } | null;
 }
 
-export interface GitHubPullRequestResponse {
+interface GitHubPullRequestListResponse {
   readonly number: number;
   readonly html_url: string;
+  readonly state: string;
   readonly head: {
     readonly ref: string;
     readonly sha: string;
   };
+}
+
+export interface GitHubPullRequestResponse extends GitHubPullRequestListResponse {
+  readonly landingState: "open" | "merged";
 }
 
 interface GitHubCheckRunsResponse {
@@ -442,16 +447,37 @@ export class GitHubClient {
     }
   }
 
-  async findOpenPullRequest(
+  async findPullRequest(
     headBranch: string,
   ): Promise<GitHubPullRequestResponse | null> {
-    const pulls = await this.#request<GitHubPullRequestResponse[]>(
+    const pulls = await this.#request<GitHubPullRequestListResponse[]>(
       "GET",
       this.#issuePath(
-        `pulls?state=open&head=${encodeURIComponent(`${this.#repoOwner}:${headBranch}`)}`,
+        `pulls?state=all&head=${encodeURIComponent(`${this.#repoOwner}:${headBranch}`)}`,
       ),
     );
-    return pulls.find((pull) => pull.head.ref === headBranch) ?? null;
+    const matchingPulls = pulls.filter((pull) => pull.head.ref === headBranch);
+    const openPull = matchingPulls.find((pull) => pull.state === "open");
+    if (openPull) {
+      return {
+        ...openPull,
+        landingState: "open",
+      };
+    }
+
+    for (const pull of matchingPulls) {
+      if (pull.state !== "closed") {
+        continue;
+      }
+      if (await this.#isPullRequestMerged(pull.number)) {
+        return {
+          ...pull,
+          landingState: "merged",
+        };
+      }
+    }
+
+    return null;
   }
 
   async getChecks(commitRef: string): Promise<readonly PullRequestCheck[]> {
@@ -650,6 +676,34 @@ export class GitHubClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  async #isPullRequestMerged(number: number): Promise<boolean> {
+    const token = await this.#tokenPromise;
+    const response = await fetch(
+      `${this.#config.apiUrl}${this.#issuePath(`pulls/${number.toString()}/merge`)}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      },
+    );
+
+    if (response.status === 204) {
+      return true;
+    }
+    if (response.status === 404) {
+      return false;
+    }
+
+    const text = await response.text();
+    throw new TrackerError(
+      `GitHub API GET ${this.#issuePath(`pulls/${number.toString()}/merge`)} failed with ${response.status}: ${text}`,
+    );
   }
 
   #issuePath(suffix: string): string {

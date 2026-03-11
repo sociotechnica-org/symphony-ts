@@ -46,7 +46,7 @@ describe("GitHubBootstrapTracker", () => {
     await server.stop();
   });
 
-  it("claims issues, keeps retries in running state, and only closes when the PR is ready", async () => {
+  it("claims issues, keeps retries in running state, and only closes when the PR is merged", async () => {
     const tracker = createTracker(server);
 
     await tracker.ensureLabels();
@@ -77,6 +77,11 @@ describe("GitHubBootstrapTracker", () => {
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
 
+    expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
+      "awaiting-landing",
+    );
+
+    server.mergePullRequest("symphony/7");
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
       "handoff-ready",
     );
@@ -315,7 +320,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.kind).toBe("awaiting-landing");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
@@ -335,11 +340,11 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.kind).toBe("awaiting-landing");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
-  it("stabilizes a no-check PR in the tracker before reporting it ready", async () => {
+  it("stabilizes a no-check PR in the tracker before reporting it as awaiting landing", async () => {
     const tracker = createTracker(server);
 
     await server.recordPullRequest({
@@ -355,8 +360,31 @@ describe("GitHubBootstrapTracker", () => {
     expect(first.summary).toMatch(/waiting for pr checks to appear/i);
 
     const second = await tracker.inspectIssueHandoff("symphony/7");
-    expect(second.kind).toBe("handoff-ready");
-    expect(second.summary).toMatch(/merge-ready/i);
+    expect(second.kind).toBe("awaiting-landing");
+    expect(second.summary).toMatch(/awaiting merge/i);
+  });
+
+  it("reports handoff-ready after the same pull request is merged", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    const openLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(openLifecycle.kind).toBe("awaiting-landing");
+
+    server.mergePullRequest("symphony/7");
+
+    const mergedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(mergedLifecycle.kind).toBe("handoff-ready");
+    expect(mergedLifecycle.summary).toMatch(/has merged/i);
   });
 
   it("deduplicates concurrent ensureLabels calls", async () => {
@@ -417,7 +445,7 @@ describe("GitHubBootstrapTracker", () => {
       lifecycle,
     );
     expect(server.isReviewThreadResolved(threadId)).toBe(true);
-    expect(refreshed.kind).toBe("handoff-ready");
+    expect(refreshed.kind).toBe("awaiting-landing");
   });
 
   it("does not auto-resolve human review threads after a follow-up push", async () => {
@@ -497,7 +525,7 @@ describe("GitHubBootstrapTracker", () => {
     await tracker.completeIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("handoff-ready");
+    expect(second.kind).toBe("awaiting-landing");
   });
 
   it("preserves no-check stabilization for other branches when another issue is claimed", async () => {
@@ -529,7 +557,7 @@ describe("GitHubBootstrapTracker", () => {
     await tracker.claimIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("handoff-ready");
+    expect(second.kind).toBe("awaiting-landing");
   });
 
   it("deduplicates two concurrent ensureLabels calls", async () => {
