@@ -80,6 +80,55 @@ describe("issue report enrichment", () => {
     expect(generated.markdown).toContain("Token detail:");
   });
 
+  it("uses the latest cumulative Codex token_count snapshot when a log records multiple events", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-multi-token-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-multi-token.jsonl",
+      tokenEvents: [
+        {
+          inputTokens: 1200,
+          cachedInputTokens: 200,
+          outputTokens: 150,
+          reasoningOutputTokens: 50,
+          totalTokens: 1600,
+        },
+        {
+          inputTokens: 2000,
+          cachedInputTokens: 500,
+          outputTokens: 250,
+          reasoningOutputTokens: 100,
+          totalTokens: 2750,
+        },
+      ],
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:00:00.000Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.totalTokens).toBe(2750);
+    expect(generated.report.tokenUsage.sessions[0]).toEqual(
+      expect.objectContaining({
+        inputTokens: 2000,
+        cachedInputTokens: 500,
+        outputTokens: 250,
+        reasoningOutputTokens: 100,
+        totalTokens: 2750,
+      }),
+    );
+  });
+
   it("keeps report generation successful when multiple Codex logs match the same session", async () => {
     const tempDir = await createTempDir("symphony-issue-report-ambiguous-");
     tempRoots.push(tempDir);
@@ -139,6 +188,34 @@ describe("issue report enrichment", () => {
     expect(generated.report.tokenUsage.sessions[0]?.totalTokens).toBeNull();
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "A runner log file in the matching time window could not be parsed, so enrichment was skipped.",
+    );
+  });
+
+  it("does not match a Codex log with no parseable session timestamp", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-no-timestamp-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      metaTimestamp: null,
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-no-timestamp.jsonl",
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:10:00.000Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("unavailable");
+    expect(generated.report.tokenUsage.sessions[0]?.totalTokens).toBeNull();
+    expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
+      "No matching runner log file was found for this session.",
     );
   });
 

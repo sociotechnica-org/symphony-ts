@@ -82,6 +82,17 @@ describe("LocalRunner", () => {
     });
   });
 
+  it("does not treat the next CLI flag as a Codex model name", () => {
+    expect(
+      describeLocalRunnerBackend(
+        "codex exec -m --dangerously-bypass-approvals-and-sandbox -C . -",
+      ),
+    ).toEqual({
+      provider: "codex",
+      model: null,
+    });
+  });
+
   it("handles a closed stdin pipe without crashing the process", async () => {
     const runner = new LocalRunner(
       {

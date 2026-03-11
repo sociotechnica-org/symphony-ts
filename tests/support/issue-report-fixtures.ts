@@ -504,11 +504,21 @@ export async function writeCodexSessionLog(options: {
   readonly workspacePath: string;
   readonly branch: string;
   readonly fileName: string;
+  readonly metaTimestamp?: string | null | undefined;
   readonly inputTokens?: number | undefined;
   readonly cachedInputTokens?: number | undefined;
   readonly outputTokens?: number | undefined;
   readonly reasoningOutputTokens?: number | undefined;
   readonly totalTokens?: number | undefined;
+  readonly tokenEvents?:
+    | readonly {
+        readonly inputTokens?: number | undefined;
+        readonly cachedInputTokens?: number | undefined;
+        readonly outputTokens?: number | undefined;
+        readonly reasoningOutputTokens?: number | undefined;
+        readonly totalTokens?: number | undefined;
+      }[]
+    | undefined;
   readonly finalSummary?: string | undefined;
   readonly malformed?: boolean | undefined;
 }): Promise<string> {
@@ -527,13 +537,26 @@ export async function writeCodexSessionLog(options: {
     return filePath;
   }
 
+  const metaTimestamp =
+    options.metaTimestamp === undefined
+      ? options.startedAt
+      : options.metaTimestamp;
+  const tokenEvents = options.tokenEvents ?? [
+    {
+      inputTokens: options.inputTokens ?? 2000,
+      cachedInputTokens: options.cachedInputTokens ?? 500,
+      outputTokens: options.outputTokens ?? 250,
+      reasoningOutputTokens: options.reasoningOutputTokens ?? 100,
+      totalTokens: options.totalTokens ?? 2750,
+    },
+  ];
   const lines = [
     {
-      timestamp: options.startedAt,
+      ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
       type: "session_meta",
       payload: {
         id: options.fileName.replace(/\.jsonl$/u, ""),
-        timestamp: options.startedAt,
+        ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
         cwd: options.workspacePath,
         originator: "codex_cli_rs",
         cli_version: "0.71.0",
@@ -546,22 +569,22 @@ export async function writeCodexSessionLog(options: {
         },
       },
     },
-    {
+    ...tokenEvents.map((event) => ({
       timestamp: options.startedAt,
       type: "event_msg",
       payload: {
         type: "token_count",
         info: {
           total_token_usage: {
-            input_tokens: options.inputTokens ?? 2000,
-            cached_input_tokens: options.cachedInputTokens ?? 500,
-            output_tokens: options.outputTokens ?? 250,
-            reasoning_output_tokens: options.reasoningOutputTokens ?? 100,
-            total_tokens: options.totalTokens ?? 2750,
+            input_tokens: event.inputTokens ?? 2000,
+            cached_input_tokens: event.cachedInputTokens ?? 500,
+            output_tokens: event.outputTokens ?? 250,
+            reasoning_output_tokens: event.reasoningOutputTokens ?? 100,
+            total_tokens: event.totalTokens ?? 2750,
           },
         },
       },
-    },
+    })),
     {
       timestamp: options.startedAt,
       type: "response_item",

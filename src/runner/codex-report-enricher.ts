@@ -205,6 +205,8 @@ async function parseCodexSessionFile(
     if (parsed["type"] === "event_msg") {
       const usage = parseTokenCount(parsed);
       if (usage !== null) {
+        // Codex emits cumulative totals in `info.total_token_usage`, so the
+        // latest token_count snapshot is the full-session total for reporting.
         tokenUsage = usage;
       }
       continue;
@@ -327,7 +329,10 @@ function matchesCodexSession(
       ? null
       : sessionStart + MATCH_WINDOW_WITHOUT_FINISH_MS);
   const metaTimestamp = parseTimestamp(meta.timestamp);
-  if (sessionStart !== null && metaTimestamp !== null) {
+  if (sessionStart !== null) {
+    if (metaTimestamp === null) {
+      return false;
+    }
     const lowerBound = sessionStart - MATCH_WINDOW_BEFORE_START_MS;
     const upperBound =
       (sessionFinish ?? sessionStart + MATCH_WINDOW_WITHOUT_FINISH_MS) +

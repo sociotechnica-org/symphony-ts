@@ -47,7 +47,7 @@ function readModelFlag(tokens: readonly string[]): string | null {
     }
     if (token === "-m" || token === "--model") {
       const value = tokens[index + 1];
-      if (value !== undefined && value.length > 0) {
+      if (value !== undefined && value.length > 0 && !value.startsWith("-")) {
         return value;
       }
       continue;
