@@ -318,9 +318,9 @@ export async function readIssueReport(
   const rawReportJson = rawReportJsonResult.value;
   const rawReportMarkdown = rawReportMarkdownResult.value;
 
-  let report: IssueReportDocument;
+  let parsedReport: unknown;
   try {
-    report = JSON.parse(rawReportJson) as IssueReportDocument;
+    parsedReport = JSON.parse(rawReportJson);
   } catch (error) {
     throw new ObservabilityError(
       `Failed to parse generated issue report JSON at ${outputPaths.reportJsonFile}`,
@@ -329,6 +329,11 @@ export async function readIssueReport(
       },
     );
   }
+  const report = validateStoredIssueReport(
+    parsedReport,
+    outputPaths.reportJsonFile,
+    issueNumber,
+  );
 
   return {
     report,
@@ -336,6 +341,32 @@ export async function readIssueReport(
     rawReportMarkdown,
     outputPaths,
   };
+}
+
+function validateStoredIssueReport(
+  parsedReport: unknown,
+  reportJsonFile: string,
+  issueNumber: number,
+): IssueReportDocument {
+  if (typeof parsedReport !== "object" || parsedReport === null) {
+    throw new ObservabilityError(
+      `Generated issue report JSON at ${reportJsonFile} did not contain a report document object; run 'symphony-report issue --issue ${issueNumber.toString()}' first to regenerate it.`,
+    );
+  }
+
+  const versionValue = (parsedReport as { version?: unknown }).version;
+  if (typeof versionValue !== "number" || !Number.isInteger(versionValue)) {
+    throw new ObservabilityError(
+      `Generated issue report JSON at ${reportJsonFile} is missing a supported schema version; run 'symphony-report issue --issue ${issueNumber.toString()}' first to regenerate it.`,
+    );
+  }
+  if (versionValue !== ISSUE_REPORT_SCHEMA_VERSION) {
+    throw new ObservabilityError(
+      `Generated issue report JSON at ${reportJsonFile} uses schema version ${versionValue.toString()}, but this build expects ${ISSUE_REPORT_SCHEMA_VERSION.toString()}; run 'symphony-report issue --issue ${issueNumber.toString()}' first to regenerate it.`,
+    );
+  }
+
+  return parsedReport as IssueReportDocument;
 }
 
 async function readRequiredIssueReportFile(

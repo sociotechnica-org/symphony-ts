@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  ISSUE_REPORT_SCHEMA_VERSION,
   generateIssueReport,
   readIssueReport,
   writeIssueReport,
@@ -12,6 +13,7 @@ import {
 } from "../../src/observability/issue-artifacts.js";
 import { createTempDir } from "../support/git.js";
 import {
+  downgradeIssueReportSchemaVersion,
   deriveWorkspaceRoot,
   seedSessionAnchoredPartialArtifacts,
   seedSuccessfulIssueArtifacts,
@@ -301,6 +303,23 @@ describe("issue report generation", () => {
 
     await expect(readIssueReport(workspaceRoot, 44)).rejects.toThrowError(
       `No generated issue report JSON found for issue #44 at ${path.join(generated.outputPaths.issueRoot, "report.json")}; run 'symphony-report issue --issue 44' first.`,
+    );
+  });
+
+  it("rejects stored generated reports from older schema versions with a regeneration error", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-read-stale-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+    const generated = await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:10:00.000Z",
+    });
+    await downgradeIssueReportSchemaVersion(
+      generated.outputPaths.reportJsonFile,
+    );
+
+    await expect(readIssueReport(workspaceRoot, 44)).rejects.toThrowError(
+      `Generated issue report JSON at ${generated.outputPaths.reportJsonFile} uses schema version 1, but this build expects ${ISSUE_REPORT_SCHEMA_VERSION.toString()}; run 'symphony-report issue --issue 44' first to regenerate it.`,
     );
   });
 });

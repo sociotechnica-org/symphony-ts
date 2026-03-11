@@ -12,7 +12,10 @@ import {
   deriveIssueArtifactPaths,
   type IssueArtifactLogPointersDocument,
 } from "../../src/observability/issue-artifacts.js";
-import { writeIssueReport } from "../../src/observability/issue-report.js";
+import {
+  ISSUE_REPORT_SCHEMA_VERSION,
+  writeIssueReport,
+} from "../../src/observability/issue-report.js";
 import {
   checkoutGitBranch,
   commitAllFiles,
@@ -20,6 +23,7 @@ import {
   initializeGitRepo,
 } from "../support/git.js";
 import {
+  downgradeIssueReportSchemaVersion,
   deriveWorkspaceRoot,
   seedFailedIssueArtifacts,
   seedSuccessfulIssueArtifacts,
@@ -535,6 +539,51 @@ describe("factory-runs publication", () => {
       fs.readFile(path.join(archiveRoot, "README.md"), "utf8"),
     ).resolves.toBe("# archive\n");
     expect(workflowPath).toContain("WORKFLOW.md");
+  });
+
+  it("fails clearly when the generated report schema is stale and leaves the archive unchanged", async () => {
+    const sourceRoot = await createTempDir("symphony-factory-runs-stale-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    tempRoots.push(sourceRoot, archiveRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await initializeGitRepo(sourceRoot);
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    const generated = await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    await downgradeIssueReportSchemaVersion(
+      generated.outputPaths.reportJsonFile,
+    );
+    await commitAllFiles(sourceRoot, "seed stale report publish inputs");
+
+    await initializeGitRepo(archiveRoot);
+    await fs.writeFile(
+      path.join(archiveRoot, "README.md"),
+      "# archive\n",
+      "utf8",
+    );
+
+    await expect(
+      publishIssueToFactoryRuns({
+        workspaceRoot,
+        sourceRoot,
+        archiveRoot,
+        issueNumber: 44,
+      }),
+    ).rejects.toThrowError(
+      `Generated issue report JSON at ${generated.outputPaths.reportJsonFile} uses schema version 1, but this build expects ${ISSUE_REPORT_SCHEMA_VERSION.toString()}; run 'symphony-report issue --issue 44' first to regenerate it.`,
+    );
+
+    await expect(
+      fs.stat(path.join(archiveRoot, "symphony-ts", "issues", "44")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      fs.readFile(path.join(archiveRoot, "README.md"), "utf8"),
+    ).resolves.toBe("# archive\n");
   });
 
   it("cleans up empty archive directories when publication fails after staging starts", async () => {

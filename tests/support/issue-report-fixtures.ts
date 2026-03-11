@@ -610,3 +610,48 @@ export async function writeCodexSessionLog(options: {
   );
   return filePath;
 }
+
+export async function downgradeIssueReportSchemaVersion(
+  reportJsonFile: string,
+): Promise<void> {
+  const parsedReport = JSON.parse(
+    await fs.readFile(reportJsonFile, "utf8"),
+  ) as {
+    readonly tokenUsage?: {
+      readonly sessions?: readonly Record<string, unknown>[];
+    };
+  } & Record<string, unknown>;
+  const sessions = parsedReport.tokenUsage?.sessions ?? [];
+  const [firstSession, ...remainingSessions] = sessions;
+  const staleFirstSession =
+    firstSession === undefined
+      ? undefined
+      : (({
+          status: _status,
+          notes: _notes,
+          ...session
+        }: Record<string, unknown>) => session)(firstSession);
+
+  await fs.writeFile(
+    reportJsonFile,
+    `${JSON.stringify(
+      {
+        ...parsedReport,
+        version: 1,
+        tokenUsage:
+          parsedReport.tokenUsage === undefined
+            ? undefined
+            : {
+                ...parsedReport.tokenUsage,
+                sessions:
+                  staleFirstSession === undefined
+                    ? sessions
+                    : [staleFirstSession, ...remainingSessions],
+              },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}

@@ -185,6 +185,7 @@ Contract rules:
 2. generated reports under `.var/reports/...` remain detached derived outputs
 3. runner-specific log files remain external inputs referenced by enrichment, not new canonical persisted state
 4. any new report fields introduced for enrichment must be safely nullable and versioned within the generated report contract
+5. stored generated reports from older schema versions must either load through an explicit compatibility path or fail with a clear regeneration error; this slice should prefer the explicit regeneration guard over silently casting stale JSON into the current in-memory contract
 
 ## Observability Requirements
 
@@ -217,6 +218,7 @@ Contract rules:
 3. `LocalRunner.describeSession()` identifies Codex commands and model flags while keeping unknown commands on the fallback path
 4. the Codex adapter parses token counts, source metadata, and final assistant summaries from representative JSONL fixtures
 5. ambiguous or malformed Codex JSONL inputs yield no enrichment rather than throwing
+6. reading a stored generated report with an older schema version fails with a clear regeneration error instead of casting missing required fields into the current report contract
 
 ### Integration
 
@@ -234,6 +236,7 @@ Contract rules:
 2. Reports consume the built-in Codex enricher and surface optional token totals, richer session metadata, or final summaries when a Codex JSONL match is available.
 3. Missing, malformed, or ambiguous Codex logs do not fail report generation.
 4. The enrichment seam is explicit enough that a later Claude Code or VM-backed adapter can implement the same interface without changing the core report builder.
+5. Publishing or otherwise reading an older generated `report.json` fails clearly and instructs the operator to regenerate it, instead of crashing on missing v2-only fields.
 
 ## Exit Criteria
 
