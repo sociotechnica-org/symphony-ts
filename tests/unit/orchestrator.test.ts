@@ -2000,6 +2000,11 @@ describe("BootstrapOrchestrator watchdog", () => {
     ]);
 
     let abortCount = 0;
+    const abortSnapshot = createDeferred<{
+      kind: string | null;
+      issueNumber: number | null;
+      summary: string | null;
+    }>();
 
     const stalledRunner: Runner = {
       describeSession() {
@@ -2009,6 +2014,21 @@ describe("BootstrapOrchestrator watchdog", () => {
         return new Promise<RunResult>((_resolve, reject) => {
           const handleAbort = (): void => {
             abortCount += 1;
+            void readFactoryStatusSnapshot(deriveStatusFilePath(tmpDir))
+              .then((snapshot) => {
+                abortSnapshot.resolve({
+                  kind: snapshot.lastAction?.kind ?? null,
+                  issueNumber: snapshot.lastAction?.issueNumber ?? null,
+                  summary: snapshot.lastAction?.summary ?? null,
+                });
+              })
+              .catch(() => {
+                abortSnapshot.resolve({
+                  kind: null,
+                  issueNumber: null,
+                  summary: null,
+                });
+              });
             reject(new RunnerAbortedError("Aborted"));
           };
           if (options?.signal?.aborted) {
@@ -2053,6 +2073,13 @@ describe("BootstrapOrchestrator watchdog", () => {
     await orchestrator.runOnce();
 
     expect(abortCount).toBe(1);
+    await expect(abortSnapshot.promise).resolves.toMatchObject({
+      kind: "watchdog-recovery-exhausted",
+      issueNumber: 66,
+    });
+    await expect(abortSnapshot.promise).resolves.toMatchObject({
+      summary: expect.stringContaining("recovery limit reached"),
+    });
   });
 
   it("stops the watchdog when the runner throws before completion", async () => {

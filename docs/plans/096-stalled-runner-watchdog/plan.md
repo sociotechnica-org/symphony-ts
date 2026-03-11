@@ -68,7 +68,7 @@ Ship stalled-runner detection and bounded auto-recovery for local factory runs, 
 
 - belongs here: structured warning/recovery events and status action snapshots that explain why a run was stalled or aborted
 - does not belong here: recovery policy branching or liveness probe mutation
-- existing observability stays intact; tests should verify that exhausted recovery does not imply a silent live runner
+- existing observability stays intact, but exhausted recovery must also emit a persisted status action so operators can see why the runner was aborted
 
 ## Architecture Boundaries
 
@@ -113,7 +113,7 @@ Invalid transitions:
 | --------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------- |
 | Log, diff, or PR head changes within threshold                  | runner live, liveness snapshot changed                         | current lifecycle unchanged                  | remain `watching`                                                                       |
 | No liveness change past threshold and recovery budget remains   | runner live, watchdog entry present, `canRecover = true`       | issue still active                           | record recovery, emit watchdog recovery action, abort runner so retry path can continue |
-| No liveness change past threshold and recovery budget exhausted | runner live, watchdog entry present, `canRecover = false`      | issue still active                           | abort runner without requeue-oriented recovery bookkeeping; do not leave slot occupied  |
+| No liveness change past threshold and recovery budget exhausted | runner live, watchdog entry present, `canRecover = false`      | issue still active                           | emit a terminal watchdog status action, abort runner without requeue-oriented recovery bookkeeping, and do not leave slot occupied |
 | Probe fails transiently                                         | runner state unknown for one sample                            | tracker unchanged                            | log probe failure and keep watching                                                     |
 | Runner exits or throws before watchdog fires                    | runner promise settled, watchdog stop signal aborted           | tracker lifecycle handled by normal run flow | stop watchdog cleanly and remove runtime state                                          |
 | Two active issues probe logs concurrently                       | separate issue number / run session id / workspace root inputs | tracker facts independent                    | sample per-run log paths only; no cross-issue signal sharing                            |
@@ -146,6 +146,7 @@ Deferred from this slice:
 - preserve stall reason classification (`log-stall`, `workspace-stall`, `pr-stall`)
 - preserve structured warnings for probe failure and recovery-limit exhaustion
 - keep the existing `watchdog-recovery` status action only for the retryable recovery path
+- emit a distinct terminal status action when recovery is exhausted so `status.json` does not silently lose the stalled-runner context
 - avoid implying successful recovery when the watchdog is only performing a terminal abort
 
 ## Implementation Steps
@@ -153,8 +154,8 @@ Deferred from this slice:
 1. Refresh this plan so the #96 review-driven seam, state machine, and failure matrix are explicit.
 2. Update `FsLivenessProbe` to derive a unique per-run log filename from `runSessionId` when available, with a deterministic per-issue fallback when it is not.
 3. Update the watchdog loop in `src/orchestrator/service.ts` so a confirmed stalled runner is always aborted, even when `maxRecoveryAttempts` has already been reached.
-4. Keep the retry-oriented recovery bookkeeping limited to the recoverable branch so exhausted recovery does not fabricate another retry.
-5. Add unit coverage for the per-run log probe behavior and for the exhausted-recovery abort path.
+4. Keep the retry-oriented recovery bookkeeping limited to the recoverable branch so exhausted recovery does not fabricate another retry, but still persist a terminal watchdog status action before aborting.
+5. Add unit coverage for the per-run log probe behavior and for the exhausted-recovery abort-and-status path.
 6. Run formatting, lint, typecheck, tests, `codex review --base origin/main`, then update the existing PR with the fixes and resolve the automated review feedback.
 
 ## Tests And Acceptance Scenarios
@@ -168,12 +169,12 @@ Unit coverage:
 Integration / orchestrator coverage:
 
 - stalled runner with immediate watchdog detection is aborted and the run returns cleanly
-- stalled runner with no recovery budget still gets aborted so the concurrency slot is released
+- stalled runner with no recovery budget still gets aborted so the concurrency slot is released and the status snapshot records the terminal watchdog action
 
 Named acceptance scenarios:
 
 1. Given two active runs with different session ids, when one run’s log grows, then the other run’s liveness snapshot is unaffected by that write.
-2. Given a stalled run with `maxRecoveryAttempts` already exhausted, when the watchdog classifies the stall, then the runner is aborted and no indefinite live process remains.
+2. Given a stalled run with `maxRecoveryAttempts` already exhausted, when the watchdog classifies the stall, then the runner is aborted, no indefinite live process remains, and `status.json` records the terminal watchdog action.
 3. Given a stalled run with recovery budget remaining, when the watchdog classifies the stall, then the runner is aborted, the existing retry path can requeue, and observability records the recovery action.
 
 ## Exit Criteria
@@ -188,7 +189,7 @@ Named acceptance scenarios:
 ## Deferred To Later Issues Or PRs
 
 - standardized runner-emitted log pointer locations for all runner backends
-- additional status-surface detail for terminal watchdog aborts
+- richer terminal watchdog reporting beyond the single status action and warning emitted in this slice
 - longer-lived durable recovery counters across process restarts
 - broader supervision and lease recovery refinements beyond the watchdog seam
 

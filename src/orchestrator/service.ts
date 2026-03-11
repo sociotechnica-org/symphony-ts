@@ -1719,6 +1719,12 @@ export class BootstrapOrchestrator implements Orchestrator {
             reason: result.reason,
             recoveryCount: entry.recoveryCount,
           });
+          noteStatusAction(this.#state.status, {
+            kind: "watchdog-recovery-exhausted",
+            summary: `Stall detected (${result.reason}) for issue #${issueNumber.toString()}; recovery limit reached, aborting`,
+            issueNumber,
+          });
+          await this.#persistStatusSnapshot();
           const controller = this.#state.runAbortControllers.get(issueNumber);
           if (controller) {
             controller.abort();
