@@ -36,6 +36,8 @@ describe("pull-request-policy", () => {
 
     expect(first.lifecycle.kind).toBe("awaiting-system-checks");
     expect(second.lifecycle.kind).toBe("awaiting-landing");
+    expect(second.lifecycle.pendingCheckNames).toEqual([]);
+    expect(second.lifecycle.failingCheckNames).toEqual([]);
   });
 
   it("reports handoff-ready only after merge is observed", () => {

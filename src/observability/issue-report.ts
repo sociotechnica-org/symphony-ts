@@ -1271,6 +1271,16 @@ function readEventSummary(
   return typeof summary === "string" && summary.length > 0 ? summary : fallback;
 }
 
+function readLifecycleKindFromDetails(
+  details: Readonly<Record<string, unknown>>,
+): IssueArtifactOutcome | null {
+  // Keep this key in sync with `#createLifecycleEventDetails` in
+  // `src/orchestrator/service.ts`, which records the tracker lifecycle kind for
+  // `pr-opened` events.
+  const lifecycleKind = details["lifecycleKind"];
+  return lifecycleKind === "awaiting-landing" ? "awaiting-landing" : null;
+}
+
 function formatEventDetails(
   details: Readonly<Record<string, unknown>>,
 ): readonly string[] {
@@ -1375,9 +1385,7 @@ function inferOutcomeFromEvents(
       return "needs-follow-up";
     }
     if (event.kind === "pr-opened") {
-      return event.details["lifecycleKind"] === "awaiting-landing"
-        ? "awaiting-landing"
-        : "awaiting-review";
+      return readLifecycleKindFromDetails(event.details) ?? "awaiting-review";
     }
     if (event.kind === "runner-spawned") {
       return "running";
