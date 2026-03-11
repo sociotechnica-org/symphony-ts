@@ -576,6 +576,62 @@ describe("factory-runs publication", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("cleans up empty archive directories when staging directory creation fails", async () => {
+    const sourceRoot = await createTempDir(
+      "symphony-factory-runs-staging-mkdir-",
+    );
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    tempRoots.push(sourceRoot, archiveRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await initializeGitRepo(sourceRoot);
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    await commitAllFiles(sourceRoot, "seed staging mkdir failure inputs");
+
+    await initializeGitRepo(archiveRoot);
+
+    const originalMkdir = fs.mkdir.bind(fs);
+    const stagingRootSuffix = path.join(
+      "issues",
+      "44",
+      `.factory-runs.20260309T102530123Z`,
+    );
+    vi.spyOn(fs, "mkdir").mockImplementation(async (target, options) => {
+      if (
+        typeof target === "string" &&
+        target.includes(stagingRootSuffix) &&
+        target.endsWith(".tmp")
+      ) {
+        await originalMkdir(path.dirname(target), { recursive: true });
+        throw new Error("simulated staging mkdir failure");
+      }
+
+      return await originalMkdir(target, options);
+    });
+
+    await expect(
+      publishIssueToFactoryRuns({
+        workspaceRoot,
+        sourceRoot,
+        archiveRoot,
+        issueNumber: 44,
+      }),
+    ).rejects.toThrowError("simulated staging mkdir failure");
+
+    await expect(
+      fs.stat(path.join(archiveRoot, "symphony-ts")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      fs.stat(path.join(archiveRoot, "symphony-ts", "issues", "44")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("publishes successfully when an issue has no session logs", async () => {
     const sourceRoot = await createTempDir("symphony-factory-runs-no-logs-");
     const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
@@ -601,7 +657,7 @@ describe("factory-runs publication", () => {
       issueNumber: 44,
     });
 
-    expect(published.status).toBe("complete");
+    expect(published.status).toBe("partial");
     expect(published.metadata.logs.status).toBe("unavailable");
     expect(published.metadata.logs.copiedCount).toBe(0);
     expect(published.metadata.logs.referencedCount).toBe(0);

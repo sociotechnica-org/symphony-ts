@@ -186,9 +186,10 @@ export async function publishIssueToFactoryRuns(
   await fs
     .rm(stagingRoot, { recursive: true, force: true })
     .catch(() => undefined);
-  await fs.mkdir(stagingRoot, { recursive: true });
 
   try {
+    await fs.mkdir(stagingRoot, { recursive: true });
+
     await fs.writeFile(
       path.join(stagingRoot, "report.json"),
       reportInput.rawReportJson,
@@ -281,7 +282,7 @@ export function buildFactoryRunsPublicationMetadata(args: {
     version: FACTORY_RUNS_PUBLICATION_SCHEMA_VERSION,
     publicationId: args.publicationId,
     publishedAt: args.publishedAt,
-    publicationStatus: logStatus === "partial" ? "partial" : "complete",
+    publicationStatus: logStatus === "complete" ? "complete" : "partial",
     notes,
     repo: args.report.summary.repo,
     repoName: args.repoName,
