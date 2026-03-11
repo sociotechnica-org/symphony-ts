@@ -9,9 +9,12 @@ import {
   classifyLinearIssue,
   createLinearHandoffLifecycle,
   extractIssueNumberFromBranchName,
+  isLinearReviewWorkflowState,
+  isLinearTerminalWorkflowState,
   linearTrackerSubject,
   missingLinearLifecycle,
   resolveLinearClaimStateName,
+  resolveLinearHumanReviewStateName,
   resolveLinearTerminalStateName,
 } from "./linear-policy.js";
 import {
@@ -21,6 +24,7 @@ import {
   type LinearIssueSnapshot,
   type LinearProjectSnapshot,
 } from "./linear-normalize.js";
+import { sameLinearStateName } from "./linear-state-name.js";
 import { LinearIssueWriter } from "./linear-write.js";
 import { writeLinearWorkpad } from "./linear-workpad.js";
 
@@ -114,7 +118,7 @@ export class LinearTracker implements Tracker {
     this.#logger.info("Claimed Linear issue", {
       issueNumber,
       identifier: claimed.identifier,
-      nextState: nextStateName ?? claimed.state.name,
+      nextState: claimed.state.name,
     });
     return claimed.runtimeIssue;
   }
@@ -142,19 +146,49 @@ export class LinearTracker implements Tracker {
         `Could not extract issue number from branch ${branchName}`,
       );
     }
-    const issue = await this.#getIssueSnapshot(issueNumber);
+    const [project, issue] = await Promise.all([
+      this.#project(),
+      this.#getIssueSnapshot(issueNumber),
+    ]);
     const updatedDescription = writeLinearWorkpad(issue.description, {
       status: "handoff-ready",
       summary: `Run finished for ${branchName}`,
       branchName,
       updatedAt: new Date().toISOString(),
     });
-    await this.#writer.updateIssue({
-      id: issue.id,
-      description: updatedDescription,
-    });
-    await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
-    return await this.inspectIssueHandoff(branchName);
+    const humanReviewStateName = resolveLinearHumanReviewStateName(project);
+    if (humanReviewStateName === null) {
+      this.#logger.warn(
+        "Linear project has no 'Human Review' state; issue will not be moved after a successful run",
+        {
+          issueNumber,
+          identifier: issue.identifier,
+        },
+      );
+    }
+    const alreadyInReviewState = isLinearReviewWorkflowState(issue.state.name);
+    const alreadyTerminalState = isLinearTerminalWorkflowState(
+      issue.state.name,
+      this.#config,
+    );
+    const updatedIssue = await this.#writer.updateIssue(
+      {
+        id: issue.id,
+        description: updatedDescription,
+        ...(humanReviewStateName === null ||
+        alreadyInReviewState ||
+        alreadyTerminalState
+          ? {}
+          : { stateName: humanReviewStateName }),
+      },
+      project,
+    );
+    const skipHandoffReadyComment =
+      alreadyTerminalState || alreadyInReviewState;
+    if (!skipHandoffReadyComment) {
+      await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
+    }
+    return createLinearHandoffLifecycle(updatedIssue, branchName, this.#config);
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
@@ -189,7 +223,9 @@ export class LinearTracker implements Tracker {
           branchName: null,
           updatedAt: new Date().toISOString(),
         }),
-        stateName: terminalStateName,
+        ...(sameLinearStateName(terminalStateName, issue.state.name)
+          ? {}
+          : { stateName: terminalStateName }),
       },
       project,
     );

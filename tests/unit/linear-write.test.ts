@@ -35,6 +35,15 @@ describe("resolveLinearStateByName", () => {
     });
   });
 
+  it("matches workflow states case-insensitively", () => {
+    expect(resolveLinearStateByName(PROJECT, "in progress")).toEqual({
+      id: "state-in-progress",
+      name: "In Progress",
+      type: "started",
+      position: 1,
+    });
+  });
+
   it("fails clearly when the configured state is absent from the project", () => {
     expect(() => resolveLinearStateByName(PROJECT, "Done")).toThrowError(
       /Linear project symphony-linear is missing configured state 'Done'/i,
