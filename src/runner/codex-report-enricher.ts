@@ -64,9 +64,18 @@ export class CodexIssueReportEnricher implements IssueReportEnricher {
 
     const enrichments: IssueReportSessionEnrichment[] = [];
     for (const session of sessions) {
-      const enrichment = await this.#enrichSession(session);
-      if (enrichment !== null) {
-        enrichments.push(enrichment);
+      try {
+        const enrichment = await this.#enrichSession(session);
+        if (enrichment !== null) {
+          enrichments.push(enrichment);
+        }
+      } catch (error) {
+        enrichments.push({
+          sessionId: session.sessionId,
+          notes: [
+            `Runner log enrichment failed for this session and was skipped: ${formatErrorMessage(error)}`,
+          ],
+        });
       }
     }
 
@@ -409,4 +418,8 @@ function asString(value: unknown): string | null {
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

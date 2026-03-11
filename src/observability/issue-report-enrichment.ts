@@ -5,6 +5,8 @@ import type {
   LoadedIssueArtifacts,
 } from "./issue-report.js";
 
+const CANONICAL_SESSION_SOURCE_ARTIFACT_COUNT = 1;
+
 export interface IssueReportSessionTokenUsageEnrichment {
   readonly inputTokens?: number | null | undefined;
   readonly cachedInputTokens?: number | null | undefined;
@@ -273,11 +275,21 @@ function deriveSessionStatus(
     session.cliVersion !== null ||
     session.gitBranch !== null ||
     session.gitCommit !== null ||
-    session.sourceArtifacts.length > 1
+    hasRunnerEnrichmentSourceArtifacts(session)
   ) {
     return "partial";
   }
   return "unavailable";
+}
+
+function hasRunnerEnrichmentSourceArtifacts(
+  session: IssueReportTokenUsageSession,
+): boolean {
+  // Canonical sessions always start with one source artifact: the session
+  // snapshot JSON. Anything beyond that came from optional enrichment.
+  return (
+    session.sourceArtifacts.length > CANONICAL_SESSION_SOURCE_ARTIFACT_COUNT
+  );
 }
 
 function uniqueStrings(values: readonly string[]): readonly string[] {

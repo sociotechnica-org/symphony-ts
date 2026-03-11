@@ -1,5 +1,16 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { vi } from "vitest";
+import {
+  ISSUE_ARTIFACT_SCHEMA_VERSION,
+  deriveIssueArtifactPaths,
+} from "../../src/observability/issue-artifacts.js";
+import type { IssueArtifactSessionSnapshot } from "../../src/observability/issue-artifacts.js";
+import type {
+  IssueReportDocument,
+  LoadedIssueArtifacts,
+} from "../../src/observability/issue-report.js";
 import { generateIssueReport } from "../../src/observability/issue-report.js";
 import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
 import { createTempDir } from "../support/git.js";
@@ -235,6 +246,102 @@ describe("issue report enrichment", () => {
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
     );
+  });
+
+  it("keeps earlier session enrichments when a later session hits a filesystem error", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-fs-error-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    const issueNumber = 44;
+    const issueRoot = path.join(
+      workspaceRoot,
+      `issue-${issueNumber.toString()}`,
+    );
+
+    const readableSession: IssueArtifactSessionSnapshot = {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      issueNumber,
+      attemptNumber: 1,
+      sessionId: "issue-44-session-1",
+      provider: "codex",
+      model: "gpt-5.4",
+      startedAt: "2026-03-09T10:05:00.000Z",
+      finishedAt: "2026-03-09T10:10:00.000Z",
+      workspacePath: issueRoot,
+      branch: "symphony/44",
+      logPointers: [],
+    };
+    const failingSession: IssueArtifactSessionSnapshot = {
+      ...readableSession,
+      sessionId: "issue-44-session-2",
+      startedAt: "2026-03-12T11:05:00.000Z",
+      finishedAt: "2026-03-12T11:10:00.000Z",
+    };
+    const loaded: LoadedIssueArtifacts = {
+      issueNumber,
+      paths: deriveIssueArtifactPaths(workspaceRoot, issueNumber),
+      issue: null,
+      events: [],
+      hasEventsFile: false,
+      attempts: [],
+      sessions: [readableSession, failingSession],
+      logPointers: null,
+    };
+
+    const logPath = await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: readableSession.startedAt ?? "2026-03-09T10:05:00.000Z",
+      workspacePath: issueRoot,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-readable.jsonl",
+      totalTokens: 2750,
+    });
+
+    const blockedDayRoot = path.join(sessionsRoot, "2026", "03", "12");
+    const blockedDayRootResolved = path.resolve(blockedDayRoot);
+    const originalReaddir = fs.readdir.bind(fs);
+    const readdirSpy = vi
+      .spyOn(fs, "readdir")
+      .mockImplementation(async (filePath, options) => {
+        if (path.resolve(String(filePath)) === blockedDayRootResolved) {
+          const error = new Error("permission denied") as NodeJS.ErrnoException;
+          error.code = "EACCES";
+          throw error;
+        }
+        return originalReaddir(filePath, options);
+      });
+
+    try {
+      const enrichment = await new CodexIssueReportEnricher({
+        sessionsRoot,
+      }).enrich({
+        workspaceRoot,
+        loaded,
+        report: {} as IssueReportDocument,
+      });
+
+      expect(enrichment.sessions).toHaveLength(2);
+      expect(enrichment.sessions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            sessionId: readableSession.sessionId,
+            tokenUsage: expect.objectContaining({
+              totalTokens: 2750,
+            }),
+            sourceArtifacts: [logPath],
+          }),
+          expect.objectContaining({
+            sessionId: failingSession.sessionId,
+            notes: [
+              "Runner log enrichment failed for this session and was skipped: permission denied",
+            ],
+          }),
+        ]),
+      );
+    } finally {
+      readdirSpy.mockRestore();
+    }
   });
 
   it("does not match a Codex log with no parseable session timestamp", async () => {
