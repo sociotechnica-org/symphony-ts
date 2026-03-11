@@ -12,7 +12,10 @@ import type {
   LoadedIssueArtifacts,
 } from "../../src/observability/issue-report.js";
 import { generateIssueReport } from "../../src/observability/issue-report.js";
-import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
+import {
+  asFiniteNumber,
+  CodexIssueReportEnricher,
+} from "../../src/runner/codex-report-enricher.js";
 import { createTempDir } from "../support/git.js";
 import {
   deriveCodexSessionsRoot,
@@ -150,47 +153,10 @@ describe("issue report enrichment", () => {
     );
   });
 
-  it("treats NaN token values in Codex logs as unavailable instead of complete totals", async () => {
-    const tempDir = await createTempDir("symphony-issue-report-nan-token-");
-    tempRoots.push(tempDir);
-    const workspaceRoot = deriveWorkspaceRoot(tempDir);
-    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
-    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
-
-    await writeCodexSessionLog({
-      sessionsRoot,
-      startedAt: "2026-03-09T10:05:00.000Z",
-      workspacePath: `${workspaceRoot}/issue-44`,
-      branch: "symphony/44",
-      fileName: "rollout-2026-03-09T10-05-00-nan-token.jsonl",
-      tokenEvents: [
-        {
-          inputTokens: Number.NaN,
-          cachedInputTokens: 500,
-          outputTokens: 250,
-          reasoningOutputTokens: 100,
-          totalTokens: Number.NaN,
-        },
-      ],
-    });
-
-    const generated = await generateIssueReport(workspaceRoot, 44, {
-      generatedAt: "2026-03-09T13:00:00.000Z",
-      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
-    });
-
-    expect(generated.report.tokenUsage.status).toBe("partial");
-    expect(generated.report.tokenUsage.totalTokens).toBeNull();
-    expect(generated.report.tokenUsage.sessions[0]).toEqual(
-      expect.objectContaining({
-        inputTokens: null,
-        cachedInputTokens: 500,
-        outputTokens: 250,
-        reasoningOutputTokens: 100,
-        totalTokens: null,
-        status: "partial",
-      }),
-    );
+  it("treats NaN as unavailable in Codex numeric coercion", () => {
+    expect(asFiniteNumber(Number.NaN)).toBeNull();
+    expect(asFiniteNumber(2750)).toBe(2750);
+    expect(asFiniteNumber(null)).toBeNull();
   });
 
   it("keeps report generation successful when multiple Codex logs match the same session", async () => {

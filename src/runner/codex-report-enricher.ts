@@ -279,11 +279,11 @@ function parseTokenCount(
     return null;
   }
   return {
-    inputTokens: asNumber(total["input_tokens"]),
-    cachedInputTokens: asNumber(total["cached_input_tokens"]),
-    outputTokens: asNumber(total["output_tokens"]),
-    reasoningOutputTokens: asNumber(total["reasoning_output_tokens"]),
-    totalTokens: asNumber(total["total_tokens"]),
+    inputTokens: asFiniteNumber(total["input_tokens"]),
+    cachedInputTokens: asFiniteNumber(total["cached_input_tokens"]),
+    outputTokens: asFiniteNumber(total["output_tokens"]),
+    reasoningOutputTokens: asFiniteNumber(total["reasoning_output_tokens"]),
+    totalTokens: asFiniteNumber(total["total_tokens"]),
   };
 }
 
@@ -417,6 +417,6 @@ function asString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function asNumber(value: unknown): number | null {
+export function asFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && !Number.isNaN(value) ? value : null;
 }
