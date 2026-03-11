@@ -352,16 +352,10 @@ export class LinearClient {
       after = pageInfo.endCursor;
     }
 
-    // TypeScript cannot prove the loop above runs at least once.
-    // #requireProjectIssuesPage throws before returning if project is null.
-    if (project === null) {
-      throw new TrackerError(
-        "Linear GraphQL request failed for GetProjectIssuesPage: missing project payload",
-      );
-    }
-
+    // The while(true) loop always runs at least once and sets project
+    // on the first iteration (or throws via #requireProjectIssuesPage).
     return {
-      project,
+      project: project!,
       issues,
     };
   }

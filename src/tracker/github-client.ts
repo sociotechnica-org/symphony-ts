@@ -626,10 +626,9 @@ export class GitHubClient {
         : reviewThreadsAfter;
     }
 
-    if (!pullRequest) {
-      throw new TrackerError(`Pull request ${number} was not found in GraphQL`);
-    }
-    return pullRequest;
+    // The while(true) loop above always runs at least once and sets pullRequest
+    // on the first iteration (or throws via the page null check).
+    return pullRequest!;
   }
 
   async resolveReviewThreads(threadIds: readonly string[]): Promise<void> {

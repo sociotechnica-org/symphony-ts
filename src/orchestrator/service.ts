@@ -184,7 +184,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
       await this.#sleep(this.#config.polling.intervalMs, signal);
     }
-    signal?.removeEventListener("abort", handleAbort);
+    signal.removeEventListener("abort", handleAbort);
     if (this.#shutdownSignal === signal) {
       this.#shutdownSignal = undefined;
     }

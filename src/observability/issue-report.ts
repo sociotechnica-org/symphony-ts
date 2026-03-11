@@ -489,9 +489,7 @@ function buildSummary(
     ...loaded.sessions.map((session) => session.startedAt),
   ]);
   const endedAt = latestTimestamp([
-    isTerminalOutcome(summary?.currentOutcome)
-      ? (summary?.lastUpdatedAt ?? null)
-      : null,
+    isTerminalOutcome(summary?.currentOutcome) ? summary.lastUpdatedAt : null,
     ...loaded.attempts.map((attempt) =>
       isTerminalOutcome(attempt.outcome) ? attempt.finishedAt : null,
     ),
@@ -1396,9 +1394,8 @@ function inferOutcomeFromEvents(
     if (event.kind === "plan-ready") {
       return "awaiting-plan-review";
     }
-    if (event.kind === "claimed") {
-      return "claimed";
-    }
+    // event.kind === "claimed" is the only remaining case
+    return "claimed";
   }
   return null;
 }
