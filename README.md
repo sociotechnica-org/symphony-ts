@@ -57,6 +57,13 @@ Generate a per-issue report from local artifacts:
 pnpm tsx bin/symphony-report.ts issue --issue 44
 ```
 
+Generate a campaign digest from existing per-issue reports:
+
+```bash
+pnpm tsx bin/symphony-report.ts campaign --issues 32,43,44
+pnpm tsx bin/symphony-report.ts campaign --from 2026-03-01 --to 2026-03-07
+```
+
 When available, the report command also applies optional built-in runner-log
 enrichment. Today that means Codex JSONL sessions under `~/.codex/sessions/`.
 Missing, malformed, or ambiguous runner logs do not block report generation;
@@ -88,6 +95,18 @@ session logs into:
 
 If publication fails, the local artifacts under `.var/factory/...` and
 `.var/reports/...` remain the source of truth.
+
+Campaign digests stay detached from archive publication and are generated only
+from existing issue reports. They are written under:
+
+```text
+.var/reports/campaigns/<campaign-id>/
+  summary.md
+  timeline.md
+  github-activity.md
+  token-usage.md
+  learnings.md
+```
 
 ## How It Works
 

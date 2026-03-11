@@ -58,12 +58,29 @@ export function deriveCodexSessionsRoot(rootDir: string): string {
 export async function seedSuccessfulIssueArtifacts(
   workspaceRoot: string,
   issueNumber: number,
+  options?: {
+    readonly claimedAt?: string | undefined;
+    readonly planReadyAt?: string | undefined;
+    readonly attemptStartedAt?: string | undefined;
+    readonly prOpenedAt?: string | undefined;
+    readonly latestCommitAt?: string | undefined;
+    readonly succeededAt?: string | undefined;
+    readonly finalCommitAt?: string | undefined;
+  },
 ): Promise<void> {
   const store = new LocalIssueArtifactStore(workspaceRoot);
   const issueIdentifier = `sociotechnica-org/symphony-ts#${issueNumber.toString()}`;
   const issueUrl = `https://github.com/sociotechnica-org/symphony-ts/issues/${issueNumber.toString()}`;
   const branch = `symphony/${issueNumber.toString()}`;
   const sessionId = `${issueIdentifier}/attempt-1/session-1`;
+  const claimedAt = options?.claimedAt ?? "2026-03-09T10:00:00.000Z";
+  const planReadyAt = options?.planReadyAt ?? "2026-03-09T10:02:00.000Z";
+  const attemptStartedAt =
+    options?.attemptStartedAt ?? "2026-03-09T10:05:00.000Z";
+  const prOpenedAt = options?.prOpenedAt ?? "2026-03-09T10:10:00.000Z";
+  const latestCommitAt = options?.latestCommitAt ?? "2026-03-09T10:09:30.000Z";
+  const succeededAt = options?.succeededAt ?? "2026-03-09T10:20:00.000Z";
+  const finalCommitAt = options?.finalCommitAt ?? "2026-03-09T10:19:00.000Z";
 
   await store.recordObservation({
     issue: {
@@ -75,7 +92,7 @@ export async function seedSuccessfulIssueArtifacts(
       branch,
       currentOutcome: "claimed",
       currentSummary: `Claimed ${issueIdentifier}`,
-      observedAt: "2026-03-09T10:00:00.000Z",
+      observedAt: claimedAt,
       latestAttemptNumber: 1,
     },
     events: [
@@ -83,7 +100,7 @@ export async function seedSuccessfulIssueArtifacts(
         version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         kind: "claimed",
         issueNumber,
-        observedAt: "2026-03-09T10:00:00.000Z",
+        observedAt: claimedAt,
         attemptNumber: 1,
         sessionId: null,
         details: {
@@ -94,7 +111,7 @@ export async function seedSuccessfulIssueArtifacts(
         version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         kind: "plan-ready",
         issueNumber,
-        observedAt: "2026-03-09T10:02:00.000Z",
+        observedAt: planReadyAt,
         attemptNumber: 1,
         sessionId: null,
         details: {
@@ -115,7 +132,7 @@ export async function seedSuccessfulIssueArtifacts(
       branch,
       currentOutcome: "awaiting-review",
       currentSummary: "PR opened and awaiting checks",
-      observedAt: "2026-03-09T10:10:00.000Z",
+      observedAt: prOpenedAt,
       latestAttemptNumber: 1,
       latestSessionId: sessionId,
     },
@@ -124,8 +141,8 @@ export async function seedSuccessfulIssueArtifacts(
       issueNumber,
       attemptNumber: 1,
       branch,
-      startedAt: "2026-03-09T10:05:00.000Z",
-      finishedAt: "2026-03-09T10:10:00.000Z",
+      startedAt: attemptStartedAt,
+      finishedAt: prOpenedAt,
       outcome: "awaiting-review",
       summary: "PR opened and awaiting checks",
       sessionId,
@@ -133,7 +150,7 @@ export async function seedSuccessfulIssueArtifacts(
       pullRequest: {
         number: 144,
         url: "https://github.com/sociotechnica-org/symphony-ts/pull/144",
-        latestCommitAt: "2026-03-09T10:09:30.000Z",
+        latestCommitAt,
       },
       review: {
         actionableCount: 0,
@@ -151,8 +168,8 @@ export async function seedSuccessfulIssueArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
-      startedAt: "2026-03-09T10:05:00.000Z",
-      finishedAt: "2026-03-09T10:10:00.000Z",
+      startedAt: attemptStartedAt,
+      finishedAt: prOpenedAt,
       workspacePath: path.join(
         workspaceRoot,
         `issue-${issueNumber.toString()}`,
@@ -182,7 +199,7 @@ export async function seedSuccessfulIssueArtifacts(
         version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         kind: "runner-spawned",
         issueNumber,
-        observedAt: "2026-03-09T10:05:00.000Z",
+        observedAt: attemptStartedAt,
         attemptNumber: 1,
         sessionId,
         details: {
@@ -193,7 +210,7 @@ export async function seedSuccessfulIssueArtifacts(
         version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         kind: "pr-opened",
         issueNumber,
-        observedAt: "2026-03-09T10:10:00.000Z",
+        observedAt: prOpenedAt,
         attemptNumber: 1,
         sessionId,
         details: {
@@ -202,7 +219,7 @@ export async function seedSuccessfulIssueArtifacts(
           pullRequest: {
             number: 144,
             url: "https://github.com/sociotechnica-org/symphony-ts/pull/144",
-            latestCommitAt: "2026-03-09T10:09:30.000Z",
+            latestCommitAt,
           },
           review: {
             actionableCount: 0,
@@ -227,7 +244,7 @@ export async function seedSuccessfulIssueArtifacts(
       branch,
       currentOutcome: "succeeded",
       currentSummary: "Issue completed successfully",
-      observedAt: "2026-03-09T10:20:00.000Z",
+      observedAt: succeededAt,
       latestAttemptNumber: 1,
       latestSessionId: sessionId,
     },
@@ -236,7 +253,7 @@ export async function seedSuccessfulIssueArtifacts(
         version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         kind: "succeeded",
         issueNumber,
-        observedAt: "2026-03-09T10:20:00.000Z",
+        observedAt: succeededAt,
         attemptNumber: 1,
         sessionId,
         details: {
@@ -244,7 +261,7 @@ export async function seedSuccessfulIssueArtifacts(
           pullRequest: {
             number: 144,
             url: "https://github.com/sociotechnica-org/symphony-ts/pull/144",
-            latestCommitAt: "2026-03-09T10:19:00.000Z",
+            latestCommitAt: finalCommitAt,
           },
           review: {
             actionableCount: 0,
@@ -263,12 +280,22 @@ export async function seedSuccessfulIssueArtifacts(
 export async function seedFailedIssueArtifacts(
   workspaceRoot: string,
   issueNumber: number,
+  options?: {
+    readonly retryScheduledAt?: string | undefined;
+    readonly attemptStartedAt?: string | undefined;
+    readonly failedAt?: string | undefined;
+  },
 ): Promise<void> {
   const store = new LocalIssueArtifactStore(workspaceRoot);
   const issueIdentifier = `sociotechnica-org/symphony-ts#${issueNumber.toString()}`;
   const issueUrl = `https://github.com/sociotechnica-org/symphony-ts/issues/${issueNumber.toString()}`;
   const branch = `symphony/${issueNumber.toString()}`;
   const sessionId = `${issueIdentifier}/attempt-2/session-1`;
+  const retryScheduledAt =
+    options?.retryScheduledAt ?? "2026-03-09T11:00:00.000Z";
+  const attemptStartedAt =
+    options?.attemptStartedAt ?? "2026-03-09T10:55:00.000Z";
+  const failedAt = options?.failedAt ?? "2026-03-09T11:10:00.000Z";
 
   await store.recordObservation({
     issue: {
@@ -280,7 +307,7 @@ export async function seedFailedIssueArtifacts(
       branch,
       currentOutcome: "retry-scheduled",
       currentSummary: "Retry scheduled after missing PR",
-      observedAt: "2026-03-09T11:00:00.000Z",
+      observedAt: retryScheduledAt,
       latestAttemptNumber: 2,
       latestSessionId: sessionId,
     },
@@ -289,8 +316,8 @@ export async function seedFailedIssueArtifacts(
       issueNumber,
       attemptNumber: 2,
       branch,
-      startedAt: "2026-03-09T10:55:00.000Z",
-      finishedAt: "2026-03-09T11:00:00.000Z",
+      startedAt: attemptStartedAt,
+      finishedAt: retryScheduledAt,
       outcome: "attempt-failed",
       summary: "No open pull request found",
       sessionId,
@@ -306,8 +333,8 @@ export async function seedFailedIssueArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
-      startedAt: "2026-03-09T10:55:00.000Z",
-      finishedAt: "2026-03-09T11:00:00.000Z",
+      startedAt: attemptStartedAt,
+      finishedAt: retryScheduledAt,
       workspacePath: path.join(
         workspaceRoot,
         `issue-${issueNumber.toString()}`,
@@ -325,7 +352,7 @@ export async function seedFailedIssueArtifacts(
         version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         kind: "retry-scheduled",
         issueNumber,
-        observedAt: "2026-03-09T11:00:00.000Z",
+        observedAt: retryScheduledAt,
         attemptNumber: 2,
         sessionId,
         details: {
@@ -337,7 +364,7 @@ export async function seedFailedIssueArtifacts(
         version: ISSUE_ARTIFACT_SCHEMA_VERSION,
         kind: "failed",
         issueNumber,
-        observedAt: "2026-03-09T11:10:00.000Z",
+        observedAt: failedAt,
         attemptNumber: 2,
         sessionId,
         details: {
