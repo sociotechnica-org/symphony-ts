@@ -57,6 +57,32 @@ Generate a per-issue report from local artifacts:
 pnpm tsx bin/symphony-report.ts issue --issue 44
 ```
 
+Publish one generated issue report into a checked-out `factory-runs` archive
+worktree:
+
+```bash
+pnpm tsx bin/symphony-report.ts publish --issue 44 --archive-root ../factory-runs
+```
+
+Archive publication stays detached from `symphony run` and `symphony-ts` CI. It
+copies the already-canonical local `report.json`, `report.md`, and available
+session logs into:
+
+```text
+<factory-runs-root>/
+  symphony-ts/
+    issues/
+      <issue-number>/
+        <publication-id>/
+          report.json
+          report.md
+          metadata.json
+          logs/
+```
+
+If publication fails, the local artifacts under `.var/factory/...` and
+`.var/reports/...` remain the source of truth.
+
 ## How It Works
 
 1. An issue gets the `symphony:ready` label

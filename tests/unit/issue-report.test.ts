@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   generateIssueReport,
+  readIssueReport,
   writeIssueReport,
 } from "../../src/observability/issue-report.js";
 import {
@@ -252,6 +253,35 @@ describe("issue report generation", () => {
 
       expect(generated.report.summary.outcome).toBe("claimed");
       expect(generated.report.summary.outcome).not.toBe("awaiting-plan-review");
+    },
+  );
+
+  it.each([
+    {
+      fileName: "report.json",
+      fileKind: "JSON",
+    },
+    {
+      fileName: "report.md",
+      fileKind: "markdown",
+    },
+  ] as const)(
+    "names the missing %s artifact when reading a stored issue report",
+    async ({ fileName, fileKind }) => {
+      const tempDir = await createTempDir("symphony-issue-report-read-");
+      tempRoots.push(tempDir);
+      const workspaceRoot = deriveWorkspaceRoot(tempDir);
+      await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+      const generated = await writeIssueReport(workspaceRoot, 44, {
+        generatedAt: "2026-03-09T14:00:00.000Z",
+      });
+
+      await fs.rm(path.join(generated.outputPaths.issueRoot, fileName));
+
+      await expect(readIssueReport(workspaceRoot, 44)).rejects.toThrowError(
+        `No generated issue report ${fileKind} found for issue #44 at ${path.join(generated.outputPaths.issueRoot, fileName)}; run 'symphony-report issue --issue 44' first.`,
+      );
     },
   );
 });

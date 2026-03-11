@@ -26,6 +26,12 @@ export class TrackerError extends SymphonyError {
   }
 }
 
+export class IntegrationError extends SymphonyError {
+  constructor(message: string, options?: ErrorOptions) {
+    super("integration_error", message, options);
+  }
+}
+
 export class WorkspaceError extends SymphonyError {
   constructor(message: string, options?: ErrorOptions) {
     super("workspace_error", message, options);

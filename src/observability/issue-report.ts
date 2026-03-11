@@ -34,6 +34,13 @@ export interface IssueReportPaths {
   readonly reportMarkdownFile: string;
 }
 
+export interface StoredIssueReport {
+  readonly report: IssueReportDocument;
+  readonly rawReportJson: string;
+  readonly rawReportMarkdown: string;
+  readonly outputPaths: IssueReportPaths;
+}
+
 export interface IssueReportSummary {
   readonly status: IssueReportAvailability;
   readonly issueNumber: number;
@@ -173,7 +180,7 @@ export interface IssueReportDocument {
   readonly operatorInterventions: IssueReportOperatorInterventions;
 }
 
-interface LoadedIssueArtifacts {
+export interface LoadedIssueArtifacts {
   readonly issueNumber: number;
   readonly paths: ReturnType<typeof deriveIssueArtifactPaths>;
   readonly issue: IssueArtifactSummary | null;
@@ -198,7 +205,7 @@ function deriveIssueReportsRoot(workspaceRoot: string): string {
   );
 }
 
-function deriveIssueReportPaths(
+export function deriveIssueReportPaths(
   workspaceRoot: string,
   issueNumber: number,
 ): IssueReportPaths {
@@ -255,7 +262,65 @@ export async function writeIssueReport(
   return generated;
 }
 
-async function loadIssueArtifacts(
+export async function readIssueReport(
+  workspaceRoot: string,
+  issueNumber: number,
+): Promise<StoredIssueReport> {
+  const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
+  const [rawReportJson, rawReportMarkdown] = await Promise.all([
+    readRequiredIssueReportFile(
+      outputPaths.reportJsonFile,
+      issueNumber,
+      "JSON",
+    ),
+    readRequiredIssueReportFile(
+      outputPaths.reportMarkdownFile,
+      issueNumber,
+      "markdown",
+    ),
+  ]);
+
+  let report: IssueReportDocument;
+  try {
+    report = JSON.parse(rawReportJson) as IssueReportDocument;
+  } catch (error) {
+    throw new ObservabilityError(
+      `Failed to parse generated issue report JSON at ${outputPaths.reportJsonFile}`,
+      {
+        cause: error as Error,
+      },
+    );
+  }
+
+  return {
+    report,
+    rawReportJson,
+    rawReportMarkdown,
+    outputPaths,
+  };
+}
+
+async function readRequiredIssueReportFile(
+  filePath: string,
+  issueNumber: number,
+  fileKind: "JSON" | "markdown",
+): Promise<string> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new ObservabilityError(
+        `No generated issue report ${fileKind} found for issue #${issueNumber.toString()} at ${filePath}; run 'symphony-report issue --issue ${issueNumber.toString()}' first.`,
+        {
+          cause: error as Error,
+        },
+      );
+    }
+    throw error;
+  }
+}
+
+export async function loadIssueArtifacts(
   workspaceRoot: string,
   issueNumber: number,
 ): Promise<LoadedIssueArtifacts> {

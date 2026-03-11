@@ -11,6 +11,23 @@ describe("parseReportArgs", () => {
     });
   });
 
+  it("parses the publish command", () => {
+    expect(
+      parseReportArgs([
+        "node",
+        "symphony-report",
+        "publish",
+        "--issue",
+        "44",
+        "--archive-root",
+        "../factory-runs",
+      ]),
+    ).toMatchObject({
+      command: "publish",
+      issueNumber: 44,
+    });
+  });
+
   it("requires a valid issue number", () => {
     expect(() =>
       parseReportArgs(["node", "symphony-report", "issue", "--issue", "abc"]),
@@ -33,7 +50,13 @@ describe("parseReportArgs", () => {
     expect(() =>
       parseReportArgs(["node", "symphony-report", "status"]),
     ).toThrowError(
-      "Usage: symphony-report issue --issue <number> [--workflow <path>]",
+      "Usage: symphony-report <issue|publish> --issue <number> [--workflow <path>] [--archive-root <path>]",
     );
+  });
+
+  it("requires the archive root for publish", () => {
+    expect(() =>
+      parseReportArgs(["node", "symphony-report", "publish", "--issue", "44"]),
+    ).toThrowError("Missing required --archive-root <path> option");
   });
 });
