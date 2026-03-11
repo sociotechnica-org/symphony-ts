@@ -62,10 +62,7 @@ import {
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
 import type { LivenessProbe } from "./liveness-probe.js";
-import {
-  createRunningEntry,
-  integrateCodexUpdate,
-} from "./running-entry.js";
+import { createRunningEntry, integrateCodexUpdate } from "./running-entry.js";
 import {
   type StallReason,
   checkStall,
@@ -326,7 +323,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       if (signal?.aborted) {
         break;
       }
-      this.#state.polling.nextPollAtMs = Date.now() + this.#config.polling.intervalMs;
+      this.#state.polling.nextPollAtMs =
+        Date.now() + this.#config.polling.intervalMs;
       await this.#sleep(this.#config.polling.intervalMs, signal);
     }
     // signal is optional — keep ?. for safety even though TypeScript narrows
@@ -864,7 +862,11 @@ export class BootstrapOrchestrator implements Orchestrator {
       issue.number,
       watchdogStop.signal,
     );
-    const runEntry = createRunningEntry(issue.number, issue.identifier, attempt);
+    const runEntry = createRunningEntry(
+      issue.number,
+      issue.identifier,
+      attempt,
+    );
     this.#state.runningEntries.set(issue.number, runEntry);
     this.#notifyDashboard();
 

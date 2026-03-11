@@ -31,7 +31,9 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
   };
 }
 
-function makeConfig(overrides: Partial<ObservabilityConfig> = {}): ObservabilityConfig {
+function makeConfig(
+  overrides: Partial<ObservabilityConfig> = {},
+): ObservabilityConfig {
   return {
     dashboardEnabled: true,
     refreshMs: 1000,
@@ -129,7 +131,11 @@ describe("formatSnapshotContent", () => {
 
   it("renders polling as checking now", () => {
     const snapshot = makeSnapshot({
-      polling: { checkingNow: true, nextPollAtMs: Date.now(), intervalMs: 30_000 },
+      polling: {
+        checkingNow: true,
+        nextPollAtMs: Date.now(),
+        intervalMs: 30_000,
+      },
     });
     const output = formatSnapshotContent(snapshot, 0);
     expect(output).toContain("checking now");
@@ -149,9 +155,9 @@ describe("formatSnapshotContent", () => {
 
   it("renders offline frame", () => {
     const output = formatSnapshotContent(null, 0);
-    expect(output).toContain("app_status=offline" + "\x1b[0m" === output
-      ? ""
-      : ""); // just check presence
+    expect(output).toContain(
+      "app_status=offline" + "\x1b[0m" === output ? "" : "",
+    ); // just check presence
     expect(output).toContain("Orchestrator snapshot unavailable");
   });
 });
@@ -164,17 +170,24 @@ describe("humanizeEvent", () => {
   });
 
   it("humanizes task_started wrapper event", () => {
-    expect(humanizeEvent({ event: "codex/event/task_started" }, "codex/event/task_started")).toBe(
-      "task started",
-    );
+    expect(
+      humanizeEvent(
+        { event: "codex/event/task_started" },
+        "codex/event/task_started",
+      ),
+    ).toBe("task started");
   });
 
   it("humanizes user_message wrapper event", () => {
-    expect(humanizeEvent({}, "codex/event/user_message")).toBe("user message received");
+    expect(humanizeEvent({}, "codex/event/user_message")).toBe(
+      "user message received",
+    );
   });
 
   it("humanizes mcp_startup_complete wrapper event", () => {
-    expect(humanizeEvent({}, "codex/event/mcp_startup_complete")).toBe("mcp startup complete");
+    expect(humanizeEvent({}, "codex/event/mcp_startup_complete")).toBe(
+      "mcp startup complete",
+    );
   });
 
   it("humanizes exec_command_output_delta wrapper event", () => {
@@ -185,12 +198,16 @@ describe("humanizeEvent", () => {
 
   it("humanizes exec_command_begin with command text", () => {
     const msg = { params: { msg: { command: "git status" } } };
-    expect(humanizeEvent(msg, "codex/event/exec_command_begin")).toBe("git status");
+    expect(humanizeEvent(msg, "codex/event/exec_command_begin")).toBe(
+      "git status",
+    );
   });
 
   it("humanizes exec_command_end with exit code", () => {
     const msg = { params: { msg: { exit_code: 0 } } };
-    expect(humanizeEvent(msg, "codex/event/exec_command_end")).toBe("command completed (exit 0)");
+    expect(humanizeEvent(msg, "codex/event/exec_command_end")).toBe(
+      "command completed (exit 0)",
+    );
   });
 
   it("humanizes token_count wrapper event with counts", () => {
@@ -201,11 +218,16 @@ describe("humanizeEvent", () => {
         },
       },
     };
-    expect(humanizeEvent(msg, "codex/event/token_count")).toContain("token count update");
+    expect(humanizeEvent(msg, "codex/event/token_count")).toContain(
+      "token count update",
+    );
   });
 
   it("humanizes thread/started method", () => {
-    const msg = { method: "thread/started", params: { thread: { id: "thread-abc" } } };
+    const msg = {
+      method: "thread/started",
+      params: { thread: { id: "thread-abc" } },
+    };
     expect(humanizeEvent(msg, null)).toBe("thread started (thread-abc)");
   });
 
@@ -240,7 +262,9 @@ describe("humanizeEvent", () => {
       method: "item/commandExecution/requestApproval",
       params: { parsedCmd: "rm -rf /" },
     };
-    expect(humanizeEvent(msg, null)).toBe("command approval requested (rm -rf /)");
+    expect(humanizeEvent(msg, null)).toBe(
+      "command approval requested (rm -rf /)",
+    );
   });
 
   it("humanizes item/agentMessage/delta with preview", () => {
@@ -261,7 +285,10 @@ describe("humanizeEvent", () => {
 
   it("truncates long events to 140 characters", () => {
     const longText = "x".repeat(200);
-    const msg = { method: "turn/failed", params: { error: { message: longText } } };
+    const msg = {
+      method: "turn/failed",
+      params: { error: { message: longText } },
+    };
     const result = humanizeEvent(msg, null);
     expect(result.length).toBeLessThanOrEqual(143); // 140 + "..."
   });
@@ -299,7 +326,7 @@ describe("rollingTps", () => {
     const now = 10_000;
     const samples: [number, number][] = [
       [5500, 100], // 4.5s ago - within window
-      [4000, 0],   // 6s ago - outside window
+      [4000, 0], // 6s ago - outside window
     ];
     const tps = rollingTps(samples, now, 1600);
     // Delta = 1600-100=1500 tokens over 4500ms = 333 tps
