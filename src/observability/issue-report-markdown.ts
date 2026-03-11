@@ -83,13 +83,49 @@ export function renderIssueReportMarkdown(report: IssueReportDocument): string {
   lines.push(
     `- Estimated cost (USD): ${renderCurrency(report.tokenUsage.costUsd)}`,
   );
+  for (const note of report.tokenUsage.notes) {
+    lines.push(`- Note: ${note}`);
+  }
   if (report.tokenUsage.sessions.length === 0) {
     lines.push("- Sessions: Unavailable");
   } else {
     for (const session of report.tokenUsage.sessions) {
       lines.push(
-        `- Session ${session.sessionId}: attempt ${session.attemptNumber.toString()}, agent ${session.provider}${session.model === null ? "" : ` (${session.model})`}, tokens ${renderNumber(session.totalTokens)}, cost ${renderCurrency(session.costUsd)}`,
+        `- Session ${session.sessionId}: attempt ${session.attemptNumber.toString()}, agent ${session.provider}${session.model === null ? "" : ` (${session.model})`}, status ${session.status}, tokens ${renderNumber(session.totalTokens)}, cost ${renderCurrency(session.costUsd)}`,
       );
+      if (session.inputTokens !== null || session.outputTokens !== null) {
+        lines.push(
+          `  - Token detail: input ${renderNumber(session.inputTokens)}, cached input ${renderNumber(session.cachedInputTokens)}, output ${renderNumber(session.outputTokens)}, reasoning output ${renderNumber(session.reasoningOutputTokens)}`,
+        );
+      }
+      if (
+        session.originator !== null ||
+        session.sessionSource !== null ||
+        session.cliVersion !== null
+      ) {
+        lines.push(
+          `  - Session detail: originator ${renderValue(session.originator)}, source ${renderValue(session.sessionSource)}, CLI ${renderValue(session.cliVersion)}`,
+        );
+      }
+      if (session.modelProvider !== null) {
+        lines.push(`  - Model provider: ${session.modelProvider}`);
+      }
+      if (session.gitBranch !== null || session.gitCommit !== null) {
+        lines.push(
+          `  - Git: branch ${renderValue(session.gitBranch)}, commit ${renderValue(session.gitCommit)}`,
+        );
+      }
+      if (session.finalSummary !== null) {
+        lines.push(
+          `  - Final summary: ${collapseWhitespace(session.finalSummary)}`,
+        );
+      }
+      if (session.sourceArtifacts.length > 0) {
+        lines.push(`  - Source artifacts: ${session.sourceArtifacts.join(", ")}`);
+      }
+      for (const note of session.notes) {
+        lines.push(`  - Note: ${note}`);
+      }
     }
   }
   lines.push("");
@@ -187,4 +223,8 @@ function renderNumberList(values: readonly number[]): string {
   return values.length === 0
     ? "Unavailable"
     : values.map((value) => value.toString()).join(", ");
+}
+
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
 }

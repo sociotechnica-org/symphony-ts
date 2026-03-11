@@ -1,7 +1,9 @@
 import path from "node:path";
 import { loadWorkflowWorkspaceRoot } from "../config/workflow.js";
 import { publishIssueToFactoryRuns } from "../integration/factory-runs.js";
+import { createDefaultIssueReportEnrichers } from "../runner/codex-report-enricher.js";
 import { writeIssueReport } from "../observability/issue-report.js";
+import type { IssueReportEnricher } from "../observability/issue-report-enrichment.js";
 
 export type ReportCliArgs =
   | {
@@ -57,11 +59,18 @@ export function parseReportArgs(argv: readonly string[]): ReportCliArgs {
   };
 }
 
-export async function runReportCli(argv: readonly string[]): Promise<void> {
+export async function runReportCli(
+  argv: readonly string[],
+  options?: {
+    readonly issueEnrichers?: readonly IssueReportEnricher[] | undefined;
+  },
+): Promise<void> {
   const args = parseReportArgs(argv);
   const workspaceRoot = await loadWorkflowWorkspaceRoot(args.workflowPath);
   if (args.command === "issue") {
-    const generated = await writeIssueReport(workspaceRoot, args.issueNumber);
+    const generated = await writeIssueReport(workspaceRoot, args.issueNumber, {
+      enrichers: options?.issueEnrichers ?? createDefaultIssueReportEnrichers(),
+    });
     process.stdout.write(
       `Generated issue report for #${args.issueNumber.toString()}\nreport.json: ${generated.outputPaths.reportJsonFile}\nreport.md: ${generated.outputPaths.reportMarkdownFile}\n`,
     );

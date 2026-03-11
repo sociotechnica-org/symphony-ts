@@ -10,6 +10,7 @@ import type {
   RunnerRunOptions,
   RunnerSessionDescription,
 } from "./service.js";
+import { describeLocalRunnerBackend } from "./local-command.js";
 
 export class LocalRunner implements Runner {
   static readonly #terminationGraceMs = 200;
@@ -22,9 +23,10 @@ export class LocalRunner implements Runner {
   }
 
   describeSession(_session: RunSession): RunnerSessionDescription {
+    const backend = describeLocalRunnerBackend(this.#config.command);
     return {
-      provider: "local-runner",
-      model: null,
+      provider: backend.provider,
+      model: backend.model,
       logPointers: [],
     };
   }

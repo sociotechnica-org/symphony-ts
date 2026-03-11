@@ -2,12 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runReportCli } from "../../src/cli/report.js";
+import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
 import { createTempDir } from "../support/git.js";
 import {
+  deriveCodexSessionsRoot,
   deriveWorkspaceRoot,
   seedFailedIssueArtifacts,
   seedSessionAnchoredPartialArtifacts,
   seedSuccessfulIssueArtifacts,
+  writeCodexSessionLog,
   writeReportWorkflow,
 } from "../support/issue-report-fixtures.js";
 
@@ -90,6 +93,54 @@ describe("report CLI", () => {
     expect(reportJson).toContain('"outcome": "failed"');
     expect(reportMd).toContain("## Token Usage");
     expect(reportMd).toContain("Status: unavailable");
+  });
+
+  it("writes optional Codex-enriched token usage when a matching JSONL log is available", async () => {
+    const tempDir = await createTempDir("symphony-report-cli-codex-");
+    tempRoots.push(tempDir);
+    const workflowPath = await writeReportWorkflow(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      workspacePath: path.join(workspaceRoot, "issue-44"),
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-issue-44.jsonl",
+      totalTokens: 3210,
+      finalSummary: "- Enriched the report from a matched Codex JSONL session.",
+    });
+
+    await runReportCli(
+      [
+        "node",
+        "symphony-report",
+        "issue",
+        "--issue",
+        "44",
+        "--workflow",
+        workflowPath,
+      ],
+      {
+        issueEnrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+      },
+    );
+
+    const reportDir = path.join(tempDir, ".var", "reports", "issues", "44");
+    const reportJson = await fs.readFile(
+      path.join(reportDir, "report.json"),
+      "utf8",
+    );
+    const reportMd = await fs.readFile(
+      path.join(reportDir, "report.md"),
+      "utf8",
+    );
+    expect(reportJson).toContain('"status": "complete"');
+    expect(reportJson).toContain('"totalTokens": 3210');
+    expect(reportJson).toContain("matched Codex JSONL session");
+    expect(reportMd).toContain("Status: complete");
+    expect(reportMd).toContain("Final summary:");
   });
 
   it("generates a partial report when session artifacts still anchor the issue", async () => {

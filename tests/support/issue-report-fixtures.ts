@@ -51,6 +51,10 @@ export function deriveWorkspaceRoot(rootDir: string): string {
   return path.join(rootDir, ".tmp", "workspaces");
 }
 
+export function deriveCodexSessionsRoot(rootDir: string): string {
+  return path.join(rootDir, ".codex", "sessions");
+}
+
 export async function seedSuccessfulIssueArtifacts(
   workspaceRoot: string,
   issueNumber: number,
@@ -420,4 +424,94 @@ export async function seedSessionAnchoredPartialArtifacts(
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+export async function writeCodexSessionLog(options: {
+  readonly sessionsRoot: string;
+  readonly startedAt: string;
+  readonly workspacePath: string;
+  readonly branch: string;
+  readonly fileName: string;
+  readonly inputTokens?: number | undefined;
+  readonly cachedInputTokens?: number | undefined;
+  readonly outputTokens?: number | undefined;
+  readonly reasoningOutputTokens?: number | undefined;
+  readonly totalTokens?: number | undefined;
+  readonly finalSummary?: string | undefined;
+  readonly malformed?: boolean | undefined;
+}): Promise<string> {
+  const date = new Date(options.startedAt);
+  const dayRoot = path.join(
+    options.sessionsRoot,
+    date.getUTCFullYear().toString().padStart(4, "0"),
+    (date.getUTCMonth() + 1).toString().padStart(2, "0"),
+    date.getUTCDate().toString().padStart(2, "0"),
+  );
+  const filePath = path.join(dayRoot, options.fileName);
+  await fs.mkdir(dayRoot, { recursive: true });
+
+  if (options.malformed === true) {
+    await fs.writeFile(filePath, "{not-json}\n", "utf8");
+    return filePath;
+  }
+
+  const lines = [
+    {
+      timestamp: options.startedAt,
+      type: "session_meta",
+      payload: {
+        id: options.fileName.replace(/\.jsonl$/u, ""),
+        timestamp: options.startedAt,
+        cwd: options.workspacePath,
+        originator: "codex_cli_rs",
+        cli_version: "0.71.0",
+        source: "cli",
+        model_provider: "openai",
+        git: {
+          commit_hash: "abc123def456",
+          branch: options.branch,
+          repository_url: "git@github.com:sociotechnica-org/symphony-ts.git",
+        },
+      },
+    },
+    {
+      timestamp: options.startedAt,
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: options.inputTokens ?? 2000,
+            cached_input_tokens: options.cachedInputTokens ?? 500,
+            output_tokens: options.outputTokens ?? 250,
+            reasoning_output_tokens: options.reasoningOutputTokens ?? 100,
+            total_tokens: options.totalTokens ?? 2750,
+          },
+        },
+      },
+    },
+    {
+      timestamp: options.startedAt,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text:
+              options.finalSummary ??
+              "- Added optional runner-log enrichment and preserved provider-neutral report output.",
+          },
+        ],
+      },
+    },
+  ];
+
+  await fs.writeFile(
+    filePath,
+    `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`,
+    "utf8",
+  );
+  return filePath;
 }

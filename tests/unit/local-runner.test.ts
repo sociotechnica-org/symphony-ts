@@ -35,6 +35,42 @@ function createSession(): RunSession {
 }
 
 describe("LocalRunner", () => {
+  it("describes Codex-backed sessions with provider and model metadata", () => {
+    const runner = new LocalRunner(
+      {
+        command: "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+        promptTransport: "stdin",
+        timeoutMs: 5_000,
+        env: {},
+      },
+      new JsonLogger(),
+    );
+
+    expect(runner.describeSession(createSession())).toEqual({
+      provider: "codex",
+      model: "gpt-5.4",
+      logPointers: [],
+    });
+  });
+
+  it("keeps unknown commands on the local-runner fallback path", () => {
+    const runner = new LocalRunner(
+      {
+        command: "tests/fixtures/fake-agent-success.sh",
+        promptTransport: "stdin",
+        timeoutMs: 5_000,
+        env: {},
+      },
+      new JsonLogger(),
+    );
+
+    expect(runner.describeSession(createSession())).toEqual({
+      provider: "local-runner",
+      model: null,
+      logPointers: [],
+    });
+  });
+
   it("handles a closed stdin pipe without crashing the process", async () => {
     const runner = new LocalRunner(
       {
