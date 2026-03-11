@@ -25,6 +25,15 @@ export class GitHubBootstrapTracker implements Tracker {
       readonly lifecycle: HandoffLifecycle | null;
     }
   >();
+  readonly #staleMergedPullRequestObservations = new Map<
+    string,
+    {
+      readonly issueUpdatedAt: string;
+      readonly pullRequestNumber: number;
+      readonly mergedAt: string;
+      readonly isStale: boolean;
+    }
+  >();
 
   constructor(config: GitHubBootstrapTrackerConfig, logger: Logger) {
     this.#config = config;
@@ -93,13 +102,44 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle> {
-    const pullRequest = await this.#client.findOpenPullRequest(branchName);
+    const pullRequest = await this.#client.findPullRequest(branchName);
     if (pullRequest === null) {
       this.#noCheckObservations.delete(branchName);
+      this.#staleMergedPullRequestObservations.delete(branchName);
       const planReviewLifecycle =
         await this.#inspectPlanReviewHandoff(branchName);
       return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
     }
+    if (await this.#isStaleMergedPullRequest(branchName, pullRequest)) {
+      this.#noCheckObservations.delete(branchName);
+      // Intentionally keep plan-review observations here. The cache is keyed by
+      // issue.updatedAt and still helps reduce repeated comment fetches while a
+      // reopened issue remains in stale-merged fallback.
+      const planReviewLifecycle =
+        await this.#inspectPlanReviewHandoff(branchName);
+      return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
+    }
+    if (pullRequest.landingState === "merged") {
+      this.#noCheckObservations.delete(branchName);
+      this.#planReviewObservations.delete(branchName);
+      return {
+        kind: "handoff-ready",
+        branchName,
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.html_url,
+          branchName: pullRequest.head.ref,
+          latestCommitAt: null,
+        },
+        checks: [],
+        pendingCheckNames: [],
+        failingCheckNames: [],
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: `Pull request ${pullRequest.html_url} has merged`,
+      };
+    }
+    this.#staleMergedPullRequestObservations.delete(branchName);
 
     const [checks, reviewStateData] = await Promise.all([
       this.#client.getChecks(pullRequest.head.sha),
@@ -178,6 +218,69 @@ export class GitHubBootstrapTracker implements Tracker {
       lifecycle,
     });
     return lifecycle;
+  }
+
+  async #isStaleMergedPullRequest(
+    branchName: string,
+    pullRequest: Awaited<ReturnType<GitHubClient["findPullRequest"]>>,
+  ): Promise<boolean> {
+    if (
+      pullRequest === null ||
+      pullRequest.landingState !== "merged" ||
+      pullRequest.mergedAt === null
+    ) {
+      return false;
+    }
+
+    const issueNumber = this.#issueNumberFromBranchName(branchName);
+    if (issueNumber === null) {
+      return false;
+    }
+
+    const cachedObservation =
+      this.#staleMergedPullRequestObservations.get(branchName);
+    if (
+      cachedObservation !== undefined &&
+      cachedObservation.isStale &&
+      cachedObservation.pullRequestNumber === pullRequest.number &&
+      cachedObservation.mergedAt === pullRequest.mergedAt
+    ) {
+      // Once a merged PR is known to be stale for this PR number + mergedAt
+      // pair, keep treating it as stale even if the issue updates later. The
+      // factory should not re-complete an already-landed stale PR just because
+      // someone edits or deletes the old success comment afterward.
+      return true;
+    }
+
+    const issue = await this.getIssue(issueNumber);
+    if (
+      cachedObservation !== undefined &&
+      cachedObservation.issueUpdatedAt === issue.updatedAt &&
+      cachedObservation.pullRequestNumber === pullRequest.number &&
+      cachedObservation.mergedAt === pullRequest.mergedAt
+    ) {
+      return cachedObservation.isStale;
+    }
+
+    const successCommentAt = (await this.#client.getIssueComments(issueNumber))
+      .filter((comment) => comment.body === this.#config.successComment)
+      .map((comment) => Date.parse(comment.created_at))
+      .filter((createdAt) => Number.isFinite(createdAt))
+      .sort((left, right) => right - left)[0];
+    const mergedAtTs = Date.parse(pullRequest.mergedAt);
+    const isStale =
+      successCommentAt !== undefined &&
+      Number.isFinite(mergedAtTs) &&
+      successCommentAt >= mergedAtTs;
+
+    this.#staleMergedPullRequestObservations.set(branchName, {
+      issueUpdatedAt: issue.updatedAt,
+      pullRequestNumber: pullRequest.number,
+      mergedAt: pullRequest.mergedAt,
+      isStale,
+    });
+
+    return isStale;
   }
 
   #issueNumberFromBranchName(branchName: string): number | null {

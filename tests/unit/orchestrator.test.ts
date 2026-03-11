@@ -618,6 +618,58 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.retried).toEqual([]);
   });
 
+  it("waits when a running PR is clean but still awaiting landing", async () => {
+    const tempRoot = await createTempDir("symphony-await-landing-wait-test-");
+    try {
+      const tracker = new SequencedTracker({
+        running: [createIssue(47, "symphony:running")],
+      });
+      tracker.setLifecycleSequence(47, [
+        lifecycle("awaiting-landing", "symphony/47"),
+      ]);
+      let runnerCalls = 0;
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(): Promise<RunResult> {
+            runnerCalls += 1;
+            throw new Error("runner should not be called");
+          },
+        },
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runnerCalls).toBe(0);
+      expect(tracker.completed).toEqual([]);
+      expect(tracker.retried).toEqual([]);
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.lastAction?.kind).toBe("awaiting-landing");
+      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-landing");
+
+      const summary = await readIssueArtifactSummary(tempRoot, 47);
+      expect(summary.currentOutcome).toBe("awaiting-landing");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("waits at a valid plan-review handoff without retrying or failing", async () => {
     const tempRoot = await createTempDir("symphony-plan-review-wait-test-");
     try {
@@ -925,12 +977,12 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([]);
   });
 
-  it("completes a running PR when the tracker later reports it ready", async () => {
+  it("completes a running PR only after the tracker later reports it merged", async () => {
     const tracker = new SequencedTracker({
       running: [createIssue(71, "symphony:running")],
     });
     tracker.setLifecycleSequence(71, [
-      lifecycle("awaiting-system-checks", "symphony/71"),
+      lifecycle("awaiting-landing", "symphony/71"),
       lifecycle("handoff-ready", "symphony/71"),
     ]);
     const workspace = new CleanupFailingWorkspaceManager();

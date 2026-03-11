@@ -12,6 +12,7 @@ export type FactoryIssueStatus =
   | "running"
   | "awaiting-human-handoff"
   | "awaiting-system-checks"
+  | "awaiting-landing"
   | "actionable-follow-up";
 
 export interface FactoryWorkerSnapshot {
@@ -420,6 +421,7 @@ function parseActiveIssue(
         "running",
         "awaiting-human-handoff",
         "awaiting-system-checks",
+        "awaiting-landing",
         "actionable-follow-up",
       ],
       filePath,

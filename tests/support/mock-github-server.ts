@@ -9,6 +9,8 @@ interface PullRequestRecord {
   readonly head: string;
   readonly base: string;
   readonly html_url: string;
+  state: "open" | "closed";
+  mergedAt: string | null;
   latestCommitAt: string | null;
   latestCommitSha: string;
   readonly comments: MockPullRequestComment[];
@@ -177,6 +179,15 @@ export class MockGitHubServer {
     issue.updated_at = new Date().toISOString();
   }
 
+  setIssueState(number: number, state: string): void {
+    const issue = this.#issues.get(number);
+    if (!issue) {
+      throw new Error(`Issue ${number} not found`);
+    }
+    issue.state = state;
+    issue.updated_at = new Date().toISOString();
+  }
+
   addIssueComment(input: {
     issueNumber: number;
     authorLogin?: string;
@@ -226,7 +237,7 @@ export class MockGitHubServer {
     base: string;
   }): Promise<void> {
     const existing = [...this.#prs.values()].find(
-      (entry) => entry.head === pr.head,
+      (entry) => entry.head === pr.head && entry.state === "open",
     );
     if (existing) {
       return;
@@ -242,6 +253,8 @@ export class MockGitHubServer {
       head: pr.head,
       base: pr.base,
       html_url: `${this.#baseUrl}/pulls/${number}`,
+      state: "open",
+      mergedAt: null,
       latestCommitAt,
       latestCommitSha: randomUUID(),
       comments: [],
@@ -251,11 +264,15 @@ export class MockGitHubServer {
     });
   }
 
+  mergePullRequest(head: string, mergedAt = new Date().toISOString()): void {
+    const pullRequest = this.#requirePullRequestByHead(head);
+    pullRequest.state = "closed";
+    pullRequest.mergedAt = mergedAt;
+  }
+
   recordBranchPush(head: string, committedAt = new Date().toISOString()): void {
     this.#branchCommitTimes.set(head, committedAt);
-    const pullRequest = [...this.#prs.values()].find(
-      (entry) => entry.head === head,
-    );
+    const pullRequest = this.#findOpenPullRequestByHead(head);
     if (pullRequest) {
       pullRequest.latestCommitAt = committedAt;
       pullRequest.latestCommitSha = randomUUID();
@@ -461,20 +478,52 @@ export class MockGitHubServer {
       const head = url.searchParams.get("head");
       const state = url.searchParams.get("state") ?? "open";
       const pulls = [...this.#prs.values()]
-        .filter(() => state === "open" || state === "all")
+        .filter((pull) => state === "all" || pull.state === state)
         .filter((pull) =>
           head ? `${pathMatch[1]}:${pull.head}` === head : true,
         )
         .map((pull) => ({
           number: pull.number,
           html_url: pull.html_url,
-          state: "open",
+          state: pull.state,
           head: {
             ref: pull.head,
             sha: pull.latestCommitSha,
           },
         }));
       json(response, 200, pulls);
+      return;
+    }
+
+    const pullRequestMatch = suffix.match(/^pulls\/(\d+)$/);
+    if (pullRequestMatch && method === "GET") {
+      const pullRequest = this.#prs.get(Number(pullRequestMatch[1]));
+      if (!pullRequest) {
+        json(response, 404, { message: "pull request not found" });
+        return;
+      }
+      json(response, 200, {
+        number: pullRequest.number,
+        html_url: pullRequest.html_url,
+        state: pullRequest.state,
+        merged_at: pullRequest.mergedAt,
+        head: {
+          ref: pullRequest.head,
+          sha: pullRequest.latestCommitSha,
+        },
+      });
+      return;
+    }
+
+    const mergeMatch = suffix.match(/^pulls\/(\d+)\/merge$/);
+    if (mergeMatch && method === "GET") {
+      const pullRequest = this.#prs.get(Number(mergeMatch[1]));
+      if (!pullRequest || pullRequest.mergedAt === null) {
+        json(response, 404, { message: "pull request not merged" });
+        return;
+      }
+      response.statusCode = 204;
+      response.end();
       return;
     }
 
@@ -699,9 +748,7 @@ export class MockGitHubServer {
   }
 
   #requirePullRequestByHead(head: string): PullRequestRecord {
-    const pullRequest = [...this.#prs.values()].find(
-      (entry) => entry.head === head,
-    );
+    const pullRequest = this.#findCurrentPullRequestByHead(head);
     if (!pullRequest) {
       throw new Error(`Pull request for ${head} not found`);
     }
@@ -709,13 +756,39 @@ export class MockGitHubServer {
   }
 
   #requirePullRequestByRef(ref: string): PullRequestRecord {
+    const byHead = this.#findCurrentPullRequestByHead(ref);
+    if (byHead) {
+      return byHead;
+    }
     const pullRequest = [...this.#prs.values()].find(
-      (entry) => entry.head === ref || entry.latestCommitSha === ref,
+      (entry) => entry.latestCommitSha === ref,
     );
     if (!pullRequest) {
       throw new Error(`Pull request for ${ref} not found`);
     }
     return pullRequest;
+  }
+
+  #findCurrentPullRequestByHead(head: string): PullRequestRecord | null {
+    return (
+      this.#findOpenPullRequestByHead(head) ??
+      this.#listPullRequestsByHead(head)[0] ??
+      null
+    );
+  }
+
+  #findOpenPullRequestByHead(head: string): PullRequestRecord | null {
+    return (
+      this.#listPullRequestsByHead(head).find(
+        (entry) => entry.state === "open",
+      ) ?? null
+    );
+  }
+
+  #listPullRequestsByHead(head: string): PullRequestRecord[] {
+    return [...this.#prs.values()]
+      .filter((entry) => entry.head === head)
+      .sort((left, right) => right.number - left.number);
   }
 
   #findReviewThread(threadId: string): MockReviewThread {
