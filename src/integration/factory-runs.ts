@@ -522,6 +522,7 @@ async function publishSessionLogs(args: {
         });
         continue;
       } catch {
+        await fs.rm(stagedCopiedPath, { force: true }).catch(() => undefined);
         pointerNoteOverride =
           "Local log file could not be copied during publication; preserved the original pointer metadata.";
       }

@@ -243,6 +243,7 @@ describe("factory-runs publication", () => {
     const copyFile = fs.copyFile.bind(fs);
     vi.spyOn(fs, "copyFile").mockImplementation(async (source, destination) => {
       if (source === readableLogPath) {
+        await fs.writeFile(destination, "partial log contents\n", "utf8");
         throw Object.assign(new Error("simulated copy failure"), {
           code: "EIO",
         });
@@ -272,6 +273,14 @@ describe("factory-runs publication", () => {
       ),
       "runner.log.pointer.json",
     );
+    const archivedLogPath = path.join(
+      publicationRoot,
+      "logs",
+      encodeURIComponent(
+        "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
+      ),
+      "runner.log",
+    );
 
     expect(published.status).toBe("partial");
     expect(published.metadata.logs.copiedCount).toBe(0);
@@ -279,6 +288,9 @@ describe("factory-runs publication", () => {
     expect(published.metadata.logs.entries[0]?.note).toBe(
       "Local log file could not be copied during publication; preserved the original pointer metadata.",
     );
+    await expect(fs.stat(archivedLogPath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
     await expect(fs.readFile(pointerFile, "utf8")).resolves.toContain(
       "could not be copied during publication",
     );
