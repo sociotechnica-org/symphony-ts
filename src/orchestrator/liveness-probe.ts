@@ -72,15 +72,18 @@ export class FsLivenessProbe implements LivenessProbe {
   }
 
   async #measureLogSize(
-    _issueNumber: number,
-    _sessionId: string | null,
+    issueNumber: number,
+    sessionId: string | null,
   ): Promise<number | null> {
-    // Session logs are managed by the runner; check common log locations
-    // under the workspace root. This is a best-effort probe.
+    // Session logs are best-effort and must stay isolated per active run.
     try {
       const { stat } = await import("node:fs/promises");
       const { join } = await import("node:path");
-      const logPath = join(this.#workspaceRoot, ".symphony", "session.log");
+      const logName =
+        sessionId === null
+          ? `${issueNumber.toString()}.log`
+          : `${encodeURIComponent(sessionId)}.log`;
+      const logPath = join(this.#workspaceRoot, ".symphony", logName);
       const stats = await stat(logPath);
       return stats.size;
     } catch {

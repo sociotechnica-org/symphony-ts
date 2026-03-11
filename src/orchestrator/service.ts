@@ -1719,6 +1719,10 @@ export class BootstrapOrchestrator implements Orchestrator {
             reason: result.reason,
             recoveryCount: entry.recoveryCount,
           });
+          const controller = this.#state.runAbortControllers.get(issueNumber);
+          if (controller) {
+            controller.abort();
+          }
           break;
         }
       } catch (error) {

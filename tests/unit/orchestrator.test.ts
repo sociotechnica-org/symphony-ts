@@ -1991,6 +1991,70 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(abortCount).toBe(1);
   });
 
+  it("aborts a stalled runner even when recovery is exhausted", async () => {
+    const issue = createIssue(66);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(66, [
+      lifecycle("missing-target", "symphony/66"),
+      lifecycle("handoff-ready", "symphony/66"),
+    ]);
+
+    let abortCount = 0;
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        return new Promise<RunResult>((_resolve, reject) => {
+          const handleAbort = (): void => {
+            abortCount += 1;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    const { NullLivenessProbe } =
+      await import("../../src/orchestrator/liveness-probe.js");
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 0,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      new NullLogger(),
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(abortCount).toBe(1);
+  });
+
   it("stops the watchdog when the runner throws before completion", async () => {
     const issue = createIssue(77);
     const tracker = new SequencedTracker({ ready: [issue] });
