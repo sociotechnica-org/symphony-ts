@@ -626,15 +626,10 @@ export async function downgradeIssueReportSchemaVersion(
     };
   } & Record<string, unknown>;
   const sessions = parsedReport.tokenUsage?.sessions ?? [];
-  const [firstSession, ...remainingSessions] = sessions;
-  const staleFirstSession =
-    firstSession === undefined
-      ? undefined
-      : (({
-          status: _status,
-          notes: _notes,
-          ...session
-        }: Record<string, unknown>) => session)(firstSession);
+  const staleSessions = sessions.map(
+    ({ status: _status, notes: _notes, ...session }: Record<string, unknown>) =>
+      session,
+  );
 
   await fs.writeFile(
     reportJsonFile,
@@ -647,10 +642,7 @@ export async function downgradeIssueReportSchemaVersion(
             ? undefined
             : {
                 ...parsedReport.tokenUsage,
-                sessions:
-                  staleFirstSession === undefined
-                    ? sessions
-                    : [staleFirstSession, ...remainingSessions],
+                sessions: staleSessions,
               },
       },
       null,
