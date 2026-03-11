@@ -356,6 +356,12 @@ function deriveCandidateDayRoots(
 ): readonly string[] {
   const startedAt = parseTimestamp(session.startedAt);
   const finishedAt = parseTimestamp(session.finishedAt);
+  const unfinishedUpperBound =
+    startedAt === null
+      ? null
+      : startedAt +
+        MATCH_WINDOW_WITHOUT_FINISH_MS +
+        MATCH_WINDOW_AFTER_FINISH_MS;
   const anchors = [
     startedAt,
     finishedAt,
@@ -363,7 +369,7 @@ function deriveCandidateDayRoots(
     finishedAt === null
       ? startedAt === null
         ? null
-        : startedAt + MATCH_WINDOW_WITHOUT_FINISH_MS
+        : unfinishedUpperBound
       : null,
     finishedAt === null ? null : finishedAt + 24 * 60 * 60 * 1000,
   ].filter((value): value is number => value !== null);

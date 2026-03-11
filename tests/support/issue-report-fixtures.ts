@@ -424,9 +424,13 @@ export async function seedSessionAnchoredPartialArtifacts(
 export async function seedLateUnfinishedSessionArtifacts(
   workspaceRoot: string,
   issueNumber: number,
+  options?: {
+    readonly startedAt?: string | undefined;
+  },
 ): Promise<void> {
   const paths = deriveIssueArtifactPaths(workspaceRoot, issueNumber);
   const sessionId = `issue-${issueNumber.toString()}-session-1`;
+  const startedAt = options?.startedAt ?? "2026-03-09T22:00:00.000Z";
 
   await fs.mkdir(paths.attemptsDir, { recursive: true });
   await fs.mkdir(paths.sessionsDir, { recursive: true });
@@ -437,7 +441,7 @@ export async function seedLateUnfinishedSessionArtifacts(
     issueNumber,
     attemptNumber: 1,
     branch: `symphony/${issueNumber.toString()}`,
-    startedAt: "2026-03-09T22:00:00.000Z",
+    startedAt,
     finishedAt: null,
     outcome: "attempt-failed",
     summary: "Observed from an unfinished late-start session snapshot",
@@ -457,7 +461,7 @@ export async function seedLateUnfinishedSessionArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
-      startedAt: "2026-03-09T22:00:00.000Z",
+      startedAt,
       finishedAt: null,
       workspacePath: path.join(
         workspaceRoot,

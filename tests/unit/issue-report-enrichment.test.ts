@@ -297,4 +297,41 @@ describe("issue report enrichment", () => {
       "- Continued the late-night Codex session into the next UTC day.",
     );
   });
+
+  it("finds a next-day Codex log when only the unfinished-session post-window crosses UTC midnight", async () => {
+    const tempDir = await createTempDir(
+      "symphony-issue-report-next-day-post-window-",
+    );
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedLateUnfinishedSessionArtifacts(workspaceRoot, 44, {
+      startedAt: "2026-03-09T19:45:00.000Z",
+    });
+
+    const logPath = await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-10T00:05:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-10T00-05-00-post-window.jsonl",
+      totalTokens: 900,
+      finalSummary:
+        "- Crossed midnight during the unfinished-session match margin.",
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-10T00:10:00.000Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.totalTokens).toBe(900);
+    expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
+      logPath,
+    );
+    expect(generated.report.tokenUsage.sessions[0]?.finalSummary).toBe(
+      "- Crossed midnight during the unfinished-session match margin.",
+    );
+  });
 });
