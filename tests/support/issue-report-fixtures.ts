@@ -51,6 +51,10 @@ export function deriveWorkspaceRoot(rootDir: string): string {
   return path.join(rootDir, ".tmp", "workspaces");
 }
 
+export function deriveCodexSessionsRoot(rootDir: string): string {
+  return path.join(rootDir, ".codex", "sessions");
+}
+
 export async function seedSuccessfulIssueArtifacts(
   workspaceRoot: string,
   issueNumber: number,
@@ -417,7 +421,241 @@ export async function seedSessionAnchoredPartialArtifacts(
   });
 }
 
+export async function seedLateUnfinishedSessionArtifacts(
+  workspaceRoot: string,
+  issueNumber: number,
+  options?: {
+    readonly startedAt?: string | undefined;
+  },
+): Promise<void> {
+  const paths = deriveIssueArtifactPaths(workspaceRoot, issueNumber);
+  const sessionId = `issue-${issueNumber.toString()}-session-1`;
+  const startedAt = options?.startedAt ?? "2026-03-09T22:00:00.000Z";
+
+  await fs.mkdir(paths.attemptsDir, { recursive: true });
+  await fs.mkdir(paths.sessionsDir, { recursive: true });
+  await fs.mkdir(paths.logsDir, { recursive: true });
+
+  await writeJsonFile(path.join(paths.attemptsDir, "1.json"), {
+    version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+    issueNumber,
+    attemptNumber: 1,
+    branch: `symphony/${issueNumber.toString()}`,
+    startedAt,
+    finishedAt: null,
+    outcome: "attempt-failed",
+    summary: "Observed from an unfinished late-start session snapshot",
+    sessionId,
+    runnerPid: 7474,
+    pullRequest: null,
+    review: null,
+    checks: null,
+  });
+
+  await writeJsonFile(
+    path.join(paths.sessionsDir, `${encodeURIComponent(sessionId)}.json`),
+    {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      issueNumber,
+      attemptNumber: 1,
+      sessionId,
+      provider: "codex",
+      model: "gpt-5.4",
+      startedAt,
+      finishedAt: null,
+      workspacePath: path.join(
+        workspaceRoot,
+        `issue-${issueNumber.toString()}`,
+      ),
+      branch: `symphony/${issueNumber.toString()}`,
+      logPointers: [
+        {
+          name: "runner.log",
+          location: path.join(paths.logsDir, "runner.log"),
+          archiveLocation: null,
+        },
+      ],
+    },
+  );
+
+  await writeJsonFile(paths.logPointersFile, {
+    version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+    issueNumber,
+    sessions: {
+      [sessionId]: {
+        sessionId,
+        pointers: [
+          {
+            name: "runner.log",
+            location: path.join(paths.logsDir, "runner.log"),
+            archiveLocation: null,
+          },
+        ],
+        archiveLocation: null,
+      },
+    },
+  });
+}
+
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+export async function writeCodexSessionLog(options: {
+  readonly sessionsRoot: string;
+  readonly startedAt: string;
+  readonly workspacePath: string;
+  readonly branch: string;
+  readonly fileName: string;
+  readonly metaTimestamp?: string | null | undefined;
+  readonly inputTokens?: number | undefined;
+  readonly cachedInputTokens?: number | undefined;
+  readonly outputTokens?: number | undefined;
+  readonly reasoningOutputTokens?: number | undefined;
+  readonly totalTokens?: number | undefined;
+  readonly tokenEvents?:
+    | readonly {
+        readonly inputTokens?: number | undefined;
+        readonly cachedInputTokens?: number | undefined;
+        readonly outputTokens?: number | undefined;
+        readonly reasoningOutputTokens?: number | undefined;
+        readonly totalTokens?: number | undefined;
+      }[]
+    | undefined;
+  readonly finalSummary?: string | undefined;
+  readonly malformed?: boolean | undefined;
+}): Promise<string> {
+  const date = new Date(options.startedAt);
+  const dayRoot = path.join(
+    options.sessionsRoot,
+    date.getUTCFullYear().toString().padStart(4, "0"),
+    (date.getUTCMonth() + 1).toString().padStart(2, "0"),
+    date.getUTCDate().toString().padStart(2, "0"),
+  );
+  const filePath = path.join(dayRoot, options.fileName);
+  await fs.mkdir(dayRoot, { recursive: true });
+
+  if (options.malformed === true) {
+    await fs.writeFile(filePath, "{not-json}\n", "utf8");
+    return filePath;
+  }
+
+  const metaTimestamp =
+    options.metaTimestamp === undefined
+      ? options.startedAt
+      : options.metaTimestamp;
+  const tokenEvents = options.tokenEvents ?? [
+    {
+      inputTokens: options.inputTokens ?? 2000,
+      cachedInputTokens: options.cachedInputTokens ?? 500,
+      outputTokens: options.outputTokens ?? 250,
+      reasoningOutputTokens: options.reasoningOutputTokens ?? 100,
+      totalTokens: options.totalTokens ?? 2750,
+    },
+  ];
+  const lines = [
+    {
+      ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
+      type: "session_meta",
+      payload: {
+        id: options.fileName.replace(/\.jsonl$/u, ""),
+        ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
+        cwd: options.workspacePath,
+        originator: "codex_cli_rs",
+        cli_version: "0.71.0",
+        source: "cli",
+        model_provider: "openai",
+        git: {
+          commit_hash: "abc123def456",
+          branch: options.branch,
+          repository_url: "git@github.com:sociotechnica-org/symphony-ts.git",
+        },
+      },
+    },
+    ...tokenEvents.map((event) => ({
+      timestamp: options.startedAt,
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: event.inputTokens ?? 2000,
+            cached_input_tokens: event.cachedInputTokens ?? 500,
+            output_tokens: event.outputTokens ?? 250,
+            reasoning_output_tokens: event.reasoningOutputTokens ?? 100,
+            total_tokens: event.totalTokens ?? 2750,
+          },
+        },
+      },
+    })),
+    {
+      timestamp: options.startedAt,
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text:
+              options.finalSummary ??
+              "- Added optional runner-log enrichment and preserved provider-neutral report output.",
+          },
+        ],
+      },
+    },
+  ];
+
+  await fs.writeFile(
+    filePath,
+    `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`,
+    "utf8",
+  );
+  return filePath;
+}
+
+export async function downgradeIssueReportSchemaVersion(
+  reportJsonFile: string,
+): Promise<void> {
+  const parsedReport = JSON.parse(
+    await fs.readFile(reportJsonFile, "utf8"),
+  ) as {
+    readonly tokenUsage?: {
+      readonly sessions?: readonly Record<string, unknown>[];
+    };
+  } & Record<string, unknown>;
+  const sessions = parsedReport.tokenUsage?.sessions ?? [];
+  const [firstSession, ...remainingSessions] = sessions;
+  const staleFirstSession =
+    firstSession === undefined
+      ? undefined
+      : (({
+          status: _status,
+          notes: _notes,
+          ...session
+        }: Record<string, unknown>) => session)(firstSession);
+
+  await fs.writeFile(
+    reportJsonFile,
+    `${JSON.stringify(
+      {
+        ...parsedReport,
+        version: 1,
+        tokenUsage:
+          parsedReport.tokenUsage === undefined
+            ? undefined
+            : {
+                ...parsedReport.tokenUsage,
+                sessions:
+                  staleFirstSession === undefined
+                    ? sessions
+                    : [staleFirstSession, ...remainingSessions],
+              },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
 import { LocalRunner } from "../../src/runner/local.js";
 import { waitForExit } from "../support/process.js";
 
@@ -35,6 +36,63 @@ function createSession(): RunSession {
 }
 
 describe("LocalRunner", () => {
+  it("describes Codex-backed sessions with provider and model metadata", () => {
+    const runner = new LocalRunner(
+      {
+        command:
+          "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+        promptTransport: "stdin",
+        timeoutMs: 5_000,
+        env: {},
+      },
+      new JsonLogger(),
+    );
+
+    expect(runner.describeSession(createSession())).toEqual({
+      provider: "codex",
+      model: "gpt-5.4",
+      logPointers: [],
+    });
+  });
+
+  it("keeps unknown commands on the local-runner fallback path", () => {
+    const runner = new LocalRunner(
+      {
+        command: "tests/fixtures/fake-agent-success.sh",
+        promptTransport: "stdin",
+        timeoutMs: 5_000,
+        env: {},
+      },
+      new JsonLogger(),
+    );
+
+    expect(runner.describeSession(createSession())).toEqual({
+      provider: "local-runner",
+      model: null,
+      logPointers: [],
+    });
+  });
+
+  it("treats backslashes as literal characters inside single-quoted arguments", () => {
+    expect(
+      describeLocalRunnerBackend("codex exec -m 'gpt\\\\5.4\\\\reasoning'"),
+    ).toEqual({
+      provider: "codex",
+      model: "gpt\\\\5.4\\\\reasoning",
+    });
+  });
+
+  it("does not treat the next CLI flag as a Codex model name", () => {
+    expect(
+      describeLocalRunnerBackend(
+        "codex exec -m --dangerously-bypass-approvals-and-sandbox -C . -",
+      ),
+    ).toEqual({
+      provider: "codex",
+      model: null,
+    });
+  });
+
   it("handles a closed stdin pipe without crashing the process", async () => {
     const runner = new LocalRunner(
       {

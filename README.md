@@ -57,6 +57,12 @@ Generate a per-issue report from local artifacts:
 pnpm tsx bin/symphony-report.ts issue --issue 44
 ```
 
+When available, the report command also applies optional built-in runner-log
+enrichment. Today that means Codex JSONL sessions under `~/.codex/sessions/`.
+Missing, malformed, or ambiguous runner logs do not block report generation;
+the report stays partial and keeps the canonical local artifacts as the source
+of truth.
+
 Publish one generated issue report into a checked-out `factory-runs` archive
 worktree:
 

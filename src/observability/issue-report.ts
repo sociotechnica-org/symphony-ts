@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "./atomic-file.js";
+import type { IssueReportEnricher } from "./issue-report-enrichment.js";
+import { applyIssueReportEnrichers } from "./issue-report-enrichment.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -19,7 +21,7 @@ import {
 } from "./issue-artifacts.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
 
-export const ISSUE_REPORT_SCHEMA_VERSION = 1 as const;
+export const ISSUE_REPORT_SCHEMA_VERSION = 2 as const;
 
 export type IssueReportAvailability = "complete" | "partial" | "unavailable";
 export type IssueReportTokenUsageStatus =
@@ -100,8 +102,21 @@ export interface IssueReportTokenUsageSession {
   readonly attemptNumber: number;
   readonly provider: string;
   readonly model: string | null;
+  readonly status: IssueReportTokenUsageStatus;
+  readonly inputTokens: number | null;
+  readonly cachedInputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly reasoningOutputTokens: number | null;
   readonly totalTokens: number | null;
   readonly costUsd: number | null;
+  readonly originator: string | null;
+  readonly sessionSource: string | null;
+  readonly cliVersion: string | null;
+  readonly modelProvider: string | null;
+  readonly gitBranch: string | null;
+  readonly gitCommit: string | null;
+  readonly finalSummary: string | null;
+  readonly notes: readonly string[];
   readonly sourceArtifacts: readonly string[];
 }
 
@@ -128,6 +143,7 @@ export interface IssueReportTokenUsage {
   readonly attempts: readonly IssueReportTokenUsageAttempt[];
   readonly agents: readonly IssueReportTokenUsageAgent[];
   readonly rawArtifacts: readonly string[];
+  readonly notes: readonly string[];
 }
 
 export interface IssueReportLearningItem {
@@ -225,12 +241,21 @@ export async function generateIssueReport(
   issueNumber: number,
   options?: {
     readonly generatedAt?: string | undefined;
+    readonly enrichers?: readonly IssueReportEnricher[] | undefined;
   },
 ): Promise<GeneratedIssueReport> {
   const loaded = await loadIssueArtifacts(workspaceRoot, issueNumber);
   const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
   const generatedAt = options?.generatedAt ?? new Date().toISOString();
-  const report = buildIssueReport(loaded, outputPaths, generatedAt);
+  const canonicalReport = buildIssueReport(loaded, outputPaths, generatedAt);
+  const report = await applyIssueReportEnrichers(
+    canonicalReport,
+    {
+      workspaceRoot,
+      loaded,
+    },
+    options?.enrichers ?? [],
+  );
   const markdown = renderIssueReportMarkdown(report);
   return {
     report,
@@ -244,10 +269,12 @@ export async function writeIssueReport(
   issueNumber: number,
   options?: {
     readonly generatedAt?: string | undefined;
+    readonly enrichers?: readonly IssueReportEnricher[] | undefined;
   },
 ): Promise<GeneratedIssueReport> {
   const generated = await generateIssueReport(workspaceRoot, issueNumber, {
     generatedAt: options?.generatedAt,
+    enrichers: options?.enrichers,
   });
   await writeJsonFileAtomic(
     generated.outputPaths.reportJsonFile,
@@ -267,22 +294,33 @@ export async function readIssueReport(
   issueNumber: number,
 ): Promise<StoredIssueReport> {
   const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
-  const [rawReportJson, rawReportMarkdown] = await Promise.all([
-    readRequiredIssueReportFile(
-      outputPaths.reportJsonFile,
-      issueNumber,
-      "JSON",
-    ),
-    readRequiredIssueReportFile(
-      outputPaths.reportMarkdownFile,
-      issueNumber,
-      "markdown",
-    ),
-  ]);
+  const [rawReportJsonResult, rawReportMarkdownResult] =
+    await Promise.allSettled([
+      readRequiredIssueReportFile(
+        outputPaths.reportJsonFile,
+        issueNumber,
+        "JSON",
+      ),
+      readRequiredIssueReportFile(
+        outputPaths.reportMarkdownFile,
+        issueNumber,
+        "markdown",
+      ),
+    ]);
 
-  let report: IssueReportDocument;
+  if (rawReportJsonResult.status === "rejected") {
+    throw rawReportJsonResult.reason;
+  }
+  if (rawReportMarkdownResult.status === "rejected") {
+    throw rawReportMarkdownResult.reason;
+  }
+
+  const rawReportJson = rawReportJsonResult.value;
+  const rawReportMarkdown = rawReportMarkdownResult.value;
+
+  let parsedReport: unknown;
   try {
-    report = JSON.parse(rawReportJson) as IssueReportDocument;
+    parsedReport = JSON.parse(rawReportJson);
   } catch (error) {
     throw new ObservabilityError(
       `Failed to parse generated issue report JSON at ${outputPaths.reportJsonFile}`,
@@ -291,6 +329,11 @@ export async function readIssueReport(
       },
     );
   }
+  const report = validateStoredIssueReport(
+    parsedReport,
+    outputPaths.reportJsonFile,
+    issueNumber,
+  );
 
   return {
     report,
@@ -298,6 +341,32 @@ export async function readIssueReport(
     rawReportMarkdown,
     outputPaths,
   };
+}
+
+function validateStoredIssueReport(
+  parsedReport: unknown,
+  reportJsonFile: string,
+  issueNumber: number,
+): IssueReportDocument {
+  if (typeof parsedReport !== "object" || parsedReport === null) {
+    throw new ObservabilityError(
+      `Generated issue report JSON at ${reportJsonFile} did not contain a report document object; run 'symphony-report issue --issue ${issueNumber.toString()}' first to regenerate it.`,
+    );
+  }
+
+  const versionValue = (parsedReport as { version?: unknown }).version;
+  if (typeof versionValue !== "number" || !Number.isInteger(versionValue)) {
+    throw new ObservabilityError(
+      `Generated issue report JSON at ${reportJsonFile} is missing a supported schema version; run 'symphony-report issue --issue ${issueNumber.toString()}' first to regenerate it.`,
+    );
+  }
+  if (versionValue !== ISSUE_REPORT_SCHEMA_VERSION) {
+    throw new ObservabilityError(
+      `Generated issue report JSON at ${reportJsonFile} uses schema version ${versionValue.toString()}, but this build expects ${ISSUE_REPORT_SCHEMA_VERSION.toString()}; run 'symphony-report issue --issue ${issueNumber.toString()}' first to regenerate it.`,
+    );
+  }
+
+  return parsedReport as IssueReportDocument;
 }
 
 async function readRequiredIssueReportFile(
@@ -612,8 +681,21 @@ function buildTokenUsage(
     attemptNumber: session.attemptNumber,
     provider: session.provider,
     model: session.model,
+    status: "unavailable" as const,
+    inputTokens: null,
+    cachedInputTokens: null,
+    outputTokens: null,
+    reasoningOutputTokens: null,
     totalTokens: null,
     costUsd: null,
+    originator: null,
+    sessionSource: null,
+    cliVersion: null,
+    modelProvider: null,
+    gitBranch: null,
+    gitCommit: null,
+    finalSummary: null,
+    notes: [],
     sourceArtifacts: [
       path.join(
         loaded.paths.sessionsDir,
@@ -644,6 +726,7 @@ function buildTokenUsage(
       ...sessions.flatMap((session) => session.sourceArtifacts),
       ...(loaded.logPointers === null ? [] : [loaded.paths.logPointersFile]),
     ],
+    notes: [],
   };
 }
 
