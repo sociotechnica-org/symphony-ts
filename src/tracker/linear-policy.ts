@@ -2,9 +2,15 @@ import { TrackerError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { LinearTrackerConfig } from "../domain/workflow.js";
 import type {
+  LinearComment,
   LinearIssueSnapshot,
   LinearProjectSnapshot,
 } from "./linear-normalize.js";
+import {
+  parsePlanReviewSignal,
+  type PlanReviewSignal,
+} from "./plan-review-signal.js";
+import { sameLinearStateName } from "./linear-state-name.js";
 
 export type LinearIssueClassification =
   | "ready"
@@ -12,6 +18,10 @@ export type LinearIssueClassification =
   | "failed"
   | "completed"
   | "ignored";
+
+const HUMAN_REVIEW_STATE_NAME = "Human Review";
+const REWORK_STATE_NAME = "Rework";
+const MERGING_STATE_NAME = "Merging";
 
 export function classifyLinearIssue(
   issue: LinearIssueSnapshot,
@@ -21,35 +31,51 @@ export function classifyLinearIssue(
     return "ignored";
   }
 
-  if (config.terminalStates.includes(issue.state.name)) {
+  if (issue.workpad?.status === "completed") {
     return "completed";
   }
 
-  switch (issue.workpad?.status) {
-    case "failed":
-      return "failed";
-    case "running":
-    case "retry-scheduled":
-    case "handoff-ready":
-      return "running";
-    case "completed":
-      return "completed";
-    default:
-      break;
+  // Linear workflow state is the primary recovery signal. If a human moved the
+  // ticket into a configured terminal state, keep it in the running/recovery
+  // set until Symphony records the final completed workpad, even when an older
+  // failed workpad entry is still present.
+  if (matchesConfiguredStateName(config.terminalStates, issue.state.name)) {
+    return "running";
   }
 
-  if (config.activeStates.includes(issue.state.name)) {
-    return "ready";
+  if (
+    issue.workpad?.status === "failed" &&
+    // Review workflow states take precedence over a failed workpad. If a human
+    // moved the ticket into Human Review, Rework, or Merging while a run was
+    // in flight, the issue is still under active supervision rather than part
+    // of the generic failed queue.
+    !isLinearReviewWorkflowState(issue.state.name)
+  ) {
+    return "failed";
   }
 
-  return "ignored";
+  if (
+    issue.workpad?.status === "running" ||
+    issue.workpad?.status === "retry-scheduled" ||
+    issue.workpad?.status === "handoff-ready" ||
+    isLinearReviewWorkflowState(issue.state.name)
+  ) {
+    return "running";
+  }
+
+  return matchesConfiguredStateName(config.activeStates, issue.state.name)
+    ? "ready"
+    : "ignored";
 }
 
 export function resolveLinearClaimStateName(
   issue: LinearIssueSnapshot,
   config: LinearTrackerConfig,
 ): string | null {
-  const currentIndex = config.activeStates.indexOf(issue.state.name);
+  const currentIndex = indexOfConfiguredStateName(
+    config.activeStates,
+    issue.state.name,
+  );
   if (currentIndex < 0) {
     return null;
   }
@@ -57,7 +83,10 @@ export function resolveLinearClaimStateName(
   const nextStateName = config.activeStates[currentIndex + 1] ?? null;
   // Treat duplicate adjacent entries as a degenerate no-op transition rather
   // than attempting to "advance" the issue into the state it already has.
-  if (nextStateName === null || nextStateName === issue.state.name) {
+  if (
+    nextStateName === null ||
+    sameLinearStateName(nextStateName, issue.state.name)
+  ) {
     return null;
   }
 
@@ -69,13 +98,21 @@ export function resolveLinearTerminalStateName(
   config: LinearTrackerConfig,
 ): string {
   for (const stateName of config.terminalStates) {
-    if (project.states.some((state) => state.name === stateName)) {
-      return stateName;
+    const projectStateName = findProjectStateName(project, stateName);
+    if (projectStateName !== null) {
+      return projectStateName;
     }
   }
   throw new TrackerError(
     `Linear project ${project.slugId} does not expose any configured terminal state`,
   );
+}
+
+export function isLinearTerminalWorkflowState(
+  stateName: string,
+  config: LinearTrackerConfig,
+): boolean {
+  return matchesConfiguredStateName(config.terminalStates, stateName);
 }
 
 export function createLinearHandoffLifecycle(
@@ -90,27 +127,84 @@ export function createLinearHandoffLifecycle(
     );
   }
 
-  if (
-    issue.workpad?.status === "handoff-ready" ||
-    issue.workpad?.status === "completed" ||
-    config.terminalStates.includes(issue.state.name)
-  ) {
-    return {
-      kind: "handoff-ready",
+  const reviewSignal = latestLinearReviewSignal(
+    issue.comments,
+    currentLinearHandoffStartedAt(issue),
+  );
+  const stateName = issue.state.name;
+  const hasHandoffMarker = issue.workpad?.status === "handoff-ready";
+
+  if (matchesConfiguredStateName(config.terminalStates, stateName)) {
+    return linearLifecycle(
+      "handoff-ready",
       branchName,
-      pullRequest: null,
-      checks: [],
-      pendingCheckNames: [],
-      failingCheckNames: [],
-      actionableReviewFeedback: [],
-      unresolvedThreadIds: [],
-      summary: `Linear issue ${issue.identifier} is ready for completion`,
-    };
+      `Linear issue ${issue.identifier} reached terminal state '${stateName}'`,
+    );
+  }
+
+  if (sameLinearStateName(stateName, REWORK_STATE_NAME)) {
+    return linearLifecycle(
+      "actionable-follow-up",
+      branchName,
+      `Linear issue ${issue.identifier} is waiting on rework in '${stateName}'`,
+    );
+  }
+
+  if (sameLinearStateName(stateName, MERGING_STATE_NAME)) {
+    return linearLifecycle(
+      "awaiting-system-checks",
+      branchName,
+      `Linear issue ${issue.identifier} is waiting for landing in '${stateName}'`,
+    );
+  }
+
+  if (
+    sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME) ||
+    hasHandoffMarker
+  ) {
+    if (reviewSignal === "changes-requested") {
+      return linearLifecycle(
+        "actionable-follow-up",
+        branchName,
+        `Linear issue ${issue.identifier} has requested rework`,
+      );
+    }
+
+    if (reviewSignal === "approved" || reviewSignal === "waived") {
+      return linearLifecycle(
+        "awaiting-system-checks",
+        branchName,
+        `Linear issue ${issue.identifier} was approved and is waiting for landing`,
+      );
+    }
+
+    return linearLifecycle(
+      "awaiting-human-handoff",
+      branchName,
+      `Linear issue ${issue.identifier} is waiting for human review`,
+    );
+  }
+
+  if (matchesConfiguredStateName(config.activeStates, stateName)) {
+    return missingLinearLifecycle(
+      branchName,
+      `Linear issue ${issue.identifier} is still active in '${stateName}'`,
+    );
   }
 
   return missingLinearLifecycle(
     branchName,
-    `Linear issue ${issue.identifier} has not reached handoff-ready`,
+    `Linear issue ${issue.identifier} has no recognized handoff state in '${stateName}'`,
+  );
+}
+
+export function resolveLinearHumanReviewStateName(
+  project: LinearProjectSnapshot,
+): string | null {
+  return (
+    project.states.find((state) =>
+      sameLinearStateName(state.name, HUMAN_REVIEW_STATE_NAME),
+    )?.name ?? null
   );
 }
 
@@ -118,17 +212,7 @@ export function missingLinearLifecycle(
   branchName: string,
   summary: string,
 ): HandoffLifecycle {
-  return {
-    kind: "missing-target",
-    branchName,
-    pullRequest: null,
-    checks: [],
-    pendingCheckNames: [],
-    failingCheckNames: [],
-    actionableReviewFeedback: [],
-    unresolvedThreadIds: [],
-    summary,
-  };
+  return linearLifecycle("missing-target", branchName, summary);
 }
 
 export function linearTrackerSubject(config: LinearTrackerConfig): string {
@@ -145,4 +229,108 @@ export function extractIssueNumberFromBranchName(
   }
   const issueNumber = Number(match[1]);
   return Number.isNaN(issueNumber) ? null : issueNumber;
+}
+
+function linearLifecycle(
+  kind: HandoffLifecycle["kind"],
+  branchName: string,
+  summary: string,
+): HandoffLifecycle {
+  return {
+    kind,
+    branchName,
+    pullRequest: null,
+    checks: [],
+    pendingCheckNames: [],
+    failingCheckNames: [],
+    actionableReviewFeedback: [],
+    unresolvedThreadIds: [],
+    summary,
+  };
+}
+
+function latestLinearReviewSignal(
+  comments: readonly LinearComment[],
+  handoffStartedAt: string | null,
+): PlanReviewSignal | null {
+  const handoffStartTime =
+    handoffStartedAt === null ? Number.NaN : Date.parse(handoffStartedAt);
+
+  return (
+    comments
+      .map((comment, index) => ({ comment, index }))
+      .filter(({ comment }) => {
+        if (Number.isNaN(handoffStartTime)) {
+          return true;
+        }
+        return Date.parse(comment.createdAt) >= handoffStartTime;
+      })
+      .sort((left, right) => {
+        const timeDiff =
+          Date.parse(left.comment.createdAt) -
+          Date.parse(right.comment.createdAt);
+        return timeDiff !== 0 ? timeDiff : left.index - right.index;
+      })
+      .map(({ comment }) => parsePlanReviewSignal(comment.body))
+      .filter((signal): signal is PlanReviewSignal => signal !== null)
+      .at(-1) ?? null
+  );
+}
+
+function currentLinearHandoffStartedAt(
+  issue: LinearIssueSnapshot,
+): string | null {
+  // Review decisions belong to the current handoff cycle only. Once Symphony
+  // records a fresh handoff-ready workpad entry for a new run, older approval
+  // or rework comments should not carry forward automatically.
+  return issue.workpad?.status === "handoff-ready"
+    ? issue.workpad.updatedAt
+    : null;
+}
+
+export function isLinearReviewWorkflowState(stateName: string): boolean {
+  return (
+    isLinearHumanReviewWorkflowState(stateName) ||
+    isLinearReworkWorkflowState(stateName) ||
+    isLinearMergingWorkflowState(stateName)
+  );
+}
+
+function isLinearHumanReviewWorkflowState(stateName: string): boolean {
+  return sameLinearStateName(stateName, HUMAN_REVIEW_STATE_NAME);
+}
+
+function isLinearReworkWorkflowState(stateName: string): boolean {
+  return sameLinearStateName(stateName, REWORK_STATE_NAME);
+}
+
+function isLinearMergingWorkflowState(stateName: string): boolean {
+  return sameLinearStateName(stateName, MERGING_STATE_NAME);
+}
+
+function matchesConfiguredStateName(
+  configuredStateNames: readonly string[],
+  stateName: string,
+): boolean {
+  return indexOfConfiguredStateName(configuredStateNames, stateName) >= 0;
+}
+
+function indexOfConfiguredStateName(
+  configuredStateNames: readonly string[],
+  stateName: string,
+): number {
+  return configuredStateNames.findIndex((candidate) =>
+    sameLinearStateName(candidate, stateName),
+  );
+}
+
+function findProjectStateName(
+  project: LinearProjectSnapshot,
+  configuredStateName: string,
+): string | null {
+  return (
+    project.states.find((state) =>
+      sameLinearStateName(state.name, configuredStateName),
+    )?.name ?? null
+  );
 }

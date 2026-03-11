@@ -113,6 +113,9 @@ describe("Linear factory e2e", () => {
       states: [
         { name: "Todo", type: "unstarted" },
         { name: "In Progress", type: "started" },
+        { name: "Human Review", type: "started" },
+        { name: "Rework", type: "started" },
+        { name: "Merging", type: "started" },
         { name: "Done", type: "completed" },
         { name: "Canceled", type: "canceled" },
       ],
@@ -133,7 +136,7 @@ describe("Linear factory e2e", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("runs a complete factory loop against mocked Linear", async () => {
+  it("runs a complete Linear handoff loop against mocked Linear", async () => {
     const workflowPath = await writeWorkflow({
       rootDir: tempDir,
       remotePath,
@@ -144,13 +147,30 @@ describe("Linear factory e2e", () => {
     const orchestrator = await createOrchestrator(workflowPath);
     await orchestrator.runOnce();
 
-    const issue = server.getIssue("symphony-linear", 1);
+    let issue = server.getIssue("symphony-linear", 1);
+    expect(issue.stateName).toBe("Human Review");
+    expect(issue.comments).toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
+
+    server.addComment({
+      projectSlug: "symphony-linear",
+      issueNumber: 1,
+      body: "Plan review: approved\n\nSummary\n- Approved to merge.",
+    });
+    server.updateIssueState("symphony-linear", 1, "Merging");
+    await orchestrator.runOnce();
+
+    issue = server.getIssue("symphony-linear", 1);
+    expect(issue.stateName).toBe("Merging");
+
+    server.updateIssueState("symphony-linear", 1, "Done");
+    await orchestrator.runOnce();
+
+    issue = server.getIssue("symphony-linear", 1);
     expect(issue.stateName).toBe("Done");
     expect(issue.comments).toContain(
       "Symphony claimed this issue for implementation.",
-    );
-    expect(issue.comments).toContain(
-      "Symphony run finished and marked this issue handoff-ready.",
     );
     expect(issue.comments).toContain(
       "Symphony completed this issue successfully.",

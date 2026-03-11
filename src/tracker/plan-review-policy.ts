@@ -1,4 +1,8 @@
 import type { HandoffLifecycle } from "../domain/handoff.js";
+import {
+  parsePlanReviewSignal,
+  type PlanReviewSignal,
+} from "./plan-review-signal.js";
 
 export interface IssueCommentSnapshot {
   readonly id: number;
@@ -7,12 +11,6 @@ export interface IssueCommentSnapshot {
   readonly url: string;
   readonly authorLogin: string | null;
 }
-
-type PlanReviewSignal =
-  | "plan-ready"
-  | "changes-requested"
-  | "approved"
-  | "waived";
 
 type PlanReviewDecisionSignal = Exclude<PlanReviewSignal, "plan-ready">;
 
@@ -40,33 +38,8 @@ export interface PlanReviewProtocolEvaluation {
 function parsePlanReviewComment(
   comment: IssueCommentSnapshot,
 ): ParsedPlanReviewComment | null {
-  const firstLine = comment.body
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .find((line) => line !== "");
-
-  if (!firstLine) {
-    return null;
-  }
-
-  const normalized = firstLine.toLowerCase();
-  if (
-    normalized === "plan status: plan-ready" ||
-    normalized === "plan ready for review."
-  ) {
-    return { signal: "plan-ready", comment };
-  }
-  if (normalized === "plan review: changes-requested") {
-    return { signal: "changes-requested", comment };
-  }
-  if (normalized === "plan review: approved") {
-    return { signal: "approved", comment };
-  }
-  if (normalized === "plan review: waived") {
-    return { signal: "waived", comment };
-  }
-
-  return null;
+  const signal = parsePlanReviewSignal(comment.body);
+  return signal === null ? null : { signal, comment };
 }
 
 function parsePlanReviewAcknowledgement(

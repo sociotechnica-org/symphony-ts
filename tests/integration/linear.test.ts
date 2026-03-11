@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonLogger } from "../../src/observability/logger.js";
+import type { Logger } from "../../src/observability/logger.js";
 import type { LinearTrackerConfig } from "../../src/domain/workflow.js";
 import { LinearTracker } from "../../src/tracker/linear.js";
 import { MockLinearServer } from "../support/mock-linear-server.js";
@@ -20,6 +21,18 @@ function createConfig(
   };
 }
 
+class CapturingLogger implements Logger {
+  readonly warnings: string[] = [];
+
+  info(_message: string, _data?: Record<string, unknown>): void {}
+
+  warn(message: string, _data?: Record<string, unknown>): void {
+    this.warnings.push(message);
+  }
+
+  error(_message: string, _data?: Record<string, unknown>): void {}
+}
+
 describe("LinearTracker", () => {
   let server: MockLinearServer;
 
@@ -32,6 +45,9 @@ describe("LinearTracker", () => {
       states: [
         { name: "Todo", type: "unstarted" },
         { name: "In Progress", type: "started" },
+        { name: "Human Review", type: "started" },
+        { name: "Rework", type: "started" },
+        { name: "Merging", type: "started" },
         { name: "Done", type: "completed" },
         { name: "Canceled", type: "canceled" },
       ],
@@ -153,7 +169,7 @@ describe("LinearTracker", () => {
     );
   });
 
-  it("claims, marks handoff-ready, and completes issues against the mock server", async () => {
+  it("claims, moves successful runs into Human Review, and completes terminal issues", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
       number: 7,
@@ -174,10 +190,27 @@ describe("LinearTracker", () => {
     );
 
     const lifecycle = await tracker.reconcileSuccessfulRun("symphony/7", null);
-    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(server.countRequests("GetProjectIssue")).toBe(2);
     const handoffIssue = server.getIssue("symphony-linear", 7);
+    expect(handoffIssue.stateName).toBe("Human Review");
     expect(handoffIssue.comments).toContain(
       "Symphony run finished and marked this issue handoff-ready.",
+    );
+
+    server.addComment({
+      projectSlug: "symphony-linear",
+      issueNumber: 7,
+      body: "Plan review: approved\n\nSummary\n- Approved to merge.",
+    });
+    server.updateIssueState("symphony-linear", 7, "Merging");
+    expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
+      "awaiting-system-checks",
+    );
+
+    server.updateIssueState("symphony-linear", 7, "Done");
+    expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
+      "handoff-ready",
     );
 
     await tracker.completeIssue(7);
@@ -186,6 +219,144 @@ describe("LinearTracker", () => {
     expect(completedIssue.comments).toContain(
       "Symphony completed this issue successfully.",
     );
+  });
+
+  it("warns when a successful run cannot move into Human Review because the project lacks that state", async () => {
+    const logger = new CapturingLogger();
+    server.seedProject({
+      slugId: "no-review-state",
+      name: "No Review State",
+      states: [
+        { name: "Todo", type: "unstarted" },
+        { name: "In Progress", type: "started" },
+        { name: "Done", type: "completed" },
+        { name: "Canceled", type: "canceled" },
+      ],
+    });
+    server.seedIssue({
+      projectSlug: "no-review-state",
+      number: 20,
+      title: "No review column",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, { projectSlug: "no-review-state" }),
+      logger,
+    );
+
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/20", null);
+
+    expect(server.getIssue("no-review-state", 20).stateName).toBe(
+      "In Progress",
+    );
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(logger.warnings).toContain(
+      "Linear project has no 'Human Review' state; issue will not be moved after a successful run",
+    );
+  });
+
+  it("returns awaiting-human-handoff when a stale approved comment exists from a prior run", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 25,
+      title: "Fresh run after older approval",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
+    server.addComment({
+      projectSlug: "symphony-linear",
+      issueNumber: 25,
+      body: "Plan review: approved\n\nSummary\n- Approved to merge.",
+      createdAt: "2026-03-10T00:00:00.000Z",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/25", null);
+
+    expect(server.getIssue("symphony-linear", 25).stateName).toBe(
+      "Human Review",
+    );
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
+  it("does not move a successful run backward from Rework into Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 21,
+      title: "Manual rework handoff",
+      stateName: "Rework",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/21", null);
+
+    expect(server.getIssue("symphony-linear", 21).stateName).toBe("Rework");
+    expect(server.getIssue("symphony-linear", 21).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
+
+  it("does not post a duplicate handoff-ready comment when a successful run is already in Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 24,
+      title: "Already waiting for review",
+      stateName: "Human Review",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/24", null);
+
+    expect(server.getIssue("symphony-linear", 24).stateName).toBe(
+      "Human Review",
+    );
+    expect(server.getIssue("symphony-linear", 24).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
+  it("does not move a successful run backward from Merging into Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 22,
+      title: "Manual merge handoff",
+      stateName: "Merging",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/22", null);
+
+    expect(server.getIssue("symphony-linear", 22).stateName).toBe("Merging");
+    expect(server.getIssue("symphony-linear", 22).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+  });
+
+  it("does not move a successful run backward from Done into Human Review", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 23,
+      title: "Manual terminal handoff",
+      stateName: "Done",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.reconcileSuccessfulRun("symphony/23", null);
+
+    expect(server.getIssue("symphony-linear", 23).stateName).toBe("Done");
+    expect(server.getIssue("symphony-linear", 23).comments).not.toContain(
+      "Symphony run finished and marked this issue handoff-ready.",
+    );
+    expect(lifecycle.kind).toBe("handoff-ready");
   });
 
   it("marks failed issues in the workpad and exposes them via fetchFailedIssues", async () => {
@@ -248,5 +419,148 @@ describe("LinearTracker", () => {
     await expect(tracker.completeIssue(11)).rejects.toThrowError(
       /Linear project symphony-linear does not expose any configured terminal state/i,
     );
+  });
+
+  it("matches configured active and terminal states case-insensitively", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 18,
+      title: "Case insensitive workflow config",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, {
+        activeStates: ["todo", "in progress"],
+        terminalStates: ["done", "canceled"],
+      }),
+      new JsonLogger(),
+    );
+
+    const claimed = await tracker.claimIssue(18);
+    expect(claimed?.state).toBe("In Progress");
+
+    await tracker.completeIssue(18);
+
+    const completedIssue = server.getIssue("symphony-linear", 18);
+    expect(completedIssue.stateName).toBe("Done");
+    expect((await tracker.inspectIssueHandoff("symphony/18")).kind).toBe(
+      "handoff-ready",
+    );
+  });
+
+  it("updates only the workpad when completeIssue is called on an already-terminal issue", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 19,
+      title: "Already done",
+      stateName: "Done",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+
+    await tracker.completeIssue(19);
+
+    expect(server.getIssue("symphony-linear", 19).stateName).toBe("Done");
+    expect(server.countRequests("UpdateIssueDescription")).toBe(1);
+    expect(server.countRequests("UpdateIssueState")).toBe(0);
+    expect(server.countRequests("UpdateIssueDescriptionAndState")).toBe(0);
+  });
+
+  it("maps Human Review to awaiting-human-handoff", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 12,
+      title: "Waiting for review",
+      stateName: "Human Review",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/12");
+
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+  });
+
+  it("maps Human Review with changes-requested to actionable-follow-up", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 13,
+      title: "Needs revision",
+      stateName: "Human Review",
+      assigneeEmail: "worker@example.test",
+    });
+    server.addComment({
+      projectSlug: "symphony-linear",
+      issueNumber: 13,
+      body: "Plan review: changes-requested\n\nRequired changes\n- Rework the policy.",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/13");
+
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
+
+  it("maps Rework to actionable-follow-up", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 14,
+      title: "Explicit rework",
+      stateName: "Rework",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/14");
+
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+  });
+
+  it("maps Merging to awaiting-system-checks", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 15,
+      title: "Landing in progress",
+      stateName: "Merging",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/15");
+
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+  });
+
+  it("maps active states to missing-target before a handoff marker exists", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 16,
+      title: "Still coding",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/16");
+
+    expect(lifecycle.kind).toBe("missing-target");
+  });
+
+  it("maps configured terminal states to handoff-ready", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 17,
+      title: "Ready to complete",
+      stateName: "Done",
+      assigneeEmail: "worker@example.test",
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/17");
+
+    expect(lifecycle.kind).toBe("handoff-ready");
   });
 });

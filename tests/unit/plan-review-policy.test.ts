@@ -54,6 +54,22 @@ describe("plan-review-policy", () => {
     expect(lifecycle?.kind).toBe("awaiting-human-handoff");
   });
 
+  it("does not treat the undotted legacy plan-ready marker as valid", () => {
+    const lifecycle = evaluatePlanReviewLifecycle(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Plan ready for review\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
+      ],
+    );
+
+    expect(lifecycle).toBeNull();
+  });
+
   it("does not wait when a later approval exists", () => {
     const lifecycle = evaluatePlanReviewLifecycle(
       "symphony/32",

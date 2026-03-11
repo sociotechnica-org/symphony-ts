@@ -186,6 +186,20 @@ tracker:
 - a Symphony-owned workpad section in the issue description
 - active-to-terminal state transitions through the tracker edge
 
+For workflow recovery, the Linear adapter treats the issue workflow state as the
+primary handoff signal and uses the ticket conversation plus the Symphony-owned
+workpad as recovery hints:
+
+- `Human Review` maps to `awaiting-human-handoff`
+- `Rework` maps to `actionable-follow-up`
+- `Merging` maps to `awaiting-system-checks`
+- configured terminal states such as `Done` map to `handoff-ready`
+
+The workpad keeps branch and run context durable on the Linear issue, but it is
+not the only source of truth. A fresh factory should still be able to recover
+the current handoff meaning from Linear workflow state plus repo-owned review
+markers in ticket comments.
+
 CI coverage uses the checked-in mock Linear GraphQL server under `tests/support/mock-linear-server.ts`, so no real Linear workspace is required for integration or end-to-end tests.
 
 ## How to Use Symphony to Build Symphony

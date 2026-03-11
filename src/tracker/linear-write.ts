@@ -7,6 +7,7 @@ import {
   type LinearProjectSnapshot,
   type LinearWorkflowState,
 } from "./linear-normalize.js";
+import { sameLinearStateName } from "./linear-state-name.js";
 
 interface LinearIssueWriteInput {
   readonly id: string;
@@ -72,7 +73,9 @@ export function resolveLinearStateByName(
   project: LinearProjectSnapshot,
   stateName: string,
 ): LinearWorkflowState {
-  const match = project.states.find((state) => state.name === stateName);
+  const match = project.states.find((state) =>
+    sameLinearStateName(state.name, stateName),
+  );
   if (match !== undefined) {
     return match;
   }
