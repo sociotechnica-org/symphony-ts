@@ -6,6 +6,10 @@ import {
   deriveFactoryRunsPublicationId,
   publishIssueToFactoryRuns,
 } from "../../src/integration/factory-runs.js";
+import {
+  deriveIssueArtifactPaths,
+  type IssueArtifactLogPointersDocument,
+} from "../../src/observability/issue-artifacts.js";
 import { writeIssueReport } from "../../src/observability/issue-report.js";
 import {
   checkoutGitBranch,
@@ -139,7 +143,7 @@ describe("factory-runs publication", () => {
     ).resolves.toContain('"githubActivity"');
   });
 
-  it("falls back to pointer manifests when a log cannot be copied", async () => {
+  it("falls back to pointer manifests when a log is unreadable", async () => {
     const sourceRoot = await createTempDir("symphony-factory-runs-pointer-");
     const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
     tempRoots.push(sourceRoot, archiveRoot);
@@ -147,6 +151,9 @@ describe("factory-runs publication", () => {
     await writeReportWorkflow(sourceRoot);
     const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
     await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+    const unreadableLogPath = path.join(workspaceRoot, "logs", "runner.log");
+    await fs.mkdir(path.dirname(unreadableLogPath), { recursive: true });
+    await fs.writeFile(unreadableLogPath, "runner log contents\n", "utf8");
 
     await initializeGitRepo(sourceRoot);
     await checkoutGitBranch(sourceRoot, "symphony/44");
@@ -160,12 +167,19 @@ describe("factory-runs publication", () => {
 
     await initializeGitRepo(archiveRoot);
 
-    const published = await publishIssueToFactoryRuns({
-      workspaceRoot,
-      sourceRoot,
-      archiveRoot,
-      issueNumber: 44,
-    });
+    const published = await (async () => {
+      await fs.chmod(unreadableLogPath, 0o000);
+      try {
+        return await publishIssueToFactoryRuns({
+          workspaceRoot,
+          sourceRoot,
+          archiveRoot,
+          issueNumber: 44,
+        });
+      } finally {
+        await fs.chmod(unreadableLogPath, 0o644);
+      }
+    })();
 
     const publicationRoot = path.join(
       archiveRoot,
@@ -191,6 +205,100 @@ describe("factory-runs publication", () => {
     expect(published.metadata.logs.referencedCount).toBe(1);
     expect(published.metadata.notes).toContain(
       "Publication completed with partial log coverage; see logs.entries for per-log outcomes.",
+    );
+  });
+
+  it("deduplicates session log pointers by session id and log name", async () => {
+    const sourceRoot = await createTempDir("symphony-factory-runs-dedupe-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    tempRoots.push(sourceRoot, archiveRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    const primaryLogPath = path.join(workspaceRoot, "logs", "runner.log");
+    const duplicateLogPath = path.join(
+      workspaceRoot,
+      "logs",
+      "runner-copy.log",
+    );
+    const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+    await fs.mkdir(path.dirname(primaryLogPath), { recursive: true });
+    await fs.writeFile(primaryLogPath, "primary log contents\n", "utf8");
+    await fs.writeFile(duplicateLogPath, "duplicate log contents\n", "utf8");
+
+    const logPointers = JSON.parse(
+      await fs.readFile(artifactPaths.logPointersFile, "utf8"),
+    ) as IssueArtifactLogPointersDocument;
+    const sessionId = "sociotechnica-org/symphony-ts#44/attempt-1/session-1";
+    const existingSession = logPointers.sessions[sessionId];
+    if (existingSession === undefined) {
+      throw new Error(`Expected log pointers for ${sessionId}`);
+    }
+    await fs.writeFile(
+      artifactPaths.logPointersFile,
+      `${JSON.stringify(
+        {
+          ...logPointers,
+          sessions: {
+            ...logPointers.sessions,
+            [sessionId]: {
+              ...existingSession,
+              pointers: [
+                {
+                  name: "runner.log",
+                  location: duplicateLogPath,
+                  archiveLocation: "archive://runner.log",
+                },
+              ],
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    await initializeGitRepo(sourceRoot);
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    const sourceHeadSha = await commitAllFiles(
+      sourceRoot,
+      "seed deduplicated publish inputs",
+    );
+
+    await initializeGitRepo(archiveRoot);
+
+    const published = await publishIssueToFactoryRuns({
+      workspaceRoot,
+      sourceRoot,
+      archiveRoot,
+      issueNumber: 44,
+    });
+
+    const publicationRoot = path.join(
+      archiveRoot,
+      "symphony-ts",
+      "issues",
+      "44",
+      deriveFactoryRunsPublicationId("2026-03-09T10:25:30.123Z", sourceHeadSha),
+    );
+    const archivedLogPath = path.join(
+      publicationRoot,
+      "logs",
+      encodeURIComponent(sessionId),
+      "runner.log",
+    );
+
+    expect(published.metadata.logs.copiedCount).toBe(1);
+    expect(published.metadata.logs.referencedCount).toBe(0);
+    expect(published.metadata.logs.entries).toHaveLength(1);
+    await expect(fs.readFile(archivedLogPath, "utf8")).resolves.toBe(
+      "primary log contents\n",
     );
   });
 

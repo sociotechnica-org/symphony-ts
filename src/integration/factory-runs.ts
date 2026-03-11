@@ -577,7 +577,7 @@ function collectSessionLogSources(
     pointers: readonly IssueArtifactLogPointer[],
   ): void => {
     for (const pointer of pointers) {
-      const key = `${sessionId}\u0000${pointer.name}\u0000${pointer.location ?? ""}\u0000${pointer.archiveLocation ?? ""}`;
+      const key = `${sessionId}\u0000${pointer.name}`;
       if (seen.has(key)) {
         continue;
       }
@@ -611,7 +611,13 @@ async function isReadableFile(filePath: string | null): Promise<boolean> {
     return false;
   }
   const stat = await fs.stat(filePath).catch(() => null);
-  return stat?.isFile() ?? false;
+  if (!stat?.isFile()) {
+    return false;
+  }
+  return await fs
+    .access(filePath, fsConstants.R_OK)
+    .then(() => true)
+    .catch(() => false);
 }
 
 async function replacePublicationDirectory(

@@ -36,7 +36,6 @@ export interface IssueReportPaths {
 
 export interface StoredIssueReport {
   readonly report: IssueReportDocument;
-  readonly markdown: string;
   readonly rawReportJson: string;
   readonly rawReportMarkdown: string;
   readonly outputPaths: IssueReportPaths;
@@ -198,7 +197,7 @@ export interface GeneratedIssueReport {
   readonly outputPaths: IssueReportPaths;
 }
 
-export function deriveIssueReportsRoot(workspaceRoot: string): string {
+function deriveIssueReportsRoot(workspaceRoot: string): string {
   return path.join(
     path.dirname(deriveFactoryRuntimeRoot(workspaceRoot)),
     "reports",
@@ -297,7 +296,6 @@ export async function readIssueReport(
 
   return {
     report,
-    markdown: rawReportMarkdown,
     rawReportJson,
     rawReportMarkdown,
     outputPaths,
