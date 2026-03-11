@@ -370,7 +370,9 @@ describe("Phase 1.2 PR lifecycle factory", () => {
 
     issue = server.getIssue(48);
     expect(issue.state).toBe("open");
-    expect(issue.labels.map((label) => label.name)).toContain("symphony:running");
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
     expect(
       issue.comments.filter(
         (body) => body === "Symphony completed this issue successfully.",
