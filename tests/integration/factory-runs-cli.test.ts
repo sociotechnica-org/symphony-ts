@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runReportCli } from "../../src/cli/report.js";
 import {
@@ -24,6 +26,7 @@ import {
   writeReportWorkflow,
 } from "../support/issue-report-fixtures.js";
 
+const execFileAsync = promisify(execFile);
 const tempRoots: string[] = [];
 
 afterEach(async () => {
@@ -144,6 +147,10 @@ describe("factory-runs publication", () => {
   });
 
   it("falls back to pointer manifests when a log is unreadable", async () => {
+    if (process.getuid?.() === 0) {
+      return;
+    }
+
     const sourceRoot = await createTempDir("symphony-factory-runs-pointer-");
     const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
     tempRoots.push(sourceRoot, archiveRoot);
@@ -206,6 +213,66 @@ describe("factory-runs publication", () => {
     expect(published.metadata.notes).toContain(
       "Publication completed with partial log coverage; see logs.entries for per-log outcomes.",
     );
+  });
+
+  it("keeps publication paths inside the archive root when report repo names contain traversal segments", async () => {
+    const sourceRoot = await createTempDir("symphony-factory-runs-traversal-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    tempRoots.push(sourceRoot, archiveRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    const readableLogPath = path.join(workspaceRoot, "logs", "runner.log");
+    await fs.mkdir(path.dirname(readableLogPath), { recursive: true });
+    await fs.writeFile(readableLogPath, "runner log contents\n", "utf8");
+
+    await initializeGitRepo(sourceRoot);
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    const generated = await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    const rawReport = JSON.parse(
+      await fs.readFile(generated.outputPaths.reportJsonFile, "utf8"),
+    ) as {
+      readonly summary: Record<string, unknown>;
+    };
+    await fs.writeFile(
+      generated.outputPaths.reportJsonFile,
+      `${JSON.stringify(
+        {
+          ...rawReport,
+          summary: {
+            ...rawReport.summary,
+            repo: "owner/..",
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await commitAllFiles(sourceRoot, "seed sanitized repo publish inputs");
+
+    await initializeGitRepo(archiveRoot);
+
+    const published = await publishIssueToFactoryRuns({
+      workspaceRoot,
+      sourceRoot,
+      archiveRoot,
+      issueNumber: 44,
+    });
+
+    const relativePublicationRoot = path.relative(
+      archiveRoot,
+      published.paths.publicationRoot,
+    );
+    const publicationStat = await fs.stat(published.paths.publicationRoot);
+
+    expect(path.isAbsolute(relativePublicationRoot)).toBe(false);
+    expect(relativePublicationRoot).not.toMatch(/^\.{2}(?:\/|\\|$)/u);
+    expect(publicationStat.isDirectory()).toBe(true);
   });
 
   it("deduplicates session log pointers by session id and log name", async () => {
@@ -299,6 +366,53 @@ describe("factory-runs publication", () => {
     expect(published.metadata.logs.entries).toHaveLength(1);
     await expect(fs.readFile(archivedLogPath, "utf8")).resolves.toBe(
       "primary log contents\n",
+    );
+  });
+
+  it("captures commit-range metadata when the source remote default branch is origin/master", async () => {
+    const sourceRoot = await createTempDir("symphony-factory-runs-master-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    const remoteRoot = await createTempDir("symphony-factory-runs-remote-");
+    const remotePath = path.join(remoteRoot, "origin.git");
+    tempRoots.push(sourceRoot, archiveRoot, remoteRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await initializeGitRepo(sourceRoot, { branch: "master" });
+    const baseSha = await commitAllFiles(sourceRoot, "seed master base");
+    await execFileAsync("git", ["init", "--bare", "-b", "master", remotePath], {
+      cwd: remoteRoot,
+    });
+    await execFileAsync("git", ["remote", "add", "origin", remotePath], {
+      cwd: sourceRoot,
+    });
+    await execFileAsync("git", ["push", "-u", "origin", "master"], {
+      cwd: sourceRoot,
+    });
+
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    const sourceHeadSha = await commitAllFiles(
+      sourceRoot,
+      "seed master-derived publish inputs",
+    );
+
+    await initializeGitRepo(archiveRoot);
+
+    const published = await publishIssueToFactoryRuns({
+      workspaceRoot,
+      sourceRoot,
+      archiveRoot,
+      issueNumber: 44,
+    });
+
+    expect(published.metadata.sourceRevision.baseSha).toBe(baseSha);
+    expect(published.metadata.sourceRevision.commitRange).toBe(
+      `${baseSha}..${sourceHeadSha}`,
     );
   });
 

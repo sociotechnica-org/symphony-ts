@@ -343,7 +343,11 @@ function deriveRepoName(
 ): string {
   const repo = report.summary.repo?.trim();
   if (repo !== undefined && repo !== "") {
-    const segments = repo.split("/").filter((segment) => segment.length > 0);
+    const segments = repo
+      .split(/[/\\]/u)
+      .filter(
+        (segment) => segment.length > 0 && segment !== "." && segment !== "..",
+      );
     if (segments.length > 0) {
       return segments[segments.length - 1] ?? path.basename(sourceRoot);
     }
@@ -402,14 +406,10 @@ async function collectSourceRevision(
     "--show-current",
   ]);
   const relevantSha = await readGitValue(sourceRoot, ["rev-parse", "HEAD"]);
-  const originMainSha = await readGitValue(sourceRoot, [
-    "rev-parse",
-    "--verify",
-    "origin/main",
-  ]);
+  const remoteBaseRef = await resolveRemoteBaseRef(sourceRoot);
   const baseSha =
-    relevantSha !== null && originMainSha !== null
-      ? await readGitValue(sourceRoot, ["merge-base", "HEAD", "origin/main"])
+    relevantSha !== null && remoteBaseRef !== null
+      ? await readGitValue(sourceRoot, ["merge-base", "HEAD", remoteBaseRef])
       : null;
 
   return {
@@ -422,6 +422,39 @@ async function collectSourceRevision(
         ? `${baseSha}..${relevantSha}`
         : null,
   };
+}
+
+async function resolveRemoteBaseRef(
+  sourceRoot: string,
+): Promise<string | null> {
+  const remoteHead = await readGitValue(sourceRoot, [
+    "symbolic-ref",
+    "--quiet",
+    "refs/remotes/origin/HEAD",
+  ]);
+  const candidates = [
+    remoteHead?.replace(/^refs\/remotes\//u, "") ?? null,
+    "origin/main",
+    "origin/master",
+  ];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    if (candidate === null || seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    const resolved = await readGitValue(sourceRoot, [
+      "rev-parse",
+      "--verify",
+      candidate,
+    ]);
+    if (resolved !== null) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 async function readGitValue(
