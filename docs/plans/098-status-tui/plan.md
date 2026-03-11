@@ -35,7 +35,7 @@ Reference: `../symphony/elixir/lib/symphony_elixir/status_dashboard.ex`
 ## Symphony Abstraction Layer Mapping
 
 | Layer         | Work in this PR                                          |
-|---------------|----------------------------------------------------------|
+| ------------- | -------------------------------------------------------- |
 | Configuration | Add `observability` section to `ResolvedConfig`          |
 | Integration   | Add `onUpdate` hook to Runner; parse Codex stdout events |
 | Coordination  | Add `RunningEntry` map, `snapshot()`, polling flags      |
@@ -52,14 +52,14 @@ The following are missing from the TypeScript factory and must be added:
    `codex_message_handler` / `:codex_worker_update` pattern.
 
 2. **`RunningEntry` state** — `OrchestratorState` has `runningIssueNumbers:
-   Set<number>` but no per-issue Codex state. Needs a `runningEntries: Map<number,
-   RunningEntry>` with `sessionId`, `turnCount`, `codexTotalTokens`, `lastCodexEvent`,
+Set<number>` but no per-issue Codex state. Needs a `runningEntries: Map<number,
+RunningEntry>` with `sessionId`, `turnCount`, `codexTotalTokens`, `lastCodexEvent`,
    `lastCodexMessage`, `codexAppServerPid`.
 
 3. **Orchestrator `snapshot()` method** — no equivalent exists in TypeScript.
 
 4. **Aggregate `codexTotals`** — `{inputTokens, outputTokens, totalTokens,
-   secondsRunning}` accumulated across all running agents, reset on poll cycle.
+secondsRunning}` accumulated across all running agents, reset on poll cycle.
 
 5. **`rateLimits` state** — extracted from Codex update events; not tracked yet.
 
@@ -98,6 +98,7 @@ BootstrapOrchestrator                          OrchestratorState
 ### Step 1 — Config: Add `ObservabilityConfig`
 
 `src/domain/workflow.ts`:
+
 ```ts
 export interface ObservabilityConfig {
   readonly dashboardEnabled: boolean;
@@ -115,20 +116,22 @@ readonly observability: ObservabilityConfig;
 ### Step 2 — Runner: Add `onUpdate` callback and `RunUpdateEvent`
 
 `src/domain/run.ts`:
+
 ```ts
 export interface RunUpdateEvent {
-  readonly event: string;         // event type from Codex JSON
-  readonly payload: unknown;      // raw parsed JSON message
+  readonly event: string; // event type from Codex JSON
+  readonly payload: unknown; // raw parsed JSON message
   readonly timestamp: string;
 }
 ```
 
 `src/runner/service.ts`:
+
 ```ts
 export interface RunnerRunOptions {
   readonly signal?: AbortSignal;
   readonly onSpawn?: (event: RunSpawnEvent) => void | Promise<void>;
-  readonly onUpdate?: (event: RunUpdateEvent) => void;  // NEW
+  readonly onUpdate?: (event: RunUpdateEvent) => void; // NEW
 }
 ```
 
@@ -139,6 +142,7 @@ parsed event. Also accumulate raw stdout for `RunResult` as before.
 ### Step 3 — Orchestrator: `RunningEntry` and state extensions
 
 New file `src/orchestrator/running-entry.ts`:
+
 ```ts
 export interface RunningEntry {
   readonly issueNumber: number;
@@ -161,6 +165,7 @@ export interface RunningEntry {
 ```
 
 `src/orchestrator/state.ts`:
+
 - Add `runningEntries: Map<number, RunningEntry>`
 - Add `codexTotals: CodexTotals` (aggregated tokens + secondsRunning)
 - Add `rateLimits: RateLimits | null`
@@ -169,6 +174,7 @@ export interface RunningEntry {
 ### Step 4 — Orchestrator: `snapshot()` and `notifyUpdate()`
 
 `src/orchestrator/service.ts`:
+
 - Add `snapshot(): TuiSnapshot | "unavailable"` — returns running entries,
   retries, codexTotals, rateLimits, pollingState
 - Add `notifyUpdate(dashboard: StatusDashboard | null): void` — calls
@@ -181,6 +187,7 @@ export interface RunningEntry {
 New file `src/observability/tui.ts`:
 
 State:
+
 - `refreshMs`, `enabled`, `renderIntervalMs` (from config + overrides)
 - `renderFn: (content: string) => void` (injectable for tests)
 - `tokenSamples: Array<[timestampMs, totalTokens]>` (rolling 5s TPS window)
@@ -190,12 +197,14 @@ State:
 - `lastSnapshotFingerprint: string | null`
 
 Public API:
+
 - `start(): void` — schedule first tick
 - `stop(): void` — clear timers, render offline frame
 - `refresh(): void` — push-triggered re-render (rate-limited)
 - `renderOfflineStatus(): void` — render final offline frame on shutdown
 
 Internal:
+
 - `tick()` — re-read config, maybe render, schedule next tick
 - `maybeRender()` — snapshot → format → rate-limit → output
 - `renderNow(content: string)` — write ANSI to terminal
@@ -207,6 +216,7 @@ Internal:
 - `throttledTps(samples, nowMs, currentTokens, lastSecond, lastValue)` — Section 6.2
 
 ANSI helpers:
+
 - Inline constants: `RED`, `GREEN`, `YELLOW`, `BLUE`, `MAGENTA`, `CYAN`, `GRAY`,
   `BOLD`, `DIM`, `RESET` using raw escape codes from spec Section 8.
 - No external terminal library.
@@ -220,6 +230,7 @@ orchestrator so it can call `notifyUpdate`. Call `dashboard.stop()` on shutdown.
 ## Tests
 
 Unit tests (`tests/unit/tui.test.ts`):
+
 - `formatSnapshot` with sample data → expected ANSI string (use `renderFn` capture)
 - `humanizeEvent` for each event type in taxonomy
 - `rollingTps` edge cases (empty, single sample, window prune)
@@ -230,6 +241,7 @@ Unit tests (`tests/unit/tui.test.ts`):
 - Offline frame renders "app_status=offline"
 
 Integration tests (`tests/integration/tui.test.ts`):
+
 - TUI started with a fake orchestrator stub, ticks once, captures rendered output
 - Push refresh (`refresh()`) triggers immediate render, respects rate limit
 - TUI disabled when `dashboardEnabled: false`

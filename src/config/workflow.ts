@@ -298,7 +298,9 @@ function resolveObservabilityConfig(
     dashboardEnabled:
       dashboardEnabled === undefined ? true : Boolean(dashboardEnabled),
     refreshMs:
-      refreshMs === undefined ? 1000 : requireNumber(refreshMs, "observability.refresh_ms"),
+      refreshMs === undefined
+        ? 1000
+        : requireNumber(refreshMs, "observability.refresh_ms"),
     renderIntervalMs:
       renderIntervalMs === undefined
         ? 16
@@ -312,7 +314,10 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   const workspace = coerceOptionalObject(raw.workspace, "workspace");
   const hooks = coerceOptionalObject(raw.hooks, "hooks");
   const agent = coerceOptionalObject(raw.agent, "agent");
-  const observabilityRaw = coerceOptionalObject(raw.observability, "observability");
+  const observabilityRaw = coerceOptionalObject(
+    raw.observability,
+    "observability",
+  );
 
   // Apply SYMPHONY_REPO env override (github-bootstrap only; ignored by other tracker kinds)
   const rawRepoEnv = process.env["SYMPHONY_REPO"];

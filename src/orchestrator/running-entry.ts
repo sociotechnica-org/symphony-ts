@@ -55,7 +55,11 @@ function mapValue(
   keys: readonly string[],
 ): unknown {
   for (const key of keys) {
-    if (Object.hasOwn(map, key) && map[key] !== undefined && map[key] !== null) {
+    if (
+      Object.hasOwn(map, key) &&
+      map[key] !== undefined &&
+      map[key] !== null
+    ) {
       return map[key];
     }
   }
@@ -76,7 +80,9 @@ function mapPath(obj: unknown, path: readonly string[]): unknown {
     const record = current as Record<string, unknown>;
     current =
       record[key] ??
-      record[key.replace(/_([a-z])/g, (_, c: string) => (c as string).toUpperCase())];
+      record[
+        key.replace(/_([a-z])/g, (_, c: string) => (c as string).toUpperCase())
+      ];
   }
   return current;
 }
@@ -110,21 +116,23 @@ function extractTokenDelta(
     total: typeof totalRaw === "number" ? totalRaw : 0,
   };
 
-  if (
-    reported.input === 0 &&
-    reported.output === 0 &&
-    reported.total === 0
-  ) {
+  if (reported.input === 0 && reported.output === 0 && reported.total === 0) {
     return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   }
 
   const delta = {
-    inputTokens: Math.max(0, reported.input - entry.codexLastReportedInputTokens),
+    inputTokens: Math.max(
+      0,
+      reported.input - entry.codexLastReportedInputTokens,
+    ),
     outputTokens: Math.max(
       0,
       reported.output - entry.codexLastReportedOutputTokens,
     ),
-    totalTokens: Math.max(0, reported.total - entry.codexLastReportedTotalTokens),
+    totalTokens: Math.max(
+      0,
+      reported.total - entry.codexLastReportedTotalTokens,
+    ),
   };
   return delta;
 }
@@ -173,7 +181,11 @@ export function integrateCodexUpdate(
   const tokenDelta = extractTokenDelta(entry, payload);
   const pid = extractPid(payload);
 
-  if (tokenDelta.inputTokens > 0 || tokenDelta.outputTokens > 0 || tokenDelta.totalTokens > 0) {
+  if (
+    tokenDelta.inputTokens > 0 ||
+    tokenDelta.outputTokens > 0 ||
+    tokenDelta.totalTokens > 0
+  ) {
     entry.codexLastReportedInputTokens += tokenDelta.inputTokens;
     entry.codexLastReportedOutputTokens += tokenDelta.outputTokens;
     entry.codexLastReportedTotalTokens += tokenDelta.totalTokens;

@@ -22,8 +22,16 @@ export interface CodexTotals {
 
 export interface RateLimits {
   readonly limitId: string | null;
-  readonly primary: { readonly used: number; readonly limit: number; readonly resetInMs: number } | null;
-  readonly secondary: { readonly used: number; readonly limit: number; readonly resetInMs: number } | null;
+  readonly primary: {
+    readonly used: number;
+    readonly limit: number;
+    readonly resetInMs: number;
+  } | null;
+  readonly secondary: {
+    readonly used: number;
+    readonly limit: number;
+    readonly resetInMs: number;
+  } | null;
   readonly credits: string | null;
 }
 
@@ -47,7 +55,9 @@ export interface OrchestratorState {
   readonly polling: PollingState;
 }
 
-export function createOrchestratorState(pollingIntervalMs: number): OrchestratorState {
+export function createOrchestratorState(
+  pollingIntervalMs: number,
+): OrchestratorState {
   return {
     runningIssueNumbers: new Set<number>(),
     runAbortControllers: new Map<number, AbortController>(),

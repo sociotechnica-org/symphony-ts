@@ -84,7 +84,8 @@ export class StatusDashboard {
     this.#getConfig = getConfig;
 
     const config = getConfig();
-    const enabled = options?.enabled ?? (config.dashboardEnabled && isTerminalEnabled());
+    const enabled =
+      options?.enabled ?? (config.dashboardEnabled && isTerminalEnabled());
 
     this.#state = {
       refreshMs: options?.refreshMs ?? config.refreshMs,
@@ -176,9 +177,16 @@ export class StatusDashboard {
 
     // Update token samples
     if (snapshot !== null) {
-      this.#state.tokenSamples = updateTokenSamples(this.#state.tokenSamples, nowMs, currentTokens);
+      this.#state.tokenSamples = updateTokenSamples(
+        this.#state.tokenSamples,
+        nowMs,
+        currentTokens,
+      );
     } else {
-      this.#state.tokenSamples = pruneTokenSamples(this.#state.tokenSamples, nowMs);
+      this.#state.tokenSamples = pruneTokenSamples(
+        this.#state.tokenSamples,
+        nowMs,
+      );
     }
 
     // Throttled TPS
@@ -195,7 +203,10 @@ export class StatusDashboard {
     // Snapshot fingerprinting
     const fingerprint = snapshot !== null ? JSON.stringify(snapshot) : null;
     const snapshotChanged = fingerprint !== this.#state.lastSnapshotFingerprint;
-    const periodicDue = isPeriodicRerenderDue(this.#state.lastRenderedAtMs, nowMs);
+    const periodicDue = isPeriodicRerenderDue(
+      this.#state.lastRenderedAtMs,
+      nowMs,
+    );
 
     if (!snapshotChanged && !periodicDue) return;
 
@@ -210,7 +221,9 @@ export class StatusDashboard {
   #maybeEnqueueRender(content: string, nowMs: number): void {
     if (content === this.#state.lastRenderedContent) return;
 
-    if (isRenderNow(this.#state.lastRenderedAtMs, this.#state.renderIntervalMs)) {
+    if (
+      isRenderNow(this.#state.lastRenderedAtMs, this.#state.renderIntervalMs)
+    ) {
       this.#renderContent(content, nowMs);
     } else {
       this.#scheduleFlushRender(content, nowMs);
@@ -221,7 +234,11 @@ export class StatusDashboard {
     this.#state.pendingContent = content;
     if (this.#state.flushTimerRef !== null) return;
 
-    const delayMs = flushDelayMs(this.#state.lastRenderedAtMs, this.#state.renderIntervalMs, nowMs);
+    const delayMs = flushDelayMs(
+      this.#state.lastRenderedAtMs,
+      this.#state.renderIntervalMs,
+      nowMs,
+    );
     this.#state.flushTimerRef = setTimeout(() => {
       this.#onFlushRender();
     }, delayMs);
@@ -268,7 +285,8 @@ export function formatSnapshotContent(
     return [
       colorize("╭─ SYMPHONY STATUS", BOLD),
       colorize("│ Orchestrator snapshot unavailable", RED),
-      colorize("│ Throughput: ", BOLD) + colorize(`${formatTps(tps)} tps`, CYAN),
+      colorize("│ Throughput: ", BOLD) +
+        colorize(`${formatTps(tps)} tps`, CYAN),
       formatRefreshLine(null),
       "╰─",
     ]
@@ -289,7 +307,8 @@ export function formatSnapshotContent(
       colorize("/", GRAY) +
       colorize("n/a", GRAY),
     colorize("│ Throughput: ", BOLD) + colorize(`${formatTps(tps)} tps`, CYAN),
-    colorize("│ Runtime: ", BOLD) + colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
+    colorize("│ Runtime: ", BOLD) +
+      colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
     colorize("│ Tokens: ", BOLD) +
       colorize(`in ${formatCount(codexTotals.inputTokens)}`, YELLOW) +
       colorize(" | ", GRAY) +
@@ -324,7 +343,9 @@ function formatRefreshLine(polling: TuiSnapshot["polling"] | null): string {
   }
   const dueInMs = Math.max(0, polling.nextPollAtMs - Date.now());
   const seconds = Math.ceil(dueInMs / 1000);
-  return colorize("│ Next refresh: ", BOLD) + colorize(`${String(seconds)}s`, CYAN);
+  return (
+    colorize("│ Next refresh: ", BOLD) + colorize(`${String(seconds)}s`, CYAN)
+  );
 }
 
 function formatRateLimits(rateLimits: TuiSnapshot["rateLimits"]): string {
@@ -333,8 +354,14 @@ function formatRateLimits(rateLimits: TuiSnapshot["rateLimits"]): string {
   }
   const { limitId, primary, secondary, credits } = rateLimits;
   const idPart = colorize(limitId ?? "unknown", YELLOW);
-  const primaryPart = colorize(`primary ${formatRateLimitBucket(primary)}`, CYAN);
-  const secondaryPart = colorize(`secondary ${formatRateLimitBucket(secondary)}`, CYAN);
+  const primaryPart = colorize(
+    `primary ${formatRateLimitBucket(primary)}`,
+    CYAN,
+  );
+  const secondaryPart = colorize(
+    `secondary ${formatRateLimitBucket(secondary)}`,
+    CYAN,
+  );
   const creditsPart = colorize(credits ?? "credits n/a", GREEN);
   return (
     idPart +
@@ -348,7 +375,11 @@ function formatRateLimits(rateLimits: TuiSnapshot["rateLimits"]): string {
 }
 
 function formatRateLimitBucket(
-  bucket: { readonly used: number; readonly limit: number; readonly resetInMs: number } | null,
+  bucket: {
+    readonly used: number;
+    readonly limit: number;
+    readonly resetInMs: number;
+  } | null,
 ): string {
   if (bucket === null || bucket === undefined) return "n/a";
   const resetSecs = Math.ceil(bucket.resetInMs / 1000);
@@ -397,14 +428,29 @@ function formatRunningRow(
   entry: TuiSnapshot["running"][number],
   eventWidth: number,
 ): string {
-  const runtimeSecs = Math.floor((Date.now() - entry.startedAt.getTime()) / 1000);
+  const runtimeSecs = Math.floor(
+    (Date.now() - entry.startedAt.getTime()) / 1000,
+  );
   const issue = formatCell(entry.identifier, ID_WIDTH);
   const stage = formatCell("working", STAGE_WIDTH);
-  const pid = formatCell(entry.codexAppServerPid !== null ? String(entry.codexAppServerPid) : "n/a", PID_WIDTH);
-  const age = formatCell(formatRuntimeAndTurns(runtimeSecs, entry.turnCount), AGE_WIDTH);
-  const tokens = formatCell(formatCount(entry.codexTotalTokens), TOKENS_WIDTH, "right");
+  const pid = formatCell(
+    entry.codexAppServerPid !== null ? String(entry.codexAppServerPid) : "n/a",
+    PID_WIDTH,
+  );
+  const age = formatCell(
+    formatRuntimeAndTurns(runtimeSecs, entry.turnCount),
+    AGE_WIDTH,
+  );
+  const tokens = formatCell(
+    formatCount(entry.codexTotalTokens),
+    TOKENS_WIDTH,
+    "right",
+  );
   const session = formatCell(compactSessionId(entry.sessionId), SESSION_WIDTH);
-  const eventLabel = formatCell(humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent), eventWidth);
+  const eventLabel = formatCell(
+    humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent),
+    eventWidth,
+  );
 
   const statusColor = statusDotColor(entry.lastCodexEvent);
 
@@ -521,19 +567,28 @@ function updateTokenSamples(
   return pruneTokenSamples([[nowMs, totalTokens], ...samples], nowMs);
 }
 
-function pruneTokenSamples(samples: readonly TokenSample[], nowMs: number): TokenSample[] {
+function pruneTokenSamples(
+  samples: readonly TokenSample[],
+  nowMs: number,
+): TokenSample[] {
   const minTs = nowMs - THROUGHPUT_WINDOW_MS;
   return samples.filter(([ts]) => ts >= minTs) as TokenSample[];
 }
 
 // ─── Render timing helpers ────────────────────────────────────────────────
 
-function isPeriodicRerenderDue(lastRenderedAtMs: number | null, nowMs: number): boolean {
+function isPeriodicRerenderDue(
+  lastRenderedAtMs: number | null,
+  nowMs: number,
+): boolean {
   if (lastRenderedAtMs === null) return true;
   return nowMs - lastRenderedAtMs >= MINIMUM_IDLE_RERENDER_MS;
 }
 
-function isRenderNow(lastRenderedAtMs: number | null, renderIntervalMs: number): boolean {
+function isRenderNow(
+  lastRenderedAtMs: number | null,
+  renderIntervalMs: number,
+): boolean {
   if (lastRenderedAtMs === null) return true;
   return Date.now() - lastRenderedAtMs >= renderIntervalMs;
 }
@@ -571,7 +626,11 @@ function formatRuntimeAndTurns(seconds: number, turnCount: number): string {
   return formatRuntimeSeconds(seconds);
 }
 
-function formatCell(value: string, width: number, align: "left" | "right" = "left"): string {
+function formatCell(
+  value: string,
+  width: number,
+  align: "left" | "right" = "left",
+): string {
   const cleaned = value.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
   const truncated = truncatePlain(cleaned, width);
   return align === "right"
@@ -600,7 +659,12 @@ function compactSessionId(sessionId: string | null): string {
 function runningEventWidth(terminalColumnsOverride?: number): number {
   const cols = terminalColumnsOverride ?? terminalColumns();
   const fixedWidth =
-    ID_WIDTH + STAGE_WIDTH + PID_WIDTH + AGE_WIDTH + TOKENS_WIDTH + SESSION_WIDTH;
+    ID_WIDTH +
+    STAGE_WIDTH +
+    PID_WIDTH +
+    AGE_WIDTH +
+    TOKENS_WIDTH +
+    SESSION_WIDTH;
   return Math.max(EVENT_MIN_WIDTH, cols - fixedWidth - ROW_CHROME_WIDTH);
 }
 
@@ -624,12 +688,17 @@ export function humanizeEvent(
 ): string {
   if (message === null || message === undefined) return "no codex message yet";
   const payload = unwrapPayload(message);
-  const byEvent = eventType !== null ? humanizeByEvent(eventType, message, payload) : null;
+  const byEvent =
+    eventType !== null ? humanizeByEvent(eventType, message, payload) : null;
   return truncate(byEvent ?? humanizePayload(payload), 140);
 }
 
 function unwrapPayload(message: unknown): unknown {
-  if (message === null || typeof message !== "object" || Array.isArray(message)) {
+  if (
+    message === null ||
+    typeof message !== "object" ||
+    Array.isArray(message)
+  ) {
     return message;
   }
   const obj = message as Record<string, unknown>;
@@ -639,7 +708,11 @@ function unwrapPayload(message: unknown): unknown {
   return getKey(obj, "payload") ?? message;
 }
 
-function humanizeByEvent(event: string, message: unknown, payload: unknown): string | null {
+function humanizeByEvent(
+  event: string,
+  message: unknown,
+  payload: unknown,
+): string | null {
   // Wrapper events
   if (event.startsWith("codex/event/")) {
     return humanizeWrapperEvent(event.slice("codex/event/".length), payload);
@@ -671,42 +744,64 @@ function humanizeByEvent(event: string, message: unknown, payload: unknown): str
 
 function humanizeWrapperEvent(suffix: string, payload: unknown): string {
   switch (suffix) {
-    case "task_started": return "task started";
-    case "user_message": return "user message received";
-    case "mcp_startup_complete": return "mcp startup complete";
-    case "exec_command_output_delta": return "command output streaming";
-    case "mcp_tool_call_begin": return "mcp tool call started";
-    case "mcp_tool_call_end": return "mcp tool call completed";
-    case "agent_reasoning_section_break": return "reasoning section break";
-    case "turn_diff": return "turn diff updated";
-    case "agent_message_delta": return humanizeStreamingEvent("agent message streaming", payload);
-    case "agent_message_content_delta": return humanizeStreamingEvent("agent message content streaming", payload);
-    case "agent_reasoning_delta": return humanizeStreamingEvent("reasoning streaming", payload);
-    case "reasoning_content_delta": return humanizeStreamingEvent("reasoning content streaming", payload);
-    case "agent_reasoning": return humanizeReasoningUpdate(payload);
-    case "exec_command_begin": return humanizeExecCommandBegin(payload);
-    case "exec_command_end": return humanizeExecCommandEnd(payload);
+    case "task_started":
+      return "task started";
+    case "user_message":
+      return "user message received";
+    case "mcp_startup_complete":
+      return "mcp startup complete";
+    case "exec_command_output_delta":
+      return "command output streaming";
+    case "mcp_tool_call_begin":
+      return "mcp tool call started";
+    case "mcp_tool_call_end":
+      return "mcp tool call completed";
+    case "agent_reasoning_section_break":
+      return "reasoning section break";
+    case "turn_diff":
+      return "turn diff updated";
+    case "agent_message_delta":
+      return humanizeStreamingEvent("agent message streaming", payload);
+    case "agent_message_content_delta":
+      return humanizeStreamingEvent("agent message content streaming", payload);
+    case "agent_reasoning_delta":
+      return humanizeStreamingEvent("reasoning streaming", payload);
+    case "reasoning_content_delta":
+      return humanizeStreamingEvent("reasoning content streaming", payload);
+    case "agent_reasoning":
+      return humanizeReasoningUpdate(payload);
+    case "exec_command_begin":
+      return humanizeExecCommandBegin(payload);
+    case "exec_command_end":
+      return humanizeExecCommandEnd(payload);
     case "token_count": {
       const usage = extractFirstPath(payload, TOKEN_USAGE_PATHS);
       const usageText = formatUsageCounts(usage);
-      return usageText !== null ? `token count update (${usageText})` : "token count update";
+      return usageText !== null
+        ? `token count update (${usageText})`
+        : "token count update";
     }
     case "mcp_startup_update": {
-      const server =
-        mapPath(payload, ["params", "msg", "server"]) ?? "mcp";
+      const server = mapPath(payload, ["params", "msg", "server"]) ?? "mcp";
       const state =
         mapPath(payload, ["params", "msg", "status", "state"]) ?? "updated";
       return `mcp startup: ${String(server)} ${String(state)}`;
     }
     case "item_started": {
       const t = wrapperPayloadType(payload);
-      if (t === "token_count") return humanizeWrapperEvent("token_count", payload);
-      return typeof t === "string" ? `item started (${humanizeItemType(t)})` : "item started";
+      if (t === "token_count")
+        return humanizeWrapperEvent("token_count", payload);
+      return typeof t === "string"
+        ? `item started (${humanizeItemType(t)})`
+        : "item started";
     }
     case "item_completed": {
       const t = wrapperPayloadType(payload);
-      if (t === "token_count") return humanizeWrapperEvent("token_count", payload);
-      return typeof t === "string" ? `item completed (${humanizeItemType(t)})` : "item completed";
+      if (t === "token_count")
+        return humanizeWrapperEvent("token_count", payload);
+      return typeof t === "string"
+        ? `item completed (${humanizeItemType(t)})`
+        : "item completed";
     }
     default: {
       const msgType = mapPath(payload, ["params", "msg", "type"]);
@@ -762,7 +857,9 @@ function humanizeMethod(method: string, payload: unknown): string | null {
     }
     case "turn/failed": {
       const errMsg = mapPath(payload, ["params", "error", "message"]);
-      return typeof errMsg === "string" ? `turn failed: ${errMsg}` : "turn failed";
+      return typeof errMsg === "string"
+        ? `turn failed: ${errMsg}`
+        : "turn failed";
     }
     case "turn/cancelled":
       return "turn cancelled";
@@ -817,7 +914,8 @@ function humanizeMethod(method: string, payload: unknown): string | null {
         : "command approval requested";
     }
     case "item/fileChange/requestApproval": {
-      const count = mapPath(payload, ["params", "fileChangeCount"]) ??
+      const count =
+        mapPath(payload, ["params", "fileChangeCount"]) ??
         mapPath(payload, ["params", "changeCount"]);
       return typeof count === "number" && count > 0
         ? `file change approval requested (${String(count)} files)`
@@ -850,7 +948,10 @@ function humanizeMethod(method: string, payload: unknown): string | null {
       return "account auth token refresh requested";
     default: {
       if (method.startsWith("codex/event/")) {
-        return humanizeWrapperEvent(method.slice("codex/event/".length), payload);
+        return humanizeWrapperEvent(
+          method.slice("codex/event/".length),
+          payload,
+        );
       }
       const msgType = mapPath(payload, ["params", "msg", "type"]);
       return typeof msgType === "string" ? `${method} (${msgType})` : method;
@@ -971,10 +1072,20 @@ function formatUsageCounts(usage: unknown): string | null {
   }
   const obj = usage as Record<string, unknown>;
   const input = parseInteger(
-    getMapKey(obj, ["input_tokens", "inputTokens", "prompt_tokens", "promptTokens"]),
+    getMapKey(obj, [
+      "input_tokens",
+      "inputTokens",
+      "prompt_tokens",
+      "promptTokens",
+    ]),
   );
   const output = parseInteger(
-    getMapKey(obj, ["output_tokens", "outputTokens", "completion_tokens", "completionTokens"]),
+    getMapKey(obj, [
+      "output_tokens",
+      "outputTokens",
+      "completion_tokens",
+      "completionTokens",
+    ]),
   );
   const total = parseInteger(
     getMapKey(obj, ["total_tokens", "totalTokens", "total"]),
@@ -1006,9 +1117,7 @@ function formatErrorValue(error: unknown): string {
 }
 
 function wrapperPayloadType(payload: unknown): unknown {
-  return (
-    mapPath(payload, ["params", "msg", "payload", "type"]) ?? undefined
-  );
+  return mapPath(payload, ["params", "msg", "payload", "type"]) ?? undefined;
 }
 
 function inlineText(text: string): string {
@@ -1038,7 +1147,9 @@ function parseInteger(value: unknown): number | null {
 function getKey(obj: Record<string, unknown>, key: string): unknown {
   if (Object.hasOwn(obj, key)) return obj[key];
   // camelCase fallback
-  const camel = key.replace(/_([a-z])/g, (_, c: string) => (c as string).toUpperCase());
+  const camel = key.replace(/_([a-z])/g, (_, c: string) =>
+    (c as string).toUpperCase(),
+  );
   if (camel !== key && Object.hasOwn(obj, camel)) return obj[camel];
   // snake_case fallback
   const snake = key.replace(/([A-Z])/g, "_$1").toLowerCase();
@@ -1047,7 +1158,8 @@ function getKey(obj: Record<string, unknown>, key: string): unknown {
 }
 
 function getMapKey(obj: unknown, keys: string[]): unknown {
-  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) return undefined;
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj))
+    return undefined;
   const record = obj as Record<string, unknown>;
   for (const key of keys) {
     const val = getKey(record, key);
@@ -1059,7 +1171,12 @@ function getMapKey(obj: unknown, keys: string[]): unknown {
 function mapPath(obj: unknown, path: string[]): unknown {
   let current: unknown = obj;
   for (const key of path) {
-    if (current === null || current === undefined || typeof current !== "object" || Array.isArray(current)) {
+    if (
+      current === null ||
+      current === undefined ||
+      typeof current !== "object" ||
+      Array.isArray(current)
+    ) {
       return undefined;
     }
     current = getKey(current as Record<string, unknown>, key);
@@ -1067,7 +1184,10 @@ function mapPath(obj: unknown, path: string[]): unknown {
   return current;
 }
 
-function extractFirstPath(payload: unknown, paths: readonly (readonly string[])[]): unknown {
+function extractFirstPath(
+  payload: unknown,
+  paths: readonly (readonly string[])[],
+): unknown {
   for (const path of paths) {
     const val = mapPath(payload, path as string[]);
     if (val !== null && val !== undefined) return val;
