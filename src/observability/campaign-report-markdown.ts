@@ -4,6 +4,10 @@ import type {
   CampaignLearningCluster,
   CampaignSelection,
 } from "./campaign-report.js";
+import {
+  renderCampaignIssueLabel,
+  renderCampaignNameList,
+} from "./campaign-report-format.js";
 
 export function renderCampaignSummaryMarkdown(digest: CampaignDigest): string {
   const lines: string[] = [];
@@ -283,9 +287,7 @@ function renderSelection(selection: CampaignSelection): string {
 }
 
 function renderIssueLabel(issueNumber: number, title: string | null): string {
-  return title === null
-    ? `#${issueNumber.toString()}`
-    : `#${issueNumber.toString()} ${title}`;
+  return renderCampaignIssueLabel(issueNumber, title);
 }
 
 function renderPatternList(patterns: readonly CampaignCheckPattern[]): string {
@@ -298,7 +300,7 @@ function renderPatternList(patterns: readonly CampaignCheckPattern[]): string {
 }
 
 function renderNameList(values: readonly string[]): string {
-  return values.length === 0 ? "None" : values.join(", ");
+  return renderCampaignNameList(values);
 }
 
 function renderValue(value: string | null): string {

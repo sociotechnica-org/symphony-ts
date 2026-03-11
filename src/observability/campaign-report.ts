@@ -21,6 +21,10 @@ import {
   renderCampaignTimelineMarkdown,
   renderCampaignTokenUsageMarkdown,
 } from "./campaign-report-markdown.js";
+import {
+  renderCampaignIssueLabel,
+  renderCampaignNameList,
+} from "./campaign-report-format.js";
 
 export type CampaignSelection =
   | {
@@ -1073,9 +1077,7 @@ function deriveCampaignTokenStatus(
   if (
     statuses.every((status) => status === "complete" || status === "estimated")
   ) {
-    return statuses.some((status) => status === "estimated")
-      ? "estimated"
-      : "complete";
+    return "estimated";
   }
   if (statuses.every((status) => status === "unavailable")) {
     return "unavailable";
@@ -1155,9 +1157,7 @@ function dedupeNumbers(values: readonly number[]): readonly number[] {
 }
 
 function renderIssueLabel(issueNumber: number, title: string | null): string {
-  return title === null
-    ? `#${issueNumber.toString()}`
-    : `#${issueNumber.toString()} ${title}`;
+  return renderCampaignIssueLabel(issueNumber, title);
 }
 
 function renderPatternSummary(
@@ -1172,7 +1172,7 @@ function renderPatternSummary(
 }
 
 function renderNameList(values: readonly string[]): string {
-  return values.length === 0 ? "none" : values.join(", ");
+  return renderCampaignNameList(values);
 }
 
 function compareNumbersAscending(left: number, right: number): number {
