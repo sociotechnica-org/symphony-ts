@@ -215,6 +215,75 @@ describe("factory-runs publication", () => {
     );
   });
 
+  it("falls back to a pointer manifest when copying a readable log fails", async () => {
+    const sourceRoot = await createTempDir("symphony-factory-runs-copyfail-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    tempRoots.push(sourceRoot, archiveRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    const readableLogPath = path.join(workspaceRoot, "logs", "runner.log");
+    await fs.mkdir(path.dirname(readableLogPath), { recursive: true });
+    await fs.writeFile(readableLogPath, "runner log contents\n", "utf8");
+
+    await initializeGitRepo(sourceRoot);
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    const sourceHeadSha = await commitAllFiles(
+      sourceRoot,
+      "seed copy-failure publish inputs",
+    );
+
+    await initializeGitRepo(archiveRoot);
+
+    const copyFile = fs.copyFile.bind(fs);
+    vi.spyOn(fs, "copyFile").mockImplementation(async (source, destination) => {
+      if (source === readableLogPath) {
+        throw Object.assign(new Error("simulated copy failure"), {
+          code: "EIO",
+        });
+      }
+      return await copyFile(source, destination);
+    });
+
+    const published = await publishIssueToFactoryRuns({
+      workspaceRoot,
+      sourceRoot,
+      archiveRoot,
+      issueNumber: 44,
+    });
+
+    const publicationRoot = path.join(
+      archiveRoot,
+      "symphony-ts",
+      "issues",
+      "44",
+      deriveFactoryRunsPublicationId("2026-03-09T10:25:30.123Z", sourceHeadSha),
+    );
+    const pointerFile = path.join(
+      publicationRoot,
+      "logs",
+      encodeURIComponent(
+        "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
+      ),
+      "runner.log.pointer.json",
+    );
+
+    expect(published.status).toBe("partial");
+    expect(published.metadata.logs.copiedCount).toBe(0);
+    expect(published.metadata.logs.referencedCount).toBe(1);
+    expect(published.metadata.logs.entries[0]?.note).toBe(
+      "Local log file could not be copied during publication; preserved the original pointer metadata.",
+    );
+    await expect(fs.readFile(pointerFile, "utf8")).resolves.toContain(
+      "could not be copied during publication",
+    );
+  });
+
   it("keeps publication paths inside the archive root when report repo names contain traversal segments", async () => {
     const sourceRoot = await createTempDir("symphony-factory-runs-traversal-");
     const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
@@ -454,6 +523,45 @@ describe("factory-runs publication", () => {
       fs.readFile(path.join(archiveRoot, "README.md"), "utf8"),
     ).resolves.toBe("# archive\n");
     expect(workflowPath).toContain("WORKFLOW.md");
+  });
+
+  it("cleans up empty archive directories when publication fails after staging starts", async () => {
+    const sourceRoot = await createTempDir("symphony-factory-runs-cleanup-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    tempRoots.push(sourceRoot, archiveRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await initializeGitRepo(sourceRoot);
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    await commitAllFiles(sourceRoot, "seed cleanup publish inputs");
+
+    await initializeGitRepo(archiveRoot);
+
+    vi.spyOn(fs, "writeFile").mockRejectedValueOnce(
+      new Error("simulated staging failure"),
+    );
+
+    await expect(
+      publishIssueToFactoryRuns({
+        workspaceRoot,
+        sourceRoot,
+        archiveRoot,
+        issueNumber: 44,
+      }),
+    ).rejects.toThrowError("simulated staging failure");
+
+    await expect(
+      fs.stat(path.join(archiveRoot, "symphony-ts")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      fs.stat(path.join(archiveRoot, "symphony-ts", "issues", "44")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("publishes successfully when an issue has no session logs", async () => {

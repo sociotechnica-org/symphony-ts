@@ -236,6 +236,7 @@ export async function publishIssueToFactoryRuns(
     await fs
       .rm(stagingRoot, { recursive: true, force: true })
       .catch(() => undefined);
+    await cleanupEmptyPublicationDirectories(paths);
     throw error;
   }
 }
@@ -503,21 +504,27 @@ async function publishSessionLogs(args: {
       encodedSessionId,
       `${encodedLogName}.pointer.json`,
     );
+    let pointerNoteOverride: string | null = null;
 
     if (await isReadableFile(source.pointer.location)) {
-      await fs.mkdir(stagedSessionDir, { recursive: true });
-      await fs.copyFile(source.pointer.location as string, stagedCopiedPath);
-      results.push({
-        sessionId: source.sessionId,
-        logName: source.logName,
-        status: "copied",
-        sourceLocation: source.pointer.location,
-        sourceArchiveLocation: source.pointer.archiveLocation,
-        archivePath: toArchiveRelativePath(args.archiveRoot, finalCopiedPath),
-        pointerFile: null,
-        note: null,
-      });
-      continue;
+      try {
+        await fs.mkdir(stagedSessionDir, { recursive: true });
+        await fs.copyFile(source.pointer.location as string, stagedCopiedPath);
+        results.push({
+          sessionId: source.sessionId,
+          logName: source.logName,
+          status: "copied",
+          sourceLocation: source.pointer.location,
+          sourceArchiveLocation: source.pointer.archiveLocation,
+          archivePath: toArchiveRelativePath(args.archiveRoot, finalCopiedPath),
+          pointerFile: null,
+          note: null,
+        });
+        continue;
+      } catch {
+        pointerNoteOverride =
+          "Local log file could not be copied during publication; preserved the original pointer metadata.";
+      }
     }
 
     if (
@@ -525,9 +532,10 @@ async function publishSessionLogs(args: {
       source.pointer.archiveLocation !== null
     ) {
       const note =
-        source.pointer.location === null
+        pointerNoteOverride ??
+        (source.pointer.location === null
           ? "Local log file was not recorded; preserved the original pointer metadata."
-          : "Local log file was not readable during publication; preserved the original pointer metadata.";
+          : "Local log file was not readable during publication; preserved the original pointer metadata.");
       await fs.mkdir(stagedSessionDir, { recursive: true });
       await fs.writeFile(
         stagedPointerFile,
@@ -686,6 +694,20 @@ async function replacePublicationDirectory(
     await fs
       .rm(backupRoot, { recursive: true, force: true })
       .catch(() => undefined);
+  }
+}
+
+async function cleanupEmptyPublicationDirectories(
+  paths: FactoryRunsPublicationPaths,
+): Promise<void> {
+  const candidates = [
+    paths.issueRoot,
+    path.dirname(paths.issueRoot),
+    paths.repoRoot,
+  ];
+
+  for (const directory of candidates) {
+    await fs.rmdir(directory).catch(() => undefined);
   }
 }
 
