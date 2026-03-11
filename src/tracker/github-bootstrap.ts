@@ -25,6 +25,15 @@ export class GitHubBootstrapTracker implements Tracker {
       readonly lifecycle: HandoffLifecycle | null;
     }
   >();
+  readonly #staleMergedPullRequestObservations = new Map<
+    string,
+    {
+      readonly issueUpdatedAt: string;
+      readonly pullRequestNumber: number;
+      readonly mergedAt: string;
+      readonly isStale: boolean;
+    }
+  >();
 
   constructor(config: GitHubBootstrapTrackerConfig, logger: Logger) {
     this.#config = config;
@@ -96,6 +105,7 @@ export class GitHubBootstrapTracker implements Tracker {
     const pullRequest = await this.#client.findPullRequest(branchName);
     if (pullRequest === null) {
       this.#noCheckObservations.delete(branchName);
+      this.#staleMergedPullRequestObservations.delete(branchName);
       const planReviewLifecycle =
         await this.#inspectPlanReviewHandoff(branchName);
       return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
@@ -126,6 +136,7 @@ export class GitHubBootstrapTracker implements Tracker {
         summary: `Pull request ${pullRequest.html_url} has merged`,
       };
     }
+    this.#staleMergedPullRequestObservations.delete(branchName);
 
     const [checks, reviewStateData] = await Promise.all([
       this.#client.getChecks(pullRequest.head.sha),
@@ -223,17 +234,37 @@ export class GitHubBootstrapTracker implements Tracker {
       return false;
     }
 
+    const issue = await this.getIssue(issueNumber);
+    const cachedObservation =
+      this.#staleMergedPullRequestObservations.get(branchName);
+    if (
+      cachedObservation !== undefined &&
+      cachedObservation.issueUpdatedAt === issue.updatedAt &&
+      cachedObservation.pullRequestNumber === pullRequest.number &&
+      cachedObservation.mergedAt === pullRequest.mergedAt
+    ) {
+      return cachedObservation.isStale;
+    }
+
     const successCommentAt = (await this.#client.getIssueComments(issueNumber))
       .filter((comment) => comment.body === this.#config.successComment)
       .map((comment) => Date.parse(comment.created_at))
       .filter((createdAt) => Number.isFinite(createdAt))
       .sort((left, right) => right - left)[0];
+    const mergedAtTs = Date.parse(pullRequest.mergedAt);
+    const isStale =
+      successCommentAt !== undefined &&
+      Number.isFinite(mergedAtTs) &&
+      successCommentAt >= mergedAtTs;
 
-    if (successCommentAt === undefined) {
-      return false;
-    }
+    this.#staleMergedPullRequestObservations.set(branchName, {
+      issueUpdatedAt: issue.updatedAt,
+      pullRequestNumber: pullRequest.number,
+      mergedAt: pullRequest.mergedAt,
+      isStale,
+    });
 
-    return successCommentAt >= Date.parse(pullRequest.mergedAt);
+    return isStale;
   }
 
   #issueNumberFromBranchName(branchName: string): number | null {

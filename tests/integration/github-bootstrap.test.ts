@@ -447,9 +447,12 @@ describe("GitHubBootstrapTracker", () => {
     });
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    const secondLifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(lifecycle.kind).toBe("missing-target");
     expect(lifecycle.summary).toMatch(/no open pull request/i);
+    expect(secondLifecycle.kind).toBe("missing-target");
+    expect(server.countRequests("GET issues/7/comments")).toBe(2);
   });
 
   it("deduplicates concurrent ensureLabels calls", async () => {
