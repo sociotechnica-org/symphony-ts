@@ -1706,7 +1706,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     while (!stopSignal.aborted) {
       await this.#sleep(this.#watchdogConfig.checkIntervalMs, stopSignal);
-      if (stopSignal.aborted) {
+      // Re-check after sleep: the signal may have fired during the await,
+      // but TypeScript cannot narrow across async boundaries.
+      if ((stopSignal as AbortSignal).aborted) {
         break;
       }
       const activeIssue = this.#state.status.activeIssues.get(issueNumber);
@@ -1717,7 +1719,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           runSessionId: activeIssue?.runSessionId ?? null,
           prHeadSha: activeIssue?.pullRequest?.headSha ?? null,
           hasActionableFeedback:
-            (activeIssue?.review?.actionableCount ?? 0) > 0,
+            (activeIssue?.review.actionableCount ?? 0) > 0,
         });
         const result = checkStall(entry, snapshot, this.#watchdogConfig);
         if (result.stalled && result.reason !== null) {

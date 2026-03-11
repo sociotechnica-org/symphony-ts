@@ -29,20 +29,20 @@ export function deriveWatchdogLogFileName(options: {
  * Null probe that returns empty snapshots. Used when watchdog is disabled.
  */
 export class NullLivenessProbe implements LivenessProbe {
-  async capture(options: {
+  capture(options: {
     readonly issueNumber: number;
     readonly workspacePath: string | null;
     readonly runSessionId: string | null;
     readonly hasActionableFeedback: boolean;
     readonly prHeadSha: string | null;
   }): Promise<LivenessSnapshot> {
-    return {
+    return Promise.resolve({
       logSizeBytes: null,
       workspaceDiffHash: null,
       prHeadSha: options.prHeadSha,
       hasActionableFeedback: options.hasActionableFeedback,
       capturedAt: Date.now(),
-    };
+    });
   }
 }
 
