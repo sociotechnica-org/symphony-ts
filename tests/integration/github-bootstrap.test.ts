@@ -387,6 +387,44 @@ describe("GitHubBootstrapTracker", () => {
     expect(mergedLifecycle.summary).toMatch(/has merged/i);
   });
 
+  it("targets the latest open pull request when the same branch is reopened", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "Initial PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.mergePullRequest("symphony/7", "2020-01-01T00:00:00.000Z");
+
+    await server.recordPullRequest({
+      title: "Reopened PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: "greptile[bot]",
+      body: "Needs a follow-up commit",
+      path: "src/example.ts",
+      line: 12,
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.pullRequest?.url).toMatch(/\/pulls\/2$/);
+    expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
+  });
+
   it("ignores a merged PR that was already completed on the issue", async () => {
     const tracker = createTracker(server);
     const mergedAt = "2026-03-11T12:05:27Z";

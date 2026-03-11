@@ -476,21 +476,28 @@ export class GitHubClient {
       };
     }
 
-    const mergedPulls: MergedGitHubPullRequestResponse[] = [];
-    for (const pull of matchingPulls) {
-      if (pull.state !== "closed") {
-        continue;
-      }
-      const mergedAt = await this.#getPullRequestMergedAt(pull.number);
-      if (mergedAt === null) {
-        continue;
-      }
-      mergedPulls.push({
-        ...pull,
-        landingState: "merged",
-        mergedAt,
-      });
-    }
+    const mergedPulls = (
+      await Promise.all(
+        matchingPulls
+          .filter((pull) => pull.state === "closed")
+          .map(
+            async (pull): Promise<MergedGitHubPullRequestResponse | null> => {
+              const mergedAt = await this.#getPullRequestMergedAt(pull.number);
+              if (mergedAt === null) {
+                return null;
+              }
+              return {
+                ...pull,
+                landingState: "merged",
+                mergedAt,
+              };
+            },
+          ),
+      )
+    ).filter(
+      (pullRequest): pullRequest is MergedGitHubPullRequestResponse =>
+        pullRequest !== null,
+    );
     mergedPulls.sort(
       (left, right) => Date.parse(right.mergedAt) - Date.parse(left.mergedAt),
     );

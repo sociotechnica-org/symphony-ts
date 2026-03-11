@@ -351,7 +351,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
     await orchestrator.runOnce();
-    server.mergePullRequest("symphony/48", "2026-03-11T12:05:27Z");
+    server.mergePullRequest("symphony/48", "2020-01-01T00:00:00.000Z");
     await orchestrator.runOnce();
 
     let issue = server.getIssue(48);

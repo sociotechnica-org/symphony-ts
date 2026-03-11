@@ -272,9 +272,7 @@ export class MockGitHubServer {
 
   recordBranchPush(head: string, committedAt = new Date().toISOString()): void {
     this.#branchCommitTimes.set(head, committedAt);
-    const pullRequest = [...this.#prs.values()].find(
-      (entry) => entry.head === head,
-    );
+    const pullRequest = this.#findOpenPullRequestByHead(head);
     if (pullRequest) {
       pullRequest.latestCommitAt = committedAt;
       pullRequest.latestCommitSha = randomUUID();
@@ -750,9 +748,7 @@ export class MockGitHubServer {
   }
 
   #requirePullRequestByHead(head: string): PullRequestRecord {
-    const pullRequest = [...this.#prs.values()].find(
-      (entry) => entry.head === head,
-    );
+    const pullRequest = this.#findCurrentPullRequestByHead(head);
     if (!pullRequest) {
       throw new Error(`Pull request for ${head} not found`);
     }
@@ -760,13 +756,39 @@ export class MockGitHubServer {
   }
 
   #requirePullRequestByRef(ref: string): PullRequestRecord {
+    const byHead = this.#findCurrentPullRequestByHead(ref);
+    if (byHead) {
+      return byHead;
+    }
     const pullRequest = [...this.#prs.values()].find(
-      (entry) => entry.head === ref || entry.latestCommitSha === ref,
+      (entry) => entry.latestCommitSha === ref,
     );
     if (!pullRequest) {
       throw new Error(`Pull request for ${ref} not found`);
     }
     return pullRequest;
+  }
+
+  #findCurrentPullRequestByHead(head: string): PullRequestRecord | null {
+    return (
+      this.#findOpenPullRequestByHead(head) ??
+      this.#listPullRequestsByHead(head)[0] ??
+      null
+    );
+  }
+
+  #findOpenPullRequestByHead(head: string): PullRequestRecord | null {
+    return (
+      this.#listPullRequestsByHead(head).find(
+        (entry) => entry.state === "open",
+      ) ?? null
+    );
+  }
+
+  #listPullRequestsByHead(head: string): PullRequestRecord[] {
+    return [...this.#prs.values()]
+      .filter((entry) => entry.head === head)
+      .sort((left, right) => right.number - left.number);
   }
 
   #findReviewThread(threadId: string): MockReviewThread {
