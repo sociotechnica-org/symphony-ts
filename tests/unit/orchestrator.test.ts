@@ -1994,7 +1994,9 @@ describe("BootstrapOrchestrator watchdog", () => {
   it("stops the watchdog when the runner throws before completion", async () => {
     const issue = createIssue(77);
     const tracker = new SequencedTracker({ ready: [issue] });
-    tracker.setLifecycleSequence(77, [lifecycle("missing-target", "symphony/77")]);
+    tracker.setLifecycleSequence(77, [
+      lifecycle("missing-target", "symphony/77"),
+    ]);
 
     const watchdogConfig = {
       ...baseConfig,
