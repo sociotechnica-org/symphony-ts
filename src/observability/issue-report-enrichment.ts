@@ -98,10 +98,11 @@ export function mergeIssueReportEnrichment(
     return nextSession;
   });
 
-  const mergedTokenUsage = rebuildTokenUsage(report.tokenUsage, enrichedSessions, [
-    ...report.tokenUsage.notes,
-    ...(enrichment.notes ?? []),
-  ]);
+  const mergedTokenUsage = rebuildTokenUsage(
+    report.tokenUsage,
+    enrichedSessions,
+    [...report.tokenUsage.notes, ...(enrichment.notes ?? [])],
+  );
 
   return {
     ...report,
@@ -116,16 +117,13 @@ function mergeIssueReportSession(
   const tokenUsage = enrichment.tokenUsage;
   const next: IssueReportTokenUsageSession = {
     ...session,
-    inputTokens:
-      tokenUsage?.inputTokens ?? session.inputTokens,
+    inputTokens: tokenUsage?.inputTokens ?? session.inputTokens,
     cachedInputTokens:
       tokenUsage?.cachedInputTokens ?? session.cachedInputTokens,
-    outputTokens:
-      tokenUsage?.outputTokens ?? session.outputTokens,
+    outputTokens: tokenUsage?.outputTokens ?? session.outputTokens,
     reasoningOutputTokens:
       tokenUsage?.reasoningOutputTokens ?? session.reasoningOutputTokens,
-    totalTokens:
-      tokenUsage?.totalTokens ?? session.totalTokens,
+    totalTokens: tokenUsage?.totalTokens ?? session.totalTokens,
     originator: enrichment.originator ?? session.originator,
     sessionSource: enrichment.sessionSource ?? session.sessionSource,
     cliVersion: enrichment.cliVersion ?? session.cliVersion,
@@ -163,22 +161,20 @@ function rebuildTokenUsage(
   const someSessionTotalsAvailable =
     completeSessionCount > 0 && !allSessionTotalsAvailable;
 
-  const status =
-    allSessionTotalsAvailable
-      ? "complete"
-      : someSessionTotalsAvailable
+  const status = allSessionTotalsAvailable
+    ? "complete"
+    : someSessionTotalsAvailable
+      ? "partial"
+      : anySessionDetail
         ? "partial"
-        : anySessionDetail
-          ? "partial"
-          : base.status;
-  const explanation =
-    allSessionTotalsAvailable
-      ? `Runner log enrichment supplied token totals for all ${sessions.length.toString()} session(s). Estimated cost remains unavailable because report generation does not apply provider pricing.`
-      : someSessionTotalsAvailable
-        ? `Runner log enrichment supplied token totals for ${completeSessionCount.toString()} of ${sessions.length.toString()} session(s). Remaining sessions stayed partial or unavailable, and estimated cost remains unavailable because report generation does not apply provider pricing.`
-        : anySessionDetail
-          ? "Runner log enrichment supplied optional session detail, but token totals remained partial or unavailable."
-          : base.explanation;
+        : base.status;
+  const explanation = allSessionTotalsAvailable
+    ? `Runner log enrichment supplied token totals for all ${sessions.length.toString()} session(s). Estimated cost remains unavailable because report generation does not apply provider pricing.`
+    : someSessionTotalsAvailable
+      ? `Runner log enrichment supplied token totals for ${completeSessionCount.toString()} of ${sessions.length.toString()} session(s). Remaining sessions stayed partial or unavailable, and estimated cost remains unavailable because report generation does not apply provider pricing.`
+      : anySessionDetail
+        ? "Runner log enrichment supplied optional session detail, but token totals remained partial or unavailable."
+        : base.explanation;
 
   const attempts = base.attempts.map((attempt) => {
     const attemptSessions = sessions.filter((session) =>
@@ -240,7 +236,8 @@ function rebuildTokenUsage(
     .sort((left, right) => left.agent.localeCompare(right.agent));
 
   const totalTokens =
-    sessions.length > 0 && sessions.every((session) => session.totalTokens !== null)
+    sessions.length > 0 &&
+    sessions.every((session) => session.totalTokens !== null)
       ? sessions.reduce(
           (total, session) => total + (session.totalTokens ?? 0),
           0,

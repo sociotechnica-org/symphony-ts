@@ -154,14 +154,14 @@ export class CodexIssueReportEnricher implements IssueReportEnricher {
     const discovered: string[] = [];
 
     for (const dayRoot of dayRoots) {
-      const entries = await fs.readdir(dayRoot, { withFileTypes: true }).catch(
-        (error) => {
+      const entries = await fs
+        .readdir(dayRoot, { withFileTypes: true })
+        .catch((error) => {
           if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             return [];
           }
           throw error;
-        },
-      );
+        });
       for (const entry of entries) {
         if (entry.isFile() && entry.name.endsWith(".jsonl")) {
           discovered.push(path.join(dayRoot, entry.name));
@@ -177,7 +177,9 @@ export function createDefaultIssueReportEnrichers(): readonly IssueReportEnriche
   return [new CodexIssueReportEnricher()];
 }
 
-async function parseCodexSessionFile(filePath: string): Promise<ParsedCodexSession> {
+async function parseCodexSessionFile(
+  filePath: string,
+): Promise<ParsedCodexSession> {
   const raw = await fs.readFile(filePath, "utf8");
   const lines = raw
     .split("\n")
@@ -227,13 +229,16 @@ async function parseCodexSessionFile(filePath: string): Promise<ParsedCodexSessi
   };
 }
 
-function parseSessionMeta(record: Record<string, unknown>): ParsedCodexSessionMeta {
+function parseSessionMeta(
+  record: Record<string, unknown>,
+): ParsedCodexSessionMeta {
   const payload = asRecord(record["payload"]);
   const git = asRecord(payload?.["git"]);
 
   return {
     id: asString(payload?.["id"]),
-    timestamp: asString(payload?.["timestamp"]) ?? asString(record["timestamp"]),
+    timestamp:
+      asString(payload?.["timestamp"]) ?? asString(record["timestamp"]),
     cwd: asString(payload?.["cwd"]),
     originator: asString(payload?.["originator"]),
     source: asString(payload?.["source"]),
@@ -265,7 +270,9 @@ function parseTokenCount(
   };
 }
 
-function parseAssistantOutputText(record: Record<string, unknown>): string | null {
+function parseAssistantOutputText(
+  record: Record<string, unknown>,
+): string | null {
   const payload = asRecord(record["payload"]);
   if (payload?.["type"] !== "message" || payload["role"] !== "assistant") {
     return null;
@@ -343,7 +350,11 @@ function deriveCandidateDayRoots(
     finishedAt === null ? null : finishedAt + 24 * 60 * 60 * 1000,
   ].filter((value): value is number => value !== null);
 
-  return [...new Set(anchors.map((value) => path.join(sessionsRoot, formatDatePath(value))))];
+  return [
+    ...new Set(
+      anchors.map((value) => path.join(sessionsRoot, formatDatePath(value))),
+    ),
+  ];
 }
 
 function formatDatePath(timestampMs: number): string {

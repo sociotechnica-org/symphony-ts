@@ -165,15 +165,15 @@ This issue does not change long-running orchestration, retries, reconciliation, 
 
 The read-side enrichment path still needs an explicit failure matrix:
 
-| Observed condition | Local facts available | Expected behavior |
-| --- | --- | --- |
-| No enrichers are registered | canonical raw artifacts only | generate the same provider-neutral report as today |
-| A session is not identified as Codex-backed | canonical session snapshot only | skip Codex enrichment for that session |
-| Codex-backed session has one clear JSONL match | canonical session snapshot plus readable Codex JSONL | merge optional token/session/summary detail into the report |
-| Codex-backed session has no matching JSONL file | canonical session snapshot only | keep the canonical report, leave token usage unavailable/partial, and record an explanatory note |
-| Codex-backed session has multiple plausible JSONL matches | canonical session snapshot plus multiple candidate JSONL files | skip ambiguous enrichment and record a note instead of guessing |
-| Matched Codex JSONL file is malformed or missing expected fields | canonical session snapshot plus unreadable or partial JSONL | ignore the malformed enrichment, keep report generation successful, and record a note |
-| Mixed sessions exist across providers | canonical sessions from multiple providers | enrich only the sessions with a matching adapter; leave the rest unchanged |
+| Observed condition                                               | Local facts available                                          | Expected behavior                                                                                |
+| ---------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| No enrichers are registered                                      | canonical raw artifacts only                                   | generate the same provider-neutral report as today                                               |
+| A session is not identified as Codex-backed                      | canonical session snapshot only                                | skip Codex enrichment for that session                                                           |
+| Codex-backed session has one clear JSONL match                   | canonical session snapshot plus readable Codex JSONL           | merge optional token/session/summary detail into the report                                      |
+| Codex-backed session has no matching JSONL file                  | canonical session snapshot only                                | keep the canonical report, leave token usage unavailable/partial, and record an explanatory note |
+| Codex-backed session has multiple plausible JSONL matches        | canonical session snapshot plus multiple candidate JSONL files | skip ambiguous enrichment and record a note instead of guessing                                  |
+| Matched Codex JSONL file is malformed or missing expected fields | canonical session snapshot plus unreadable or partial JSONL    | ignore the malformed enrichment, keep report generation successful, and record a note            |
+| Mixed sessions exist across providers                            | canonical sessions from multiple providers                     | enrich only the sessions with a matching adapter; leave the rest unchanged                       |
 
 ## Storage / Persistence Contract
 

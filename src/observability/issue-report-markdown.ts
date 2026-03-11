@@ -121,7 +121,9 @@ export function renderIssueReportMarkdown(report: IssueReportDocument): string {
         );
       }
       if (session.sourceArtifacts.length > 0) {
-        lines.push(`  - Source artifacts: ${session.sourceArtifacts.join(", ")}`);
+        lines.push(
+          `  - Source artifacts: ${session.sourceArtifacts.join(", ")}`,
+        );
       }
       for (const note of session.notes) {
         lines.push(`  - Note: ${note}`);

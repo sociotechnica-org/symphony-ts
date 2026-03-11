@@ -38,7 +38,8 @@ describe("LocalRunner", () => {
   it("describes Codex-backed sessions with provider and model metadata", () => {
     const runner = new LocalRunner(
       {
-        command: "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+        command:
+          "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
         promptTransport: "stdin",
         timeoutMs: 5_000,
         env: {},
