@@ -294,16 +294,29 @@ export async function readIssueReport(
   issueNumber: number,
 ): Promise<StoredIssueReport> {
   const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
-  const rawReportJson = await readRequiredIssueReportFile(
-    outputPaths.reportJsonFile,
-    issueNumber,
-    "JSON",
-  );
-  const rawReportMarkdown = await readRequiredIssueReportFile(
-    outputPaths.reportMarkdownFile,
-    issueNumber,
-    "markdown",
-  );
+  const [rawReportJsonResult, rawReportMarkdownResult] =
+    await Promise.allSettled([
+      readRequiredIssueReportFile(
+        outputPaths.reportJsonFile,
+        issueNumber,
+        "JSON",
+      ),
+      readRequiredIssueReportFile(
+        outputPaths.reportMarkdownFile,
+        issueNumber,
+        "markdown",
+      ),
+    ]);
+
+  if (rawReportJsonResult.status === "rejected") {
+    throw rawReportJsonResult.reason;
+  }
+  if (rawReportMarkdownResult.status === "rejected") {
+    throw rawReportMarkdownResult.reason;
+  }
+
+  const rawReportJson = rawReportJsonResult.value;
+  const rawReportMarkdown = rawReportMarkdownResult.value;
 
   let report: IssueReportDocument;
   try {

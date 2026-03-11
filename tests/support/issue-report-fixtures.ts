@@ -421,6 +421,78 @@ export async function seedSessionAnchoredPartialArtifacts(
   });
 }
 
+export async function seedLateUnfinishedSessionArtifacts(
+  workspaceRoot: string,
+  issueNumber: number,
+): Promise<void> {
+  const paths = deriveIssueArtifactPaths(workspaceRoot, issueNumber);
+  const sessionId = `issue-${issueNumber.toString()}-session-1`;
+
+  await fs.mkdir(paths.attemptsDir, { recursive: true });
+  await fs.mkdir(paths.sessionsDir, { recursive: true });
+  await fs.mkdir(paths.logsDir, { recursive: true });
+
+  await writeJsonFile(path.join(paths.attemptsDir, "1.json"), {
+    version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+    issueNumber,
+    attemptNumber: 1,
+    branch: `symphony/${issueNumber.toString()}`,
+    startedAt: "2026-03-09T22:00:00.000Z",
+    finishedAt: null,
+    outcome: "attempt-failed",
+    summary: "Observed from an unfinished late-start session snapshot",
+    sessionId,
+    runnerPid: 7474,
+    pullRequest: null,
+    review: null,
+    checks: null,
+  });
+
+  await writeJsonFile(
+    path.join(paths.sessionsDir, `${encodeURIComponent(sessionId)}.json`),
+    {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      issueNumber,
+      attemptNumber: 1,
+      sessionId,
+      provider: "codex",
+      model: "gpt-5.4",
+      startedAt: "2026-03-09T22:00:00.000Z",
+      finishedAt: null,
+      workspacePath: path.join(
+        workspaceRoot,
+        `issue-${issueNumber.toString()}`,
+      ),
+      branch: `symphony/${issueNumber.toString()}`,
+      logPointers: [
+        {
+          name: "runner.log",
+          location: path.join(paths.logsDir, "runner.log"),
+          archiveLocation: null,
+        },
+      ],
+    },
+  );
+
+  await writeJsonFile(paths.logPointersFile, {
+    version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+    issueNumber,
+    sessions: {
+      [sessionId]: {
+        sessionId,
+        pointers: [
+          {
+            name: "runner.log",
+            location: path.join(paths.logsDir, "runner.log"),
+            archiveLocation: null,
+          },
+        ],
+        archiveLocation: null,
+      },
+    },
+  });
+}
+
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");

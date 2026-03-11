@@ -6,6 +6,7 @@ import { createTempDir } from "../support/git.js";
 import {
   deriveCodexSessionsRoot,
   deriveWorkspaceRoot,
+  seedLateUnfinishedSessionArtifacts,
   seedSuccessfulIssueArtifacts,
   writeCodexSessionLog,
 } from "../support/issue-report-fixtures.js";
@@ -138,6 +139,39 @@ describe("issue report enrichment", () => {
     expect(generated.report.tokenUsage.sessions[0]?.totalTokens).toBeNull();
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "A runner log file in the matching time window could not be parsed, so enrichment was skipped.",
+    );
+  });
+
+  it("finds a matching Codex log in the next UTC day when the canonical session has no finish time", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-next-day-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedLateUnfinishedSessionArtifacts(workspaceRoot, 44);
+
+    const logPath = await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-10T01:30:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-10T01-30-00-next-day.jsonl",
+      totalTokens: 1440,
+      finalSummary:
+        "- Continued the late-night Codex session into the next UTC day.",
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-10T02:00:00.000Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.totalTokens).toBe(1440);
+    expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
+      logPath,
+    );
+    expect(generated.report.tokenUsage.sessions[0]?.finalSummary).toBe(
+      "- Continued the late-night Codex session into the next UTC day.",
     );
   });
 });

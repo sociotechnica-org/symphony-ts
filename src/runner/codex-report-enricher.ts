@@ -350,6 +350,11 @@ function deriveCandidateDayRoots(
     startedAt,
     finishedAt,
     startedAt === null ? null : startedAt - 24 * 60 * 60 * 1000,
+    finishedAt === null
+      ? startedAt === null
+        ? null
+        : startedAt + MATCH_WINDOW_WITHOUT_FINISH_MS
+      : null,
     finishedAt === null ? null : finishedAt + 24 * 60 * 60 * 1000,
   ].filter((value): value is number => value !== null);
 

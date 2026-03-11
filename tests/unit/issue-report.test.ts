@@ -284,4 +284,23 @@ describe("issue report generation", () => {
       );
     },
   );
+
+  it("prefers the JSON-missing error when both generated report files are absent", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-read-both-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+    const generated = await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:05:00.000Z",
+    });
+
+    await Promise.all([
+      fs.rm(path.join(generated.outputPaths.issueRoot, "report.json")),
+      fs.rm(path.join(generated.outputPaths.issueRoot, "report.md")),
+    ]);
+
+    await expect(readIssueReport(workspaceRoot, 44)).rejects.toThrowError(
+      `No generated issue report JSON found for issue #44 at ${path.join(generated.outputPaths.issueRoot, "report.json")}; run 'symphony-report issue --issue 44' first.`,
+    );
+  });
 });
