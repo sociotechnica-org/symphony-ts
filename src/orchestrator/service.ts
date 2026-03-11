@@ -4,7 +4,11 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
 import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
-import type { PromptBuilder, ResolvedConfig } from "../domain/workflow.js";
+import type {
+  PromptBuilder,
+  ResolvedConfig,
+  WatchdogConfig,
+} from "../domain/workflow.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -39,6 +43,15 @@ import {
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
 import { createOrchestratorState } from "./state.js";
+import type { LivenessProbe } from "./liveness-probe.js";
+import {
+  type StallReason,
+  createWatchdogEntry,
+  checkStall,
+  canRecover,
+  recordRecovery,
+  DEFAULT_WATCHDOG_CONFIG,
+} from "./stall-detector.js";
 import {
   adjustTrackerIssueCounts,
   buildFactoryStatusSnapshot,
@@ -72,6 +85,8 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #leaseManager: LocalIssueLeaseManager;
   readonly #issueArtifactStore: IssueArtifactStore;
   readonly #statusFilePath: string;
+  readonly #livenessProbe: LivenessProbe | null;
+  readonly #watchdogConfig: WatchdogConfig;
   #shutdownSignal: AbortSignal | undefined;
 
   constructor(
@@ -82,6 +97,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     runner: Runner,
     logger: Logger,
     issueArtifactStore?: IssueArtifactStore,
+    livenessProbe?: LivenessProbe,
   ) {
     this.#config = config;
     this.#promptBuilder = promptBuilder;
@@ -96,6 +112,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#issueArtifactStore =
       issueArtifactStore ?? new LocalIssueArtifactStore(config.workspace.root);
     this.#statusFilePath = deriveStatusFilePath(config.workspace.root);
+    this.#watchdogConfig = config.polling.watchdog ?? DEFAULT_WATCHDOG_CONFIG;
+    this.#livenessProbe = livenessProbe ?? null;
   }
 
   async runOnce(): Promise<void> {
@@ -511,18 +529,28 @@ export class BootstrapOrchestrator implements Orchestrator {
       shutdownSignal.addEventListener("abort", handleShutdown, { once: true });
     }
     this.#state.runAbortControllers.set(issue.number, abortController);
+    this.#initWatchdogEntry(issue.number);
 
     let result: RunResult;
     try {
+      const watchdogStop = new AbortController();
+      const watchdogPromise = this.#runWatchdogLoop(
+        issue.number,
+        abortController,
+        watchdogStop.signal,
+      );
       result = await this.#runner.run(session, {
         signal: abortController.signal,
         onSpawn: (event) => {
           this.#recordRunnerSpawn(session, lockDir, event);
         },
       });
+      watchdogStop.abort();
+      await watchdogPromise;
     } finally {
       shutdownSignal?.removeEventListener("abort", handleShutdown);
       this.#state.runAbortControllers.delete(issue.number);
+      this.#state.watchdog.delete(issue.number);
     }
 
     if (result.exitCode !== 0) {
@@ -1630,5 +1658,99 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
       signal.addEventListener("abort", handleAbort, { once: true });
     });
+  }
+  #initWatchdogEntry(issueNumber: number): void {
+    if (
+      !this.#watchdogConfig.enabled ||
+      this.#state.watchdog.has(issueNumber)
+    ) {
+      return;
+    }
+    const now = Date.now();
+    this.#state.watchdog.set(
+      issueNumber,
+      createWatchdogEntry(issueNumber, {
+        logSizeBytes: null,
+        workspaceDiffHash: null,
+        prHeadSha: null,
+        hasActionableFeedback: false,
+        capturedAt: now,
+      }),
+    );
+  }
+
+  async #runWatchdogLoop(
+    issueNumber: number,
+    runAbort: AbortController,
+    stopSignal: AbortSignal,
+  ): Promise<void> {
+    if (!this.#watchdogConfig.enabled || this.#livenessProbe === null) {
+      return;
+    }
+    const entry = this.#state.watchdog.get(issueNumber);
+    if (!entry) {
+      return;
+    }
+    while (!stopSignal.aborted) {
+      await this.#sleep(this.#watchdogConfig.checkIntervalMs, stopSignal);
+      if (stopSignal.aborted) {
+        break;
+      }
+      const activeIssue = this.#state.status.activeIssues.get(issueNumber);
+      try {
+        const snapshot = await this.#livenessProbe.capture({
+          issueNumber,
+          workspacePath: activeIssue?.workspacePath ?? null,
+          runSessionId: activeIssue?.runSessionId ?? null,
+          prHeadSha: activeIssue?.pullRequest?.latestCommitAt ?? null,
+          hasActionableFeedback:
+            (activeIssue?.review?.actionableCount ?? 0) > 0,
+        });
+        const result = checkStall(entry, snapshot, this.#watchdogConfig);
+        if (result.stalled && result.reason !== null) {
+          if (canRecover(entry, this.#watchdogConfig)) {
+            await this.#recoverStalledRunner(issueNumber, result.reason);
+            break;
+          }
+          this.#logger.warn("Stalled runner exceeded recovery limit", {
+            issueNumber,
+            reason: result.reason,
+            recoveryCount: entry.recoveryCount,
+          });
+          break;
+        }
+      } catch (error) {
+        this.#logger.warn("Watchdog liveness probe failed", {
+          issueNumber,
+          error: this.#normalizeFailure(error as Error),
+        });
+      }
+    }
+  }
+
+  async #recoverStalledRunner(
+    issueNumber: number,
+    reason: StallReason,
+  ): Promise<void> {
+    const entry = this.#state.watchdog.get(issueNumber);
+    if (!entry) {
+      return;
+    }
+    recordRecovery(entry);
+    this.#logger.warn("Recovering stalled runner", {
+      issueNumber,
+      reason,
+      recoveryCount: entry.recoveryCount,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: "watchdog-recovery",
+      summary: `Stall detected (${reason}) for issue #${issueNumber.toString()}; aborting runner`,
+      issueNumber,
+    });
+    await this.#persistStatusSnapshot();
+    const controller = this.#state.runAbortControllers.get(issueNumber);
+    if (controller) {
+      controller.abort();
+    }
   }
 }

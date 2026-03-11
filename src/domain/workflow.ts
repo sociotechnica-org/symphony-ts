@@ -1,6 +1,13 @@
 import type { RuntimeIssue } from "./issue.js";
 import type { HandoffLifecycle } from "./handoff.js";
 
+export interface WatchdogConfig {
+  readonly enabled: boolean;
+  readonly checkIntervalMs: number;
+  readonly stallThresholdMs: number;
+  readonly maxRecoveryAttempts: number;
+}
+
 export interface RetryPolicy {
   readonly maxAttempts: number;
   readonly maxFollowUpAttempts: number;
@@ -34,6 +41,7 @@ export interface PollingConfig {
   readonly intervalMs: number;
   readonly maxConcurrentRuns: number;
   readonly retry: RetryPolicy;
+  readonly watchdog?: WatchdogConfig;
 }
 
 export interface WorkspaceConfig {

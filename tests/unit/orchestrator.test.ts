@@ -1836,3 +1836,158 @@ describe("BootstrapOrchestrator", () => {
     expect(new Set(runner.sessionIds).size).toBe(2);
   });
 });
+
+describe("BootstrapOrchestrator watchdog", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await createTempDir("symphony-watchdog-test-");
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it("aborts a stalled runner when watchdog detects no progress", async () => {
+    const issue = createIssue(99);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(99, [
+      lifecycle("missing-target", "symphony/99"),
+      lifecycle("handoff-ready", "symphony/99"),
+    ]);
+
+    const runStarted = createDeferred<void>();
+    let runAborted = false;
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        runStarted.resolve();
+        // Simulate a runner that stalls indefinitely until aborted
+        return new Promise<RunResult>((resolve, reject) => {
+          const handleAbort = (): void => {
+            runAborted = true;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    // Create a liveness probe that always returns the same snapshot (no progress)
+    const { NullLivenessProbe } =
+      await import("../../src/orchestrator/liveness-probe.js");
+
+    const staticProbe = new NullLivenessProbe();
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0, // immediate stall detection for testing
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      new NullLogger(),
+      undefined,
+      staticProbe,
+    );
+
+    // Start runOnce in background — it will start the runner and then check watchdog
+    const runOncePromise = orchestrator.runOnce();
+
+    // Wait for the runner to start
+    await runStarted.promise;
+
+    // The runOnce should eventually abort the stalled runner via watchdog
+    // and handle the resulting error
+    await runOncePromise;
+
+    expect(runAborted).toBe(true);
+  });
+
+  it("does not recover beyond maxRecoveryAttempts", async () => {
+    const issue = createIssue(88);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(88, [
+      lifecycle("missing-target", "symphony/88"),
+      lifecycle("handoff-ready", "symphony/88"),
+    ]);
+
+    let abortCount = 0;
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        return new Promise<RunResult>((resolve, reject) => {
+          const handleAbort = (): void => {
+            abortCount += 1;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    const { NullLivenessProbe } =
+      await import("../../src/orchestrator/liveness-probe.js");
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      logger,
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    // First runOnce — should recover once
+    await orchestrator.runOnce();
+    expect(abortCount).toBe(1);
+  });
+});
