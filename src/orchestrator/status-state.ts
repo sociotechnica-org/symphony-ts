@@ -167,6 +167,7 @@ export function noteLifecycleForIssue(
         : {
             number: lifecycle.pullRequest.number,
             url: lifecycle.pullRequest.url,
+            headSha: lifecycle.pullRequest.headSha,
             latestCommitAt: lifecycle.pullRequest.latestCommitAt,
           },
     checks: {

@@ -44,6 +44,7 @@ export interface FactoryStatusAction {
 export interface FactoryPullRequestStatus {
   readonly number: number;
   readonly url: string;
+  readonly headSha: string | null;
   readonly latestCommitAt: string | null;
 }
 
@@ -482,6 +483,11 @@ function parsePullRequest(
   return {
     number: expectInteger(pullRequest.number, filePath, `${field}.number`),
     url: expectString(pullRequest.url, filePath, `${field}.url`),
+    headSha: expectNullableString(
+      pullRequest.headSha,
+      filePath,
+      `${field}.headSha`,
+    ),
     latestCommitAt: expectNullableString(
       pullRequest.latestCommitAt,
       filePath,

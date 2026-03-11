@@ -58,6 +58,7 @@ function createSnapshot(
         pullRequest: {
           number: 12,
           url: "https://example.test/pr/12",
+          headSha: "head-sha-12",
           latestCommitAt: "2026-03-06T11:59:30.000Z",
         },
         checks: {

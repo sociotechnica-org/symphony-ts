@@ -1215,6 +1215,7 @@ function readPullRequestFromDetails(
   return {
     number: value["number"],
     url: value["url"],
+    headSha: typeof value["headSha"] === "string" ? value["headSha"] : null,
     latestCommitAt:
       typeof value["latestCommitAt"] === "string"
         ? value["latestCommitAt"]
