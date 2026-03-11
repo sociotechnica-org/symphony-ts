@@ -43,15 +43,18 @@ describe("report CLI", () => {
       return true;
     }) as typeof process.stdout.write);
 
-    await runReportCli([
-      "node",
-      "symphony-report",
-      "issue",
-      "--issue",
-      "44",
-      "--workflow",
-      workflowPath,
-    ]);
+    await runReportCli(
+      [
+        "node",
+        "symphony-report",
+        "issue",
+        "--issue",
+        "44",
+        "--workflow",
+        workflowPath,
+      ],
+      { issueEnrichers: [] },
+    );
 
     const reportDir = path.join(tempDir, ".var", "reports", "issues", "44");
     await expect(
@@ -70,15 +73,18 @@ describe("report CLI", () => {
     const workspaceRoot = deriveWorkspaceRoot(tempDir);
     await seedFailedIssueArtifacts(workspaceRoot, 44);
 
-    await runReportCli([
-      "node",
-      "symphony-report",
-      "issue",
-      "--issue",
-      "44",
-      "--workflow",
-      workflowPath,
-    ]);
+    await runReportCli(
+      [
+        "node",
+        "symphony-report",
+        "issue",
+        "--issue",
+        "44",
+        "--workflow",
+        workflowPath,
+      ],
+      { issueEnrichers: [] },
+    );
 
     const reportDir = path.join(tempDir, ".var", "reports", "issues", "44");
     const reportJson = await fs.readFile(
@@ -150,15 +156,18 @@ describe("report CLI", () => {
     const workspaceRoot = deriveWorkspaceRoot(tempDir);
     await seedSessionAnchoredPartialArtifacts(workspaceRoot, 44);
 
-    await runReportCli([
-      "node",
-      "symphony-report",
-      "issue",
-      "--issue",
-      "44",
-      "--workflow",
-      workflowPath,
-    ]);
+    await runReportCli(
+      [
+        "node",
+        "symphony-report",
+        "issue",
+        "--issue",
+        "44",
+        "--workflow",
+        workflowPath,
+      ],
+      { issueEnrichers: [] },
+    );
 
     const reportDir = path.join(tempDir, ".var", "reports", "issues", "44");
     const reportMd = await fs.readFile(
@@ -236,15 +245,18 @@ Prompt body
       await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
 
       await expect(
-        runReportCli([
-          "node",
-          "symphony-report",
-          "issue",
-          "--issue",
-          "44",
-          "--workflow",
-          workflowPath,
-        ]),
+        runReportCli(
+          [
+            "node",
+            "symphony-report",
+            "issue",
+            "--issue",
+            "44",
+            "--workflow",
+            workflowPath,
+          ],
+          { issueEnrichers: [] },
+        ),
       ).resolves.toBeUndefined();
     } finally {
       if (previousApiKey === undefined) {

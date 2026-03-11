@@ -74,7 +74,11 @@ function tokenizeShellWords(command: string): readonly string[] {
     }
 
     if (character === "\\") {
-      escaping = true;
+      if (quote === "'") {
+        current += character;
+      } else {
+        escaping = true;
+      }
       continue;
     }
 

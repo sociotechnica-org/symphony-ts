@@ -294,18 +294,16 @@ export async function readIssueReport(
   issueNumber: number,
 ): Promise<StoredIssueReport> {
   const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
-  const [rawReportJson, rawReportMarkdown] = await Promise.all([
-    readRequiredIssueReportFile(
-      outputPaths.reportJsonFile,
-      issueNumber,
-      "JSON",
-    ),
-    readRequiredIssueReportFile(
-      outputPaths.reportMarkdownFile,
-      issueNumber,
-      "markdown",
-    ),
-  ]);
+  const rawReportJson = await readRequiredIssueReportFile(
+    outputPaths.reportJsonFile,
+    issueNumber,
+    "JSON",
+  );
+  const rawReportMarkdown = await readRequiredIssueReportFile(
+    outputPaths.reportMarkdownFile,
+    issueNumber,
+    "markdown",
+  );
 
   let report: IssueReportDocument;
   try {

@@ -306,7 +306,10 @@ function matchesCodexSession(
   if (meta.cwd === null) {
     return false;
   }
-  if (path.resolve(meta.cwd) !== path.resolve(session.workspacePath ?? "")) {
+  if (session.workspacePath === null) {
+    return false;
+  }
+  if (path.resolve(meta.cwd) !== path.resolve(session.workspacePath)) {
     return false;
   }
   if (

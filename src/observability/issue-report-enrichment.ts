@@ -199,7 +199,7 @@ function rebuildTokenUsage(
     string,
     {
       sessionCount: number;
-      totalTokens: number | null;
+      totalTokens: number;
       hasMissingTokens: boolean;
     }
   >();
@@ -216,11 +216,9 @@ function rebuildTokenUsage(
     agentsByName.set(label, {
       sessionCount: existing.sessionCount + 1,
       totalTokens:
-        existing.totalTokens === null
-          ? null
-          : session.totalTokens === null
-            ? existing.totalTokens
-            : existing.totalTokens + session.totalTokens,
+        session.totalTokens === null
+          ? existing.totalTokens
+          : existing.totalTokens + session.totalTokens,
       hasMissingTokens:
         existing.hasMissingTokens || session.totalTokens === null,
     });

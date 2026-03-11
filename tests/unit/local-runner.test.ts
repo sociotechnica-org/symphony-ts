@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
 import { LocalRunner } from "../../src/runner/local.js";
 import { waitForExit } from "../support/process.js";
 
@@ -69,6 +70,15 @@ describe("LocalRunner", () => {
       provider: "local-runner",
       model: null,
       logPointers: [],
+    });
+  });
+
+  it("treats backslashes as literal characters inside single-quoted arguments", () => {
+    expect(
+      describeLocalRunnerBackend("codex exec -m 'gpt\\\\5.4\\\\reasoning'"),
+    ).toEqual({
+      provider: "codex",
+      model: "gpt\\\\5.4\\\\reasoning",
     });
   });
 
