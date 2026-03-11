@@ -6,6 +6,8 @@ describe("NullLivenessProbe", () => {
     const probe = new NullLivenessProbe();
     const result = await probe.capture({
       issueNumber: 42,
+      workspacePath: "/tmp/workspaces/42",
+      runSessionId: "session-42",
       prHeadSha: "abc123",
       hasActionableFeedback: true,
     });

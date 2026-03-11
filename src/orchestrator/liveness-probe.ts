@@ -22,6 +22,8 @@ export interface LivenessProbe {
 export class NullLivenessProbe implements LivenessProbe {
   async capture(options: {
     readonly issueNumber: number;
+    readonly workspacePath: string | null;
+    readonly runSessionId: string | null;
     readonly hasActionableFeedback: boolean;
     readonly prHeadSha: string | null;
   }): Promise<LivenessSnapshot> {

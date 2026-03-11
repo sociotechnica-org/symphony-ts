@@ -496,6 +496,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           : {
               number: pullRequest.pullRequest.number,
               url: pullRequest.pullRequest.url,
+              headSha: pullRequest.pullRequest.headSha,
               latestCommitAt: pullRequest.pullRequest.latestCommitAt,
             },
       checks: {
@@ -531,23 +532,23 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.runAbortControllers.set(issue.number, abortController);
     this.#initWatchdogEntry(issue.number);
 
+    const watchdogStop = new AbortController();
+    const watchdogPromise = this.#runWatchdogLoop(
+      issue.number,
+      watchdogStop.signal,
+    );
+
     let result: RunResult;
     try {
-      const watchdogStop = new AbortController();
-      const watchdogPromise = this.#runWatchdogLoop(
-        issue.number,
-        abortController,
-        watchdogStop.signal,
-      );
       result = await this.#runner.run(session, {
         signal: abortController.signal,
         onSpawn: (event) => {
           this.#recordRunnerSpawn(session, lockDir, event);
         },
       });
+    } finally {
       watchdogStop.abort();
       await watchdogPromise;
-    } finally {
       shutdownSignal?.removeEventListener("abort", handleShutdown);
       this.#state.runAbortControllers.delete(issue.number);
       this.#state.watchdog.delete(issue.number);
@@ -1397,6 +1398,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           : {
               number: lifecycle.pullRequest.number,
               url: lifecycle.pullRequest.url,
+              headSha: lifecycle.pullRequest.headSha,
               latestCommitAt: lifecycle.pullRequest.latestCommitAt,
             },
       checks: {
@@ -1513,6 +1515,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     return {
       number: lifecycle.pullRequest.number,
       url: lifecycle.pullRequest.url,
+      headSha: lifecycle.pullRequest.headSha,
       latestCommitAt: lifecycle.pullRequest.latestCommitAt,
     };
   }
@@ -1681,7 +1684,6 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #runWatchdogLoop(
     issueNumber: number,
-    runAbort: AbortController,
     stopSignal: AbortSignal,
   ): Promise<void> {
     if (!this.#watchdogConfig.enabled || this.#livenessProbe === null) {
@@ -1702,7 +1704,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           issueNumber,
           workspacePath: activeIssue?.workspacePath ?? null,
           runSessionId: activeIssue?.runSessionId ?? null,
-          prHeadSha: activeIssue?.pullRequest?.latestCommitAt ?? null,
+          prHeadSha: activeIssue?.pullRequest?.headSha ?? null,
           hasActionableFeedback:
             (activeIssue?.review?.actionableCount ?? 0) > 0,
         });

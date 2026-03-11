@@ -46,8 +46,8 @@ export function createWatchdogEntry(
 /**
  * Check whether an issue's runner has stalled based on liveness signals.
  *
- * Pure function: compares the new snapshot against the tracked entry
- * and returns whether the issue is stalled and why.
+ * Updates `entry.lastLiveness` and `entry.lastChangeAt` as a side effect.
+ * Returns whether the issue is stalled and why.
  */
 export function checkStall(
   entry: WatchdogEntry,

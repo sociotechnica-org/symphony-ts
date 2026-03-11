@@ -1990,4 +1990,59 @@ describe("BootstrapOrchestrator watchdog", () => {
     await orchestrator.runOnce();
     expect(abortCount).toBe(1);
   });
+
+  it("stops the watchdog when the runner throws before completion", async () => {
+    const issue = createIssue(77);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(77, [lifecycle("missing-target", "symphony/77")]);
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const { NullLivenessProbe } =
+      await import("../../src/orchestrator/liveness-probe.js");
+
+    const failingRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run() {
+        throw new Error("runner crashed");
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      failingRunner,
+      logger,
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    await orchestrator.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
+    expect(
+      tracker.retried.some(({ reason }) => reason.includes("Stall detected")),
+    ).toBe(false);
+  });
 });
