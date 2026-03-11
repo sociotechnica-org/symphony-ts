@@ -507,13 +507,15 @@ function buildCampaignGitHubActivity(
     .map((pullRequest) => pullRequest.unresolvedThreadCount)
     .filter((value): value is number => value !== null);
   const actionableReviewCount =
-    actionableReviewValues.length === pullRequests.length
-      ? actionableReviewValues.reduce((sum, value) => sum + value, 0)
-      : null;
+    pullRequests.length === 0 ||
+    actionableReviewValues.length !== pullRequests.length
+      ? null
+      : actionableReviewValues.reduce((sum, value) => sum + value, 0);
   const unresolvedThreadCount =
-    unresolvedThreadValues.length === pullRequests.length
-      ? unresolvedThreadValues.reduce((sum, value) => sum + value, 0)
-      : null;
+    pullRequests.length === 0 ||
+    unresolvedThreadValues.length !== pullRequests.length
+      ? null
+      : unresolvedThreadValues.reduce((sum, value) => sum + value, 0);
   const pendingChecks = countNamedPatterns(
     pullRequests.flatMap((pullRequest) => pullRequest.pendingChecks),
   );
@@ -927,7 +929,13 @@ function buildOverallCampaignOutcome(
   if (outcomeCounts.unknown > 0) {
     parts.push(`${outcomeCounts.unknown.toString()} remained unknown`);
   }
-  return parts.join(" ");
+  const firstPart = parts[0];
+  if (firstPart === undefined) {
+    return "No issue reports were selected.";
+  }
+  return parts.length === 1
+    ? firstPart
+    : `${firstPart} ${parts.slice(1).join(", ")}.`;
 }
 
 function buildGitHubSummary(

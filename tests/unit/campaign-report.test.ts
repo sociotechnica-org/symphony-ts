@@ -175,6 +175,9 @@ describe("campaign report", () => {
       partial: 1,
       unknown: 0,
     });
+    expect(digest.summary.overallOutcome).toBe(
+      "Completed 1 of 3 selected issues. 1 failed, 1 remained partial.",
+    );
     expect(digest.githubActivity.pullRequests).toHaveLength(2);
     expect(digest.githubActivity.pendingChecks).toEqual([
       { name: "CI", count: 1 },
@@ -187,6 +190,39 @@ describe("campaign report", () => {
     expect(digest.tokenUsage.observedTokenSubtotal).toBe(4400);
     expect(digest.learnings.changesToMake).toContain(
       "Expand token-usage capture or enrichment; campaign token coverage was partial across 3 issue reports.",
+    );
+  });
+
+  it("treats aggregate review counts as unavailable when no pull requests were observed", () => {
+    const digest = buildCampaignDigest(
+      {
+        kind: "issues",
+        issueNumbers: [43],
+      },
+      [
+        buildStoredIssueReport({
+          issueNumber: 43,
+          title: "Issue 43",
+          summary: {
+            outcome: "failed",
+            overallConclusion: "Failed before opening a PR.",
+          },
+          githubActivity: {
+            reviewFeedbackRounds: 0,
+          },
+        }),
+      ],
+      "2026-03-11T12:00:00.000Z",
+    );
+
+    expect(digest.githubActivity.pullRequests).toHaveLength(0);
+    expect(digest.githubActivity.actionableReviewCount).toBeNull();
+    expect(digest.githubActivity.unresolvedThreadCount).toBeNull();
+    expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
+      "- Actionable review count: Unavailable",
+    );
+    expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
+      "- Unresolved thread count: Unavailable",
     );
   });
 
