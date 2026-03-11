@@ -242,6 +242,10 @@ export class GitHubBootstrapTracker implements Tracker {
       cachedObservation.pullRequestNumber === pullRequest.number &&
       cachedObservation.mergedAt === pullRequest.mergedAt
     ) {
+      // Once a merged PR is known to be stale for this PR number + mergedAt
+      // pair, keep treating it as stale even if the issue updates later. The
+      // factory should not re-complete an already-landed stale PR just because
+      // someone edits or deletes the old success comment afterward.
       return true;
     }
 
