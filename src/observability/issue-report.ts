@@ -268,19 +268,17 @@ export async function readIssueReport(
 ): Promise<StoredIssueReport> {
   const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
   const [rawReportJson, rawReportMarkdown] = await Promise.all([
-    fs.readFile(outputPaths.reportJsonFile, "utf8"),
-    fs.readFile(outputPaths.reportMarkdownFile, "utf8"),
-  ]).catch((error) => {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new ObservabilityError(
-        `No generated issue report found for issue #${issueNumber.toString()} at ${outputPaths.issueRoot}; run 'symphony-report issue --issue ${issueNumber.toString()}' first.`,
-        {
-          cause: error as Error,
-        },
-      );
-    }
-    throw error;
-  });
+    readRequiredIssueReportFile(
+      outputPaths.reportJsonFile,
+      issueNumber,
+      "JSON",
+    ),
+    readRequiredIssueReportFile(
+      outputPaths.reportMarkdownFile,
+      issueNumber,
+      "markdown",
+    ),
+  ]);
 
   let report: IssueReportDocument;
   try {
@@ -300,6 +298,26 @@ export async function readIssueReport(
     rawReportMarkdown,
     outputPaths,
   };
+}
+
+async function readRequiredIssueReportFile(
+  filePath: string,
+  issueNumber: number,
+  fileKind: "JSON" | "markdown",
+): Promise<string> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new ObservabilityError(
+        `No generated issue report ${fileKind} found for issue #${issueNumber.toString()} at ${filePath}; run 'symphony-report issue --issue ${issueNumber.toString()}' first.`,
+        {
+          cause: error as Error,
+        },
+      );
+    }
+    throw error;
+  }
 }
 
 export async function loadIssueArtifacts(

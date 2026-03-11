@@ -525,7 +525,7 @@ describe("factory-runs publication", () => {
         issueNumber: 44,
       }),
     ).rejects.toThrowError(
-      `No generated issue report found for issue #44 at ${path.join(sourceRoot, ".var", "reports", "issues", "44")}; run 'symphony-report issue --issue 44' first.`,
+      `No generated issue report JSON found for issue #44 at ${path.join(sourceRoot, ".var", "reports", "issues", "44", "report.json")}; run 'symphony-report issue --issue 44' first.`,
     );
 
     await expect(
