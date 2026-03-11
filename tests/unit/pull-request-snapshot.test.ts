@@ -74,6 +74,7 @@ const pullRequest: GitHubPullRequestResponse = {
   html_url: "https://example.test/pulls/24",
   state: "open",
   landingState: "open",
+  mergedAt: null,
   head: {
     ref: "symphony/19",
     sha: "sha-1",

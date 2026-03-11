@@ -387,6 +387,33 @@ describe("GitHubBootstrapTracker", () => {
     expect(mergedLifecycle.summary).toMatch(/has merged/i);
   });
 
+  it("ignores a merged PR that was already completed on the issue", async () => {
+    const tracker = createTracker(server);
+    const mergedAt = "2026-03-11T12:05:27Z";
+
+    server.setIssueLabels(7, ["symphony:running"]);
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.mergePullRequest("symphony/7", mergedAt);
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "done",
+      createdAt: "2026-03-11T12:05:28Z",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("missing-target");
+    expect(lifecycle.summary).toMatch(/no open pull request/i);
+  });
+
   it("deduplicates concurrent ensureLabels calls", async () => {
     const tracker = createTracker(server);
 

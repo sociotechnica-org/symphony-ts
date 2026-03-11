@@ -157,7 +157,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       rootDir: tempDir,
       remotePath,
       apiUrl: server.baseUrl,
-      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
     });
     const orchestrator = await createOrchestrator(workflowPath);
 
@@ -303,7 +303,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       rootDir: tempDir,
       remotePath,
       apiUrl: server.baseUrl,
-      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
     });
     const orchestrator = await createOrchestrator(workflowPath);
 
@@ -328,6 +328,54 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       status: "awaiting-landing",
       branchName: "symphony/47",
     });
+  });
+
+  it("does not immediately re-close a reopened issue because of a previously merged PR", async () => {
+    server.seedIssue({
+      number: 48,
+      title: "Reopened merged regression",
+      body: "Do not treat an old merged PR as current work",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/48", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    await orchestrator.runOnce();
+    server.mergePullRequest("symphony/48", "2026-03-11T12:05:27Z");
+    await orchestrator.runOnce();
+
+    let issue = server.getIssue(48);
+    expect(issue.state).toBe("closed");
+    expect(
+      issue.comments.filter(
+        (body) => body === "Symphony completed this issue successfully.",
+      ),
+    ).toHaveLength(1);
+    expect(server.getPullRequests()).toHaveLength(1);
+
+    server.setIssueState(48, "open");
+    server.setIssueLabels(48, ["symphony:ready"]);
+
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(48);
+    expect(issue.state).toBe("open");
+    expect(issue.labels.map((label) => label.name)).toContain("symphony:running");
+    expect(
+      issue.comments.filter(
+        (body) => body === "Symphony completed this issue successfully.",
+      ),
+    ).toHaveLength(1);
   });
 
   it("generates a detached per-issue report from runtime artifacts without mutating raw artifacts", async () => {

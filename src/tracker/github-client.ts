@@ -47,6 +47,16 @@ interface GitHubPullRequestListResponse {
 
 export interface GitHubPullRequestResponse extends GitHubPullRequestListResponse {
   readonly landingState: "open" | "merged";
+  readonly mergedAt: string | null;
+}
+
+interface GitHubPullRequestDetailsResponse {
+  readonly merged_at: string | null;
+}
+
+interface MergedGitHubPullRequestResponse extends GitHubPullRequestListResponse {
+  readonly landingState: "merged";
+  readonly mergedAt: string;
 }
 
 interface GitHubCheckRunsResponse {
@@ -462,19 +472,30 @@ export class GitHubClient {
       return {
         ...openPull,
         landingState: "open",
+        mergedAt: null,
       };
     }
 
+    const mergedPulls: MergedGitHubPullRequestResponse[] = [];
     for (const pull of matchingPulls) {
       if (pull.state !== "closed") {
         continue;
       }
-      if (await this.#isPullRequestMerged(pull.number)) {
-        return {
-          ...pull,
-          landingState: "merged",
-        };
+      const mergedAt = await this.#getPullRequestMergedAt(pull.number);
+      if (mergedAt === null) {
+        continue;
       }
+      mergedPulls.push({
+        ...pull,
+        landingState: "merged",
+        mergedAt,
+      });
+    }
+    mergedPulls.sort(
+      (left, right) => Date.parse(right.mergedAt) - Date.parse(left.mergedAt),
+    );
+    if (mergedPulls[0]) {
+      return mergedPulls[0];
     }
 
     return null;
@@ -678,32 +699,12 @@ export class GitHubClient {
     return (await response.json()) as T;
   }
 
-  async #isPullRequestMerged(number: number): Promise<boolean> {
-    const token = await this.#tokenPromise;
-    const response = await fetch(
-      `${this.#config.apiUrl}${this.#issuePath(`pulls/${number.toString()}/merge`)}`,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      },
+  async #getPullRequestMergedAt(number: number): Promise<string | null> {
+    const pullRequest = await this.#request<GitHubPullRequestDetailsResponse>(
+      "GET",
+      this.#issuePath(`pulls/${number.toString()}`),
     );
-
-    if (response.status === 204) {
-      return true;
-    }
-    if (response.status === 404) {
-      return false;
-    }
-
-    const text = await response.text();
-    throw new TrackerError(
-      `GitHub API GET ${this.#issuePath(`pulls/${number.toString()}/merge`)} failed with ${response.status}: ${text}`,
-    );
+    return pullRequest.merged_at;
   }
 
   #issuePath(suffix: string): string {

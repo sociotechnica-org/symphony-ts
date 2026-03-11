@@ -179,6 +179,15 @@ export class MockGitHubServer {
     issue.updated_at = new Date().toISOString();
   }
 
+  setIssueState(number: number, state: string): void {
+    const issue = this.#issues.get(number);
+    if (!issue) {
+      throw new Error(`Issue ${number} not found`);
+    }
+    issue.state = state;
+    issue.updated_at = new Date().toISOString();
+  }
+
   addIssueComment(input: {
     issueNumber: number;
     authorLogin?: string;
@@ -228,7 +237,7 @@ export class MockGitHubServer {
     base: string;
   }): Promise<void> {
     const existing = [...this.#prs.values()].find(
-      (entry) => entry.head === pr.head,
+      (entry) => entry.head === pr.head && entry.state === "open",
     );
     if (existing) {
       return;
@@ -485,6 +494,26 @@ export class MockGitHubServer {
           },
         }));
       json(response, 200, pulls);
+      return;
+    }
+
+    const pullRequestMatch = suffix.match(/^pulls\/(\d+)$/);
+    if (pullRequestMatch && method === "GET") {
+      const pullRequest = this.#prs.get(Number(pullRequestMatch[1]));
+      if (!pullRequest) {
+        json(response, 404, { message: "pull request not found" });
+        return;
+      }
+      json(response, 200, {
+        number: pullRequest.number,
+        html_url: pullRequest.html_url,
+        state: pullRequest.state,
+        merged_at: pullRequest.mergedAt,
+        head: {
+          ref: pullRequest.head,
+          sha: pullRequest.latestCommitSha,
+        },
+      });
       return;
     }
 

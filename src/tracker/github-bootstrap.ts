@@ -100,6 +100,32 @@ export class GitHubBootstrapTracker implements Tracker {
         await this.#inspectPlanReviewHandoff(branchName);
       return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
     }
+    if (await this.#isStaleMergedPullRequest(branchName, pullRequest)) {
+      this.#noCheckObservations.delete(branchName);
+      const planReviewLifecycle =
+        await this.#inspectPlanReviewHandoff(branchName);
+      return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);
+    }
+    if (pullRequest.landingState === "merged") {
+      this.#noCheckObservations.delete(branchName);
+      this.#planReviewObservations.delete(branchName);
+      return {
+        kind: "handoff-ready",
+        branchName,
+        pullRequest: {
+          number: pullRequest.number,
+          url: pullRequest.html_url,
+          branchName: pullRequest.head.ref,
+          latestCommitAt: null,
+        },
+        checks: [],
+        pendingCheckNames: [],
+        failingCheckNames: [],
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: `Pull request ${pullRequest.html_url} has merged`,
+      };
+    }
 
     const [checks, reviewStateData] = await Promise.all([
       this.#client.getChecks(pullRequest.head.sha),
@@ -178,6 +204,36 @@ export class GitHubBootstrapTracker implements Tracker {
       lifecycle,
     });
     return lifecycle;
+  }
+
+  async #isStaleMergedPullRequest(
+    branchName: string,
+    pullRequest: Awaited<ReturnType<GitHubClient["findPullRequest"]>>,
+  ): Promise<boolean> {
+    if (
+      pullRequest === null ||
+      pullRequest.landingState !== "merged" ||
+      pullRequest.mergedAt === null
+    ) {
+      return false;
+    }
+
+    const issueNumber = this.#issueNumberFromBranchName(branchName);
+    if (issueNumber === null) {
+      return false;
+    }
+
+    const successCommentAt = (await this.#client.getIssueComments(issueNumber))
+      .filter((comment) => comment.body === this.#config.successComment)
+      .map((comment) => Date.parse(comment.created_at))
+      .filter((createdAt) => Number.isFinite(createdAt))
+      .sort((left, right) => right - left)[0];
+
+    if (successCommentAt === undefined) {
+      return false;
+    }
+
+    return successCommentAt >= Date.parse(pullRequest.mergedAt);
   }
 
   #issueNumberFromBranchName(branchName: string): number | null {
