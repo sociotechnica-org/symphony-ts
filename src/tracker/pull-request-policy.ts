@@ -52,6 +52,9 @@ export function evaluatePullRequestLifecycle(
   snapshot: PullRequestSnapshot,
   previousNoCheckObservation: NoCheckObservation | undefined,
 ): PullRequestPolicyResult {
+  // GitHub bootstrap currently fast-paths merged PRs before this policy call.
+  // Keep this branch for defensive correctness in tests and any future caller
+  // that evaluates a merged snapshot directly.
   if (snapshot.landingState === "merged") {
     return {
       lifecycle: {

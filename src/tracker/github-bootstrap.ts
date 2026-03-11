@@ -112,6 +112,9 @@ export class GitHubBootstrapTracker implements Tracker {
     }
     if (await this.#isStaleMergedPullRequest(branchName, pullRequest)) {
       this.#noCheckObservations.delete(branchName);
+      // Intentionally keep plan-review observations here. The cache is keyed by
+      // issue.updatedAt and still helps reduce repeated comment fetches while a
+      // reopened issue remains in stale-merged fallback.
       const planReviewLifecycle =
         await this.#inspectPlanReviewHandoff(branchName);
       return planReviewLifecycle ?? missingPullRequestLifecycle(branchName);

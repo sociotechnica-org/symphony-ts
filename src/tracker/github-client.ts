@@ -463,7 +463,7 @@ export class GitHubClient {
     const pulls = await this.#request<GitHubPullRequestListResponse[]>(
       "GET",
       this.#issuePath(
-        `pulls?state=all&head=${encodeURIComponent(`${this.#repoOwner}:${headBranch}`)}`,
+        `pulls?state=all&per_page=100&head=${encodeURIComponent(`${this.#repoOwner}:${headBranch}`)}`,
       ),
     );
     const matchingPulls = pulls.filter((pull) => pull.head.ref === headBranch);
