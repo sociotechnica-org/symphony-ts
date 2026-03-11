@@ -1,10 +1,37 @@
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
-import type { RunSession } from "../domain/run.js";
+import type { RunSession, RunUpdateEvent } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { RunnerExecutionResult, RunnerRunOptions } from "./service.js";
+
+/**
+ * Try to parse a single stdout line as a JSON event object.
+ * Returns a RunUpdateEvent if the line is valid JSON with an event/method key,
+ * or undefined otherwise.
+ */
+function tryParseStdoutEvent(line: string): RunUpdateEvent | undefined {
+  const trimmed = line.trim();
+  if (trimmed === "") return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const obj = parsed as Record<string, unknown>;
+  const event =
+    typeof obj["event"] === "string"
+      ? obj["event"]
+      : typeof obj["method"] === "string"
+        ? obj["method"]
+        : "unknown";
+  return { event, payload: parsed, timestamp: new Date().toISOString() };
+}
 
 export interface LocalCommandExecutionOptions {
   readonly command: string;
@@ -65,6 +92,7 @@ export async function executeLocalRunnerCommand(
 
     let stdout = "";
     let stderr = "";
+    let stdoutLineBuffer = "";
     let settled = false;
     let timedOut = false;
     let aborted = false;
@@ -172,7 +200,19 @@ export async function executeLocalRunnerCommand(
     }, config.timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
+      const text = chunk.toString();
+      stdout += text;
+      if (execution.options?.onUpdate !== undefined) {
+        stdoutLineBuffer += text;
+        const lines = stdoutLineBuffer.split("\n");
+        stdoutLineBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const update = tryParseStdoutEvent(line);
+          if (update !== undefined) {
+            execution.options.onUpdate(update);
+          }
+        }
+      }
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       stderr += chunk.toString();
@@ -188,6 +228,13 @@ export async function executeLocalRunnerCommand(
       });
     });
     child.on("close", (exitCode) => {
+      // Flush any remaining partial line in the buffer
+      if (execution.options?.onUpdate !== undefined && stdoutLineBuffer.trim() !== "") {
+        const update = tryParseStdoutEvent(stdoutLineBuffer);
+        if (update !== undefined) {
+          execution.options.onUpdate(update);
+        }
+      }
       void spawnNotificationPromise.finally(() => {
         finish(() => {
           const finishedAt = new Date().toISOString();

@@ -14,6 +14,7 @@ import {
 } from "../observability/status.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
 import { FsLivenessProbe } from "../orchestrator/liveness-probe.js";
+import { StatusDashboard } from "../observability/tui.js";
 import { createRunner } from "../runner/factory.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
@@ -251,15 +252,28 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     livenessProbe,
   );
 
+  const dashboard = new StatusDashboard(
+    () => orchestrator.snapshot(),
+    () => workflow.config.observability,
+  );
+  orchestrator.setDashboardNotify(() => dashboard.refresh());
+  dashboard.start();
+
   if (args.once) {
     await orchestrator.runOnce();
+    dashboard.stop();
     return;
   }
 
   const abortController = new AbortController();
-  process.on("SIGINT", () => abortController.abort());
-  process.on("SIGTERM", () => abortController.abort());
+  const stopDashboard = (): void => {
+    dashboard.stop();
+    abortController.abort();
+  };
+  process.on("SIGINT", stopDashboard);
+  process.on("SIGTERM", stopDashboard);
   await orchestrator.runLoop(abortController.signal);
+  dashboard.stop();
 }
 
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {

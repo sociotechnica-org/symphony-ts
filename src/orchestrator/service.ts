@@ -3,7 +3,7 @@ import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
-import type { RunSession, RunTurn } from "../domain/run.js";
+import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -61,14 +61,23 @@ import {
   resolveRunSequence,
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
-import { createOrchestratorState } from "./state.js";
 import type { LivenessProbe } from "./liveness-probe.js";
+import {
+  createRunningEntry,
+  integrateCodexUpdate,
+} from "./running-entry.js";
 import {
   type StallReason,
   checkStall,
   canRecover,
   DEFAULT_WATCHDOG_CONFIG,
 } from "./stall-detector.js";
+import {
+  createOrchestratorState,
+  type CodexTotals,
+  type RateLimits,
+  type PollingState,
+} from "./state.js";
 import {
   adjustTrackerIssueCounts,
   buildFactoryStatusSnapshot,
@@ -85,6 +94,38 @@ import {
   recordWatchdogRecovery,
 } from "./watchdog-state.js";
 import { summarizeRunnerText } from "../runner/service.js";
+
+export interface TuiRunningEntry {
+  readonly issueNumber: number;
+  readonly identifier: string;
+  readonly startedAt: Date;
+  readonly retryAttempt: number;
+  readonly sessionId: string | null;
+  readonly turnCount: number;
+  readonly codexTotalTokens: number;
+  readonly codexInputTokens: number;
+  readonly codexOutputTokens: number;
+  readonly codexAppServerPid: number | null;
+  readonly lastCodexEvent: string | null;
+  readonly lastCodexMessage: unknown;
+  readonly lastCodexTimestamp: string | null;
+}
+
+export interface TuiRetryEntry {
+  readonly issueNumber: number;
+  readonly identifier: string;
+  readonly nextAttempt: number;
+  readonly dueInMs: number;
+  readonly lastError: string;
+}
+
+export interface TuiSnapshot {
+  readonly running: readonly TuiRunningEntry[];
+  readonly retrying: readonly TuiRetryEntry[];
+  readonly codexTotals: CodexTotals;
+  readonly rateLimits: RateLimits | null;
+  readonly polling: PollingState;
+}
 
 export interface Orchestrator {
   runOnce(): Promise<void>;
@@ -104,14 +145,16 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #workspaceManager: WorkspaceManager;
   readonly #runner: Runner;
   readonly #logger: Logger;
-  readonly #state = createOrchestratorState();
+  readonly #state: ReturnType<typeof createOrchestratorState>;
   readonly #instanceId = randomUUID();
   readonly #leaseManager: LocalIssueLeaseManager;
   readonly #issueArtifactStore: IssueArtifactStore;
   readonly #statusFilePath: string;
   readonly #livenessProbe: LivenessProbe | null;
   readonly #watchdogConfig: WatchdogConfig;
+  readonly #factoryStartedAt: number = Date.now();
   #shutdownSignal: AbortSignal | undefined;
+  #dashboardNotify: (() => void) | null = null;
 
   constructor(
     config: ResolvedConfig,
@@ -129,6 +172,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#workspaceManager = workspaceManager;
     this.#runner = runner;
     this.#logger = logger;
+    this.#state = createOrchestratorState(config.polling.intervalMs);
     this.#leaseManager = new LocalIssueLeaseManager(
       config.workspace.root,
       logger,
@@ -140,7 +184,63 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#livenessProbe = livenessProbe ?? null;
   }
 
+  setDashboardNotify(notify: (() => void) | null): void {
+    this.#dashboardNotify = notify;
+  }
+
+  snapshot(): TuiSnapshot {
+    const now = Date.now();
+    const running: TuiRunningEntry[] = [];
+    for (const entry of this.#state.runningEntries.values()) {
+      running.push({
+        issueNumber: entry.issueNumber,
+        identifier: entry.identifier,
+        startedAt: entry.startedAt,
+        retryAttempt: entry.retryAttempt,
+        sessionId: entry.sessionId,
+        turnCount: entry.turnCount,
+        codexTotalTokens: entry.codexTotalTokens,
+        codexInputTokens: entry.codexInputTokens,
+        codexOutputTokens: entry.codexOutputTokens,
+        codexAppServerPid: entry.codexAppServerPid,
+        lastCodexEvent: entry.lastCodexEvent,
+        lastCodexMessage: entry.lastCodexMessage,
+        lastCodexTimestamp: entry.lastCodexTimestamp,
+      });
+    }
+    running.sort((a, b) => a.identifier.localeCompare(b.identifier));
+
+    const retrying: TuiRetryEntry[] = [];
+    for (const retry of this.#state.retries.values()) {
+      retrying.push({
+        issueNumber: retry.issue.number,
+        identifier: retry.issue.identifier,
+        nextAttempt: retry.nextAttempt,
+        dueInMs: Math.max(0, retry.dueAt - now),
+        lastError: retry.lastError,
+      });
+    }
+    retrying.sort((a, b) => a.dueInMs - b.dueInMs);
+
+    return {
+      running,
+      retrying,
+      codexTotals: {
+        ...this.#state.codexTotals,
+        secondsRunning: Math.floor((now - this.#factoryStartedAt) / 1000),
+      },
+      rateLimits: this.#state.rateLimits,
+      polling: { ...this.#state.polling },
+    };
+  }
+
+  #notifyDashboard(): void {
+    this.#dashboardNotify?.();
+  }
+
   async runOnce(): Promise<void> {
+    this.#state.polling.checkingNow = true;
+    this.#notifyDashboard();
     noteStatusAction(this.#state.status, {
       kind: "poll-started",
       summary: "Polling tracker for ready and running issues",
@@ -183,6 +283,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       summary: `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`,
       issueNumber: null,
     });
+    this.#state.polling.checkingNow = false;
+    this.#notifyDashboard();
     await this.#persistStatusSnapshot();
 
     if (availableSlots <= 0) {
@@ -224,6 +326,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       if (signal?.aborted) {
         break;
       }
+      this.#state.polling.nextPollAtMs = Date.now() + this.#config.polling.intervalMs;
       await this.#sleep(this.#config.polling.intervalMs, signal);
     }
     // signal is optional — keep ?. for safety even though TypeScript narrows
@@ -761,6 +864,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       issue.number,
       watchdogStop.signal,
     );
+    const runEntry = createRunningEntry(issue.number, issue.identifier, attempt);
+    this.#state.runningEntries.set(issue.number, runEntry);
+    this.#notifyDashboard();
 
     let liveRunnerSession: LiveRunnerSession | undefined;
     try {
@@ -932,6 +1038,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       shutdownSignal?.removeEventListener("abort", handleShutdown);
       this.#state.runAbortControllers.delete(issue.number);
       clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
+      this.#state.runningEntries.delete(issue.number);
+      this.#notifyDashboard();
     }
   }
 
@@ -973,6 +1081,7 @@ export class BootstrapOrchestrator implements Orchestrator {
             event,
             turn.turnNumber,
           );
+          this.#notifyDashboard();
           return;
         case "visibility":
           this.#setIssueRunnerVisibility(
@@ -984,10 +1093,30 @@ export class BootstrapOrchestrator implements Orchestrator {
           return;
       }
     };
+    const onUpdate = (event: RunUpdateEvent): void => {
+      try {
+        const entry = this.#state.runningEntries.get(
+          session.issue.number,
+        );
+        if (entry !== undefined) {
+          const { tokenDelta } = integrateCodexUpdate(entry, event);
+          this.#state.codexTotals.inputTokens += tokenDelta.inputTokens;
+          this.#state.codexTotals.outputTokens += tokenDelta.outputTokens;
+          this.#state.codexTotals.totalTokens += tokenDelta.totalTokens;
+        }
+      } catch (err: unknown) {
+        this.#logger.warn("onUpdate integration error", {
+          issueNumber: session.issue.number,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+      this.#notifyDashboard();
+    };
     if (liveRunnerSession !== undefined) {
       return await liveRunnerSession.runTurn(turn, {
         signal,
         onEvent,
+        onUpdate,
       });
     }
     const result = await this.#runner.run(
@@ -998,6 +1127,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       {
         signal,
         onEvent,
+        onUpdate,
       },
     );
     return {
@@ -1411,6 +1541,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           .nextAttempt.toString()} scheduled for ${issue.identifier}`,
         issueNumber: issue.number,
       });
+      this.#notifyDashboard();
       await this.#persistStatusSnapshot();
       await this.#recordIssueArtifact(
         this.#createRetryScheduledObservation(

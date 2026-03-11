@@ -18,3 +18,9 @@ export interface RunTurn {
   readonly prompt: string;
   readonly turnNumber: number;
 }
+
+export interface RunUpdateEvent {
+  readonly event: string;
+  readonly payload: unknown;
+  readonly timestamp: string;
+}

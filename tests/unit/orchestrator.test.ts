@@ -141,6 +141,11 @@ const baseConfig: ResolvedConfig = {
     maxTurns: 3,
     env: {},
   },
+  observability: {
+    dashboardEnabled: false,
+    refreshMs: 1000,
+    renderIntervalMs: 16,
+  },
 };
 
 const staticPromptBuilder: PromptBuilder = {

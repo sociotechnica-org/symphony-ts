@@ -1,4 +1,4 @@
-import type { RunSession, RunTurn } from "../domain/run.js";
+import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 
 export interface RunnerExecutionResult {
   readonly exitCode: number;
@@ -79,6 +79,7 @@ export interface RunnerSessionDescriber {
 export interface RunnerRunOptions {
   readonly signal?: AbortSignal;
   readonly onEvent?: (event: RunnerEvent) => void | Promise<void>;
+  readonly onUpdate?: (event: RunUpdateEvent) => void;
 }
 
 export interface RunnerTurnResult extends RunnerExecutionResult {
