@@ -234,9 +234,18 @@ export class GitHubBootstrapTracker implements Tracker {
       return false;
     }
 
-    const issue = await this.getIssue(issueNumber);
     const cachedObservation =
       this.#staleMergedPullRequestObservations.get(branchName);
+    if (
+      cachedObservation !== undefined &&
+      cachedObservation.isStale &&
+      cachedObservation.pullRequestNumber === pullRequest.number &&
+      cachedObservation.mergedAt === pullRequest.mergedAt
+    ) {
+      return true;
+    }
+
+    const issue = await this.getIssue(issueNumber);
     if (
       cachedObservation !== undefined &&
       cachedObservation.issueUpdatedAt === issue.updatedAt &&

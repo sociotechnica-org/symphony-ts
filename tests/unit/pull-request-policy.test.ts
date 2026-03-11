@@ -42,12 +42,16 @@ describe("pull-request-policy", () => {
     const lifecycle = evaluatePullRequestLifecycle(
       createSnapshot({
         landingState: "merged",
+        pendingCheckNames: ["ci"],
+        failingCheckNames: ["lint"],
       }),
       undefined,
     ).lifecycle;
 
     expect(lifecycle.kind).toBe("handoff-ready");
     expect(lifecycle.summary).toMatch(/has merged/i);
+    expect(lifecycle.pendingCheckNames).toEqual([]);
+    expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
   it("waits on human-only review feedback without scheduling follow-up", () => {

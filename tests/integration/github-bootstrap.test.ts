@@ -452,6 +452,7 @@ describe("GitHubBootstrapTracker", () => {
     expect(lifecycle.kind).toBe("missing-target");
     expect(lifecycle.summary).toMatch(/no open pull request/i);
     expect(secondLifecycle.kind).toBe("missing-target");
+    expect(server.countRequests("GET issues/7")).toBe(3);
     expect(server.countRequests("GET issues/7/comments")).toBe(2);
   });
 
