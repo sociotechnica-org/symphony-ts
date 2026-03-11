@@ -10,6 +10,44 @@ export async function createTempDir(prefix: string): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
+export async function initializeGitRepo(
+  repoRoot: string,
+  options?: {
+    readonly branch?: string | undefined;
+  },
+): Promise<void> {
+  await execFileAsync("git", ["init", "-b", options?.branch ?? "main"], {
+    cwd: repoRoot,
+  });
+  await execFileAsync("git", ["config", "user.name", "Symphony Test"], {
+    cwd: repoRoot,
+  });
+  await execFileAsync(
+    "git",
+    ["config", "user.email", "symphony-test@example.com"],
+    { cwd: repoRoot },
+  );
+}
+
+export async function checkoutGitBranch(
+  repoRoot: string,
+  branchName: string,
+): Promise<void> {
+  await execFileAsync("git", ["checkout", "-B", branchName], { cwd: repoRoot });
+}
+
+export async function commitAllFiles(
+  repoRoot: string,
+  message: string,
+): Promise<string> {
+  await execFileAsync("git", ["add", "."], { cwd: repoRoot });
+  await execFileAsync("git", ["commit", "-m", message], { cwd: repoRoot });
+  const result = await execFileAsync("git", ["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+  });
+  return result.stdout.trim();
+}
+
 export async function createSeedRemote(): Promise<{
   readonly rootDir: string;
   readonly remotePath: string;

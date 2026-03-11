@@ -34,6 +34,14 @@ export interface IssueReportPaths {
   readonly reportMarkdownFile: string;
 }
 
+export interface StoredIssueReport {
+  readonly report: IssueReportDocument;
+  readonly markdown: string;
+  readonly rawReportJson: string;
+  readonly rawReportMarkdown: string;
+  readonly outputPaths: IssueReportPaths;
+}
+
 export interface IssueReportSummary {
   readonly status: IssueReportAvailability;
   readonly issueNumber: number;
@@ -173,7 +181,7 @@ export interface IssueReportDocument {
   readonly operatorInterventions: IssueReportOperatorInterventions;
 }
 
-interface LoadedIssueArtifacts {
+export interface LoadedIssueArtifacts {
   readonly issueNumber: number;
   readonly paths: ReturnType<typeof deriveIssueArtifactPaths>;
   readonly issue: IssueArtifactSummary | null;
@@ -190,7 +198,7 @@ export interface GeneratedIssueReport {
   readonly outputPaths: IssueReportPaths;
 }
 
-function deriveIssueReportsRoot(workspaceRoot: string): string {
+export function deriveIssueReportsRoot(workspaceRoot: string): string {
   return path.join(
     path.dirname(deriveFactoryRuntimeRoot(workspaceRoot)),
     "reports",
@@ -198,7 +206,7 @@ function deriveIssueReportsRoot(workspaceRoot: string): string {
   );
 }
 
-function deriveIssueReportPaths(
+export function deriveIssueReportPaths(
   workspaceRoot: string,
   issueNumber: number,
 ): IssueReportPaths {
@@ -255,7 +263,48 @@ export async function writeIssueReport(
   return generated;
 }
 
-async function loadIssueArtifacts(
+export async function readIssueReport(
+  workspaceRoot: string,
+  issueNumber: number,
+): Promise<StoredIssueReport> {
+  const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
+  const [rawReportJson, rawReportMarkdown] = await Promise.all([
+    fs.readFile(outputPaths.reportJsonFile, "utf8"),
+    fs.readFile(outputPaths.reportMarkdownFile, "utf8"),
+  ]).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new ObservabilityError(
+        `No generated issue report found for issue #${issueNumber.toString()} at ${outputPaths.issueRoot}; run 'symphony-report issue --issue ${issueNumber.toString()}' first.`,
+        {
+          cause: error as Error,
+        },
+      );
+    }
+    throw error;
+  });
+
+  let report: IssueReportDocument;
+  try {
+    report = JSON.parse(rawReportJson) as IssueReportDocument;
+  } catch (error) {
+    throw new ObservabilityError(
+      `Failed to parse generated issue report JSON at ${outputPaths.reportJsonFile}`,
+      {
+        cause: error as Error,
+      },
+    );
+  }
+
+  return {
+    report,
+    markdown: rawReportMarkdown,
+    rawReportJson,
+    rawReportMarkdown,
+    outputPaths,
+  };
+}
+
+export async function loadIssueArtifacts(
   workspaceRoot: string,
   issueNumber: number,
 ): Promise<LoadedIssueArtifacts> {
