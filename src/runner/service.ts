@@ -1,4 +1,9 @@
-import type { RunResult, RunSession, RunSpawnEvent } from "../domain/run.js";
+import type {
+  RunResult,
+  RunSession,
+  RunSpawnEvent,
+  RunUpdateEvent,
+} from "../domain/run.js";
 export interface RunnerLogPointer {
   readonly name: string;
   readonly location: string | null;
@@ -18,6 +23,7 @@ export interface RunnerSessionDescriber {
 export interface RunnerRunOptions {
   readonly signal?: AbortSignal;
   readonly onSpawn?: (event: RunSpawnEvent) => void | Promise<void>;
+  readonly onUpdate?: (event: RunUpdateEvent) => void;
 }
 
 export interface Runner extends RunnerSessionDescriber {

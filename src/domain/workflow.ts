@@ -62,6 +62,12 @@ export interface AgentConfig {
   readonly env: Readonly<Record<string, string>>;
 }
 
+export interface ObservabilityConfig {
+  readonly dashboardEnabled: boolean;
+  readonly refreshMs: number;
+  readonly renderIntervalMs: number;
+}
+
 export interface ResolvedConfig {
   readonly workflowPath: string;
   readonly tracker: TrackerConfig;
@@ -69,6 +75,7 @@ export interface ResolvedConfig {
   readonly workspace: WorkspaceConfig;
   readonly hooks: HooksConfig;
   readonly agent: AgentConfig;
+  readonly observability: ObservabilityConfig;
 }
 
 export interface WorkflowDefinition {

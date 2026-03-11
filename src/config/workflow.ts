@@ -7,6 +7,7 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type {
   GitHubBootstrapTrackerConfig,
   LinearTrackerConfig,
+  ObservabilityConfig,
   PromptBuilder,
   ResolvedConfig,
   TrackerConfig,
@@ -19,6 +20,7 @@ interface RawWorkflow {
   readonly workspace?: Record<string, unknown>;
   readonly hooks?: Record<string, unknown>;
   readonly agent?: Record<string, unknown>;
+  readonly observability?: Record<string, unknown>;
 }
 
 const liquid = new Liquid({
@@ -286,12 +288,31 @@ function resolveRepoUrl(
   return requireString(explicitRepoUrl, "workspace.repo_url");
 }
 
+function resolveObservabilityConfig(
+  raw: Readonly<Record<string, unknown>>,
+): ObservabilityConfig {
+  const dashboardEnabled = raw["dashboard_enabled"];
+  const refreshMs = raw["refresh_ms"];
+  const renderIntervalMs = raw["render_interval_ms"];
+  return {
+    dashboardEnabled:
+      dashboardEnabled === undefined ? true : Boolean(dashboardEnabled),
+    refreshMs:
+      refreshMs === undefined ? 1000 : requireNumber(refreshMs, "observability.refresh_ms"),
+    renderIntervalMs:
+      renderIntervalMs === undefined
+        ? 16
+        : requireNumber(renderIntervalMs, "observability.render_interval_ms"),
+  };
+}
+
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   const tracker = coerceOptionalObject(raw.tracker, "tracker");
   const polling = coerceOptionalObject(raw.polling, "polling");
   const workspace = coerceOptionalObject(raw.workspace, "workspace");
   const hooks = coerceOptionalObject(raw.hooks, "hooks");
   const agent = coerceOptionalObject(raw.agent, "agent");
+  const observabilityRaw = coerceOptionalObject(raw.observability, "observability");
 
   // Apply SYMPHONY_REPO env override (github-bootstrap only; ignored by other tracker kinds)
   const rawRepoEnv = process.env["SYMPHONY_REPO"];
@@ -391,6 +412,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         ...(repo !== undefined ? { GITHUB_REPO: repo } : {}),
       },
     },
+    observability: resolveObservabilityConfig(observabilityRaw),
   };
 
   if (!["stdin", "file"].includes(resolved.agent.promptTransport)) {

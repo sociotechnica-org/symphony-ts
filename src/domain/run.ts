@@ -26,3 +26,9 @@ export interface RunResult {
   readonly startedAt: string;
   readonly finishedAt: string;
 }
+
+export interface RunUpdateEvent {
+  readonly event: string;
+  readonly payload: unknown;
+  readonly timestamp: string;
+}

@@ -108,6 +108,11 @@ const baseConfig: ResolvedConfig = {
     timeoutMs: 1_000,
     env: {},
   },
+  observability: {
+    dashboardEnabled: false,
+    refreshMs: 1000,
+    renderIntervalMs: 16,
+  },
 };
 
 const staticPromptBuilder: PromptBuilder = {

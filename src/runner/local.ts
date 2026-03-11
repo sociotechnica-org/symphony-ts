@@ -73,6 +73,7 @@ export class LocalRunner implements Runner {
 
       let stdout = "";
       let stderr = "";
+      let stdoutLineBuffer = "";
       let settled = false;
       let timedOut = false;
       let aborted = false;
@@ -178,7 +179,40 @@ export class LocalRunner implements Runner {
       }, this.#config.timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer | string) => {
-        stdout += chunk.toString();
+        const text = chunk.toString();
+        stdout += text;
+        if (options?.onUpdate !== undefined) {
+          stdoutLineBuffer += text;
+          const lines = stdoutLineBuffer.split("\n");
+          stdoutLineBuffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed === "") continue;
+            try {
+              const parsed = JSON.parse(trimmed) as unknown;
+              if (
+                parsed !== null &&
+                typeof parsed === "object" &&
+                !Array.isArray(parsed)
+              ) {
+                const obj = parsed as Record<string, unknown>;
+                const event =
+                  typeof obj["event"] === "string"
+                    ? obj["event"]
+                    : typeof obj["method"] === "string"
+                      ? obj["method"]
+                      : "unknown";
+                options.onUpdate({
+                  event,
+                  payload: parsed,
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            } catch {
+              // not a JSON line — ignore
+            }
+          }
+        }
       });
       child.stderr.on("data", (chunk: Buffer | string) => {
         stderr += chunk.toString();
