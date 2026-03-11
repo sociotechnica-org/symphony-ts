@@ -1,4 +1,3 @@
-import type { WatchdogEntry } from "./stall-detector.js";
 import type { RetryState } from "../domain/retry.js";
 import {
   createFollowUpRuntimeState,
@@ -8,6 +7,10 @@ import {
   createRuntimeStatusState,
   type RuntimeStatusState,
 } from "./status-state.js";
+import {
+  createWatchdogRuntimeState,
+  type WatchdogRuntimeState,
+} from "./watchdog-state.js";
 
 export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
@@ -16,7 +19,7 @@ export interface OrchestratorState {
   readonly followUp: FollowUpRuntimeState;
   readonly status: RuntimeStatusState;
   readonly artifactWriteQueues: Map<number, Promise<void>>;
-  readonly watchdog: Map<number, WatchdogEntry>;
+  readonly watchdog: WatchdogRuntimeState;
 }
 
 export function createOrchestratorState(): OrchestratorState {
@@ -27,6 +30,6 @@ export function createOrchestratorState(): OrchestratorState {
     followUp: createFollowUpRuntimeState(),
     status: createRuntimeStatusState(),
     artifactWriteQueues: new Map<number, Promise<void>>(),
-    watchdog: new Map<number, WatchdogEntry>(),
+    watchdog: createWatchdogRuntimeState(),
   };
 }

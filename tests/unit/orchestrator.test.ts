@@ -9,6 +9,7 @@ import type {
   ResolvedConfig,
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
+import type { LivenessProbe } from "../../src/orchestrator/liveness-probe.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import {
   deriveFactoryRuntimeRoot,
@@ -51,6 +52,20 @@ function createDeferred<T>(): {
     resolve = resolvePromise;
   });
   return { promise, resolve };
+}
+
+function createObservableStalledProbe(): LivenessProbe {
+  return {
+    async capture(options) {
+      return {
+        logSizeBytes: 1,
+        workspaceDiffHash: null,
+        prHeadSha: options.prHeadSha,
+        hasActionableFeedback: options.hasActionableFeedback,
+        capturedAt: Date.now(),
+      };
+    },
+  };
 }
 
 const baseConfig: ResolvedConfig = {
@@ -1882,11 +1897,7 @@ describe("BootstrapOrchestrator watchdog", () => {
       },
     };
 
-    // Create a liveness probe that always returns the same snapshot (no progress)
-    const { NullLivenessProbe } =
-      await import("../../src/orchestrator/liveness-probe.js");
-
-    const staticProbe = new NullLivenessProbe();
+    const staticProbe = createObservableStalledProbe();
 
     const watchdogConfig = {
       ...baseConfig,
@@ -1926,7 +1937,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(runAborted).toBe(true);
   });
 
-  it("does not recover beyond maxRecoveryAttempts", async () => {
+  it("does not recover beyond maxRecoveryAttempts across retries", async () => {
     const issue = createIssue(88);
     const tracker = new SequencedTracker({ ready: [issue] });
     tracker.setLifecycleSequence(88, [
@@ -1957,9 +1968,6 @@ describe("BootstrapOrchestrator watchdog", () => {
       },
     };
 
-    const { NullLivenessProbe } =
-      await import("../../src/orchestrator/liveness-probe.js");
-
     const watchdogConfig = {
       ...baseConfig,
       workspace: { ...baseConfig.workspace, root: tmpDir },
@@ -1983,12 +1991,29 @@ describe("BootstrapOrchestrator watchdog", () => {
       stalledRunner,
       logger,
       undefined,
-      new NullLivenessProbe(),
+      createObservableStalledProbe(),
     );
 
-    // First runOnce — should recover once
+    // First runOnce — should use the only recovery budget and schedule a retry.
     await orchestrator.runOnce();
     expect(abortCount).toBe(1);
+
+    // Second runOnce resumes the same issue from retry state. The watchdog should
+    // abort terminally instead of resetting the recovery budget.
+    await orchestrator.runOnce();
+
+    expect(abortCount).toBe(2);
+    expect(tracker.retried).toHaveLength(1);
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 88,
+        reason: "Aborted",
+      },
+    ]);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).toBe("issue-failed");
   });
 
   it("aborts a stalled runner even when recovery is exhausted", async () => {
@@ -2042,9 +2067,6 @@ describe("BootstrapOrchestrator watchdog", () => {
       },
     };
 
-    const { NullLivenessProbe } =
-      await import("../../src/orchestrator/liveness-probe.js");
-
     const watchdogConfig = {
       ...baseConfig,
       workspace: { ...baseConfig.workspace, root: tmpDir },
@@ -2067,7 +2089,7 @@ describe("BootstrapOrchestrator watchdog", () => {
       stalledRunner,
       new NullLogger(),
       undefined,
-      new NullLivenessProbe(),
+      createObservableStalledProbe(),
     );
 
     await orchestrator.runOnce();

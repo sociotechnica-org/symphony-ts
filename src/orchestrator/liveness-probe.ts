@@ -16,6 +16,15 @@ export interface LivenessProbe {
   }): Promise<LivenessSnapshot>;
 }
 
+export function deriveWatchdogLogFileName(options: {
+  readonly issueNumber: number;
+  readonly runSessionId: string | null;
+}): string {
+  return options.runSessionId === null
+    ? `${options.issueNumber.toString()}.log`
+    : `${encodeURIComponent(options.runSessionId)}.log`;
+}
+
 /**
  * Null probe that returns empty snapshots. Used when watchdog is disabled.
  */
@@ -75,14 +84,15 @@ export class FsLivenessProbe implements LivenessProbe {
     issueNumber: number,
     sessionId: string | null,
   ): Promise<number | null> {
-    // Session logs are best-effort and must stay isolated per active run.
+    // Optional watchdog session logs must use this location so the probe can
+    // sample them without depending on runner-specific path conventions.
     try {
       const { stat } = await import("node:fs/promises");
       const { join } = await import("node:path");
-      const logName =
-        sessionId === null
-          ? `${issueNumber.toString()}.log`
-          : `${encodeURIComponent(sessionId)}.log`;
+      const logName = deriveWatchdogLogFileName({
+        issueNumber,
+        runSessionId: sessionId,
+      });
       const logPath = join(this.#workspaceRoot, ".symphony", logName);
       const stats = await stat(logPath);
       return stats.size;

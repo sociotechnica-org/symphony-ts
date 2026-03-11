@@ -32,6 +32,9 @@ Ship stalled-runner detection and bounded auto-recovery for local factory runs, 
 - the watchdog currently relies on best-effort liveness probes and recovery state inside orchestrator runtime state
 - `FsLivenessProbe` can accidentally sample a shared log path instead of a per-run path, which contaminates concurrent stall detection
 - the recovery-limit branch can classify a runner as stalled but leave it alive, which leaks the slot and blocks future work
+- `maxRecoveryAttempts` currently behaves like a per-run-attempt budget because watchdog recovery state is deleted before the retry path re-enters the issue
+- the stall timer can age while every liveness signal remains `null`, which creates false-positive early-run stalls and misleading `"log-stall"` classification
+- the watchdog log-path convention is implicit instead of being named as a shared contract in code
 - the existing plan in this directory was too thin to document the actual runtime-state and failure-handling seam
 
 ## Spec Alignment By Abstraction Level
@@ -89,14 +92,17 @@ This issue relies on explicit watchdog state in the orchestrator:
 3. `aborting-for-retry`
    The watchdog records recovery, emits the recovery action, and aborts the runner so the existing retry path can launch a new attempt.
 4. `stalled-terminal`
-   Signals show no progress beyond threshold and recovery budget is exhausted.
+   Signals show no progress beyond threshold and the issue-scoped watchdog recovery budget is exhausted.
 5. `aborting-terminal`
    The watchdog aborts the runner without incrementing recovery or emitting a retry-oriented recovery action.
 6. `runner-finished`
    The runner exits or throws; the watchdog loop is stopped and runtime state is cleaned up.
+7. `waiting-for-first-signal`
+   The runner is active but the probe has not yet observed any concrete log, workspace, or PR-head signal, so the stall clock must not advance.
 
 Allowed transitions:
 
+- `watching -> waiting-for-first-signal -> watching`
 - `watching -> stalled-recoverable -> aborting-for-retry -> runner-finished`
 - `watching -> stalled-terminal -> aborting-terminal -> runner-finished`
 - `watching -> runner-finished`
@@ -114,6 +120,7 @@ Invalid transitions:
 | Log, diff, or PR head changes within threshold                  | runner live, liveness snapshot changed                         | current lifecycle unchanged                  | remain `watching`                                                                                                                  |
 | No liveness change past threshold and recovery budget remains   | runner live, watchdog entry present, `canRecover = true`       | issue still active                           | record recovery, emit watchdog recovery action, abort runner so retry path can continue                                            |
 | No liveness change past threshold and recovery budget exhausted | runner live, watchdog entry present, `canRecover = false`      | issue still active                           | emit a terminal watchdog status action, abort runner without requeue-oriented recovery bookkeeping, and do not leave slot occupied |
+| Probe has not observed any concrete liveness signal yet         | all probe signals `null`; runner may still be booting          | tracker facts may also be empty              | remain in `waiting-for-first-signal`, keep sampling, and do not classify a stall yet                                               |
 | Probe fails transiently                                         | runner state unknown for one sample                            | tracker unchanged                            | log probe failure and keep watching                                                                                                |
 | Runner exits or throws before watchdog fires                    | runner promise settled, watchdog stop signal aborted           | tracker lifecycle handled by normal run flow | stop watchdog cleanly and remove runtime state                                                                                     |
 | Two active issues probe logs concurrently                       | separate issue number / run session id / workspace root inputs | tracker facts independent                    | sample per-run log paths only; no cross-issue signal sharing                                                                       |
@@ -125,8 +132,10 @@ This remains one reviewable PR because the follow-up only closes watchdog correc
 What lands in this slice:
 
 - per-run log-path derivation inside `FsLivenessProbe`
+- a named watchdog log-file contract helper shared by the probe and tests
 - unconditional runner abort when a stall is confirmed but recovery is exhausted
-- regression tests for both cases
+- issue-scoped watchdog recovery budgeting that survives retries until the issue completes or fails
+- regression tests for both cases plus the all-signals-null guard
 - plan refresh so the recorded seam matches the shipped code
 
 Deferred from this slice:
@@ -138,6 +147,7 @@ Deferred from this slice:
 ## Storage And Persistence Contract
 
 - watchdog runtime state stays in `src/orchestrator/state.ts` and remains process-local
+- the issue-scoped watchdog recovery budget persists only in process memory for the lifetime of the active factory instance
 - no new durable files or tracker records are introduced by this follow-up
 - filesystem liveness sampling is best-effort and must tolerate missing log files by returning `null`
 
@@ -152,11 +162,13 @@ Deferred from this slice:
 ## Implementation Steps
 
 1. Refresh this plan so the #96 review-driven seam, state machine, and failure matrix are explicit.
-2. Update `FsLivenessProbe` to derive a unique per-run log filename from `runSessionId` when available, with a deterministic per-issue fallback when it is not.
-3. Update the watchdog loop in `src/orchestrator/service.ts` so a confirmed stalled runner is always aborted, even when `maxRecoveryAttempts` has already been reached.
-4. Keep the retry-oriented recovery bookkeeping limited to the recoverable branch so exhausted recovery does not fabricate another retry, but still persist a terminal watchdog status action before aborting.
-5. Add unit coverage for the per-run log probe behavior and for the exhausted-recovery abort-and-status path.
-6. Run formatting, lint, typecheck, tests, `codex review --base origin/main`, then update the existing PR with the fixes and resolve the automated review feedback.
+2. Extend watchdog runtime state so the recovery counter survives active-entry cleanup and is cleared only on terminal issue completion or failure.
+3. Update `checkStall` to treat "no observable signal yet" as a waiting state and to treat first observation of a signal as progress instead of an immediate stall.
+4. Add a named watchdog log-file helper and update `FsLivenessProbe` to derive a unique per-run log filename from `runSessionId` when available, with a deterministic per-issue fallback when it is not.
+5. Update the watchdog loop in `src/orchestrator/service.ts` so a confirmed stalled runner is always aborted, even when `maxRecoveryAttempts` has already been reached.
+6. Keep the retry-oriented recovery bookkeeping limited to the recoverable branch so exhausted recovery does not fabricate another retry, but still persist a terminal watchdog status action before aborting.
+7. Add unit coverage for the per-run log probe behavior, the all-signals-null guard, and the cross-retry recovery-budget bound.
+8. Run formatting, lint, typecheck, tests, `codex review --base origin/main`, then update the existing PR with the fixes and resolve the automated review feedback.
 
 ## Tests And Acceptance Scenarios
 
@@ -164,18 +176,22 @@ Unit coverage:
 
 - `FsLivenessProbe` reads a run-specific log path derived from `runSessionId`
 - `FsLivenessProbe` falls back to a per-issue log path when no session id is available
+- `checkStall` does not classify a stall while every liveness signal remains unobserved
 - watchdog aborts a stalled runner when recovery is exhausted and does not require a retry budget
 
 Integration / orchestrator coverage:
 
 - stalled runner with immediate watchdog detection is aborted and the run returns cleanly
 - stalled runner with no recovery budget still gets aborted so the concurrency slot is released and the status snapshot records the terminal watchdog action
+- repeated stalled retries stop recovering once the issue-scoped `maxRecoveryAttempts` budget is exhausted
 
 Named acceptance scenarios:
 
 1. Given two active runs with different session ids, when one run’s log grows, then the other run’s liveness snapshot is unaffected by that write.
 2. Given a stalled run with `maxRecoveryAttempts` already exhausted, when the watchdog classifies the stall, then the runner is aborted, no indefinite live process remains, and `status.json` records the terminal watchdog action.
 3. Given a stalled run with recovery budget remaining, when the watchdog classifies the stall, then the runner is aborted, the existing retry path can requeue, and observability records the recovery action.
+4. Given a runner that has not yet produced any observable log, workspace, or PR signal, when the watchdog samples repeatedly, then it does not classify a stall until at least one concrete signal exists.
+5. Given a runner that stalls on consecutive retries, when the issue reaches the configured `maxRecoveryAttempts`, then later retries abort terminally instead of resetting the watchdog recovery budget.
 
 ## Exit Criteria
 
@@ -189,6 +205,7 @@ Named acceptance scenarios:
 ## Deferred To Later Issues Or PRs
 
 - standardized runner-emitted log pointer locations for all runner backends
+- verification that every runner backend writes the optional watchdog session log to the named contract path
 - richer terminal watchdog reporting beyond the single status action and warning emitted in this slice
 - longer-lived durable recovery counters across process restarts
 - broader supervision and lease recovery refinements beyond the watchdog seam

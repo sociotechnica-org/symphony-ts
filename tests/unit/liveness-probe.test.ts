@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  deriveWatchdogLogFileName,
   FsLivenessProbe,
   NullLivenessProbe,
 } from "../../src/orchestrator/liveness-probe.js";
@@ -50,7 +51,11 @@ describe("FsLivenessProbe", () => {
     const probe = new FsLivenessProbe(root);
 
     await fs.writeFile(
-      path.join(root, ".symphony", `${encodeURIComponent(runSessionId)}.log`),
+      path.join(
+        root,
+        ".symphony",
+        deriveWatchdogLogFileName({ issueNumber, runSessionId }),
+      ),
       "runner-a",
       "utf8",
     );
@@ -77,7 +82,11 @@ describe("FsLivenessProbe", () => {
     const probe = new FsLivenessProbe(root);
 
     await fs.writeFile(
-      path.join(root, ".symphony", `${issueNumber.toString()}.log`),
+      path.join(
+        root,
+        ".symphony",
+        deriveWatchdogLogFileName({ issueNumber, runSessionId: null }),
+      ),
       "issue-log",
       "utf8",
     );
@@ -91,5 +100,20 @@ describe("FsLivenessProbe", () => {
     });
 
     expect(result.logSizeBytes).toBe("issue-log".length);
+  });
+
+  it("derives the documented watchdog log filename contract", () => {
+    expect(
+      deriveWatchdogLogFileName({
+        issueNumber: 12,
+        runSessionId: "org/repo#12/attempt-1/demo",
+      }),
+    ).toBe(`${encodeURIComponent("org/repo#12/attempt-1/demo")}.log`);
+    expect(
+      deriveWatchdogLogFileName({
+        issueNumber: 12,
+        runSessionId: null,
+      }),
+    ).toBe("12.log");
   });
 });

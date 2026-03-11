@@ -46,10 +46,8 @@ import { createOrchestratorState } from "./state.js";
 import type { LivenessProbe } from "./liveness-probe.js";
 import {
   type StallReason,
-  createWatchdogEntry,
   checkStall,
   canRecover,
-  recordRecovery,
   DEFAULT_WATCHDOG_CONFIG,
 } from "./stall-detector.js";
 import {
@@ -61,6 +59,12 @@ import {
   setTrackerIssueCounts,
   upsertActiveIssue,
 } from "./status-state.js";
+import {
+  clearActiveWatchdogEntry,
+  clearWatchdogIssueState,
+  initWatchdogEntry,
+  recordWatchdogRecovery,
+} from "./watchdog-state.js";
 
 export interface Orchestrator {
   runOnce(): Promise<void>;
@@ -551,7 +555,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await watchdogPromise;
       shutdownSignal?.removeEventListener("abort", handleShutdown);
       this.#state.runAbortControllers.delete(issue.number);
-      this.#state.watchdog.delete(issue.number);
+      clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
     }
 
     if (result.exitCode !== 0) {
@@ -667,6 +671,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.completeIssue(issue.number);
     this.#state.retries.delete(issue.number);
+    clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
@@ -973,6 +978,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
     this.#state.retries.delete(issue.number);
+    clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
@@ -1665,21 +1671,18 @@ export class BootstrapOrchestrator implements Orchestrator {
   #initWatchdogEntry(issueNumber: number): void {
     if (
       !this.#watchdogConfig.enabled ||
-      this.#state.watchdog.has(issueNumber)
+      this.#state.watchdog.activeEntries.has(issueNumber)
     ) {
       return;
     }
     const now = Date.now();
-    this.#state.watchdog.set(
-      issueNumber,
-      createWatchdogEntry(issueNumber, {
-        logSizeBytes: null,
-        workspaceDiffHash: null,
-        prHeadSha: null,
-        hasActionableFeedback: false,
-        capturedAt: now,
-      }),
-    );
+    initWatchdogEntry(this.#state.watchdog, issueNumber, {
+      logSizeBytes: null,
+      workspaceDiffHash: null,
+      prHeadSha: null,
+      hasActionableFeedback: false,
+      capturedAt: now,
+    });
   }
 
   async #runWatchdogLoop(
@@ -1689,7 +1692,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (!this.#watchdogConfig.enabled || this.#livenessProbe === null) {
       return;
     }
-    const entry = this.#state.watchdog.get(issueNumber);
+    const entry = this.#state.watchdog.activeEntries.get(issueNumber);
     if (!entry) {
       return;
     }
@@ -1744,11 +1747,11 @@ export class BootstrapOrchestrator implements Orchestrator {
     issueNumber: number,
     reason: StallReason,
   ): Promise<void> {
-    const entry = this.#state.watchdog.get(issueNumber);
+    const entry = this.#state.watchdog.activeEntries.get(issueNumber);
     if (!entry) {
       return;
     }
-    recordRecovery(entry);
+    recordWatchdogRecovery(this.#state.watchdog, entry);
     this.#logger.warn("Recovering stalled runner", {
       issueNumber,
       reason,

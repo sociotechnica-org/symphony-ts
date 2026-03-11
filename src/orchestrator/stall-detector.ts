@@ -34,13 +34,24 @@ export interface StallCheckResult {
 export function createWatchdogEntry(
   issueNumber: number,
   snapshot: LivenessSnapshot,
+  recoveryCount = 0,
 ): WatchdogEntry {
   return {
     issueNumber,
     lastLiveness: snapshot,
     lastChangeAt: snapshot.capturedAt,
-    recoveryCount: 0,
+    recoveryCount,
   };
+}
+
+export function hasObservableLivenessSignal(
+  snapshot: LivenessSnapshot,
+): boolean {
+  return (
+    snapshot.logSizeBytes !== null ||
+    snapshot.workspaceDiffHash !== null ||
+    snapshot.prHeadSha !== null
+  );
 }
 
 /**
@@ -55,12 +66,23 @@ export function checkStall(
   config: WatchdogConfig,
 ): StallCheckResult {
   const previous = entry.lastLiveness;
+
+  if (!hasObservableLivenessSignal(current)) {
+    entry.lastLiveness = current;
+    entry.lastChangeAt = current.capturedAt;
+    return {
+      issueNumber: entry.issueNumber,
+      stalled: false,
+      reason: null,
+      stalledForMs: 0,
+    };
+  }
+
   let changed = false;
 
   // Check log growth
   if (
     current.logSizeBytes !== null &&
-    previous.logSizeBytes !== null &&
     current.logSizeBytes !== previous.logSizeBytes
   ) {
     changed = true;
@@ -69,18 +91,13 @@ export function checkStall(
   // Check workspace diff changes
   if (
     current.workspaceDiffHash !== null &&
-    previous.workspaceDiffHash !== null &&
     current.workspaceDiffHash !== previous.workspaceDiffHash
   ) {
     changed = true;
   }
 
   // Check PR head movement
-  if (
-    current.prHeadSha !== null &&
-    previous.prHeadSha !== null &&
-    current.prHeadSha !== previous.prHeadSha
-  ) {
+  if (current.prHeadSha !== null && current.prHeadSha !== previous.prHeadSha) {
     changed = true;
   }
 
@@ -142,13 +159,6 @@ export function canRecover(
   config: WatchdogConfig,
 ): boolean {
   return entry.recoveryCount < config.maxRecoveryAttempts;
-}
-
-/**
- * Record a recovery attempt for this issue.
- */
-export function recordRecovery(entry: WatchdogEntry): void {
-  entry.recoveryCount += 1;
 }
 
 /** Default watchdog config for use when not specified. */

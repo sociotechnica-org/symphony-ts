@@ -4,9 +4,9 @@ import {
   checkStall,
   classifyStallReason,
   canRecover,
-  recordRecovery,
   createWatchdogEntry,
   DEFAULT_WATCHDOG_CONFIG,
+  hasObservableLivenessSignal,
 } from "../../src/orchestrator/stall-detector.js";
 import type { WatchdogConfig } from "../../src/domain/workflow.js";
 
@@ -91,6 +91,27 @@ describe("checkStall", () => {
     );
     expect(result.stalled).toBe(false);
     expect(result.stalledForMs).toBe(3000);
+  });
+
+  it("does not stall when all liveness signals remain unobserved", () => {
+    const entry = createWatchdogEntry(1, snapshot({ capturedAt: 1000 }));
+    const result = checkStall(entry, snapshot({ capturedAt: 7000 }), config);
+    expect(result.stalled).toBe(false);
+    expect(result.reason).toBeNull();
+    expect(result.stalledForMs).toBe(0);
+    expect(entry.lastChangeAt).toBe(7000);
+  });
+
+  it("treats the first observable signal as progress", () => {
+    const entry = createWatchdogEntry(1, snapshot({ capturedAt: 1000 }));
+    const result = checkStall(
+      entry,
+      snapshot({ logSizeBytes: 100, capturedAt: 7000 }),
+      config,
+    );
+    expect(result.stalled).toBe(false);
+    expect(result.reason).toBeNull();
+    expect(entry.lastChangeAt).toBe(7000);
   });
 
   it("reports stalled after threshold with no changes", () => {
@@ -187,6 +208,18 @@ describe("classifyStallReason", () => {
   });
 });
 
+describe("hasObservableLivenessSignal", () => {
+  it("returns false when every signal is null", () => {
+    expect(hasObservableLivenessSignal(snapshot())).toBe(false);
+  });
+
+  it("returns true when any concrete signal is present", () => {
+    expect(hasObservableLivenessSignal(snapshot({ logSizeBytes: 1 }))).toBe(
+      true,
+    );
+  });
+});
+
 describe("canRecover", () => {
   it("allows recovery when under limit", () => {
     const entry = createWatchdogEntry(1, snapshot());
@@ -197,16 +230,6 @@ describe("canRecover", () => {
     const entry = createWatchdogEntry(1, snapshot());
     entry.recoveryCount = 2;
     expect(canRecover(entry, config)).toBe(false);
-  });
-});
-
-describe("recordRecovery", () => {
-  it("increments recovery count", () => {
-    const entry = createWatchdogEntry(1, snapshot());
-    recordRecovery(entry);
-    expect(entry.recoveryCount).toBe(1);
-    recordRecovery(entry);
-    expect(entry.recoveryCount).toBe(2);
   });
 });
 
