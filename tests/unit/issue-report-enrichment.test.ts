@@ -40,8 +40,10 @@ describe("issue report enrichment", () => {
       outputTokens: 250,
       reasoningOutputTokens: 100,
       totalTokens: 2750,
-      finalSummary:
-        "- Added optional runner-log enrichment and preserved provider-neutral report output.",
+      finalSummary: [
+        "- Added optional runner-log enrichment.",
+        "- Preserved provider-neutral report output.",
+      ].join("\n"),
     });
 
     const generated = await generateIssueReport(workspaceRoot, 44, {
@@ -69,14 +71,22 @@ describe("issue report enrichment", () => {
         modelProvider: "openai",
         gitBranch: "symphony/44",
         gitCommit: "abc123def456",
-        finalSummary:
-          "- Added optional runner-log enrichment and preserved provider-neutral report output.",
+        finalSummary: [
+          "- Added optional runner-log enrichment.",
+          "- Preserved provider-neutral report output.",
+        ].join("\n"),
       }),
     ]);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,
     );
     expect(generated.markdown).toContain("Final summary:");
+    expect(generated.markdown).toContain(
+      "    - Added optional runner-log enrichment.",
+    );
+    expect(generated.markdown).toContain(
+      "    - Preserved provider-neutral report output.",
+    );
     expect(generated.markdown).toContain("Token detail:");
   });
 
@@ -188,6 +198,42 @@ describe("issue report enrichment", () => {
     expect(generated.report.tokenUsage.sessions[0]?.totalTokens).toBeNull();
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "A runner log file in the matching time window could not be parsed, so enrichment was skipped.",
+    );
+  });
+
+  it("keeps a parse-failure note when one readable Codex log still matches", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-partial-parse-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-readable.jsonl",
+      totalTokens: 2750,
+    });
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:06:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-06-00-malformed.jsonl",
+      malformed: true,
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:10:00.000Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.totalTokens).toBe(2750);
+    expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
+      "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
     );
   });
 

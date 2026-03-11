@@ -144,6 +144,11 @@ export class CodexIssueReportEnricher implements IssueReportEnricher {
       gitCommit: matched.meta.gitCommit,
       finalSummary: matched.finalSummary,
       sourceArtifacts: [matched.filePath],
+      notes: sawParseFailure
+        ? [
+            "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
+          ]
+        : undefined,
     };
   }
 

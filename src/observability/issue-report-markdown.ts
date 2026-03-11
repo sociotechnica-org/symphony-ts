@@ -116,9 +116,10 @@ export function renderIssueReportMarkdown(report: IssueReportDocument): string {
         );
       }
       if (session.finalSummary !== null) {
-        lines.push(
-          `  - Final summary: ${collapseWhitespace(session.finalSummary)}`,
-        );
+        lines.push("  - Final summary:");
+        for (const line of renderMultilineSummary(session.finalSummary)) {
+          lines.push(`    - ${line}`);
+        }
       }
       if (session.sourceArtifacts.length > 0) {
         lines.push(
@@ -227,6 +228,14 @@ function renderNumberList(values: readonly number[]): string {
     : values.map((value) => value.toString()).join(", ");
 }
 
-function collapseWhitespace(value: string): string {
-  return value.replace(/\s+/gu, " ").trim();
+function renderMultilineSummary(value: string): readonly string[] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .flatMap((line) => {
+      if (line.length === 0) {
+        return [];
+      }
+      return [line.replace(/^[-*]\s+/u, "")];
+    });
 }
