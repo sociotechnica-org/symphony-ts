@@ -418,5 +418,5 @@ function asString(value: unknown): string | null {
 }
 
 export function asFiniteNumber(value: unknown): number | null {
-  return typeof value === "number" && !Number.isNaN(value) ? value : null;
+  return Number.isFinite(value) ? (value as number) : null;
 }

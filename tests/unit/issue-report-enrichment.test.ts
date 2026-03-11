@@ -155,6 +155,8 @@ describe("issue report enrichment", () => {
 
   it("treats NaN as unavailable in Codex numeric coercion", () => {
     expect(asFiniteNumber(Number.NaN)).toBeNull();
+    expect(asFiniteNumber(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(asFiniteNumber(Number.NEGATIVE_INFINITY)).toBeNull();
     expect(asFiniteNumber(2750)).toBe(2750);
     expect(asFiniteNumber(null)).toBeNull();
   });
