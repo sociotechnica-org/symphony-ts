@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { formatErrorMessage } from "../domain/error-format.js";
 import type { IssueArtifactSessionSnapshot } from "../observability/issue-artifacts.js";
 import type {
   IssueReportEnricher,
@@ -417,9 +418,5 @@ function asString(value: unknown): string | null {
 }
 
 function asNumber(value: unknown): number | null {
-  return typeof value === "number" ? value : null;
-}
-
-function formatErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return typeof value === "number" && !Number.isNaN(value) ? value : null;
 }
