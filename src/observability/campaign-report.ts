@@ -918,9 +918,7 @@ function buildOverallCampaignOutcome(
   if (outcomeCounts.unknown > 0) {
     qualifiers.push(`${outcomeCounts.unknown.toString()} remained unknown`);
   }
-  return qualifiers.length === 0
-    ? lead
-    : `${lead} ${qualifiers.join(", ")}.`;
+  return qualifiers.length === 0 ? lead : `${lead} ${qualifiers.join(", ")}.`;
 }
 
 function buildGitHubSummary(
