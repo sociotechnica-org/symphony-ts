@@ -79,6 +79,8 @@ export class StatusDashboard {
   readonly #getConfig: () => ObservabilityConfig;
   readonly #state: DashboardState;
   readonly #explicitEnabled: boolean | undefined;
+  readonly #explicitRefreshMs: number | undefined;
+  readonly #explicitRenderIntervalMs: number | undefined;
   #stopped = false;
 
   constructor(
@@ -89,6 +91,8 @@ export class StatusDashboard {
     this.#getSnapshot = getSnapshot;
     this.#getConfig = getConfig;
     this.#explicitEnabled = options?.enabled;
+    this.#explicitRefreshMs = options?.refreshMs;
+    this.#explicitRenderIntervalMs = options?.renderIntervalMs;
 
     const config = getConfig();
     const enabled =
@@ -171,8 +175,9 @@ export class StatusDashboard {
 
   #refreshRuntimeConfig(): void {
     const config = this.#getConfig();
-    this.#state.refreshMs = config.refreshMs;
-    this.#state.renderIntervalMs = config.renderIntervalMs;
+    this.#state.refreshMs = this.#explicitRefreshMs ?? config.refreshMs;
+    this.#state.renderIntervalMs =
+      this.#explicitRenderIntervalMs ?? config.renderIntervalMs;
     this.#state.enabled =
       this.#explicitEnabled ?? (config.dashboardEnabled && isTerminalEnabled());
   }
