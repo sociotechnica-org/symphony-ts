@@ -26,6 +26,8 @@ workspace:
 hooks:
   after_create: []
 agent:
+  runner:
+    kind: codex
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   prompt_transport: stdin
   timeout_ms: 5400000

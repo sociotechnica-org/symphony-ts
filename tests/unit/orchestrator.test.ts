@@ -110,6 +110,9 @@ const baseConfig: ResolvedConfig = {
     afterCreate: [],
   },
   agent: {
+    runner: {
+      kind: "generic-command",
+    },
     command: "test-agent",
     promptTransport: "stdin",
     timeoutMs: 1_000,

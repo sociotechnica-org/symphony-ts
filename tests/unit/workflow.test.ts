@@ -35,6 +35,8 @@ hooks:
   after_create:
     - git fetch origin
 agent:
+  runner:
+    kind: codex
   command: codex exec -
   prompt_transport: stdin
   timeout_ms: 1000
@@ -83,6 +85,7 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.tracker.kind).toBe("github-bootstrap");
     expect(workflow.config.polling.retry.maxAttempts).toBe(2);
     expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
+    expect(workflow.config.agent.runner.kind).toBe("codex");
     expect(workflow.config.agent.maxTurns).toBe(1);
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
       "sociotechnica-org/symphony-ts",
@@ -137,6 +140,8 @@ hooks:
   after_create:
     - git fetch origin
 agent:
+  runner:
+    kind: codex
   command: codex exec -
   prompt_transport: stdin
   timeout_ms: 1000
@@ -204,6 +209,137 @@ ${buildSharedWorkflowSections()}
     );
   });
 
+  it("loads an explicit generic command runner selection", async () => {
+    const dir = await createTempDir("workflow-generic-runner-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: generic-command
+  command: claude --print
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.agent.runner).toEqual({
+      kind: "generic-command",
+    });
+  });
+
+  it("rejects an unsupported agent.runner.kind", async () => {
+    const dir = await createTempDir("workflow-invalid-runner-kind-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: claude
+  command: claude --print
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Unsupported agent.runner.kind 'claude'. Supported kinds: codex, generic-command",
+    );
+  });
+
+  it("infers a generic command runner when agent.runner is omitted for non-codex commands", async () => {
+    const dir = await createTempDir("workflow-inferred-generic-runner-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  command: claude --print
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.agent.runner).toEqual({
+      kind: "generic-command",
+    });
+  });
+
   it("derives workspace.repoUrl from tracker.repo and api_url when repo_url is omitted", async () => {
     const dir = await createTempDir("workflow-derived-url-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
@@ -230,6 +366,8 @@ workspace:
 hooks:
   after_create: []
 agent:
+  runner:
+    kind: generic-command
   command: echo test
   prompt_transport: stdin
   timeout_ms: 1000
@@ -272,6 +410,8 @@ workspace:
 hooks:
   after_create: []
 agent:
+  runner:
+    kind: generic-command
   command: echo test
   prompt_transport: stdin
   timeout_ms: 1000

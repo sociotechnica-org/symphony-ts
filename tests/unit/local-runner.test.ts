@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
+import type { AgentConfig } from "../../src/domain/workflow.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import { CodexRunner } from "../../src/runner/codex.js";
+import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
-import { LocalRunner } from "../../src/runner/local.js";
 import type { RunnerSpawnedEvent } from "../../src/runner/service.js";
 import { waitForExit } from "../support/process.js";
 import fs from "node:fs/promises";
@@ -42,19 +44,37 @@ function createSession(): RunSession {
   };
 }
 
-describe("LocalRunner", () => {
+function createCodexConfig(overrides?: Partial<AgentConfig>): AgentConfig {
+  return {
+    runner: {
+      kind: "codex",
+    },
+    command:
+      "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+    promptTransport: "stdin",
+    timeoutMs: 5_000,
+    maxTurns: 3,
+    env: {},
+    ...overrides,
+  };
+}
+
+function createGenericCommandConfig(command: string): AgentConfig {
+  return {
+    runner: {
+      kind: "generic-command",
+    },
+    command,
+    promptTransport: "stdin",
+    timeoutMs: 5_000,
+    maxTurns: 3,
+    env: {},
+  };
+}
+
+describe("runners", () => {
   it("describes Codex-backed sessions with provider and model metadata", () => {
-    const runner = new LocalRunner(
-      {
-        command:
-          "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
-        promptTransport: "stdin",
-        timeoutMs: 5_000,
-        maxTurns: 3,
-        env: {},
-      },
-      new JsonLogger(),
-    );
+    const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
 
     expect(runner.describeSession(createSession())).toEqual({
       provider: "codex",
@@ -65,20 +85,14 @@ describe("LocalRunner", () => {
     });
   });
 
-  it("keeps unknown commands on the local-runner fallback path", () => {
-    const runner = new LocalRunner(
-      {
-        command: "tests/fixtures/fake-agent-success.sh",
-        promptTransport: "stdin",
-        timeoutMs: 5_000,
-        maxTurns: 3,
-        env: {},
-      },
+  it("describes generic command sessions without Codex metadata", () => {
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig("tests/fixtures/fake-agent-success.sh"),
       new JsonLogger(),
     );
 
     expect(runner.describeSession(createSession())).toEqual({
-      provider: "local-runner",
+      provider: "generic-command",
       model: null,
       backendSessionId: null,
       latestTurnNumber: null,
@@ -107,15 +121,10 @@ describe("LocalRunner", () => {
   });
 
   it("handles a closed stdin pipe without crashing the process", async () => {
-    const runner = new LocalRunner(
-      {
-        command:
-          'node -e "process.stdin.destroy(); setTimeout(() => process.exit(0), 10)"',
-        promptTransport: "stdin",
-        timeoutMs: 5_000,
-        maxTurns: 3,
-        env: {},
-      },
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig(
+        'node -e "process.stdin.destroy(); setTimeout(() => process.exit(0), 10)"',
+      ),
       new JsonLogger(),
     );
     const session = createSession();
@@ -126,9 +135,9 @@ describe("LocalRunner", () => {
     expect(result.stderr).toContain("stdin write failed");
   });
 
-  it("keeps LocalRunner.run on the one-shot execute-and-return path for Codex", async () => {
+  it("keeps CodexRunner.run on the one-shot execute-and-return path", async () => {
     const executeSpy = vi
-      .spyOn(LocalRunner, "executeCommand")
+      .spyOn(CodexRunner, "executeCommand")
       .mockResolvedValue({
         exitCode: 0,
         stdout: "ok",
@@ -138,17 +147,7 @@ describe("LocalRunner", () => {
       });
 
     try {
-      const runner = new LocalRunner(
-        {
-          command:
-            "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
-          promptTransport: "stdin",
-          timeoutMs: 5_000,
-          maxTurns: 3,
-          env: {},
-        },
-        new JsonLogger(),
-      );
+      const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
 
       await expect(runner.run(createSession())).resolves.toMatchObject({
         exitCode: 0,
@@ -161,15 +160,10 @@ describe("LocalRunner", () => {
   });
 
   it("reports the spawned pid and aborts the runner child on shutdown", async () => {
-    const runner = new LocalRunner(
-      {
-        command:
-          "node -e \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\"",
-        promptTransport: "stdin",
-        timeoutMs: 5_000,
-        maxTurns: 3,
-        env: {},
-      },
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig(
+        "node -e \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\"",
+      ),
       new JsonLogger(),
     );
     const session = createSession();
@@ -191,14 +185,8 @@ describe("LocalRunner", () => {
   });
 
   it("terminates the runner child if recording the spawn fails", async () => {
-    const runner = new LocalRunner(
-      {
-        command: 'node -e "setInterval(() => {}, 1000)"',
-        promptTransport: "stdin",
-        timeoutMs: 5_000,
-        maxTurns: 3,
-        env: {},
-      },
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig('node -e "setInterval(() => {}, 1000)"'),
       new JsonLogger(),
     );
     const session = createSession();
@@ -219,14 +207,12 @@ describe("LocalRunner", () => {
   });
 
   it("reports a timeout even when the runner must be SIGKILLed", async () => {
-    const runner = new LocalRunner(
+    const runner = new GenericCommandRunner(
       {
-        command:
+        ...createGenericCommandConfig(
           "node -e \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\"",
-        promptTransport: "stdin",
+        ),
         timeoutMs: 50,
-        maxTurns: 3,
-        env: {},
       },
       new JsonLogger(),
     );
@@ -241,7 +227,7 @@ describe("LocalRunner", () => {
     const tempHome = await createTempDir("symphony-local-runner-home-");
     const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
     const executeSpy = vi
-      .spyOn(LocalRunner, "executeCommand")
+      .spyOn(CodexRunner, "executeCommand")
       .mockResolvedValue({
         exitCode: 0,
         stdout: "",
@@ -287,17 +273,7 @@ describe("LocalRunner", () => {
         "utf8",
       );
 
-      const runner = new LocalRunner(
-        {
-          command:
-            "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
-          promptTransport: "stdin",
-          timeoutMs: 5_000,
-          maxTurns: 3,
-          env: {},
-        },
-        new JsonLogger(),
-      );
+      const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
 
       const liveSession = await runner.startSession(createSession());
       const result = await liveSession.runTurn({
@@ -317,7 +293,7 @@ describe("LocalRunner", () => {
     const tempHome = await createTempDir("symphony-local-runner-home-");
     const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
     const executeSpy = vi
-      .spyOn(LocalRunner, "executeCommand")
+      .spyOn(CodexRunner, "executeCommand")
       .mockResolvedValue({
         exitCode: 0,
         stdout: "",
@@ -355,17 +331,7 @@ describe("LocalRunner", () => {
         "utf8",
       );
 
-      const runner = new LocalRunner(
-        {
-          command:
-            "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
-          promptTransport: "stdin",
-          timeoutMs: 5_000,
-          maxTurns: 3,
-          env: {},
-        },
-        new JsonLogger(),
-      );
+      const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
 
       const liveSession = await runner.startSession(createSession());
       const result = await liveSession.runTurn({
@@ -385,7 +351,7 @@ describe("LocalRunner", () => {
     const tempHome = await createTempDir("symphony-local-runner-home-");
     const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
     const executeSpy = vi
-      .spyOn(LocalRunner, "executeCommand")
+      .spyOn(CodexRunner, "executeCommand")
       .mockResolvedValue({
         exitCode: 0,
         stdout: "",
@@ -450,17 +416,7 @@ describe("LocalRunner", () => {
         });
 
       try {
-        const runner = new LocalRunner(
-          {
-            command:
-              "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
-            promptTransport: "stdin",
-            timeoutMs: 5_000,
-            maxTurns: 3,
-            env: {},
-          },
-          new JsonLogger(),
-        );
+        const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
 
         const liveSession = await runner.startSession(createSession());
         const result = await liveSession.runTurn({
@@ -481,7 +437,7 @@ describe("LocalRunner", () => {
 
   it("warns once when unsupported Codex continuation args are dropped", async () => {
     const executeSpy = vi
-      .spyOn(LocalRunner, "executeCommand")
+      .spyOn(CodexRunner, "executeCommand")
       .mockResolvedValue({
         exitCode: 0,
         stdout: "",
@@ -523,15 +479,11 @@ describe("LocalRunner", () => {
         "utf8",
       );
 
-      const runner = new LocalRunner(
-        {
+      const runner = new CodexRunner(
+        createCodexConfig({
           command:
             "codex exec --dangerously-bypass-approvals-and-sandbox --profile strict -m gpt-5.4 -C . -",
-          promptTransport: "stdin",
-          timeoutMs: 5_000,
-          maxTurns: 3,
-          env: {},
-        },
+        }),
         logger,
       );
       const live = await runner.startSession!(createSession());
@@ -560,7 +512,7 @@ describe("LocalRunner", () => {
 
   it("drops unknown value-consuming flags as a pair during Codex resume reconstruction", async () => {
     const executeSpy = vi
-      .spyOn(LocalRunner, "executeCommand")
+      .spyOn(CodexRunner, "executeCommand")
       .mockResolvedValue({
         exitCode: 0,
         stdout: "",
@@ -602,15 +554,11 @@ describe("LocalRunner", () => {
         "utf8",
       );
 
-      const runner = new LocalRunner(
-        {
+      const runner = new CodexRunner(
+        createCodexConfig({
           command:
             "codex exec --dangerously-bypass-approvals-and-sandbox --profile --model -m gpt-5.4 -C . -",
-          promptTransport: "stdin",
-          timeoutMs: 5_000,
-          maxTurns: 3,
-          env: {},
-        },
+        }),
         logger,
       );
       const live = await runner.startSession!(createSession());
@@ -632,15 +580,11 @@ describe("LocalRunner", () => {
   });
 
   it("returns a rejected promise when Codex continuation is configured with file prompt transport", async () => {
-    const runner = new LocalRunner(
-      {
-        command:
-          "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+    const runner = new CodexRunner(
+      createCodexConfig({
         promptTransport: "file",
-        timeoutMs: 5_000,
         maxTurns: 2,
-        env: {},
-      },
+      }),
       new JsonLogger(),
     );
 
@@ -649,34 +593,18 @@ describe("LocalRunner", () => {
     );
   });
 
-  it("warns when continuation turns will cold-start fresh subprocesses", async () => {
-    const warn = vi.fn<Logger["warn"]>();
-    const logger: Logger = {
-      info: vi.fn(),
-      warn,
-      error: vi.fn(),
-    };
-
-    const runner = new LocalRunner(
-      {
-        command: "claude --project-id xyz",
-        promptTransport: "stdin",
-        timeoutMs: 5_000,
-        maxTurns: 3,
-        env: {},
-      },
-      logger,
-    );
-
-    const liveSession = await runner.startSession(createSession());
-
-    expect(liveSession.describe().provider).toBe("local-runner");
-    expect(warn).toHaveBeenCalledWith(
-      "Session reuse is not implemented for this provider; continuation turns will cold-start new subprocesses",
-      expect.objectContaining({
-        provider: "local-runner",
-        maxTurns: 3,
-      }),
+  it("rejects Codex runner construction when the command is not the codex CLI", () => {
+    expect(
+      () =>
+        new CodexRunner(
+          {
+            ...createCodexConfig(),
+            command: "claude --project-id xyz",
+          },
+          new JsonLogger(),
+        ),
+    ).toThrowError(
+      "Codex runner requires agent.command to invoke the codex CLI",
     );
   });
 });

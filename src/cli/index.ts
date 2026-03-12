@@ -13,7 +13,7 @@ import {
   renderFactoryStatusSnapshot,
 } from "../observability/status.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
-import { LocalRunner } from "../runner/local.js";
+import { createRunner } from "../runner/factory.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
 
@@ -117,7 +117,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     workflow.config.hooks.afterCreate,
     logger,
   );
-  const runner = new LocalRunner(workflow.config.agent, logger);
+  const runner = createRunner(workflow.config.agent, logger);
   const orchestrator = new BootstrapOrchestrator(
     workflow.config,
     promptBuilder,
