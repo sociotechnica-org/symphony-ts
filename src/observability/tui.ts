@@ -964,7 +964,8 @@ function humanizeMethod(method: string, payload: unknown): string | null {
         ? `turn started (${turnId})`
         : "turn started";
     }
-    case "turn/completed": {
+    case "turn/completed":
+    case "turn_completed": {
       const status =
         mapPath(payload, ["params", "turn", "status"]) ?? "completed";
       const usage =

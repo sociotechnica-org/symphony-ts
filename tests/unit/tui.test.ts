@@ -313,6 +313,19 @@ describe("humanizeEvent", () => {
     expect(result).toContain("in 100");
   });
 
+  it("humanizes turn_completed method with usage", () => {
+    const msg = {
+      method: "turn_completed",
+      params: {
+        turn: { status: "completed" },
+        usage: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+      },
+    };
+    const result = humanizeEvent(msg, null);
+    expect(result).toContain("turn completed");
+    expect(result).toContain("in 100");
+  });
+
   it("humanizes turn/failed method with error message", () => {
     const msg = {
       method: "turn/failed",
