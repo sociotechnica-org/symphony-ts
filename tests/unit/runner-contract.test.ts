@@ -153,14 +153,17 @@ describe("runner contract", () => {
     const events: RunnerEvent[] = [];
     expect(startSession).toBeDefined();
     const liveSession = await startSession!(createSession());
-    const result = await liveSession.runTurn({
-      prompt: "Continuation prompt",
-      turnNumber: 2,
-    }, {
-      onEvent(event) {
-        events.push(event);
+    const result = await liveSession.runTurn(
+      {
+        prompt: "Continuation prompt",
+        turnNumber: 2,
       },
-    });
+      {
+        onEvent(event) {
+          events.push(event);
+        },
+      },
+    );
 
     expect(events).toEqual([
       {
