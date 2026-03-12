@@ -668,11 +668,15 @@ function resolveWatchdogConfig(value: unknown):
     "polling.watchdog.max_recovery_attempts",
   );
 
-  if (checkIntervalMs < 0) {
-    throw new ConfigError("polling.watchdog.check_interval_ms must be >= 0");
+  if (!Number.isInteger(checkIntervalMs) || checkIntervalMs <= 0) {
+    throw new ConfigError(
+      "polling.watchdog.check_interval_ms must be an integer > 0",
+    );
   }
-  if (stallThresholdMs < 0) {
-    throw new ConfigError("polling.watchdog.stall_threshold_ms must be >= 0");
+  if (!Number.isInteger(stallThresholdMs) || stallThresholdMs <= 0) {
+    throw new ConfigError(
+      "polling.watchdog.stall_threshold_ms must be an integer > 0",
+    );
   }
   if (!Number.isInteger(maxRecoveryAttempts) || maxRecoveryAttempts < 0) {
     throw new ConfigError(

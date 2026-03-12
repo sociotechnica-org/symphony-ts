@@ -287,6 +287,54 @@ agent:
     );
   });
 
+  it("rejects a non-positive polling.watchdog interval", async () => {
+    const dir = await createTempDir("workflow-watchdog-zero-interval-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+  watchdog:
+    enabled: true
+    check_interval_ms: 0
+    stall_threshold_ms: 300000
+    max_recovery_attempts: 2
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "polling.watchdog.check_interval_ms must be an integer > 0",
+    );
+  });
+
   it("rejects a non-integer agent.max_turns", async () => {
     const dir = await createTempDir("workflow-max-turns-fractional-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

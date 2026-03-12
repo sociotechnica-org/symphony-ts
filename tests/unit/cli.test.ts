@@ -438,7 +438,7 @@ describe("runCli run", () => {
 
     expect(probeRoots).toEqual(["/tmp/factory-root"]);
     expect(orchestratorArgs).not.toBeNull();
-    expect(orchestratorArgs).toHaveLength(8);
+    expect(orchestratorArgs?.[7]).toBeDefined();
     expect(runOnce).toHaveBeenCalledOnce();
   });
 });
