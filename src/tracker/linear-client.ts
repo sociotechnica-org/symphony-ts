@@ -354,8 +354,14 @@ export class LinearClient {
 
     // The while(true) loop always runs at least once and sets project
     // on the first iteration (or throws via #requireProjectIssuesPage).
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (project === null) {
+      throw new TrackerError(
+        "Linear GraphQL request failed for GetProjectIssuesPage: missing project payload",
+      );
+    }
     return {
-      project: project!,
+      project,
       issues,
     };
   }

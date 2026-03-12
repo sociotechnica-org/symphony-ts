@@ -112,7 +112,13 @@ export class MockGitHubServer {
   readonly #requestCounts = new Map<string, number>();
   readonly #branchCommitTimes = new Map<string, string>();
   readonly #server = http.createServer((req, res) => {
-    void this.#handle(req, res);
+    this.#handle(req, res).catch((error: unknown) => {
+      console.error("Mock GitHub server handler error:", error);
+      if (!res.headersSent) {
+        res.writeHead(500);
+        res.end();
+      }
+    });
   });
   #baseUrl = "";
   #nextPrNumber = 1;
