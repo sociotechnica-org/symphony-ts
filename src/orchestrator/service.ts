@@ -203,7 +203,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: retry.issue.number,
         identifier: retry.issue.identifier,
         nextAttempt: retry.nextAttempt,
-        dueInMs: Math.max(0, retry.dueAt - now),
+        dueInMs: Math.max(0, Math.round((retry.dueAt - now) / 1000) * 1000),
         lastError: retry.lastError,
       });
     }
@@ -224,10 +224,9 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #deriveProjectUrl(): string | null {
-    const tracker = this.#config.tracker;
-    if (tracker.kind === "linear") {
-      return `https://linear.app/project/${tracker.projectSlug}/issues`;
-    }
+    // Linear URLs require a workspace slug not yet available in LinearTrackerConfig.
+    // GitHub has no single canonical project board URL in the current config shape.
+    // Both cases return null until the config shape is extended.
     return null;
   }
 

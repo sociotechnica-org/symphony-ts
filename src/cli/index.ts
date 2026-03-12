@@ -158,8 +158,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   dashboard.start();
 
   if (args.once) {
-    await orchestrator.runOnce();
-    dashboard.stop();
+    try {
+      await orchestrator.runOnce();
+    } finally {
+      dashboard.stop();
+    }
     return;
   }
 
@@ -170,8 +173,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   };
   process.on("SIGINT", stopDashboard);
   process.on("SIGTERM", stopDashboard);
-  await orchestrator.runLoop(abortController.signal);
-  dashboard.stop();
+  try {
+    await orchestrator.runLoop(abortController.signal);
+  } finally {
+    dashboard.stop();
+  }
 }
 
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {
