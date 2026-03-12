@@ -16,7 +16,7 @@ export interface RunningEntry {
   codexLastReportedTotalTokens: number;
   codexAppServerPid: number | null;
   lastCodexEvent: string | null;
-  lastCodexMessage: unknown | null;
+  lastCodexMessage: unknown;
   lastCodexTimestamp: string | null;
 }
 

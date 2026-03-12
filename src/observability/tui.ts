@@ -383,7 +383,7 @@ export function formatSnapshotContent(
 // ─── Header helpers ───────────────────────────────────────────────────────
 
 function formatRefreshLine(polling: TuiSnapshot["polling"] | null): string {
-  if (polling === null || polling === undefined) {
+  if (polling === null) {
     return colorize("│ Next refresh: ", BOLD) + colorize("n/a", GRAY);
   }
   if (polling.checkingNow) {
@@ -397,7 +397,7 @@ function formatRefreshLine(polling: TuiSnapshot["polling"] | null): string {
 }
 
 function formatRateLimits(rateLimits: TuiSnapshot["rateLimits"]): string {
-  if (rateLimits === null || rateLimits === undefined) {
+  if (rateLimits === null) {
     return colorize("unavailable", GRAY);
   }
   const { limitId, primary, secondary, credits } = rateLimits;
@@ -429,7 +429,7 @@ function formatRateLimitBucket(
     readonly resetInMs: number;
   } | null,
 ): string {
-  if (bucket === null || bucket === undefined) return "n/a";
+  if (bucket === null) return "n/a";
   const resetSecs = Math.ceil(bucket.resetInMs / 1000);
   return `${formatCount(bucket.used)}/${formatCount(bucket.limit)} reset ${String(resetSecs)}s`;
 }
@@ -755,7 +755,7 @@ function truncate(value: string, max: number): string {
 }
 
 function compactSessionId(sessionId: string | null): string {
-  if (sessionId === null || sessionId === undefined) return "n/a";
+  if (sessionId === null) return "n/a";
   if (sessionId.length > 10) {
     return sessionId.slice(0, 4) + "..." + sessionId.slice(-6);
   }
@@ -1088,7 +1088,7 @@ function humanizeItemLifecycle(state: string, payload: unknown): string {
 }
 
 function humanizeItemType(type: string | null): string {
-  if (type === null || type === undefined) return "item";
+  if (type === null) return "item";
   return type
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/_/g, " ")

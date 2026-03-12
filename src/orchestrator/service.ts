@@ -90,7 +90,7 @@ export interface TuiRunningEntry {
   readonly codexOutputTokens: number;
   readonly codexAppServerPid: number | null;
   readonly lastCodexEvent: string | null;
-  readonly lastCodexMessage: unknown | null;
+  readonly lastCodexMessage: unknown;
   readonly lastCodexTimestamp: string | null;
 }
 
@@ -140,7 +140,6 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #factoryStartedAt: number = Date.now();
   #shutdownSignal: AbortSignal | undefined;
   #dashboardNotify: (() => void) | null = null;
-  readonly #factoryStartedAt: number = Date.now();
 
   constructor(
     config: ResolvedConfig,
