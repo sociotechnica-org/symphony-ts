@@ -39,9 +39,9 @@ import type {
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
 import {
-  buildMaxTurnsSummary,
   createContinuationRunTurn,
   type RunSessionArtifactsState,
+  summarizeMissingTargetFailure,
   shouldContinueTurnLoop,
   summarizeLifecycleAtTurnExit,
 } from "./continuation-turns.js";
@@ -840,7 +840,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleFailure(
         session,
         attempt,
-        buildMaxTurnsSummary(lifecycle, this.#config.agent.maxTurns),
+        summarizeMissingTargetFailure(lifecycle, this.#config.agent.maxTurns),
         finishedAt,
       );
       return;

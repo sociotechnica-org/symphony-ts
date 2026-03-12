@@ -1800,6 +1800,48 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("keeps the raw missing-target summary when max_turns is one", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(89)],
+    });
+    tracker.setLifecycleSequence(89, [
+      lifecycle("missing-target", "symphony/89"),
+      lifecycle("missing-target", "symphony/89"),
+    ]);
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        agent: {
+          ...baseConfig.agent,
+          maxTurns: 1,
+        },
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            maxFollowUpAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      new RecordingLiveSessionRunner(),
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 89,
+        reason: "missing-target for symphony/89",
+      },
+    ]);
+  });
+
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(78)],

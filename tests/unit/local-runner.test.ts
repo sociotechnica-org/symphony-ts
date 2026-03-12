@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { createTempDir } from "../support/git.js";
 import { vi } from "vitest";
+import type { Logger } from "../../src/observability/logger.js";
 
 function createSession(): RunSession {
   return {
@@ -469,6 +470,81 @@ describe("LocalRunner", () => {
       } finally {
         readFileSpy.mockRestore();
       }
+    } finally {
+      executeSpy.mockRestore();
+      homedirSpy.mockRestore();
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("warns once when unsupported Codex continuation args are dropped", async () => {
+    const executeSpy = vi
+      .spyOn(LocalRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:05.000Z",
+      });
+    const warn = vi.fn<Logger["warn"]>();
+    const logger: Logger = {
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+    };
+    const tempHome = await createTempDir("symphony-local-runner-home-");
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+
+    try {
+      const sessionsRoot = path.join(
+        tempHome,
+        ".codex",
+        "sessions",
+        "2026",
+        "03",
+        "11",
+      );
+      await fs.mkdir(sessionsRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sessionsRoot, "match.jsonl"),
+        `${JSON.stringify({
+          type: "session_meta",
+          timestamp: "2026-03-11T10:00:01.000Z",
+          payload: {
+            id: "codex-session-1",
+            timestamp: "2026-03-11T10:00:01.000Z",
+            cwd: process.cwd(),
+            git: { branch: "symphony/1" },
+          },
+        })}\n`,
+        "utf8",
+      );
+
+      const runner = new LocalRunner(
+        {
+          command:
+            "codex exec --dangerously-bypass-approvals-and-sandbox --profile strict -m gpt-5.4 -C . -",
+          promptTransport: "stdin",
+          timeoutMs: 5_000,
+          maxTurns: 3,
+          env: {},
+        },
+        logger,
+      );
+      const live = await runner.startSession!(createSession());
+
+      await live.runTurn({ turnNumber: 1, prompt: "first" });
+      await live.runTurn({ turnNumber: 2, prompt: "second" });
+      await live.runTurn({ turnNumber: 3, prompt: "third" });
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        "Dropped unsupported Codex continuation arguments while building resume command",
+        expect.objectContaining({
+          droppedArgs: ["--profile", "strict"],
+        }),
+      );
     } finally {
       executeSpy.mockRestore();
       homedirSpy.mockRestore();

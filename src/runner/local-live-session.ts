@@ -26,6 +26,7 @@ export class LocalRunnerSession implements LiveRunnerSession {
     config: AgentConfig,
     execution: LocalCommandExecutionOptions,
   ) => Promise<RunResult>;
+  #loggedDroppedResumeArgs = false;
   #backendSessionId: string | null = null;
   #latestTurnNumber: number | null = null;
 
@@ -121,9 +122,20 @@ export class LocalRunnerSession implements LiveRunnerSession {
         "Cannot start a Codex continuation turn without a backend session id",
       );
     }
-    return buildCodexResumeCommand(
+    const resume = buildCodexResumeCommand(
       this.#config.command,
       this.#backendSessionId,
     );
+    if (!this.#loggedDroppedResumeArgs && resume.droppedArgs.length > 0) {
+      this.#logger.warn(
+        "Dropped unsupported Codex continuation arguments while building resume command",
+        {
+          runSessionId: this.#runSession.id,
+          droppedArgs: resume.droppedArgs,
+        },
+      );
+      this.#loggedDroppedResumeArgs = true;
+    }
+    return resume.command;
   }
 }

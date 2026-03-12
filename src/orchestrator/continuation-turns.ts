@@ -69,3 +69,13 @@ export function buildMaxTurnsSummary(
 ): string {
   return `Reached agent.max_turns (${maxTurns.toString()}) with remaining ${lifecycle.kind} work: ${lifecycle.summary}`;
 }
+
+export function summarizeMissingTargetFailure(
+  lifecycle: HandoffLifecycle,
+  maxTurns: number,
+): string {
+  if (maxTurns <= 1) {
+    return lifecycle.summary;
+  }
+  return buildMaxTurnsSummary(lifecycle, maxTurns);
+}

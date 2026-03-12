@@ -5,7 +5,10 @@ import { parseLocalRunnerCommand, quoteShellToken } from "./local-command.js";
 export function buildCodexResumeCommand(
   command: string,
   sessionId: string,
-): string {
+): {
+  readonly command: string;
+  readonly droppedArgs: readonly string[];
+} {
   const parsed = parseLocalRunnerCommand(command);
   if (
     parsed.executable === null ||
@@ -27,7 +30,9 @@ export function buildCodexResumeCommand(
     );
   }
 
-  const forwardedArgs = filterCodexResumeArgs(args.slice(1));
+  const { filteredArgs: forwardedArgs, droppedArgs } = filterCodexResumeArgs(
+    args.slice(1),
+  );
   const quoted = [
     ...prefix,
     executable,
@@ -37,11 +42,18 @@ export function buildCodexResumeCommand(
     sessionId,
     "-",
   ].map((token) => quoteShellToken(token ?? ""));
-  return quoted.join(" ");
+  return {
+    command: quoted.join(" "),
+    droppedArgs,
+  };
 }
 
-function filterCodexResumeArgs(args: readonly string[]): readonly string[] {
-  const filtered: string[] = [];
+function filterCodexResumeArgs(args: readonly string[]): {
+  readonly filteredArgs: readonly string[];
+  readonly droppedArgs: readonly string[];
+} {
+  const filteredArgs: string[] = [];
+  const droppedArgs: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index];
@@ -66,8 +78,10 @@ function filterCodexResumeArgs(args: readonly string[]): readonly string[] {
     ) {
       const value = args[index + 1];
       if (value !== undefined) {
-        filtered.push(token, value);
+        filteredArgs.push(token, value);
         index += 1;
+      } else {
+        droppedArgs.push(token);
       }
       continue;
     }
@@ -77,7 +91,7 @@ function filterCodexResumeArgs(args: readonly string[]): readonly string[] {
       token === "--skip-git-repo-check" ||
       token === "--ephemeral"
     ) {
-      filtered.push(token);
+      filteredArgs.push(token);
       continue;
     }
     if (
@@ -88,9 +102,15 @@ function filterCodexResumeArgs(args: readonly string[]): readonly string[] {
       token.startsWith("--model=") ||
       token.startsWith("--output-last-message=")
     ) {
-      filtered.push(token);
+      filteredArgs.push(token);
+      continue;
     }
+
+    droppedArgs.push(token);
   }
 
-  return filtered;
+  return {
+    filteredArgs,
+    droppedArgs,
+  };
 }
