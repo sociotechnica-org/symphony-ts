@@ -29,6 +29,7 @@ import {
 } from "../support/git.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
 import { waitForExit } from "../support/process.js";
+import { StatusDashboard } from "../../src/observability/tui.js";
 
 const originalEnv = { ...process.env };
 
@@ -867,5 +868,75 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     } finally {
       orphan.kill("SIGKILL");
     }
+  });
+});
+
+describe("TUI dashboard integration", () => {
+  let server: MockGitHubServer;
+  let tempDir: string;
+  let remotePath: string;
+  let fixturePath: string;
+
+  beforeEach(async () => {
+    tempDir = await createTempDir("symphony-tui-");
+    const remote = await createSeedRemote();
+    remotePath = remote.remotePath;
+    server = new MockGitHubServer();
+    await server.start();
+    fixturePath = path.resolve("tests/fixtures");
+    process.env = {
+      ...originalEnv,
+      GH_TOKEN: "test-token",
+      MOCK_GITHUB_API_URL: server.baseUrl,
+      PATH: `${fixturePath}:${originalEnv.PATH ?? ""}`,
+    };
+    delete process.env["SYMPHONY_REPO"];
+  });
+
+  afterEach(async () => {
+    process.env = { ...originalEnv };
+    await server.stop();
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("renders SYMPHONY STATUS frames during a factory run and terminates with an offline frame", async () => {
+    server.seedIssue({
+      number: 1,
+      title: "TUI smoke issue",
+      body: "Verify dashboard renders during orchestrator run",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+    });
+
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    const frames: string[] = [];
+    const dashboard = new StatusDashboard(
+      () => orchestrator.snapshot(),
+      () => ({ dashboardEnabled: true, refreshMs: 50, renderIntervalMs: 10 }),
+      {
+        enabled: true,
+        refreshMs: 50,
+        renderIntervalMs: 10,
+        renderFn: (content) => {
+          frames.push(content);
+        },
+      },
+    );
+
+    orchestrator.setDashboardNotify(() => dashboard.refresh());
+    dashboard.start();
+    await orchestrator.runOnce();
+    dashboard.stop();
+
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames[0]).toContain("SYMPHONY STATUS");
+    expect(frames[frames.length - 1]).toContain("app_status=offline");
   });
 });
