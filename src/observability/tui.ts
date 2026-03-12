@@ -658,7 +658,12 @@ export function tpsSparkline(
 
   const bucketMs = SPARKLINE_WINDOW_MS / SPARKLINE_BUCKETS;
   const windowStart = nowMs - SPARKLINE_WINDOW_MS;
-  const bucketTps: number[] = new Array(SPARKLINE_BUCKETS).fill(0) as number[];
+  const bucketTpsSum: number[] = new Array(SPARKLINE_BUCKETS).fill(
+    0,
+  ) as number[];
+  const bucketCounts: number[] = new Array(SPARKLINE_BUCKETS).fill(
+    0,
+  ) as number[];
 
   const sorted = [...samples].sort((a, b) => a[0] - b[0]);
 
@@ -674,9 +679,14 @@ export function tpsSparkline(
     const midMs = (prevMs + curMs) / 2;
     const bucketIndex = Math.floor((midMs - windowStart) / bucketMs);
     if (bucketIndex >= 0 && bucketIndex < SPARKLINE_BUCKETS) {
-      bucketTps[bucketIndex] = Math.max(bucketTps[bucketIndex]!, pairTps);
+      bucketTpsSum[bucketIndex] = bucketTpsSum[bucketIndex]! + pairTps;
+      bucketCounts[bucketIndex] = bucketCounts[bucketIndex]! + 1;
     }
   }
+
+  const bucketTps: number[] = bucketTpsSum.map((sum, i) =>
+    bucketCounts[i]! > 0 ? sum / bucketCounts[i]! : 0,
+  );
 
   const maxTps = Math.max(...bucketTps);
   if (maxTps === 0) return "";
@@ -713,7 +723,6 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       codexOutputTokens: e.codexOutputTokens,
       codexAppServerPid: e.codexAppServerPid,
       lastCodexEvent: e.lastCodexEvent,
-      lastCodexTimestamp: e.lastCodexTimestamp,
     })),
     retrying: snapshot.retrying.map((r) => ({
       issueNumber: r.issueNumber,
@@ -807,7 +816,7 @@ function truncatePlain(value: string, width: number): string {
 
 function truncate(value: string, max: number): string {
   if (value.length <= max) return value;
-  return value.slice(0, max) + "...";
+  return value.slice(0, max - 3) + "...";
 }
 
 function compactSessionId(sessionId: string | null): string {
@@ -831,14 +840,14 @@ function runningEventWidth(terminalColumnsOverride?: number): number {
 }
 
 function terminalColumns(): number {
+  // Prefer dynamic terminal width, fall back to COLUMNS env var
+  const cols = process.stdout.columns;
+  if (typeof cols === "number" && cols > 0) return cols;
   const envCols = process.env["COLUMNS"];
   if (envCols !== undefined) {
     const parsed = parseInt(envCols.trim(), 10);
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }
-  // Node.js stdout columns
-  const cols = process.stdout.columns;
-  if (typeof cols === "number" && cols > 0) return cols;
   return DEFAULT_TERMINAL_COLUMNS;
 }
 

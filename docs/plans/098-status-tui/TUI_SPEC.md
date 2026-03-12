@@ -102,8 +102,8 @@ final "app_status=offline" frame before the process tree shuts down.
 The TUI reads its settings from the workflow config's `observability` section
 (loaded via `Config.settings!().observability`):
 
-| Field                | Type    | Default | Description                                      |
-|----------------------|---------|---------|--------------------------------------------------|
+| Field                | Type    | Default | Description                                       |
+| -------------------- | ------- | ------- | ------------------------------------------------- |
 | `dashboard_enabled`  | boolean | `true`  | Master enable/disable for the terminal dashboard  |
 | `refresh_ms`         | integer | `1000`  | Interval between automatic tick-based refreshes   |
 | `render_interval_ms` | integer | `16`    | Minimum time between rendered frames (~60fps cap) |
@@ -207,31 +207,31 @@ The TUI renders a box-drawing frame with the following sections:
 
 ### 5.1 Header Section
 
-| Line          | Data Source                          | Formatting                                   |
-|---------------|--------------------------------------|----------------------------------------------|
-| Agents        | `length(running)` / `max_concurrent` | Green count / gray max                        |
-| Throughput    | Rolling TPS (see Section 6)          | Cyan, comma-grouped integer                   |
-| Runtime       | `codex_totals.seconds_running`       | Magenta, `Xm Ys` format                      |
-| Tokens        | `codex_totals.*`                     | Yellow, comma-grouped, `in X \| out Y \| total Z` |
-| Rate Limits   | `snapshot.rate_limits`               | Composite: limit ID (yellow), buckets (cyan), credits (green) |
-| Project       | `config.tracker.project_slug`        | Cyan URL or gray "n/a"                        |
-| Dashboard     | `config.server.host` + bound port    | Cyan URL or omitted if no server              |
-| Next refresh  | `snapshot.polling`                   | Cyan countdown or "checking now..." or "n/a"  |
+| Line         | Data Source                          | Formatting                                                    |
+| ------------ | ------------------------------------ | ------------------------------------------------------------- |
+| Agents       | `length(running)` / `max_concurrent` | Green count / gray max                                        |
+| Throughput   | Rolling TPS (see Section 6)          | Cyan, comma-grouped integer                                   |
+| Runtime      | `codex_totals.seconds_running`       | Magenta, `Xm Ys` format                                       |
+| Tokens       | `codex_totals.*`                     | Yellow, comma-grouped, `in X \| out Y \| total Z`             |
+| Rate Limits  | `snapshot.rate_limits`               | Composite: limit ID (yellow), buckets (cyan), credits (green) |
+| Project      | `config.tracker.project_slug`        | Cyan URL or gray "n/a"                                        |
+| Dashboard    | `config.server.host` + bound port    | Cyan URL or omitted if no server                              |
+| Next refresh | `snapshot.polling`                   | Cyan countdown or "checking now..." or "n/a"                  |
 
 ### 5.2 Running Table
 
 Each running agent is a row in a fixed-width columnar table:
 
-| Column    | Width | Source Field                    | Notes                                    |
-|-----------|-------|---------------------------------|------------------------------------------|
-| Status    | 1     | `last_codex_event`              | Colored dot (● ) — see color map below   |
-| ID        | 8     | `identifier`                    | Issue identifier (e.g., "MT-101")        |
-| STAGE     | 14    | `state`                         | Orchestrator state for this session       |
-| PID       | 8     | `codex_app_server_pid`          | OS PID of the agent process               |
-| AGE/TURN  | 12    | `runtime_seconds`, `turn_count` | `Xm Ys / N` format                       |
-| TOKENS    | 10    | `codex_total_tokens`            | Right-aligned, comma-grouped              |
-| SESSION   | 14    | `session_id`                    | Compacted: first 4 + "..." + last 6 chars |
-| EVENT     | flex  | `last_codex_message`            | Fills remaining terminal width            |
+| Column   | Width | Source Field                    | Notes                                     |
+| -------- | ----- | ------------------------------- | ----------------------------------------- |
+| Status   | 1     | `last_codex_event`              | Colored dot (● ) — see color map below    |
+| ID       | 8     | `identifier`                    | Issue identifier (e.g., "MT-101")         |
+| STAGE    | 14    | `state`                         | Orchestrator state for this session       |
+| PID      | 8     | `codex_app_server_pid`          | OS PID of the agent process               |
+| AGE/TURN | 12    | `runtime_seconds`, `turn_count` | `Xm Ys / N` format                        |
+| TOKENS   | 10    | `codex_total_tokens`            | Right-aligned, comma-grouped              |
+| SESSION  | 14    | `session_id`                    | Compacted: first 4 + "..." + last 6 chars |
+| EVENT    | flex  | `last_codex_message`            | Fills remaining terminal width            |
 
 The EVENT column width is computed dynamically:
 `terminal_columns - fixed_column_widths - chrome_width` (minimum 12 characters).
@@ -241,13 +241,13 @@ falling back to a default of 115.
 
 #### Status Dot Color Map
 
-| Condition                              | Color   |
-|----------------------------------------|---------|
-| No event yet (`:none`)                 | Red     |
-| `codex/event/token_count`              | Yellow  |
-| `codex/event/task_started`             | Green   |
-| `turn_completed`                       | Magenta |
-| All other events                       | Blue    |
+| Condition                  | Color   |
+| -------------------------- | ------- |
+| No event yet (`:none`)     | Red     |
+| `codex/event/token_count`  | Yellow  |
+| `codex/event/task_started` | Green   |
+| `turn_completed`           | Magenta |
+| All other events           | Blue    |
 
 Rows are sorted by `identifier` (ascending).
 
@@ -310,35 +310,35 @@ received for each running agent. This is a pure formatting function with no side
 
 Events are classified by their `method` field or wrapper event suffix:
 
-| Protocol Method / Event                        | Humanized Output                                    |
-|------------------------------------------------|-----------------------------------------------------|
-| `thread/started`                               | "thread started (thread_id)"                        |
-| `turn/started`                                 | "turn started (turn_id)"                            |
-| `turn/completed`                               | "turn completed (status) (in X, out Y)"             |
-| `turn/failed`                                  | "turn failed: error_message"                        |
-| `turn/cancelled`                               | "turn cancelled"                                    |
-| `turn/diff/updated`                            | "turn diff updated (N lines)"                       |
-| `turn/plan/updated`                            | "plan updated (N steps)"                            |
-| `thread/tokenUsage/updated`                    | "thread token usage updated (in X, out Y, total Z)" |
-| `item/started`, `item/completed`               | "item started/completed: type (id, status)"         |
-| `item/agentMessage/delta`                      | "agent message streaming: preview..."               |
-| `item/commandExecution/requestApproval`        | "command approval requested (command)"              |
-| `item/commandExecution/outputDelta`            | "command output streaming"                          |
-| `item/fileChange/requestApproval`              | "file change approval requested (N files)"          |
-| `item/tool/requestUserInput`                   | "tool requires user input: question"                |
-| `item/tool/call`                               | "dynamic tool call requested (tool_name)"           |
-| `account/updated`                              | "account updated (auth mode)"                       |
-| `account/rateLimits/updated`                   | "rate limits updated: summary"                      |
-| Wrapper: `codex/event/task_started`            | "task started"                                      |
-| Wrapper: `codex/event/user_message`            | "user message received"                             |
-| Wrapper: `codex/event/token_count`             | "token count update (in X, out Y, total Z)"         |
-| Wrapper: `codex/event/exec_command_begin`      | "command_text" (extracted from parsed_cmd)           |
-| Wrapper: `codex/event/exec_command_end`        | "command completed (exit N)"                        |
-| Wrapper: `codex/event/mcp_startup_update`      | "mcp startup: server_name state"                    |
-| Wrapper: `codex/event/mcp_startup_complete`    | "mcp startup complete"                              |
-| Wrapper: `codex/event/agent_message_delta`     | "agent message streaming: preview..."               |
-| Wrapper: `codex/event/agent_reasoning_delta`   | "reasoning streaming: preview..."                   |
-| Wrapper: `codex/event/exec_command_output_delta` | "command output streaming"                        |
+| Protocol Method / Event                          | Humanized Output                                    |
+| ------------------------------------------------ | --------------------------------------------------- |
+| `thread/started`                                 | "thread started (thread_id)"                        |
+| `turn/started`                                   | "turn started (turn_id)"                            |
+| `turn/completed`                                 | "turn completed (status) (in X, out Y)"             |
+| `turn/failed`                                    | "turn failed: error_message"                        |
+| `turn/cancelled`                                 | "turn cancelled"                                    |
+| `turn/diff/updated`                              | "turn diff updated (N lines)"                       |
+| `turn/plan/updated`                              | "plan updated (N steps)"                            |
+| `thread/tokenUsage/updated`                      | "thread token usage updated (in X, out Y, total Z)" |
+| `item/started`, `item/completed`                 | "item started/completed: type (id, status)"         |
+| `item/agentMessage/delta`                        | "agent message streaming: preview..."               |
+| `item/commandExecution/requestApproval`          | "command approval requested (command)"              |
+| `item/commandExecution/outputDelta`              | "command output streaming"                          |
+| `item/fileChange/requestApproval`                | "file change approval requested (N files)"          |
+| `item/tool/requestUserInput`                     | "tool requires user input: question"                |
+| `item/tool/call`                                 | "dynamic tool call requested (tool_name)"           |
+| `account/updated`                                | "account updated (auth mode)"                       |
+| `account/rateLimits/updated`                     | "rate limits updated: summary"                      |
+| Wrapper: `codex/event/task_started`              | "task started"                                      |
+| Wrapper: `codex/event/user_message`              | "user message received"                             |
+| Wrapper: `codex/event/token_count`               | "token count update (in X, out Y, total Z)"         |
+| Wrapper: `codex/event/exec_command_begin`        | "command_text" (extracted from parsed_cmd)          |
+| Wrapper: `codex/event/exec_command_end`          | "command completed (exit N)"                        |
+| Wrapper: `codex/event/mcp_startup_update`        | "mcp startup: server_name state"                    |
+| Wrapper: `codex/event/mcp_startup_complete`      | "mcp startup complete"                              |
+| Wrapper: `codex/event/agent_message_delta`       | "agent message streaming: preview..."               |
+| Wrapper: `codex/event/agent_reasoning_delta`     | "reasoning streaming: preview..."                   |
+| Wrapper: `codex/event/exec_command_output_delta` | "command output streaming"                          |
 
 ### 7.2 Field Extraction Strategy
 
@@ -356,6 +356,7 @@ enforcement on incoming events.
 ### 7.3 Text Sanitization
 
 All humanized output is:
+
 - Collapsed to single-line (newlines → spaces, whitespace collapsed)
 - ANSI escape sequences stripped
 - Control characters removed
@@ -365,18 +366,18 @@ All humanized output is:
 
 The TUI uses standard ANSI escape codes (no 256-color or truecolor):
 
-| Semantic Use       | ANSI Code         |
-|--------------------|--------------------|
-| Reset              | `\e[0m`            |
-| Bold/Bright        | `\e[1m`            |
-| Dim/Faint          | `\e[2m`            |
-| Red (errors)       | `\e[31m`           |
-| Green (healthy)    | `\e[32m`           |
-| Yellow (tokens)    | `\e[33m`           |
-| Blue (active)      | `\e[34m`           |
-| Magenta (runtime)  | `\e[35m`           |
-| Cyan (links/tps)   | `\e[36m`           |
-| Gray (chrome/muted)| `\e[90m`           |
+| Semantic Use        | ANSI Code |
+| ------------------- | --------- |
+| Reset               | `\e[0m`   |
+| Bold/Bright         | `\e[1m`   |
+| Dim/Faint           | `\e[2m`   |
+| Red (errors)        | `\e[31m`  |
+| Green (healthy)     | `\e[32m`  |
+| Yellow (tokens)     | `\e[33m`  |
+| Blue (active)       | `\e[34m`  |
+| Magenta (runtime)   | `\e[35m`  |
+| Cyan (links/tps)    | `\e[36m`  |
+| Gray (chrome/muted) | `\e[90m`  |
 
 Every colorized segment is wrapped: `{color_code}{text}\e[0m`.
 
@@ -406,6 +407,7 @@ opt in.
 ### 9.3 Shutdown
 
 The CLI monitors the application supervisor. When it exits:
+
 - Normal exit → `halt(0)`
 - Abnormal exit → `halt(1)`
 
