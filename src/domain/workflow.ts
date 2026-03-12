@@ -55,7 +55,18 @@ export interface HooksConfig {
   readonly afterCreate: readonly string[];
 }
 
+export interface CodexRunnerConfig {
+  readonly kind: "codex";
+}
+
+export interface GenericCommandRunnerConfig {
+  readonly kind: "generic-command";
+}
+
+export type AgentRunnerConfig = CodexRunnerConfig | GenericCommandRunnerConfig;
+
 export interface AgentConfig {
+  readonly runner: AgentRunnerConfig;
   readonly command: string;
   readonly promptTransport: "stdin" | "file";
   readonly timeoutMs: number;

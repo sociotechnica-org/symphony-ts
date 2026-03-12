@@ -17,7 +17,7 @@ import { runReportCli } from "../../src/cli/report.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
-import { LocalRunner } from "../../src/runner/local.js";
+import { createRunner } from "../../src/runner/factory.js";
 import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
@@ -36,6 +36,7 @@ async function writeWorkflow(options: {
   remotePath: string;
   apiUrl: string;
   agentCommand: string;
+  runnerKind?: "codex" | "generic-command";
   retryBackoffMs?: number;
   maxAttempts?: number;
   maxFollowUpAttempts?: number;
@@ -71,6 +72,8 @@ workspace:
 hooks:
   after_create: []
 agent:
+  runner:
+    kind: ${options.runnerKind ?? "generic-command"}
   command: ${options.agentCommand}
   prompt_transport: stdin
   timeout_ms: 30000
@@ -107,7 +110,7 @@ async function createOrchestrator(
     workflow.config.hooks.afterCreate,
     logger,
   );
-  const runner = new LocalRunner(workflow.config.agent, logger);
+  const runner = createRunner(workflow.config.agent, logger);
   return new BootstrapOrchestrator(
     workflow.config,
     promptBuilder,
@@ -254,7 +257,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       1,
       artifactSummary.latestSessionId!,
     );
-    expect(session.provider).toBe("local-runner");
+    expect(session.provider).toBe("generic-command");
 
     const workspacePath = path.join(
       tempDir,

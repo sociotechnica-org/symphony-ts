@@ -233,6 +233,8 @@ workspace:
 hooks:
   after_create: []
 agent:
+  runner:
+    kind: codex
   command: codex
   prompt_transport: stdin
   timeout_ms: 1000

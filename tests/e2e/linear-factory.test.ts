@@ -12,7 +12,7 @@ import {
 import { JsonLogger } from "../../src/observability/logger.js";
 import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
-import { LocalRunner } from "../../src/runner/local.js";
+import { createRunner } from "../../src/runner/factory.js";
 import { createTracker } from "../../src/tracker/factory.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
@@ -28,6 +28,7 @@ async function writeWorkflow(options: {
   readonly remotePath: string;
   readonly endpoint: string;
   readonly agentCommand: string;
+  readonly runnerKind?: "codex" | "generic-command";
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   await fs.writeFile(
@@ -60,6 +61,8 @@ workspace:
 hooks:
   after_create: []
 agent:
+  runner:
+    kind: ${options.runnerKind ?? "generic-command"}
   command: ${options.agentCommand}
   prompt_transport: stdin
   timeout_ms: 30000
@@ -86,7 +89,7 @@ async function createOrchestrator(
     workflow.config.hooks.afterCreate,
     logger,
   );
-  const runner = new LocalRunner(workflow.config.agent, logger);
+  const runner = createRunner(workflow.config.agent, logger);
   return new BootstrapOrchestrator(
     workflow.config,
     promptBuilder,

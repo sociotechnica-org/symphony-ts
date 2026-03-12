@@ -4,7 +4,9 @@ import fs from "node:fs/promises";
 import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
+import { parseLocalRunnerCommand } from "../runner/local-command.js";
 import type {
+  AgentRunnerConfig,
   GitHubBootstrapTrackerConfig,
   LinearTrackerConfig,
   PromptBuilder,
@@ -36,7 +38,9 @@ const DEFAULT_LINEAR_TERMINAL_STATES = [
   "Done",
 ] as const;
 const SUPPORTED_TRACKER_KINDS = ["github-bootstrap", "linear"] as const;
+const SUPPORTED_AGENT_RUNNER_KINDS = ["codex", "generic-command"] as const;
 type SupportedTrackerKind = (typeof SUPPORTED_TRACKER_KINDS)[number];
+type SupportedAgentRunnerKind = (typeof SUPPORTED_AGENT_RUNNER_KINDS)[number];
 
 interface PromptRenderInput {
   readonly issue: {
@@ -218,6 +222,12 @@ function isSupportedTrackerKind(value: string): value is SupportedTrackerKind {
   return (SUPPORTED_TRACKER_KINDS as readonly string[]).includes(value);
 }
 
+function isSupportedAgentRunnerKind(
+  value: string,
+): value is SupportedAgentRunnerKind {
+  return (SUPPORTED_AGENT_RUNNER_KINDS as readonly string[]).includes(value);
+}
+
 function parseFrontMatter(raw: string): {
   readonly frontMatter: RawWorkflow;
   readonly body: string;
@@ -389,6 +399,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
           : requireStringArray(hooks["after_create"], "hooks.after_create"),
     },
     agent: {
+      runner: resolveAgentRunnerConfig(agent),
       command: requireString(agent["command"], "agent.command"),
       promptTransport: requireString(
         agent["prompt_transport"],
@@ -432,6 +443,49 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   }
 
   return resolved;
+}
+
+function resolveAgentRunnerConfig(
+  agent: Readonly<Record<string, unknown>>,
+): AgentRunnerConfig {
+  const rawRunner = agent["runner"];
+
+  if (rawRunner === undefined) {
+    return inferAgentRunnerConfig(
+      requireString(agent["command"], "agent.command"),
+    );
+  }
+
+  const runner = coerceOptionalObject(rawRunner, "agent.runner");
+  const kind = requireString(runner["kind"], "agent.runner.kind");
+  if (!isSupportedAgentRunnerKind(kind)) {
+    throw new ConfigError(
+      `Unsupported agent.runner.kind '${kind}'. Supported kinds: ${SUPPORTED_AGENT_RUNNER_KINDS.join(", ")}`,
+    );
+  }
+
+  switch (kind) {
+    case "codex":
+      return { kind: "codex" };
+    case "generic-command":
+      return { kind: "generic-command" };
+    default:
+      return exhaustiveAgentRunnerKind(kind);
+  }
+}
+
+function inferAgentRunnerConfig(command: string): AgentRunnerConfig {
+  const executable = parseLocalRunnerCommand(command).executable;
+
+  if (executable !== null && path.basename(executable) === "codex") {
+    return { kind: "codex" };
+  }
+
+  return { kind: "generic-command" };
+}
+
+function exhaustiveAgentRunnerKind(value: never): never {
+  throw new ConfigError(`Unsupported agent.runner.kind '${String(value)}'`);
 }
 
 function resolveTrackerConfig(
