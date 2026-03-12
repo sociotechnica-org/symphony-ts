@@ -656,7 +656,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
     } catch (error) {
       await this.#handleFailure(
-        session,
+        sessionState,
         attempt,
         this.#normalizeFailure(error as Error),
         new Date().toISOString(),
