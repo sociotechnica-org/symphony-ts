@@ -147,6 +147,7 @@ workspace:
 agent:
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   timeout_ms: 1800000
+  max_turns: 3
 ```
 
 | Field                          | Purpose                                                        |
@@ -160,6 +161,7 @@ agent:
 | `workspace.branch_prefix`      | Issue branch naming prefix                                     |
 | `agent.command`                | Subprocess command to launch the coding agent                  |
 | `agent.timeout_ms`             | Max wall-clock time per agent run                              |
+| `agent.max_turns`              | Max in-process continuation turns per worker run               |
 | `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`) |
 
 The prompt template below the YAML front matter uses Liquid syntax with access to `issue`, `config`, and `pull_request` variables. See the checked-in [`WORKFLOW.md`](WORKFLOW.md) for the full template.

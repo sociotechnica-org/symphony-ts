@@ -19,6 +19,11 @@ export interface RunSpawnEvent {
   readonly spawnedAt: string;
 }
 
+export interface RunTurn {
+  readonly prompt: string;
+  readonly turnNumber: number;
+}
+
 export interface RunResult {
   readonly exitCode: number;
   readonly stdout: string;

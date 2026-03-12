@@ -5,6 +5,12 @@ export interface LocalRunnerBackendDescription {
   readonly model: string | null;
 }
 
+export interface LocalRunnerCommandShape {
+  readonly executable: string | null;
+  readonly executableIndex: number;
+  readonly tokens: readonly string[];
+}
+
 export function describeLocalRunnerBackend(
   command: string,
 ): LocalRunnerBackendDescription {
@@ -30,13 +36,30 @@ export function describeLocalRunnerBackend(
   };
 }
 
+export function parseLocalRunnerCommand(
+  command: string,
+): LocalRunnerCommandShape {
+  const tokens = tokenizeShellWords(command);
+  const executableIndex = findExecutableIndex(tokens);
+  return {
+    tokens,
+    executableIndex,
+    executable: executableIndex < 0 ? null : (tokens[executableIndex] ?? null),
+  };
+}
+
 function findExecutable(tokens: readonly string[]): string | null {
-  for (const token of tokens) {
+  const index = findExecutableIndex(tokens);
+  return index < 0 ? null : (tokens[index] ?? null);
+}
+
+function findExecutableIndex(tokens: readonly string[]): number {
+  for (const [index, token] of tokens.entries()) {
     if (!token.includes("=")) {
-      return token;
+      return index;
     }
   }
-  return null;
+  return -1;
 }
 
 function readModelFlag(tokens: readonly string[]): string | null {
@@ -60,7 +83,7 @@ function readModelFlag(tokens: readonly string[]): string | null {
   return null;
 }
 
-function tokenizeShellWords(command: string): readonly string[] {
+export function tokenizeShellWords(command: string): readonly string[] {
   const tokens: string[] = [];
   let current = "";
   let quote: "'" | '"' | null = null;
@@ -112,4 +135,14 @@ function tokenizeShellWords(command: string): readonly string[] {
   }
 
   return tokens;
+}
+
+export function quoteShellToken(token: string): string {
+  if (token.length === 0) {
+    return "''";
+  }
+  if (/^[A-Za-z0-9_./:=+-]+$/u.test(token)) {
+    return token;
+  }
+  return `'${token.replace(/'/gu, `'\"'\"'`)}'`;
 }

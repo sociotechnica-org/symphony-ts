@@ -92,6 +92,7 @@ export interface IssueArtifactAttemptSnapshot {
   readonly outcome: IssueArtifactOutcome;
   readonly summary: string;
   readonly sessionId: string | null;
+  readonly latestTurnNumber: number | null;
   readonly runnerPid: number | null;
   readonly pullRequest: IssueArtifactPullRequestSnapshot | null;
   readonly review: IssueArtifactReviewSnapshot | null;
@@ -111,6 +112,8 @@ export interface IssueArtifactSessionSnapshot {
   readonly sessionId: string;
   readonly provider: string;
   readonly model: string | null;
+  readonly backendSessionId: string | null;
+  readonly latestTurnNumber: number | null;
   readonly startedAt: string | null;
   readonly finishedAt: string | null;
   readonly workspacePath: string | null;
@@ -346,6 +349,7 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       outcome: summary.currentOutcome,
       summary: summary.currentSummary,
       sessionId: existing?.sessionId ?? summary.latestSessionId,
+      latestTurnNumber: existing?.latestTurnNumber ?? null,
       runnerPid: existing?.runnerPid ?? null,
       pullRequest: existing?.pullRequest ?? null,
       review: existing?.review ?? null,

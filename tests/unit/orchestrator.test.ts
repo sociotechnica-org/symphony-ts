@@ -39,6 +39,8 @@ function createRunnerSessionDescription() {
   return {
     provider: "test-runner",
     model: null,
+    backendSessionId: null,
+    latestTurnNumber: null,
     logPointers: [],
   } as const;
 }
@@ -106,6 +108,7 @@ const baseConfig: ResolvedConfig = {
     command: "test-agent",
     promptTransport: "stdin",
     timeoutMs: 1_000,
+    maxTurns: 3,
     env: {},
   },
 };
@@ -116,6 +119,20 @@ const staticPromptBuilder: PromptBuilder = {
       issue: issue.identifier,
       attempt,
       pullRequest: pullRequest?.kind ?? null,
+    });
+  },
+  async buildContinuation({
+    issue,
+    turnNumber,
+    maxTurns,
+    pullRequest,
+  }): Promise<string> {
+    return JSON.stringify({
+      issue: issue.identifier,
+      turnNumber,
+      maxTurns,
+      pullRequest: pullRequest?.kind ?? null,
+      mode: "continuation",
     });
   },
 };
@@ -1287,7 +1304,7 @@ describe("BootstrapOrchestrator", () => {
     await orchestrator.runOnce();
     await orchestrator.runOnce();
 
-    expect(runner.attempts).toEqual([1, 2]);
+    expect(runner.attempts).toEqual([1, 2, 2]);
     expect(tracker.failed).toEqual([]);
     expect(tracker.completed).toEqual([74]);
   });
@@ -1517,7 +1534,7 @@ describe("BootstrapOrchestrator", () => {
       1,
     );
     expect(attempt.outcome).toBe("failed");
-    expect(attempt.sessionId).toBeNull();
+    expect(attempt.sessionId).not.toBeNull();
     expect(attempt.runnerPid).toBe(runnerPid);
   });
 
@@ -1615,7 +1632,7 @@ describe("BootstrapOrchestrator", () => {
 
     await orchestrator.runOnce();
 
-    expect(describeSessionCalls).toBe(2);
+    expect(describeSessionCalls).toBe(3);
   });
 
   it("does not block one issue's artifact writes behind another issue's queue", async () => {

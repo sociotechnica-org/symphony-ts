@@ -275,6 +275,8 @@ describe("issue report enrichment", () => {
       sessionId: "issue-44-session-1",
       provider: "codex",
       model: "gpt-5.4",
+      backendSessionId: "codex-session-44-1",
+      latestTurnNumber: 1,
       startedAt: "2026-03-09T10:05:00.000Z",
       finishedAt: "2026-03-09T10:10:00.000Z",
       workspacePath: issueRoot,

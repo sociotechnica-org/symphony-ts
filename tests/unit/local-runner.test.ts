@@ -43,6 +43,7 @@ describe("LocalRunner", () => {
           "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
         promptTransport: "stdin",
         timeoutMs: 5_000,
+        maxTurns: 3,
         env: {},
       },
       new JsonLogger(),
@@ -51,6 +52,8 @@ describe("LocalRunner", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "codex",
       model: "gpt-5.4",
+      backendSessionId: null,
+      latestTurnNumber: null,
       logPointers: [],
     });
   });
@@ -61,6 +64,7 @@ describe("LocalRunner", () => {
         command: "tests/fixtures/fake-agent-success.sh",
         promptTransport: "stdin",
         timeoutMs: 5_000,
+        maxTurns: 3,
         env: {},
       },
       new JsonLogger(),
@@ -69,6 +73,8 @@ describe("LocalRunner", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "local-runner",
       model: null,
+      backendSessionId: null,
+      latestTurnNumber: null,
       logPointers: [],
     });
   });
@@ -100,6 +106,7 @@ describe("LocalRunner", () => {
           'node -e "process.stdin.destroy(); setTimeout(() => process.exit(0), 10)"',
         promptTransport: "stdin",
         timeoutMs: 5_000,
+        maxTurns: 3,
         env: {},
       },
       new JsonLogger(),
@@ -119,6 +126,7 @@ describe("LocalRunner", () => {
           "node -e \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\"",
         promptTransport: "stdin",
         timeoutMs: 5_000,
+        maxTurns: 3,
         env: {},
       },
       new JsonLogger(),
@@ -146,6 +154,7 @@ describe("LocalRunner", () => {
         command: 'node -e "setInterval(() => {}, 1000)"',
         promptTransport: "stdin",
         timeoutMs: 5_000,
+        maxTurns: 3,
         env: {},
       },
       new JsonLogger(),
@@ -174,6 +183,7 @@ describe("LocalRunner", () => {
           "node -e \"process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\"",
         promptTransport: "stdin",
         timeoutMs: 50,
+        maxTurns: 3,
         env: {},
       },
       new JsonLogger(),

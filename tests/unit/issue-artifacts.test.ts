@@ -169,6 +169,7 @@ describe("issue artifacts", () => {
         outcome: "awaiting-review",
         summary: "PR opened",
         sessionId,
+        latestTurnNumber: 2,
         runnerPid: 1234,
         pullRequest: {
           number: 99,
@@ -191,6 +192,8 @@ describe("issue artifacts", () => {
         sessionId,
         provider: "local-runner",
         model: null,
+        backendSessionId: null,
+        latestTurnNumber: 2,
         startedAt: "2026-03-09T10:00:00.000Z",
         finishedAt: observedAt,
         workspacePath: "/tmp/workspaces/43",
