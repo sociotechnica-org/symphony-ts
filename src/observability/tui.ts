@@ -215,24 +215,28 @@ export class StatusDashboard {
     // This avoids O(n) array operations at push frequency (up to 50 Hz).
     const currentTokens = snapshot?.codexTotals.totalTokens ?? 0;
     if (snapshot !== null) {
-      this.#state.tokenSamples = updateTokenSamples(
+      this.#state.tokenSamples = updateSamples(
         this.#state.tokenSamples,
         nowMs,
         currentTokens,
+        THROUGHPUT_WINDOW_MS,
       );
-      this.#state.sparklineSamples = updateSparklineSamples(
+      this.#state.sparklineSamples = updateSamples(
         this.#state.sparklineSamples,
         nowMs,
         currentTokens,
+        SPARKLINE_WINDOW_MS,
       );
     } else {
-      this.#state.tokenSamples = pruneTokenSamples(
+      this.#state.tokenSamples = pruneSamples(
         this.#state.tokenSamples,
         nowMs,
+        THROUGHPUT_WINDOW_MS,
       );
-      this.#state.sparklineSamples = pruneSparklineSamples(
+      this.#state.sparklineSamples = pruneSamples(
         this.#state.sparklineSamples,
         nowMs,
+        SPARKLINE_WINDOW_MS,
       );
     }
 
@@ -602,7 +606,7 @@ export function rollingTps(
   currentTokens: number,
 ): number {
   const updated: TokenSample[] = [[nowMs, currentTokens], ...samples];
-  const pruned = pruneTokenSamples(updated, nowMs);
+  const pruned = pruneSamples(updated, nowMs, THROUGHPUT_WINDOW_MS);
 
   if (pruned.length < 2) return 0;
 
@@ -629,35 +633,21 @@ export function throttledTps(
   return { second, tps: rollingTps(samples, nowMs, currentTokens) };
 }
 
-function updateTokenSamples(
+function updateSamples(
   samples: TokenSample[],
   nowMs: number,
   totalTokens: number,
+  windowMs: number,
 ): TokenSample[] {
-  return pruneTokenSamples([[nowMs, totalTokens], ...samples], nowMs);
+  return pruneSamples([[nowMs, totalTokens], ...samples], nowMs, windowMs);
 }
 
-function pruneTokenSamples(
+function pruneSamples(
   samples: readonly TokenSample[],
   nowMs: number,
+  windowMs: number,
 ): TokenSample[] {
-  const minTs = nowMs - THROUGHPUT_WINDOW_MS;
-  return samples.filter(([ts]) => ts >= minTs) as TokenSample[];
-}
-
-function updateSparklineSamples(
-  samples: TokenSample[],
-  nowMs: number,
-  totalTokens: number,
-): TokenSample[] {
-  return pruneSparklineSamples([[nowMs, totalTokens], ...samples], nowMs);
-}
-
-function pruneSparklineSamples(
-  samples: readonly TokenSample[],
-  nowMs: number,
-): TokenSample[] {
-  const minTs = nowMs - SPARKLINE_WINDOW_MS;
+  const minTs = nowMs - windowMs;
   return samples.filter(([ts]) => ts >= minTs) as TokenSample[];
 }
 
@@ -791,8 +781,9 @@ function formatTps(value: number): string {
   return formatCount(Math.floor(value));
 }
 
+const intlNumber = new Intl.NumberFormat("en-US");
 function formatCount(value: number): string {
-  return value.toLocaleString("en-US");
+  return intlNumber.format(value);
 }
 
 function formatRuntimeSeconds(seconds: number): string {
@@ -815,15 +806,10 @@ function formatCell(
   align: "left" | "right" = "left",
 ): string {
   const cleaned = value.replace(/\n/g, " ").replace(/\s+/g, " ").trim();
-  const truncated = truncatePlain(cleaned, width);
+  const truncated = truncate(cleaned, width);
   return align === "right"
     ? truncated.padStart(width)
     : truncated.padEnd(width);
-}
-
-function truncatePlain(value: string, width: number): string {
-  if (value.length <= width) return value;
-  return value.slice(0, width - 3) + "...";
 }
 
 function truncate(value: string, max: number): string {
