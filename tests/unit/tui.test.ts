@@ -222,11 +222,8 @@ describe("formatSnapshotContent", () => {
     expect(output).toMatch(/Next refresh:.*42s/);
   });
 
-  it("renders offline frame", () => {
+  it("renders fallback when snapshot is null", () => {
     const output = formatSnapshotContent(null, 0);
-    expect(output).toContain(
-      "app_status=offline" + "\x1b[0m" === output ? "" : "",
-    ); // just check presence
     expect(output).toContain("Orchestrator snapshot unavailable");
   });
 });
