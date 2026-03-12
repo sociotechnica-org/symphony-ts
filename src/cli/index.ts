@@ -285,6 +285,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   if (args.once) {
     const stopOnce = (): void => {
       dashboard.stop();
+      process.exit(0);
     };
     process.on("SIGINT", stopOnce);
     process.on("SIGTERM", stopOnce);
