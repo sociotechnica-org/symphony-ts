@@ -60,12 +60,16 @@ function requireString(value: unknown, field: string): string {
 }
 
 function requireGitHubRepo(value: unknown): string {
-  if (value !== undefined && typeof value !== "string") {
+  if (value !== undefined && value !== null && typeof value !== "string") {
     throw new ConfigError(
       `tracker.repo must be a non-empty string, got ${JSON.stringify(value)}`,
     );
   }
-  if (value === undefined || value.trim() === "") {
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim() === "")
+  ) {
     throw new ConfigError(
       "tracker.repo is not set; provide it in WORKFLOW.md or set the SYMPHONY_REPO environment variable",
     );
