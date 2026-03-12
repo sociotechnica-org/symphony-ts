@@ -375,3 +375,70 @@ describe("runCli status", () => {
     expect(chunks.join("")).toContain('"factoryState": "idle"');
   });
 });
+
+describe("runCli run", () => {
+  it("wires FsLivenessProbe into the production orchestrator bootstrap", async () => {
+    vi.resetModules();
+
+    const runOnce = vi.fn(async () => {});
+    const probeRoots: string[] = [];
+    let orchestratorArgs: unknown[] | null = null;
+
+    vi.doMock("../../src/config/workflow.js", () => ({
+      loadWorkflow: vi.fn(async () => ({
+        config: {
+          tracker: { kind: "github-bootstrap" },
+          workspace: { root: "/tmp/factory-root" },
+          hooks: { afterCreate: [] },
+          agent: {},
+        },
+      })),
+      loadWorkflowWorkspaceRoot: vi.fn(),
+      createPromptBuilder: vi.fn(() => "prompt-builder"),
+    }));
+    vi.doMock("../../src/tracker/factory.js", () => ({
+      createTracker: vi.fn(() => "tracker"),
+    }));
+    vi.doMock("../../src/runner/factory.js", () => ({
+      createRunner: vi.fn(() => "runner"),
+    }));
+    vi.doMock("../../src/workspace/local.js", () => ({
+      LocalWorkspaceManager: vi.fn(function MockWorkspaceManager() {}),
+    }));
+    vi.doMock("../../src/observability/logger.js", () => ({
+      JsonLogger: vi.fn(function MockLogger() {}),
+    }));
+    vi.doMock("../../src/orchestrator/liveness-probe.js", () => ({
+      FsLivenessProbe: vi.fn(function MockFsLivenessProbe(root: string) {
+        probeRoots.push(root);
+      }),
+    }));
+    vi.doMock("../../src/orchestrator/service.js", () => ({
+      BootstrapOrchestrator: vi.fn(function MockBootstrapOrchestrator(
+        ...args: unknown[]
+      ) {
+        orchestratorArgs = args;
+        return {
+          runOnce,
+          runLoop: vi.fn(),
+        };
+      }),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli([
+      "node",
+      "symphony",
+      "run",
+      "--once",
+      "--workflow",
+      "/tmp/workflow.md",
+    ]);
+
+    expect(probeRoots).toEqual(["/tmp/factory-root"]);
+    expect(orchestratorArgs).not.toBeNull();
+    expect(orchestratorArgs).toHaveLength(8);
+    expect(runOnce).toHaveBeenCalledOnce();
+  });
+});

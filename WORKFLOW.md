@@ -19,6 +19,11 @@ polling:
     max_attempts: 2
     max_follow_up_attempts: 25
     backoff_ms: 5000
+  watchdog:
+    enabled: true
+    check_interval_ms: 60000
+    stall_threshold_ms: 300000
+    max_recovery_attempts: 2
 workspace:
   root: ./.tmp/workspaces
   branch_prefix: symphony/

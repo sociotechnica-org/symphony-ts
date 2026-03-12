@@ -13,6 +13,7 @@ import {
   renderFactoryStatusSnapshot,
 } from "../observability/status.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
+import { FsLivenessProbe } from "../orchestrator/liveness-probe.js";
 import { createRunner } from "../runner/factory.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
@@ -118,6 +119,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     logger,
   );
   const runner = createRunner(workflow.config.agent, logger);
+  const livenessProbe = new FsLivenessProbe(workflow.config.workspace.root);
   const orchestrator = new BootstrapOrchestrator(
     workflow.config,
     promptBuilder,
@@ -125,6 +127,8 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     workspace,
     runner,
     logger,
+    undefined,
+    livenessProbe,
   );
 
   if (args.once) {

@@ -365,17 +365,26 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
     }
   }
 
+  const resolvedPolling = {
+    intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
+    maxConcurrentRuns: requireNumber(
+      polling["max_concurrent_runs"],
+      "polling.max_concurrent_runs",
+    ),
+    retry: resolveRetryConfig(polling["retry"]),
+  };
+  const resolvedWatchdog = resolveWatchdogConfig(polling["watchdog"]);
+
   const resolved: ResolvedConfig = {
     workflowPath,
     tracker: resolvedTracker,
-    polling: {
-      intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
-      maxConcurrentRuns: requireNumber(
-        polling["max_concurrent_runs"],
-        "polling.max_concurrent_runs",
-      ),
-      retry: resolveRetryConfig(polling["retry"]),
-    },
+    polling:
+      resolvedWatchdog === undefined
+        ? resolvedPolling
+        : {
+            ...resolvedPolling,
+            watchdog: resolvedWatchdog,
+          },
     workspace: {
       root: path.resolve(
         path.dirname(workflowPath),
@@ -625,6 +634,57 @@ function resolveRetryConfig(value: unknown): {
             "polling.retry.max_follow_up_attempts",
           ),
     backoffMs: requireNumber(retry["backoff_ms"], "polling.retry.backoff_ms"),
+  };
+}
+
+function resolveWatchdogConfig(value: unknown):
+  | {
+      readonly enabled: boolean;
+      readonly checkIntervalMs: number;
+      readonly stallThresholdMs: number;
+      readonly maxRecoveryAttempts: number;
+    }
+  | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError("Expected object for polling.watchdog");
+  }
+
+  const watchdog = value as Record<string, unknown>;
+  const enabled =
+    watchdog["enabled"] === undefined ? true : Boolean(watchdog["enabled"]);
+  const checkIntervalMs = requireNumber(
+    watchdog["check_interval_ms"],
+    "polling.watchdog.check_interval_ms",
+  );
+  const stallThresholdMs = requireNumber(
+    watchdog["stall_threshold_ms"],
+    "polling.watchdog.stall_threshold_ms",
+  );
+  const maxRecoveryAttempts = requireNumber(
+    watchdog["max_recovery_attempts"],
+    "polling.watchdog.max_recovery_attempts",
+  );
+
+  if (checkIntervalMs < 0) {
+    throw new ConfigError("polling.watchdog.check_interval_ms must be >= 0");
+  }
+  if (stallThresholdMs < 0) {
+    throw new ConfigError("polling.watchdog.stall_threshold_ms must be >= 0");
+  }
+  if (!Number.isInteger(maxRecoveryAttempts) || maxRecoveryAttempts < 0) {
+    throw new ConfigError(
+      "polling.watchdog.max_recovery_attempts must be an integer >= 0",
+    );
+  }
+
+  return {
+    enabled,
+    checkIntervalMs,
+    stallThresholdMs,
+    maxRecoveryAttempts,
   };
 }
 

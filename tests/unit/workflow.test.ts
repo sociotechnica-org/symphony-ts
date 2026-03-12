@@ -85,6 +85,7 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.tracker.kind).toBe("github-bootstrap");
     expect(workflow.config.polling.retry.maxAttempts).toBe(2);
     expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
+    expect(workflow.config.polling.watchdog).toBeUndefined();
     expect(workflow.config.agent.runner.kind).toBe("codex");
     expect(workflow.config.agent.maxTurns).toBe(1);
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
@@ -182,6 +183,107 @@ agent:
     expect(rendered).not.toContain("previous Codex turn");
     expect(rendered).not.toContain(
       "Issue repo#1 / sociotechnica-org/symphony-ts",
+    );
+  });
+
+  it("loads an explicit polling.watchdog block", async () => {
+    const dir = await createTempDir("workflow-watchdog-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+  watchdog:
+    enabled: true
+    check_interval_ms: 60000
+    stall_threshold_ms: 300000
+    max_recovery_attempts: 2
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.polling.watchdog).toEqual({
+      enabled: true,
+      checkIntervalMs: 60000,
+      stallThresholdMs: 300000,
+      maxRecoveryAttempts: 2,
+    });
+  });
+
+  it("rejects an invalid polling.watchdog block", async () => {
+    const dir = await createTempDir("workflow-watchdog-invalid-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+  watchdog:
+    enabled: true
+    check_interval_ms: 60000
+    stall_threshold_ms: 300000
+    max_recovery_attempts: -1
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "polling.watchdog.max_recovery_attempts must be an integer >= 0",
     );
   });
 
