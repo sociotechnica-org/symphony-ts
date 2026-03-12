@@ -275,4 +275,72 @@ describe("LocalRunner", () => {
       await fs.rm(tempHome, { recursive: true, force: true });
     }
   });
+
+  it("skips malformed Codex session jsonl files during session discovery", async () => {
+    const tempHome = await createTempDir("symphony-local-runner-home-");
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    const executeSpy = vi
+      .spyOn(LocalRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:05.000Z",
+      });
+
+    try {
+      const sessionsRoot = path.join(
+        tempHome,
+        ".codex",
+        "sessions",
+        "2026",
+        "03",
+        "11",
+      );
+      await fs.mkdir(sessionsRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sessionsRoot, "broken-session.jsonl"),
+        "{not-json}\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(sessionsRoot, "good-session.jsonl"),
+        `${JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "good-session",
+            timestamp: "2026-03-11T10:00:04.000Z",
+            cwd: process.cwd(),
+            git: { branch: "symphony/1" },
+          },
+        })}\n`,
+        "utf8",
+      );
+
+      const runner = new LocalRunner(
+        {
+          command:
+            "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+          promptTransport: "stdin",
+          timeoutMs: 5_000,
+          maxTurns: 3,
+          env: {},
+        },
+        new JsonLogger(),
+      );
+
+      const liveSession = await runner.startSession(createSession());
+      const result = await liveSession.runTurn({
+        prompt: "initial prompt",
+        turnNumber: 1,
+      });
+
+      expect(result.session.backendSessionId).toBe("good-session");
+    } finally {
+      executeSpy.mockRestore();
+      homedirSpy.mockRestore();
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
+  });
 });

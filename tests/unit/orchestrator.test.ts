@@ -24,7 +24,11 @@ import {
   readFactoryStatusSnapshot,
 } from "../../src/observability/status.js";
 import type { Logger } from "../../src/observability/logger.js";
-import type { Runner } from "../../src/runner/service.js";
+import type {
+  LiveRunnerSession,
+  Runner,
+  RunnerTurnResult,
+} from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
 import type { WorkspaceManager } from "../../src/workspace/service.js";
 import fs from "node:fs/promises";
@@ -427,6 +431,46 @@ class RecordingRunner implements Runner {
 class StartSessionRejectingRunner extends RecordingRunner {
   async startSession(): Promise<never> {
     throw new Error("failed to start live session");
+  }
+}
+
+class SecondTurnFailingLiveRunner implements Runner {
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
+  async run(): Promise<RunResult> {
+    throw new Error("runner.run should not be called");
+  }
+
+  async startSession(): Promise<LiveRunnerSession> {
+    let latestTurnNumber: number | null = null;
+    const backendSessionId = "codex-session-77";
+    return {
+      describe() {
+        return {
+          ...createRunnerSessionDescription(),
+          backendSessionId,
+          latestTurnNumber,
+        };
+      },
+      async runTurn(turn): Promise<RunnerTurnResult> {
+        latestTurnNumber = turn.turnNumber;
+        const timestamp = `2026-03-09T16:3${turn.turnNumber.toString()}:00.000Z`;
+        return {
+          exitCode: turn.turnNumber === 2 ? 17 : 0,
+          stdout: "",
+          stderr: turn.turnNumber === 2 ? "simulated failure" : "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+          session: {
+            ...createRunnerSessionDescription(),
+            backendSessionId,
+            latestTurnNumber,
+          },
+        };
+      },
+    };
   }
 }
 
@@ -1586,6 +1630,67 @@ describe("BootstrapOrchestrator", () => {
     expect(attempt.outcome).toBe("failed");
     expect(attempt.sessionId).not.toBeNull();
     expect(attempt.runnerPid).toBe(runnerPid);
+  });
+
+  it("records live-session turn metadata when a continuation turn fails", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(77)],
+    });
+    tracker.setLifecycleSequence(77, [
+      lifecycle("missing-target", "symphony/77"),
+      lifecycle("actionable-follow-up", "symphony/77", {
+        failingCheckNames: ["CI"],
+      }),
+    ]);
+    const tempRoot = await createTempDir(
+      "symphony-live-session-failure-artifact-test-",
+    );
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 1,
+              backoffMs: 0,
+            },
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new SecondTurnFailingLiveRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(tracker.failed).toEqual([
+        {
+          issueNumber: 77,
+          reason: "Runner exited with 17\nsimulated failure",
+        },
+      ]);
+
+      const attempt = await readIssueArtifactAttempt(tempRoot, 77, 1);
+      const session = await readIssueArtifactSession(
+        tempRoot,
+        77,
+        attempt.sessionId!,
+      );
+      expect(attempt.latestTurnNumber).toBe(2);
+      expect(session.backendSessionId).toBe("codex-session-77");
+      expect(session.latestTurnNumber).toBe(2);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {

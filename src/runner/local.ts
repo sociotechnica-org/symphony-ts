@@ -560,7 +560,12 @@ async function parseCodexSessionMeta(filePath: string): Promise<{
   if (firstLine === undefined) {
     return null;
   }
-  const record = JSON.parse(firstLine) as Record<string, unknown>;
+  let record: Record<string, unknown>;
+  try {
+    record = JSON.parse(firstLine) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
   if (record["type"] !== "session_meta") {
     return null;
   }

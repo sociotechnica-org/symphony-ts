@@ -604,7 +604,7 @@ export class BootstrapOrchestrator implements Orchestrator {
 
         if (result.exitCode !== 0) {
           await this.#handleFailure(
-            session,
+            sessionState,
             attempt,
             `Runner exited with ${result.exitCode}\n${result.stderr}`,
             result.finishedAt,
