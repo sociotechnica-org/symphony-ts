@@ -335,6 +335,56 @@ agent:
     );
   });
 
+  it("allows a disabled polling.watchdog block without timing fields", async () => {
+    const dir = await createTempDir("workflow-watchdog-disabled-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+  watchdog:
+    enabled: false
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.polling.watchdog).toEqual({
+      enabled: false,
+      checkIntervalMs: 60000,
+      stallThresholdMs: 300000,
+      maxRecoveryAttempts: 2,
+    });
+  });
+
   it("rejects a non-integer agent.max_turns", async () => {
     const dir = await createTempDir("workflow-max-turns-fractional-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

@@ -388,6 +388,7 @@ describe("runCli run", () => {
       loadWorkflow: vi.fn(async () => ({
         config: {
           tracker: { kind: "github-bootstrap" },
+          polling: { watchdog: { enabled: true } },
           workspace: { root: "/tmp/factory-root" },
           hooks: { afterCreate: [] },
           agent: {},

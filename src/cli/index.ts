@@ -119,7 +119,10 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     logger,
   );
   const runner = createRunner(workflow.config.agent, logger);
-  const livenessProbe = new FsLivenessProbe(workflow.config.workspace.root);
+  const livenessProbe =
+    workflow.config.polling.watchdog?.enabled === true
+      ? new FsLivenessProbe(workflow.config.workspace.root)
+      : undefined;
   const orchestrator = new BootstrapOrchestrator(
     workflow.config,
     promptBuilder,
