@@ -701,19 +701,28 @@ export class BootstrapOrchestrator implements Orchestrator {
     lockDir: string,
     signal: AbortSignal,
   ): Promise<RunnerTurnResult> {
+    const runnerEventHandlers: {
+      [Kind in RunnerEvent["kind"]]: (
+        event: Extract<RunnerEvent, { kind: Kind }>,
+      ) => void;
+    } = {
+      spawned: (event): void => {
+        this.#recordRunnerSpawn(
+          {
+            runSession: session,
+            description:
+              liveRunnerSession?.describe() ??
+              this.#runner.describeSession(session),
+            latestTurnNumber: turn.turnNumber,
+          },
+          lockDir,
+          event,
+          turn.turnNumber,
+        );
+      },
+    };
     const onEvent = (event: RunnerEvent): void => {
-      this.#recordRunnerSpawn(
-        {
-          runSession: session,
-          description:
-            liveRunnerSession?.describe() ??
-            this.#runner.describeSession(session),
-          latestTurnNumber: turn.turnNumber,
-        },
-        lockDir,
-        event,
-        turn.turnNumber,
-      );
+      runnerEventHandlers[event.kind](event);
     };
     if (liveRunnerSession !== undefined) {
       return await liveRunnerSession.runTurn(turn, {

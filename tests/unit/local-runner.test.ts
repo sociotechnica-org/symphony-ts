@@ -544,9 +544,13 @@ describe("LocalRunner", () => {
       expect(warn).toHaveBeenCalledWith(
         "Dropped unsupported Codex continuation arguments while building resume command",
         expect.objectContaining({
-          droppedArgs: ["--profile", "strict"],
+          droppedArgs: ["--profile", "strict", "-C", "."],
         }),
       );
+      expect(
+        (executeSpy.mock.calls[1]?.[2] as { command: string } | undefined)
+          ?.command,
+      ).not.toContain(" -C ");
     } finally {
       executeSpy.mockRestore();
       homedirSpy.mockRestore();
@@ -617,7 +621,7 @@ describe("LocalRunner", () => {
       expect(warn).toHaveBeenCalledWith(
         "Dropped unsupported Codex continuation arguments while building resume command",
         expect.objectContaining({
-          droppedArgs: ["--profile", "--model"],
+          droppedArgs: ["--profile", "--model", "-C", "."],
         }),
       );
     } finally {
