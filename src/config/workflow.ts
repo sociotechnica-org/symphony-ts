@@ -447,11 +447,12 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
 function resolveAgentRunnerConfig(
   agent: Readonly<Record<string, unknown>>,
 ): AgentRunnerConfig {
-  const command = requireString(agent["command"], "agent.command");
   const rawRunner = agent["runner"];
 
   if (rawRunner === undefined) {
-    return inferAgentRunnerConfig(command);
+    return inferAgentRunnerConfig(
+      requireString(agent["command"], "agent.command"),
+    );
   }
 
   const runner = coerceOptionalObject(rawRunner, "agent.runner");
