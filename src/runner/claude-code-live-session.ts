@@ -90,9 +90,6 @@ export class ClaudeCodeLiveSession implements LiveRunnerSession {
         model: result.model ?? this.#description.model,
         backendSessionId:
           result.sessionId ?? this.#description.backendSessionId,
-        backendThreadId: this.#description.backendThreadId,
-        latestTurnId: this.#description.latestTurnId,
-        appServerPid: this.#description.appServerPid,
         latestTurnNumber: turn.turnNumber,
       };
     }
