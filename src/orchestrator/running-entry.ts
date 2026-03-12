@@ -3,6 +3,7 @@ import type { RunUpdateEvent } from "../domain/run.js";
 export interface RunningEntry {
   readonly issueNumber: number;
   readonly identifier: string;
+  readonly issueState: string;
   readonly startedAt: Date;
   readonly retryAttempt: number;
   sessionId: string | null;
@@ -22,11 +23,13 @@ export interface RunningEntry {
 export function createRunningEntry(
   issueNumber: number,
   identifier: string,
+  issueState: string,
   retryAttempt: number,
 ): RunningEntry {
   return {
     issueNumber,
     identifier,
+    issueState,
     startedAt: new Date(),
     retryAttempt,
     sessionId: null,

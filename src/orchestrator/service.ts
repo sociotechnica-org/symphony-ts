@@ -80,6 +80,7 @@ import {
 export interface TuiRunningEntry {
   readonly issueNumber: number;
   readonly identifier: string;
+  readonly issueState: string;
   readonly startedAt: Date;
   readonly retryAttempt: number;
   readonly sessionId: string | null;
@@ -98,7 +99,7 @@ export interface TuiRetryEntry {
   readonly identifier: string;
   readonly nextAttempt: number;
   readonly dueInMs: number;
-  readonly lastError: string;
+  readonly lastError: string | null;
 }
 
 export interface TuiSnapshot {
@@ -107,6 +108,8 @@ export interface TuiSnapshot {
   readonly codexTotals: CodexTotals;
   readonly rateLimits: RateLimits | null;
   readonly polling: PollingState;
+  readonly maxConcurrentRuns: number;
+  readonly projectUrl: string | null;
 }
 
 export interface Orchestrator {
@@ -177,6 +180,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       running.push({
         issueNumber: entry.issueNumber,
         identifier: entry.identifier,
+        issueState: entry.issueState,
         startedAt: entry.startedAt,
         retryAttempt: entry.retryAttempt,
         sessionId: entry.sessionId,
@@ -213,7 +217,17 @@ export class BootstrapOrchestrator implements Orchestrator {
       },
       rateLimits: this.#state.rateLimits,
       polling: { ...this.#state.polling },
+      maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
+      projectUrl: this.#deriveProjectUrl(),
     };
+  }
+
+  #deriveProjectUrl(): string | null {
+    const tracker = this.#config.tracker;
+    if (tracker.kind === "linear") {
+      return `https://linear.app/project/${tracker.projectSlug}/issues`;
+    }
+    return null;
   }
 
   #notifyDashboard(): void {
@@ -653,6 +667,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const runEntry = createRunningEntry(
       issue.number,
       issue.identifier,
+      issue.state,
       attempt,
     );
     this.#state.runningEntries.set(issue.number, runEntry);

@@ -27,6 +27,8 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
       nextPollAtMs: Date.now() + 30_000,
       intervalMs: 30_000,
     },
+    maxConcurrentRuns: 5,
+    projectUrl: null,
     ...overrides,
   };
 }
@@ -83,6 +85,7 @@ describe("formatSnapshotContent", () => {
         {
           issueNumber: 1,
           identifier: "MT-101",
+          issueState: "In Progress",
           startedAt: new Date(Date.now() - 75_000), // 1m 15s ago
           retryAttempt: 1,
           sessionId: "abcdef1234567890",
@@ -99,9 +102,31 @@ describe("formatSnapshotContent", () => {
     });
     const output = formatSnapshotContent(snapshot, 0, 200);
     expect(output).toContain("MT-101");
+    expect(output).toContain("In Progress");
     expect(output).toContain("12345");
     expect(output).toContain("4,521");
     expect(output).toContain("abcd...567890");
+  });
+
+  it("renders agents count with max", () => {
+    const snapshot = makeSnapshot({ maxConcurrentRuns: 5 });
+    const output = formatSnapshotContent(snapshot, 0);
+    expect(output).toContain("0");
+    expect(output).toMatch(/Agents:.*\/.*5/);
+  });
+
+  it("renders project URL when present", () => {
+    const snapshot = makeSnapshot({
+      projectUrl: "https://linear.app/project/PROJ/issues",
+    });
+    const output = formatSnapshotContent(snapshot, 0);
+    expect(output).toContain("Project:");
+    expect(output).toContain("https://linear.app/project/PROJ/issues");
+  });
+
+  it("omits project line when projectUrl is null", () => {
+    const output = formatSnapshotContent(makeSnapshot({ projectUrl: null }), 0);
+    expect(output).not.toContain("Project:");
   });
 
   it("renders Backoff queue with no retries message", () => {

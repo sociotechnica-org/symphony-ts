@@ -294,18 +294,31 @@ export function formatSnapshotContent(
       .join("\n");
   }
 
-  const { running, retrying, codexTotals, rateLimits, polling } = snapshot;
+  const {
+    running,
+    retrying,
+    codexTotals,
+    rateLimits,
+    polling,
+    maxConcurrentRuns,
+    projectUrl,
+  } = snapshot;
   const eventWidth = runningEventWidth(terminalColumnsOverride);
   const runningRows = formatRunningRows(running, eventWidth);
   const runningToBackoffSpacer = running.length > 0 ? ["│"] : [];
   const backoffRows = formatRetryRows(retrying);
+
+  const projectLine =
+    projectUrl !== null
+      ? [colorize("│ Project: ", BOLD) + colorize(projectUrl, CYAN)]
+      : [];
 
   return [
     colorize("╭─ SYMPHONY STATUS", BOLD),
     colorize("│ Agents: ", BOLD) +
       colorize(String(running.length), GREEN) +
       colorize("/", GRAY) +
-      colorize("n/a", GRAY),
+      colorize(String(maxConcurrentRuns), GRAY),
     colorize("│ Throughput: ", BOLD) + colorize(`${formatTps(tps)} tps`, CYAN),
     colorize("│ Runtime: ", BOLD) +
       colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
@@ -316,6 +329,7 @@ export function formatSnapshotContent(
       colorize(" | ", GRAY) +
       colorize(`total ${formatCount(codexTotals.totalTokens)}`, YELLOW),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
+    ...projectLine,
     formatRefreshLine(polling),
     colorize("├─ Running", BOLD),
     "│",
@@ -432,7 +446,7 @@ function formatRunningRow(
     (Date.now() - entry.startedAt.getTime()) / 1000,
   );
   const issue = formatCell(entry.identifier, ID_WIDTH);
-  const stage = formatCell("working", STAGE_WIDTH);
+  const stage = formatCell(entry.issueState, STAGE_WIDTH);
   const pid = formatCell(
     entry.codexAppServerPid !== null ? String(entry.codexAppServerPid) : "n/a",
     PID_WIDTH,
