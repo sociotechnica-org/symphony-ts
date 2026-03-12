@@ -626,6 +626,9 @@ export class GitHubClient {
         : reviewThreadsAfter;
     }
 
+    // The while(true) loop above always runs at least once and sets pullRequest
+    // on the first iteration (or throws via the page null check).
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (!pullRequest) {
       throw new TrackerError(`Pull request ${number} was not found in GraphQL`);
     }

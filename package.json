@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "dev": "tsx watch bin/symphony.ts run"
+    "dev": "tsx watch bin/symphony.ts run",
+    "prepare": "husky"
   },
   "dependencies": {
     "liquidjs": "^10.24.0",
@@ -24,6 +25,7 @@
     "@typescript-eslint/eslint-plugin": "^8.46.1",
     "@typescript-eslint/parser": "^8.46.1",
     "eslint": "^9.36.0",
+    "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.3",

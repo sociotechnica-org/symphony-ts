@@ -206,6 +206,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
       await this.#sleep(this.#config.polling.intervalMs, signal);
     }
+    // signal is optional — keep ?. for safety even though TypeScript narrows
+    // it to non-null after the while loop (the loop runs forever if undefined).
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     signal?.removeEventListener("abort", handleAbort);
     if (this.#shutdownSignal === signal) {
       this.#shutdownSignal = undefined;
@@ -1706,6 +1709,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     while (!stopSignal.aborted) {
       await this.#sleep(this.#watchdogConfig.checkIntervalMs, stopSignal);
+      // Re-check after sleep: the signal may have fired during the await.
+      // TypeScript narrows .aborted to false at loop entry and does not
+      // widen it back after the await, so we suppress the lint here.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (stopSignal.aborted) {
         break;
       }
@@ -1716,8 +1723,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           workspacePath: activeIssue?.workspacePath ?? null,
           runSessionId: activeIssue?.runSessionId ?? null,
           prHeadSha: activeIssue?.pullRequest?.headSha ?? null,
-          hasActionableFeedback:
-            (activeIssue?.review?.actionableCount ?? 0) > 0,
+          hasActionableFeedback: (activeIssue?.review.actionableCount ?? 0) > 0,
         });
         const result = checkStall(entry, snapshot, this.#watchdogConfig);
         if (result.stalled && result.reason !== null) {

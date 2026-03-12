@@ -347,7 +347,8 @@ export class LocalIssueLeaseManager {
       }
     } else if (sigkillResult === "missing") {
       return;
-    } else if (sigkillResult === "denied") {
+    } else {
+      // sigkillResult === "denied" is the only remaining case
       this.#logger.warn(
         "Unable to signal orphaned runner process; clearing lease anyway",
         {

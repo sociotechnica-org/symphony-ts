@@ -111,7 +111,15 @@ export class MockGitHubServer {
   readonly #prs = new Map<number, PullRequestRecord>();
   readonly #requestCounts = new Map<string, number>();
   readonly #branchCommitTimes = new Map<string, string>();
-  readonly #server = http.createServer(this.#handle.bind(this));
+  readonly #server = http.createServer((req, res) => {
+    this.#handle(req, res).catch((error: unknown) => {
+      console.error("Mock GitHub server handler error:", error);
+      if (!res.headersSent) {
+        res.writeHead(500);
+        res.end();
+      }
+    });
+  });
   #baseUrl = "";
   #nextPrNumber = 1;
 

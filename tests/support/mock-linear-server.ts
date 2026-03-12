@@ -102,7 +102,15 @@ export class MockLinearServer {
   readonly #issuesByNumber = new Map<string, MockLinearIssue>();
   readonly #requests: MockLinearRequest[] = [];
   readonly #failures = new Map<string, MockOperationFailure[]>();
-  readonly #server = http.createServer(this.#handle.bind(this));
+  readonly #server = http.createServer((req, res) => {
+    this.#handle(req, res).catch((error: unknown) => {
+      console.error("Mock Linear server handler error:", error);
+      if (!res.headersSent) {
+        res.writeHead(500);
+        res.end();
+      }
+    });
+  });
   #baseUrl = "";
   #forceNullEndCursorWithNextPage = false;
 

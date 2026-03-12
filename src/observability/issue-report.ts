@@ -489,9 +489,7 @@ function buildSummary(
     ...loaded.sessions.map((session) => session.startedAt),
   ]);
   const endedAt = latestTimestamp([
-    isTerminalOutcome(summary?.currentOutcome)
-      ? (summary?.lastUpdatedAt ?? null)
-      : null,
+    isTerminalOutcome(summary?.currentOutcome) ? summary.lastUpdatedAt : null,
     ...loaded.attempts.map((attempt) =>
       isTerminalOutcome(attempt.outcome) ? attempt.finishedAt : null,
     ),
@@ -1373,32 +1371,26 @@ function inferOutcomeFromEvents(
   events: readonly IssueArtifactEvent[],
 ): IssueArtifactOutcome | null {
   for (const event of [...events].reverse()) {
-    if (event.kind === "succeeded") {
-      return "succeeded";
-    }
-    if (event.kind === "failed") {
-      return "failed";
-    }
-    if (event.kind === "retry-scheduled") {
-      return "retry-scheduled";
-    }
-    if (event.kind === "review-feedback") {
-      return "needs-follow-up";
-    }
-    if (event.kind === "pr-opened") {
-      return readLifecycleKindFromDetails(event.details) ?? "awaiting-review";
-    }
-    if (event.kind === "runner-spawned") {
-      return "running";
-    }
-    if (event.kind === "approved" || event.kind === "waived") {
-      return "claimed";
-    }
-    if (event.kind === "plan-ready") {
-      return "awaiting-plan-review";
-    }
-    if (event.kind === "claimed") {
-      return "claimed";
+    switch (event.kind) {
+      case "succeeded":
+        return "succeeded";
+      case "failed":
+        return "failed";
+      case "retry-scheduled":
+        return "retry-scheduled";
+      case "review-feedback":
+        return "needs-follow-up";
+      case "pr-opened":
+        return readLifecycleKindFromDetails(event.details) ?? "awaiting-review";
+      case "runner-spawned":
+        return "running";
+      case "approved":
+      case "waived":
+        return "claimed";
+      case "plan-ready":
+        return "awaiting-plan-review";
+      case "claimed":
+        return "claimed";
     }
   }
   return null;
