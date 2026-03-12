@@ -89,10 +89,12 @@ This layer owns filesystem preparation, not tracker policy.
 Responsible for:
 
 - launching coding agents
-- reporting execution events and final results
+- reporting provider-neutral execution events and final results
 - timeout and cancellation behavior
 
-The runner should not own prompt construction or tracker mutations.
+The runner should not own prompt construction or tracker mutations. Codex is the
+current local adapter behind that contract, not a shape the orchestrator should
+depend on.
 
 ### Orchestrator
 

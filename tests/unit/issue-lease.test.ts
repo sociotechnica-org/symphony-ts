@@ -62,6 +62,7 @@ describe("LocalIssueLeaseManager", () => {
 
       await manager.recordRun(lockDir!, createSession(21, tempRoot));
       manager.recordRunnerSpawn(lockDir!, {
+        kind: "spawned",
         pid: process.pid,
         spawnedAt: new Date().toISOString(),
       });

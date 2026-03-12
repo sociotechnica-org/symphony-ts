@@ -53,6 +53,8 @@ export function buildCodexResumeCommand(
  * `codex exec resume`. Unknown flags are dropped conservatively:
  * - known switches are forwarded unchanged
  * - known value-consuming flags are forwarded as flag/value pairs
+ * - exec-only flags such as `-C` are dropped as flag/value pairs because the
+ *   resumed command already runs in the prepared workspace
  * - unknown flags consume their following token as a pair when it looks like a
  *   value-bearing argument, so continuation command reconstruction cannot leak
  *   a stray value token into the resumed command
@@ -76,7 +78,6 @@ function filterCodexResumeArgs(args: readonly string[]): {
       continue;
     }
     if (
-      token === "-C" ||
       token === "-c" ||
       token === "--config" ||
       token === "--enable" ||
@@ -91,6 +92,16 @@ function filterCodexResumeArgs(args: readonly string[]): {
       const value = args[index + 1];
       if (value !== undefined && value !== "-" && !value.startsWith("-")) {
         filteredArgs.push(token, value);
+        index += 1;
+      } else {
+        droppedArgs.push(token);
+      }
+      continue;
+    }
+    if (token === "-C") {
+      const value = args[index + 1];
+      if (value !== undefined && value !== "-" && !value.startsWith("-")) {
+        droppedArgs.push(token, value);
         index += 1;
       } else {
         droppedArgs.push(token);

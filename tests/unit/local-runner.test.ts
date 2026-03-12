@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { RunSession, RunSpawnEvent } from "../../src/domain/run.js";
+import type { RunSession } from "../../src/domain/run.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
 import { LocalRunner } from "../../src/runner/local.js";
+import type { RunnerSpawnedEvent } from "../../src/runner/service.js";
 import { waitForExit } from "../support/process.js";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -177,7 +178,8 @@ describe("LocalRunner", () => {
 
     const run = runner.run(session, {
       signal: abortController.signal,
-      onSpawn(event) {
+      onEvent(event) {
+        expect(event.kind).toBe("spawned");
         spawnedPid = event.pid;
         abortController.abort();
       },
@@ -203,7 +205,7 @@ describe("LocalRunner", () => {
     let spawnedPid = -1;
 
     const run = runner.run(session, {
-      onSpawn: async (event: RunSpawnEvent) => {
+      onEvent: async (event: RunnerSpawnedEvent) => {
         spawnedPid = event.pid;
         throw new Error("persist failed");
       },
@@ -542,9 +544,13 @@ describe("LocalRunner", () => {
       expect(warn).toHaveBeenCalledWith(
         "Dropped unsupported Codex continuation arguments while building resume command",
         expect.objectContaining({
-          droppedArgs: ["--profile", "strict"],
+          droppedArgs: ["--profile", "strict", "-C", "."],
         }),
       );
+      expect(
+        (executeSpy.mock.calls[1]?.[2] as { command: string } | undefined)
+          ?.command,
+      ).not.toContain(" -C ");
     } finally {
       executeSpy.mockRestore();
       homedirSpy.mockRestore();
@@ -615,7 +621,7 @@ describe("LocalRunner", () => {
       expect(warn).toHaveBeenCalledWith(
         "Dropped unsupported Codex continuation arguments while building resume command",
         expect.objectContaining({
-          droppedArgs: ["--profile", "--model"],
+          droppedArgs: ["--profile", "--model", "-C", "."],
         }),
       );
     } finally {

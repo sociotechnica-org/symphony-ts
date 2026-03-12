@@ -1,5 +1,5 @@
 import { RunnerError } from "../domain/errors.js";
-import type { RunResult, RunSession, RunTurn } from "../domain/run.js";
+import type { RunSession, RunTurn } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { buildCodexResumeCommand } from "./codex-resume-command.js";
@@ -11,6 +11,7 @@ import {
 import { describeLocalRunnerSession } from "./local-session-description.js";
 import type {
   LiveRunnerSession,
+  RunnerExecutionResult,
   RunnerRunOptions,
   RunnerSessionDescription,
   RunnerTurnResult,
@@ -25,7 +26,7 @@ export class LocalRunnerSession implements LiveRunnerSession {
     logger: Logger,
     config: AgentConfig,
     execution: LocalCommandExecutionOptions,
-  ) => Promise<RunResult>;
+  ) => Promise<RunnerExecutionResult>;
   #loggedDroppedResumeArgs = false;
   #backendSessionId: string | null = null;
   #latestTurnNumber: number | null = null;
@@ -38,7 +39,7 @@ export class LocalRunnerSession implements LiveRunnerSession {
       logger: Logger,
       config: AgentConfig,
       execution: LocalCommandExecutionOptions,
-    ) => Promise<RunResult> = executeLocalRunnerCommand,
+    ) => Promise<RunnerExecutionResult> = executeLocalRunnerCommand,
   ) {
     this.#config = config;
     this.#logger = logger;

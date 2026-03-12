@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
-import type { RunResult, RunSession } from "../domain/run.js";
+import type { RunSession } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import type { RunnerRunOptions } from "./service.js";
+import type { RunnerExecutionResult, RunnerRunOptions } from "./service.js";
 
 export interface LocalCommandExecutionOptions {
   readonly command: string;
@@ -21,7 +21,7 @@ export async function executeLocalRunnerCommand(
   logger: Logger,
   config: AgentConfig,
   execution: LocalCommandExecutionOptions,
-): Promise<RunResult> {
+): Promise<RunnerExecutionResult> {
   const startedAt = new Date().toISOString();
   // Multi-turn runs keep per-turn prompt files distinct; older one-shot runs
   // used `.symphony-prompt.md`.
@@ -45,7 +45,7 @@ export async function executeLocalRunnerCommand(
     turnNumber: execution.turnNumber,
   });
 
-  return await new Promise<RunResult>((resolve, reject) => {
+  return await new Promise<RunnerExecutionResult>((resolve, reject) => {
     const child = spawn("bash", ["-lc", command], {
       cwd: execution.session.workspace.path,
       env: {
@@ -123,7 +123,8 @@ export async function executeLocalRunnerCommand(
     if (child.pid !== undefined) {
       try {
         spawnNotificationPromise = Promise.resolve(
-          execution.options?.onSpawn?.({
+          execution.options?.onEvent?.({
+            kind: "spawned",
             pid: child.pid,
             spawnedAt: new Date().toISOString(),
           }),
