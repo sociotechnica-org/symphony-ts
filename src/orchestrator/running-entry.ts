@@ -183,12 +183,21 @@ function extractTokenDelta(
     ),
   };
 
-  // Update high-water marks to the actual reported values so that
-  // counters stay in sync even when only some token types change.
-  if (reported.input > 0) entry.codexLastReportedInputTokens = reported.input;
-  if (reported.output > 0)
-    entry.codexLastReportedOutputTokens = reported.output;
-  if (reported.total > 0) entry.codexLastReportedTotalTokens = reported.total;
+  // Update high-water marks using Math.max so they never decrease.
+  // A decrease (API quirk, race) would otherwise lower the baseline and
+  // cause the next increase to double-count the difference.
+  entry.codexLastReportedInputTokens = Math.max(
+    entry.codexLastReportedInputTokens,
+    reported.input,
+  );
+  entry.codexLastReportedOutputTokens = Math.max(
+    entry.codexLastReportedOutputTokens,
+    reported.output,
+  );
+  entry.codexLastReportedTotalTokens = Math.max(
+    entry.codexLastReportedTotalTokens,
+    reported.total,
+  );
 
   return delta;
 }
@@ -221,8 +230,26 @@ export interface IntegrateResult {
   readonly tokenDelta: TokenDelta;
 }
 
-function isCompletedTurnEvent(event: string): boolean {
-  return event === "turn/completed" || event === "turn_completed";
+/**
+ * Normalize Codex event names to a canonical slash form.
+ *
+ * Codex emits events in both `slash/style` and `underscore_style` depending
+ * on protocol version. We normalize once at the integration boundary so that
+ * all downstream consumers (TUI statusDotColor, humanizeEvent, turn counting)
+ * only need to handle the canonical form.
+ */
+const UNDERSCORE_TO_SLASH: ReadonlyMap<string, string> = new Map([
+  ["turn_completed", "turn/completed"],
+  ["turn_failed", "turn/failed"],
+  ["turn_cancelled", "turn/cancelled"],
+  ["session_started", "session/started"],
+  ["turn_input_required", "turn/input_required"],
+  ["turn_ended_with_error", "turn/ended_with_error"],
+  ["startup_failed", "startup/failed"],
+]);
+
+export function normalizeEventName(event: string): string {
+  return UNDERSCORE_TO_SLASH.get(event) ?? event;
 }
 
 export function integrateCodexUpdate(
@@ -248,8 +275,9 @@ export function integrateCodexUpdate(
   const tokenDelta = extractTokenDelta(entry, payload);
   const pid = extractPid(payload);
 
+  const normalizedEvent = normalizeEventName(update.event);
   entry.sessionId = newSessionId;
-  entry.lastCodexEvent = update.event;
+  entry.lastCodexEvent = normalizedEvent;
   entry.lastCodexMessage = update.payload;
   entry.lastCodexTimestamp = update.timestamp;
 
@@ -261,7 +289,7 @@ export function integrateCodexUpdate(
   entry.codexOutputTokens += tokenDelta.outputTokens;
   entry.codexTotalTokens += tokenDelta.totalTokens;
 
-  if (isCompletedTurnEvent(update.event)) {
+  if (normalizedEvent === "turn/completed") {
     entry.turnCount += 1;
   }
 

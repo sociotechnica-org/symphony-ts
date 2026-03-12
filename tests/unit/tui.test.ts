@@ -95,7 +95,7 @@ describe("formatSnapshotContent", () => {
           codexInputTokens: 2000,
           codexOutputTokens: 2521,
           codexAppServerPid: 12345,
-          lastCodexEvent: "turn_completed",
+          lastCodexEvent: "turn/completed",
           lastCodexMessage: {
             method: "turn_completed",
             params: {
@@ -360,7 +360,7 @@ describe("humanizeEvent", () => {
   });
 
   it("humanizes session_started event", () => {
-    expect(humanizeEvent({ session_id: "sess-1" }, "session_started")).toBe(
+    expect(humanizeEvent({ session_id: "sess-1" }, "session/started")).toBe(
       "session started (sess-1)",
     );
   });

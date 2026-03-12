@@ -245,7 +245,11 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #notifyDashboard(): void {
-    this.#dashboardNotify?.();
+    try {
+      this.#dashboardNotify?.();
+    } catch {
+      // Dashboard is observability-only — never mask orchestrator exceptions.
+    }
   }
 
   async runOnce(): Promise<void> {

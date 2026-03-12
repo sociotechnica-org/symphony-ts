@@ -534,13 +534,13 @@ function formatRunningRow(
   );
 }
 
+// Event names are normalized to canonical slash form by integrateCodexUpdate,
+// so downstream consumers only need to handle one form per event.
 function statusDotColor(event: string | null): string {
   if (event === null || event === "none") return RED;
   if (event === "codex/event/token_count") return YELLOW;
   if (event === "codex/event/task_started") return GREEN;
-  if (event === "turn/completed" || event === "turn_completed") {
-    return MAGENTA;
-  }
+  if (event === "turn/completed") return MAGENTA;
   return BLUE;
 }
 
@@ -837,23 +837,24 @@ function humanizeByEvent(
   if (event.startsWith("codex/event/")) {
     return humanizeWrapperEvent(event.slice("codex/event/".length), payload);
   }
-  // Legacy event atoms
+  // Normalized event atoms (underscore forms are canonicalized to slash
+  // by normalizeEventName in running-entry.ts at the integration boundary).
   switch (event) {
-    case "session_started": {
+    case "session/started": {
       const sessionId = getMapKey(payload, ["session_id", "sessionId"]);
       return typeof sessionId === "string"
         ? `session started (${sessionId})`
         : "session started";
     }
-    case "turn_input_required":
+    case "turn/input_required":
       return "turn blocked: waiting for user input";
-    case "turn_ended_with_error":
+    case "turn/ended_with_error":
       return `turn ended with error: ${formatReason(message)}`;
-    case "startup_failed":
+    case "startup/failed":
       return `startup failed: ${formatReason(message)}`;
-    case "turn_failed":
+    case "turn/failed":
       return humanizeMethod("turn/failed", payload) ?? "turn failed";
-    case "turn_cancelled":
+    case "turn/cancelled":
       return "turn cancelled";
     case "malformed":
       return "malformed JSON event from codex";
