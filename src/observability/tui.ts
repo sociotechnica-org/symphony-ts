@@ -194,47 +194,6 @@ export class StatusDashboard {
       // snapshot unavailable
     }
 
-    const currentTokens = snapshot?.codexTotals.totalTokens ?? 0;
-
-    // Update token samples (5-second TPS window)
-    if (snapshot !== null) {
-      this.#state.tokenSamples = updateTokenSamples(
-        this.#state.tokenSamples,
-        nowMs,
-        currentTokens,
-      );
-    } else {
-      this.#state.tokenSamples = pruneTokenSamples(
-        this.#state.tokenSamples,
-        nowMs,
-      );
-    }
-
-    // Update sparkline samples (10-minute window)
-    if (snapshot !== null) {
-      this.#state.sparklineSamples = updateSparklineSamples(
-        this.#state.sparklineSamples,
-        nowMs,
-        currentTokens,
-      );
-    } else {
-      this.#state.sparklineSamples = pruneSparklineSamples(
-        this.#state.sparklineSamples,
-        nowMs,
-      );
-    }
-
-    // Throttled TPS
-    const { second: tpsSecond, tps } = throttledTps(
-      this.#state.lastTpsSecond,
-      this.#state.lastTpsValue,
-      nowMs,
-      this.#state.tokenSamples,
-      currentTokens,
-    );
-    this.#state.lastTpsSecond = tpsSecond;
-    this.#state.lastTpsValue = tps;
-
     // Snapshot fingerprinting — exclude time-varying fields (secondsRunning,
     // dueInMs) so the fingerprint only changes on actual state updates.
     const fingerprint =
@@ -250,6 +209,41 @@ export class StatusDashboard {
     if (snapshotChanged) {
       this.#state.lastSnapshotFingerprint = fingerprint;
     }
+
+    // Update token/sparkline samples only when a render will actually happen.
+    // This avoids O(n) array operations at push frequency (up to 50 Hz).
+    const currentTokens = snapshot?.codexTotals.totalTokens ?? 0;
+    if (snapshot !== null) {
+      this.#state.tokenSamples = updateTokenSamples(
+        this.#state.tokenSamples,
+        nowMs,
+        currentTokens,
+      );
+      this.#state.sparklineSamples = updateSparklineSamples(
+        this.#state.sparklineSamples,
+        nowMs,
+        currentTokens,
+      );
+    } else {
+      this.#state.tokenSamples = pruneTokenSamples(
+        this.#state.tokenSamples,
+        nowMs,
+      );
+      this.#state.sparklineSamples = pruneSparklineSamples(
+        this.#state.sparklineSamples,
+        nowMs,
+      );
+    }
+
+    const { second: tpsSecond, tps } = throttledTps(
+      this.#state.lastTpsSecond,
+      this.#state.lastTpsValue,
+      nowMs,
+      this.#state.tokenSamples,
+      currentTokens,
+    );
+    this.#state.lastTpsSecond = tpsSecond;
+    this.#state.lastTpsValue = tps;
 
     const sparkline = tpsSparkline(this.#state.sparklineSamples, nowMs);
     const content = formatSnapshotContent(snapshot, tps, undefined, sparkline);

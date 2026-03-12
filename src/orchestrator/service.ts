@@ -255,13 +255,29 @@ export class BootstrapOrchestrator implements Orchestrator {
   async runOnce(signal?: AbortSignal): Promise<void> {
     // Allow callers (e.g. --once CLI path) to plumb a shutdown signal
     // that propagates to child agent processes via #shutdownSignal.
+    const handleAbort =
+      signal !== undefined
+        ? (): void => {
+            this.#abortActiveRuns();
+          }
+        : undefined;
     if (signal !== undefined) {
       this.#shutdownSignal = signal;
-      const handleAbort = (): void => {
-        this.#abortActiveRuns();
-      };
-      signal.addEventListener("abort", handleAbort, { once: true });
+      signal.addEventListener("abort", handleAbort!, { once: true });
     }
+    try {
+      await this.#runOnceInner();
+    } finally {
+      if (signal !== undefined) {
+        signal.removeEventListener("abort", handleAbort!);
+        if (this.#shutdownSignal === signal) {
+          this.#shutdownSignal = undefined;
+        }
+      }
+    }
+  }
+
+  async #runOnceInner(): Promise<void> {
     this.#state.polling.checkingNow = true;
     this.#notifyDashboard();
 
@@ -312,13 +328,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
     } finally {
       this.#state.polling.checkingNow = false;
-      this.#state.polling.nextPollAtMs =
-        Date.now() + this.#config.polling.intervalMs;
       this.#notifyDashboard();
     }
     await this.#persistStatusSnapshot();
 
     if (availableSlots <= 0) {
+      this.#state.polling.nextPollAtMs =
+        Date.now() + this.#config.polling.intervalMs;
+      this.#notifyDashboard();
       return;
     }
 
@@ -338,6 +355,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     await Promise.all(runs);
+
+    // Set nextPollAtMs after agents complete so the TUI countdown reflects
+    // actual time until next poll, not time since fetch completed.
+    this.#state.polling.nextPollAtMs =
+      Date.now() + this.#config.polling.intervalMs;
+    this.#notifyDashboard();
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {
