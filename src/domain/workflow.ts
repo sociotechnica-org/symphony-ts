@@ -63,7 +63,14 @@ export interface GenericCommandRunnerConfig {
   readonly kind: "generic-command";
 }
 
-export type AgentRunnerConfig = CodexRunnerConfig | GenericCommandRunnerConfig;
+export interface ClaudeCodeRunnerConfig {
+  readonly kind: "claude-code";
+}
+
+export type AgentRunnerConfig =
+  | CodexRunnerConfig
+  | GenericCommandRunnerConfig
+  | ClaudeCodeRunnerConfig;
 
 export interface AgentConfig {
   readonly runner: AgentRunnerConfig;

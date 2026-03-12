@@ -29,6 +29,10 @@ agent:
   runner:
     kind: codex
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
+  # Claude Code example:
+  # runner:
+  #   kind: claude-code
+  # command: claude -p --output-format json --permission-mode bypassPermissions --model sonnet
   prompt_transport: stdin
   timeout_ms: 5400000
   max_turns: 20

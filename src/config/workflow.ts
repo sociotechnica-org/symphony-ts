@@ -38,7 +38,11 @@ const DEFAULT_LINEAR_TERMINAL_STATES = [
   "Done",
 ] as const;
 const SUPPORTED_TRACKER_KINDS = ["github-bootstrap", "linear"] as const;
-const SUPPORTED_AGENT_RUNNER_KINDS = ["codex", "generic-command"] as const;
+const SUPPORTED_AGENT_RUNNER_KINDS = [
+  "codex",
+  "generic-command",
+  "claude-code",
+] as const;
 type SupportedTrackerKind = (typeof SUPPORTED_TRACKER_KINDS)[number];
 type SupportedAgentRunnerKind = (typeof SUPPORTED_AGENT_RUNNER_KINDS)[number];
 
@@ -469,6 +473,8 @@ function resolveAgentRunnerConfig(
       return { kind: "codex" };
     case "generic-command":
       return { kind: "generic-command" };
+    case "claude-code":
+      return { kind: "claude-code" };
     default:
       return exhaustiveAgentRunnerKind(kind);
   }

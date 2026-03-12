@@ -36,7 +36,7 @@ async function writeWorkflow(options: {
   remotePath: string;
   apiUrl: string;
   agentCommand: string;
-  runnerKind?: "codex" | "generic-command";
+  runnerKind?: "codex" | "generic-command" | "claude-code";
   retryBackoffMs?: number;
   maxAttempts?: number;
   maxFollowUpAttempts?: number;
@@ -281,6 +281,61 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
+  });
+
+  it("runs a complete GitHub factory handoff loop through the Claude Code runner", async () => {
+    server.seedIssue({
+      number: 12,
+      title: "Implement Symphony via Claude",
+      body: "Use the Claude runner path",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      runnerKind: "claude-code",
+      agentCommand:
+        "claude -p --output-format json --permission-mode bypassPermissions --model sonnet",
+      maxTurns: 2,
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/12", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    await orchestrator.runOnce();
+    server.mergePullRequest("symphony/12");
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(12);
+    expect(issue.state).toBe("closed");
+    expect(issue.comments).toContain(
+      "Symphony completed this issue successfully.",
+    );
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      12,
+    );
+    expect(artifactSummary.currentOutcome).toBe("succeeded");
+
+    const session = await readIssueArtifactSession(
+      path.join(tempDir, ".tmp", "workspaces"),
+      12,
+      artifactSummary.latestSessionId!,
+    );
+    expect(session.provider).toBe("claude-code");
+    expect(session.backendSessionId).toBe("claude-session-12-1");
+
+    const implemented = await readRemoteBranchFile(
+      remotePath,
+      "symphony/12",
+      "IMPLEMENTED.txt",
+    );
+    expect(implemented).toContain("via claude");
   });
 
   it("does not immediately re-close a reopened issue while its clean pull request is still open", async () => {
