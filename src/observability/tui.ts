@@ -78,6 +78,8 @@ export class StatusDashboard {
   readonly #getSnapshot: () => TuiSnapshot;
   readonly #getConfig: () => ObservabilityConfig;
   readonly #state: DashboardState;
+  readonly #explicitEnabled: boolean | undefined;
+  #stopped = false;
 
   constructor(
     getSnapshot: () => TuiSnapshot,
@@ -86,10 +88,11 @@ export class StatusDashboard {
   ) {
     this.#getSnapshot = getSnapshot;
     this.#getConfig = getConfig;
+    this.#explicitEnabled = options?.enabled;
 
     const config = getConfig();
     const enabled =
-      options?.enabled ?? (config.dashboardEnabled && isTerminalEnabled());
+      this.#explicitEnabled ?? (config.dashboardEnabled && isTerminalEnabled());
 
     this.#state = {
       refreshMs: options?.refreshMs ?? config.refreshMs,
@@ -115,6 +118,8 @@ export class StatusDashboard {
   }
 
   stop(): void {
+    if (this.#stopped) return;
+    this.#stopped = true;
     if (this.#state.tickTimer !== null) {
       clearTimeout(this.#state.tickTimer);
       this.#state.tickTimer = null;
@@ -123,7 +128,9 @@ export class StatusDashboard {
       clearTimeout(this.#state.flushTimerRef);
       this.#state.flushTimerRef = null;
     }
-    this.renderOfflineStatus();
+    if (this.#state.enabled) {
+      this.renderOfflineStatus();
+    }
   }
 
   refresh(): void {
@@ -164,7 +171,8 @@ export class StatusDashboard {
     const config = this.#getConfig();
     this.#state.refreshMs = config.refreshMs;
     this.#state.renderIntervalMs = config.renderIntervalMs;
-    this.#state.enabled = config.dashboardEnabled && isTerminalEnabled();
+    this.#state.enabled =
+      this.#explicitEnabled ?? (config.dashboardEnabled && isTerminalEnabled());
   }
 
   // ─── Render pipeline ─────────────────────────────────────────────────────
@@ -291,7 +299,7 @@ function renderToTerminal(content: string): void {
 }
 
 function isTerminalEnabled(): boolean {
-  return process.env["NODE_ENV"] !== "test";
+  return process.env["NODE_ENV"] !== "test" && process.stdout.isTTY === true;
 }
 
 // ─── Snapshot formatter ───────────────────────────────────────────────────
