@@ -314,9 +314,9 @@ This issue changes stateful long-lived execution behavior and therefore needs an
 
 - `docs/plans/099-runner-continuation-turn-loop/plan.md`
 - `docs/plans/089-provider-neutral-runner-contract/plan.md`
-- `/Users/jessmartin/Documents/code/symphony/SPEC.md`
-- `/Users/jessmartin/Documents/code/symphony/elixir/WORKFLOW.md`
-- `/Users/jessmartin/Documents/code/symphony/elixir/lib/symphony_elixir/codex/app_server.ex`
+- `https://github.com/openai/symphony/blob/main/SPEC.md`
+- `https://github.com/openai/symphony/tree/main/elixir`
+- `https://github.com/openai/symphony/blob/main/elixir/lib/symphony_elixir/codex/app_server.ex`
 
 ## Revision Notes
 

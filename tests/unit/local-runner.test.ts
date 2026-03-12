@@ -207,14 +207,15 @@ rl.on("line", (line) => {
   return executablePath;
 }
 
-async function readLoggedMethods(logFile: string): Promise<readonly string[]> {
+async function readLoggedPayloads(
+  logFile: string,
+): Promise<readonly Record<string, unknown>[]> {
   const raw = await fs.readFile(logFile, "utf8");
   return raw
     .trim()
     .split("\n")
     .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as { method?: string })
-    .map((entry) => entry.method ?? "unknown");
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 describe("runners", () => {
@@ -650,13 +651,22 @@ describe("runners", () => {
       expect(secondTurn.session.latestTurnId).toBe("turn-2");
       expect(secondTurn.session.backendSessionId).toBe("thread-1-turn-2");
       expect(secondTurn.session.latestTurnNumber).toBe(2);
-      expect(await readLoggedMethods(logFile)).toEqual([
+      expect(
+        firstTurn.stdout.match(/"method":"turn\/completed"/g)?.length ?? 0,
+      ).toBe(1);
+      const payloads = await readLoggedPayloads(logFile);
+      expect(payloads.map((entry) => entry["method"] ?? "unknown")).toEqual([
         "initialize",
         "initialized",
         "thread/start",
         "turn/start",
         "turn/start",
       ]);
+      expect(
+        payloads
+          .filter((entry) => entry["method"] === "turn/start")
+          .map((entry) => entry["id"]),
+      ).toEqual([3, 4]);
       expect(logger.warn).toHaveBeenCalledWith(
         "Dropped unsupported Codex exec arguments while building app-server launch command",
         expect.objectContaining({
@@ -668,6 +678,47 @@ describe("runners", () => {
       if (spawnedPid > 0) {
         await waitForExit(spawnedPid);
       }
+    }
+  });
+
+  it("omits unset optional thread/start fields from Codex app-server params", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec -C . -`,
+        env: {
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      });
+
+      const threadStart = (await readLoggedPayloads(logFile)).find(
+        (entry) => entry["method"] === "thread/start",
+      ) as { params?: Record<string, unknown> } | undefined;
+      expect(threadStart).toBeDefined();
+      expect(threadStart).toMatchObject({
+        method: "thread/start",
+        params: {
+          cwd: process.cwd(),
+        },
+      });
+      expect(threadStart?.params).not.toHaveProperty("approvalPolicy");
+      expect(threadStart?.params).not.toHaveProperty("model");
+      expect(threadStart?.params).not.toHaveProperty("sandbox");
+    } finally {
+      await liveSession.close();
     }
   });
 

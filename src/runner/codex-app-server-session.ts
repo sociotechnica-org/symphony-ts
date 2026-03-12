@@ -56,6 +56,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #appServerPid: number | null = null;
   #loggedDroppedArgs = false;
   #closingReason: "timeout" | "aborted" | null = null;
+  #nextTurnStartRequestId = TURN_START_REQUEST_ID;
 
   constructor(config: AgentConfig, logger: Logger, session: RunSession) {
     this.#config = config;
@@ -279,12 +280,12 @@ export class CodexAppServerSession implements LiveRunnerSession {
     const result = await this.#sendRequest({
       id: THREAD_START_REQUEST_ID,
       method: "thread/start",
-      params: {
+      params: omitNullValues({
         approvalPolicy: this.#appServerCommand.approvalPolicy,
         cwd: this.#runSession.workspace.path,
         model: this.#appServerCommand.model,
         sandbox: this.#appServerCommand.sandbox,
-      },
+      }),
     });
 
     const thread = asRecord(result["thread"]);
@@ -319,7 +320,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
         reject,
       };
       void this.#sendRequest({
-        id: TURN_START_REQUEST_ID,
+        id: this.#nextTurnStartRequestId++,
         method: "turn/start",
         params: {
           threadId: this.#threadId,
@@ -453,7 +454,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       this.#handleResponse(message);
       return;
     }
-    this.#handleNotification(message, line);
+    this.#handleNotification(message);
   }
 
   #handleResponse(message: Record<string, unknown>): void {
@@ -487,7 +488,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
     pending.resolve(result);
   }
 
-  #handleNotification(message: Record<string, unknown>, rawLine: string): void {
+  #handleNotification(message: Record<string, unknown>): void {
     const method =
       typeof message["method"] === "string" ? message["method"] : null;
     const params = asRecord(message["params"]);
@@ -506,7 +507,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     if (method === "turn/completed") {
-      this.#resolveActiveTurn(rawLine);
+      this.#resolveActiveTurn();
       return;
     }
 
@@ -520,12 +521,11 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
   }
 
-  #resolveActiveTurn(rawLine: string): void {
+  #resolveActiveTurn(): void {
     const activeTurn = this.#activeTurn;
     if (activeTurn === null) {
       return;
     }
-    activeTurn.stdout += `${rawLine}\n`;
     this.#latestTurnNumber = activeTurn.turnNumber;
     this.#activeTurn = null;
     activeTurn.resolve({
@@ -571,4 +571,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new RunnerError(String(error));
+}
+
+function omitNullValues(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== null),
+  );
 }
