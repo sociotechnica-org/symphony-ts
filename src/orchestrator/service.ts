@@ -571,8 +571,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       watchdogStop.signal,
     );
 
-    const liveRunnerSession = await this.#runner.startSession?.(session);
     try {
+      const liveRunnerSession = await this.#runner.startSession?.(session);
+      this.#warnIfContinuationSessionUnavailable(
+        issue,
+        workspace.branchName,
+        session,
+        liveRunnerSession,
+      );
       let currentLifecycle = pullRequest;
       let turnNumber = 1;
 
@@ -729,6 +735,31 @@ export class BootstrapOrchestrator implements Orchestrator {
       ...result,
       session: this.#runner.describeSession(session),
     };
+  }
+
+  #warnIfContinuationSessionUnavailable(
+    issue: RuntimeIssue,
+    branchName: string,
+    session: RunSession,
+    liveRunnerSession: LiveRunnerSession | undefined,
+  ): void {
+    if (
+      liveRunnerSession !== undefined ||
+      this.#config.agent.maxTurns <= 1 ||
+      this.#runner.startSession !== undefined
+    ) {
+      return;
+    }
+
+    this.#logger.warn(
+      "Runner does not support live continuation sessions; continuation turns will cold-start new subprocesses",
+      {
+        issueNumber: issue.number,
+        branchName,
+        runSessionId: session.id,
+        maxTurns: this.#config.agent.maxTurns,
+      },
+    );
   }
 
   #shouldContinueTurnLoop(

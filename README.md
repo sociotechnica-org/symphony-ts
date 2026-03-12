@@ -160,9 +160,13 @@ agent:
 | `workspace.repo_url`           | SSH or HTTPS URL of the repository cloned for each workspace   |
 | `workspace.branch_prefix`      | Issue branch naming prefix                                     |
 | `agent.command`                | Subprocess command to launch the coding agent                  |
-| `agent.timeout_ms`             | Max wall-clock time per agent run                              |
+| `agent.timeout_ms`             | Max wall-clock time per runner turn                            |
 | `agent.max_turns`              | Max in-process continuation turns per worker run               |
 | `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`) |
+
+`agent.timeout_ms` applies to each runner turn. If `agent.max_turns` is greater
+than `1`, a single worker run can consume multiple per-turn timeout windows
+before it exits.
 
 The prompt template below the YAML front matter uses Liquid syntax with access to `issue`, `config`, and `pull_request` variables. See the checked-in [`WORKFLOW.md`](WORKFLOW.md) for the full template.
 

@@ -424,6 +424,12 @@ class RecordingRunner implements Runner {
   }
 }
 
+class StartSessionRejectingRunner extends RecordingRunner {
+  async startSession(): Promise<never> {
+    throw new Error("failed to start live session");
+  }
+}
+
 class RecordingIssueArtifactStore implements IssueArtifactStore {
   readonly observations: IssueArtifactObservation[] = [];
 
@@ -748,6 +754,50 @@ describe("BootstrapOrchestrator", () => {
         deriveStatusFilePath(tempRoot),
       );
       expect(snapshot.activeIssues[0]?.status).toBe("awaiting-human-handoff");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when continuation turns fall back to cold-start subprocesses", async () => {
+    const tempRoot = await createTempDir("symphony-cold-start-warning-test-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(33)],
+      });
+      tracker.setLifecycleSequence(33, [
+        lifecycle("missing-target", "symphony/33"),
+        lifecycle("actionable-follow-up", "symphony/33"),
+        lifecycle("handoff-ready", "symphony/33"),
+      ]);
+      const logger = new NullLogger();
+      const runner = new RecordingRunner();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        logger,
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runner.prompts).toHaveLength(2);
+      expect(logger.warnings).toContainEqual({
+        message:
+          "Runner does not support live continuation sessions; continuation turns will cold-start new subprocesses",
+        data: expect.objectContaining({
+          issueNumber: 33,
+          maxTurns: 3,
+        }),
+      });
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -2171,6 +2221,54 @@ describe("BootstrapOrchestrator watchdog", () => {
       tracker,
       new StaticWorkspaceManager(),
       failingRunner,
+      logger,
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    await orchestrator.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
+    expect(
+      tracker.retried.some(({ reason }) => reason.includes("Stall detected")),
+    ).toBe(false);
+  });
+
+  it("stops the watchdog when live session startup fails", async () => {
+    const issue = createIssue(57);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(57, [
+      lifecycle("missing-target", "symphony/57"),
+    ]);
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const { NullLivenessProbe } =
+      await import("../../src/orchestrator/liveness-probe.js");
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      new StartSessionRejectingRunner(),
       logger,
       undefined,
       new NullLivenessProbe(),

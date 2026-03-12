@@ -5,6 +5,11 @@ import { JsonLogger } from "../../src/observability/logger.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
 import { LocalRunner } from "../../src/runner/local.js";
 import { waitForExit } from "../support/process.js";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { createTempDir } from "../support/git.js";
+import { vi } from "vitest";
 
 function createSession(): RunSession {
   return {
@@ -193,5 +198,74 @@ describe("LocalRunner", () => {
     await expect(runner.run(session)).rejects.toMatchObject({
       message: "Runner timed out after 50ms",
     });
+  });
+
+  it("selects the newest matching Codex session by parsed timestamp", async () => {
+    const tempHome = await createTempDir("symphony-local-runner-home-");
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    const executeSpy = vi
+      .spyOn(LocalRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:05.000Z",
+      });
+
+    try {
+      const sessionsRoot = path.join(tempHome, ".codex", "sessions", "2026", "03", "11");
+      await fs.mkdir(sessionsRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sessionsRoot, "z-session.jsonl"),
+        `${JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "older-session",
+            timestamp: "2026-03-11T10:00:02.000Z",
+            cwd: process.cwd(),
+            git: { branch: "symphony/1" },
+          },
+        })}\n`,
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(sessionsRoot, "a-session.jsonl"),
+        `${JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "newer-session",
+            timestamp: "2026-03-11T10:00:04.000Z",
+            cwd: process.cwd(),
+            git: { branch: "symphony/1" },
+          },
+        })}\n`,
+        "utf8",
+      );
+
+      const runner = new LocalRunner(
+        {
+          command:
+            "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+          promptTransport: "stdin",
+          timeoutMs: 5_000,
+          maxTurns: 3,
+          env: {},
+        },
+        new JsonLogger(),
+      );
+
+      const liveSession = await runner.startSession(createSession());
+      const result = await liveSession.runTurn({
+        prompt: "initial prompt",
+        turnNumber: 1,
+      });
+
+      expect(result.session.backendSessionId).toBe("newer-session");
+    } finally {
+      executeSpy.mockRestore();
+      homedirSpy.mockRestore();
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
   });
 });

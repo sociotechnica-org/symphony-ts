@@ -33,6 +33,7 @@ interface LocalCommandExecutionOptions {
 interface CodexSessionMatch {
   readonly id: string;
   readonly filePath: string;
+  readonly timestampMs: number;
 }
 
 export class LocalRunner implements Runner {
@@ -528,13 +529,19 @@ async function findCodexSession(input: {
       matches.push({
         id: match.id,
         filePath,
+        timestampMs: metaTimestamp,
       });
     }
   }
 
   return (
     matches
-      .sort((left, right) => left.filePath.localeCompare(right.filePath))
+      .sort((left, right) => {
+        if (left.timestampMs !== right.timestampMs) {
+          return left.timestampMs - right.timestampMs;
+        }
+        return left.filePath.localeCompare(right.filePath);
+      })
       .at(-1) ?? null
   );
 }
