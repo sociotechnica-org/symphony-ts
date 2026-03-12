@@ -221,6 +221,10 @@ export interface IntegrateResult {
   readonly tokenDelta: TokenDelta;
 }
 
+function isCompletedTurnEvent(event: string): boolean {
+  return event === "turn/completed" || event === "turn_completed";
+}
+
 export function integrateCodexUpdate(
   entry: RunningEntry,
   update: RunUpdateEvent,
@@ -257,7 +261,7 @@ export function integrateCodexUpdate(
   entry.codexOutputTokens += tokenDelta.outputTokens;
   entry.codexTotalTokens += tokenDelta.totalTokens;
 
-  if (update.event === "turn/completed") {
+  if (isCompletedTurnEvent(update.event)) {
     entry.turnCount += 1;
   }
 

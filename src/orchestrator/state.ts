@@ -21,6 +21,7 @@ export interface CodexTotals {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  // Derived in BootstrapOrchestrator.snapshot() from factory start time.
   secondsRunning: number;
 }
 
