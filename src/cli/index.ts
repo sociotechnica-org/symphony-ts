@@ -283,14 +283,15 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   dashboard.start();
 
   if (args.once) {
+    const abortOnce = new AbortController();
     const stopOnce = (): void => {
       dashboard.stop();
-      process.exit(0);
+      abortOnce.abort();
     };
     process.on("SIGINT", stopOnce);
     process.on("SIGTERM", stopOnce);
     try {
-      await orchestrator.runOnce();
+      await orchestrator.runOnce(abortOnce.signal);
     } finally {
       process.off("SIGINT", stopOnce);
       process.off("SIGTERM", stopOnce);

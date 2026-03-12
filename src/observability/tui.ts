@@ -732,7 +732,10 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       totalTokens: snapshot.codexTotals.totalTokens,
     },
     rateLimits: snapshot.rateLimits,
-    polling: snapshot.polling,
+    polling: {
+      checkingNow: snapshot.polling.checkingNow,
+      intervalMs: snapshot.polling.intervalMs,
+    },
     maxConcurrentRuns: snapshot.maxConcurrentRuns,
     projectUrl: snapshot.projectUrl,
   });

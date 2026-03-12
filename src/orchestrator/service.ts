@@ -252,7 +252,16 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
   }
 
-  async runOnce(): Promise<void> {
+  async runOnce(signal?: AbortSignal): Promise<void> {
+    // Allow callers (e.g. --once CLI path) to plumb a shutdown signal
+    // that propagates to child agent processes via #shutdownSignal.
+    if (signal !== undefined) {
+      this.#shutdownSignal = signal;
+      const handleAbort = (): void => {
+        this.#abortActiveRuns();
+      };
+      signal.addEventListener("abort", handleAbort, { once: true });
+    }
     this.#state.polling.checkingNow = true;
     this.#notifyDashboard();
 
@@ -303,6 +312,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
     } finally {
       this.#state.polling.checkingNow = false;
+      this.#state.polling.nextPollAtMs =
+        Date.now() + this.#config.polling.intervalMs;
       this.#notifyDashboard();
     }
     await this.#persistStatusSnapshot();
