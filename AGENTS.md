@@ -195,7 +195,7 @@ Implementation work is not complete when the code compiles locally. It is comple
 
 1. plan exists,
 2. implementation is complete,
-3. a local self-review pass has been run when a reliable review tool is available, and any findings have been fixed,
+3. a local self-review pass has been run (skipped only when no local review tool is available and that is noted), and any findings have been fixed,
 4. formatting, lint, typecheck, and all tests are passing,
 5. a PR is created,
 6. PR CI is watched until it passes,
