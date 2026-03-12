@@ -109,6 +109,28 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     return;
   }
 
+  if (
+    !argv.includes(
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    )
+  ) {
+    const B = "\x1b[1;31m";
+    const R = "\x1b[0m";
+    process.stdout.write(
+      [
+        `${B}╭──────────────────────────────────────────────────────────────╮${R}`,
+        `${B}│  ⚠  Symphony is about to run agents on your behalf            │${R}`,
+        `${B}│                                                                │${R}`,
+        `${B}│  To confirm you understand and wish to proceed, re-run with:  │${R}`,
+        `${B}│                                                                │${R}`,
+        `${B}│    --i-understand-that-this-will-be-running-without-the-      │${R}`,
+        `${B}│    usual-guardrails                                            │${R}`,
+        `${B}╰──────────────────────────────────────────────────────────────╯${R}`,
+      ].join("\n") + "\n",
+    );
+    process.exit(1);
+  }
+
   const logger = new JsonLogger();
   const workflow = await loadWorkflow(args.workflowPath);
   const promptBuilder = createPromptBuilder(workflow);

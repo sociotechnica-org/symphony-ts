@@ -5,6 +5,7 @@ import {
   rollingTps,
   StatusDashboard,
   throttledTps,
+  tpsSparkline,
 } from "../../src/observability/tui.js";
 import type { TuiSnapshot } from "../../src/orchestrator/service.js";
 import type { ObservabilityConfig } from "../../src/domain/workflow.js";
@@ -374,6 +375,48 @@ describe("rollingTps", () => {
     const tps = rollingTps(samples, now, 1600);
     // Delta = 1600-100=1500 tokens over 4500ms = 333 tps
     expect(tps).toBeCloseTo(333, 0);
+  });
+});
+
+// ─── tpsSparkline ─────────────────────────────────────────────────────────────
+
+describe("tpsSparkline", () => {
+  it("returns empty string with fewer than 2 samples", () => {
+    expect(tpsSparkline([], 10_000)).toBe("");
+    expect(tpsSparkline([[5_000, 100]], 10_000)).toBe("");
+  });
+
+  it("returns 24-character string with sufficient samples", () => {
+    const now = 600_000;
+    const samples: [number, number][] = [
+      [0, 0],
+      [300_000, 5000],
+      [600_000, 10_000],
+    ];
+    const result = tpsSparkline(samples, now);
+    expect(result).toHaveLength(24);
+  });
+
+  it("only uses block chars and spaces", () => {
+    const now = 600_000;
+    const samples: [number, number][] = [
+      [0, 0],
+      [300_000, 5000],
+      [600_000, 10_000],
+    ];
+    const result = tpsSparkline(samples, now);
+    expect([...result].every((c) => " ▁▂▃▄▅▆▇█".includes(c))).toBe(true);
+  });
+
+  it("renders inline on Throughput line when provided", () => {
+    const snapshot = makeSnapshot();
+    const output = formatSnapshotContent(snapshot, 100, undefined, "▁▂▃▄▅▆▇█");
+    expect(output).toContain("100 tps");
+    expect(output).toContain("▁▂▃▄▅▆▇█");
+    // sparkline appears on the Throughput line (same line as tps)
+    const throughputLine =
+      output.split("\n").find((l) => l.includes("Throughput:")) ?? "";
+    expect(throughputLine).toContain("▁▂▃▄▅▆▇█");
   });
 });
 

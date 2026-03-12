@@ -40,6 +40,9 @@ const ROW_CHROME_WIDTH = 10;
 const DEFAULT_TERMINAL_COLUMNS = 115;
 const THROUGHPUT_WINDOW_MS = 5_000;
 const MINIMUM_IDLE_RERENDER_MS = 1_000;
+const SPARKLINE_WINDOW_MS = 600_000; // 10 minutes
+const SPARKLINE_BUCKETS = 24;
+const SPARKLINE_CHARS = "▁▂▃▄▅▆▇█";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -51,6 +54,7 @@ interface DashboardState {
   renderIntervalMs: number;
   renderFn: (content: string) => void;
   tokenSamples: TokenSample[];
+  sparklineSamples: TokenSample[];
   lastTpsSecond: number | null;
   lastTpsValue: number;
   lastRenderedContent: string | null;
@@ -93,6 +97,7 @@ export class StatusDashboard {
       renderIntervalMs: options?.renderIntervalMs ?? config.renderIntervalMs,
       renderFn: options?.renderFn ?? renderToTerminal,
       tokenSamples: [],
+      sparklineSamples: [],
       lastTpsSecond: null,
       lastTpsValue: 0,
       lastRenderedContent: null,
@@ -175,7 +180,7 @@ export class StatusDashboard {
 
     const currentTokens = snapshot?.codexTotals.totalTokens ?? 0;
 
-    // Update token samples
+    // Update token samples (5-second TPS window)
     if (snapshot !== null) {
       this.#state.tokenSamples = updateTokenSamples(
         this.#state.tokenSamples,
@@ -185,6 +190,20 @@ export class StatusDashboard {
     } else {
       this.#state.tokenSamples = pruneTokenSamples(
         this.#state.tokenSamples,
+        nowMs,
+      );
+    }
+
+    // Update sparkline samples (10-minute window)
+    if (snapshot !== null) {
+      this.#state.sparklineSamples = updateSparklineSamples(
+        this.#state.sparklineSamples,
+        nowMs,
+        currentTokens,
+      );
+    } else {
+      this.#state.sparklineSamples = pruneSparklineSamples(
+        this.#state.sparklineSamples,
         nowMs,
       );
     }
@@ -214,7 +233,8 @@ export class StatusDashboard {
       this.#state.lastSnapshotFingerprint = fingerprint;
     }
 
-    const content = formatSnapshotContent(snapshot, tps);
+    const sparkline = tpsSparkline(this.#state.sparklineSamples, nowMs);
+    const content = formatSnapshotContent(snapshot, tps, undefined, sparkline);
     this.#maybeEnqueueRender(content, nowMs);
   }
 
@@ -280,13 +300,17 @@ export function formatSnapshotContent(
   snapshot: TuiSnapshot | null,
   tps: number,
   terminalColumnsOverride?: number,
+  sparkline?: string,
 ): string {
+  const sparklineSuffix =
+    sparkline !== undefined && sparkline !== "" ? ` ${sparkline}` : "";
   if (snapshot === null) {
     return [
       colorize("╭─ SYMPHONY STATUS", BOLD),
       colorize("│ Orchestrator snapshot unavailable", RED),
       colorize("│ Throughput: ", BOLD) +
-        colorize(`${formatTps(tps)} tps`, CYAN),
+        colorize(`${formatTps(tps)} tps`, CYAN) +
+        sparklineSuffix,
       formatRefreshLine(null),
       "╰─",
     ]
@@ -319,7 +343,9 @@ export function formatSnapshotContent(
       colorize(String(running.length), GREEN) +
       colorize("/", GRAY) +
       colorize(String(maxConcurrentRuns), GRAY),
-    colorize("│ Throughput: ", BOLD) + colorize(`${formatTps(tps)} tps`, CYAN),
+    colorize("│ Throughput: ", BOLD) +
+      colorize(`${formatTps(tps)} tps`, CYAN) +
+      sparklineSuffix,
     colorize("│ Runtime: ", BOLD) +
       colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
     colorize("│ Tokens: ", BOLD) +
@@ -587,6 +613,63 @@ function pruneTokenSamples(
 ): TokenSample[] {
   const minTs = nowMs - THROUGHPUT_WINDOW_MS;
   return samples.filter(([ts]) => ts >= minTs) as TokenSample[];
+}
+
+function updateSparklineSamples(
+  samples: TokenSample[],
+  nowMs: number,
+  totalTokens: number,
+): TokenSample[] {
+  return pruneSparklineSamples([[nowMs, totalTokens], ...samples], nowMs);
+}
+
+function pruneSparklineSamples(
+  samples: readonly TokenSample[],
+  nowMs: number,
+): TokenSample[] {
+  const minTs = nowMs - SPARKLINE_WINDOW_MS;
+  return samples.filter(([ts]) => ts >= minTs) as TokenSample[];
+}
+
+export function tpsSparkline(
+  samples: readonly TokenSample[],
+  nowMs: number,
+): string {
+  if (samples.length < 2) return "";
+
+  const bucketMs = SPARKLINE_WINDOW_MS / SPARKLINE_BUCKETS;
+  const windowStart = nowMs - SPARKLINE_WINDOW_MS;
+  const bucketTps: number[] = new Array(SPARKLINE_BUCKETS).fill(0) as number[];
+
+  const sorted = [...samples].sort((a, b) => a[0] - b[0]);
+
+  for (let i = 1; i < sorted.length; i++) {
+    const [prevMs, prevTokens] = sorted[i - 1]!;
+    const [curMs, curTokens] = sorted[i]!;
+    const elapsedMs = curMs - prevMs;
+    if (elapsedMs <= 0) continue;
+
+    const deltaTokens = Math.max(0, curTokens - prevTokens);
+    const pairTps = deltaTokens / (elapsedMs / 1000);
+
+    const midMs = (prevMs + curMs) / 2;
+    const bucketIndex = Math.floor((midMs - windowStart) / bucketMs);
+    if (bucketIndex >= 0 && bucketIndex < SPARKLINE_BUCKETS) {
+      bucketTps[bucketIndex] = Math.max(bucketTps[bucketIndex]!, pairTps);
+    }
+  }
+
+  const maxTps = Math.max(...bucketTps);
+  if (maxTps === 0) return "";
+
+  const levels = SPARKLINE_CHARS.length;
+  return bucketTps
+    .map((v) => {
+      if (v === 0) return " ";
+      const idx = Math.min(levels - 1, Math.floor((v / maxTps) * levels));
+      return SPARKLINE_CHARS[idx] ?? SPARKLINE_CHARS[levels - 1]!;
+    })
+    .join("");
 }
 
 // ─── Render timing helpers ────────────────────────────────────────────────
