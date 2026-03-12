@@ -47,6 +47,12 @@ function createSession(): RunSession {
   };
 }
 
+async function expectPathMissing(targetPath: string): Promise<void> {
+  await expect(fs.access(targetPath)).rejects.toMatchObject({
+    code: "ENOENT",
+  });
+}
+
 function createCodexConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   return {
     runner: {
@@ -168,6 +174,10 @@ rl.on("line", (line) => {
   }
 
   if (payload.method === "thread/start") {
+    if (mode === "startup-stderr-exit") {
+      process.stderr.write("startup failed: invalid fake configuration\\n");
+      process.exit(1);
+    }
     if (mode === "malformed-thread") {
       send({ id: payload.id, result: { thread: {} } });
       return;
@@ -743,6 +753,74 @@ describe("runners", () => {
     ).rejects.toThrowError(
       "Codex app-server returned an invalid thread/start response",
     );
+  });
+
+  it("does not spawn Codex app-server when the turn is already aborted", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+    const abortController = new AbortController();
+    abortController.abort();
+    const onEvent = vi.fn();
+
+    try {
+      await expect(
+        liveSession.runTurn(
+          {
+            turnNumber: 1,
+            prompt: "first",
+          },
+          {
+            signal: abortController.signal,
+            onEvent,
+          },
+        ),
+      ).rejects.toBeInstanceOf(RunnerAbortedError);
+
+      expect(onEvent).not.toHaveBeenCalled();
+      await expectPathMissing(logFile);
+    } finally {
+      await liveSession.close();
+    }
+  });
+
+  it("includes startup stderr when Codex app-server exits during thread startup", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "startup-stderr-exit",
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError(
+        "Startup stderr:\nstartup failed: invalid fake configuration",
+      );
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
   });
 
   it("ignores malformed non-terminal Codex stream lines after turn start", async () => {

@@ -20,6 +20,8 @@ const INITIALIZE_REQUEST_ID = 1;
 const THREAD_START_REQUEST_ID = 2;
 const TURN_START_REQUEST_ID = 3;
 const TERMINATION_GRACE_MS = 200;
+const CLOSE_TIMEOUT_MS = 5_000;
+const STARTUP_STDERR_LIMIT = 4_096;
 
 interface PendingResponse {
   readonly id: number;
@@ -57,6 +59,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #loggedDroppedArgs = false;
   #closingReason: "timeout" | "aborted" | null = null;
   #nextTurnStartRequestId = TURN_START_REQUEST_ID;
+  #startupStderr = "";
 
   constructor(config: AgentConfig, logger: Logger, session: RunSession) {
     this.#config = config;
@@ -84,6 +87,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
     turn: RunTurn,
     options?: RunnerRunOptions,
   ): Promise<RunnerTurnResult> {
+    if (options?.signal?.aborted) {
+      throw new RunnerAbortedError("Runner cancelled by shutdown");
+    }
+
     let abortReject: ((error: Error) => void) | null = null;
     let timeoutReject!: (error: Error) => void;
 
@@ -109,11 +116,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }, this.#config.timeoutMs);
 
     try {
-      if (options?.signal?.aborted) {
-        handleAbort();
-      } else {
-        options?.signal?.addEventListener("abort", handleAbort, { once: true });
-      }
+      options?.signal?.addEventListener("abort", handleAbort, { once: true });
 
       const runPromise = (async (): Promise<RunnerTurnResult> => {
         await this.#ensureStarted(options);
@@ -144,6 +147,18 @@ export class CodexAppServerSession implements LiveRunnerSession {
           child.kill("SIGKILL");
         }
       }, TERMINATION_GRACE_MS);
+      setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          this.#closeReject?.(
+            new RunnerError(
+              `Codex app-server did not exit after ${CLOSE_TIMEOUT_MS}ms`,
+            ),
+          );
+          this.#closeReject = null;
+          this.#closeResolve = null;
+          this.#closePromise = null;
+        }
+      }, CLOSE_TIMEOUT_MS);
     }
     await this.#closePromise;
   }
@@ -160,9 +175,13 @@ export class CodexAppServerSession implements LiveRunnerSession {
       this.#spawnProcess(options?.onEvent);
     }
 
-    await this.#sendInitialize();
-    await this.#sendNotification({ method: "initialized", params: {} });
-    await this.#startThread();
+    try {
+      await this.#sendInitialize();
+      await this.#sendNotification({ method: "initialized", params: {} });
+      await this.#startThread();
+    } catch (error) {
+      throw this.#withStartupStderr(asError(error));
+    }
   }
 
   #spawnProcess(onEvent?: (event: RunnerEvent) => void | Promise<void>): void {
@@ -228,23 +247,28 @@ export class CodexAppServerSession implements LiveRunnerSession {
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
+      this.#appendStartupStderr(text);
       if (this.#activeTurn !== null) {
         this.#activeTurn.stderr += text;
       }
     });
     child.on("error", (error) => {
       this.#rejectActiveState(
-        new RunnerError(`Failed to launch codex app-server`, { cause: error }),
+        this.#withStartupStderr(
+          new RunnerError(`Failed to launch codex app-server`, { cause: error }),
+        ),
       );
     });
     child.on("close", (exitCode, signalCode) => {
       const error =
         this.#closingReason === null &&
         (this.#activeTurn !== null || this.#pendingResponse !== null)
-          ? new RunnerError(
-              `Codex app-server exited before the active request completed (exit=${String(
-                exitCode,
-              )}, signal=${String(signalCode)})`,
+          ? this.#withStartupStderr(
+              new RunnerError(
+                `Codex app-server exited before the active request completed (exit=${String(
+                  exitCode,
+                )}, signal=${String(signalCode)})`,
+              ),
             )
           : null;
       if (error !== null) {
@@ -435,7 +459,9 @@ export class CodexAppServerSession implements LiveRunnerSession {
     } catch {
       if (this.#pendingResponse !== null || this.#threadId === null) {
         this.#rejectActiveState(
-          new RunnerError(`Codex app-server returned malformed JSON: ${line}`),
+          this.#withStartupStderr(
+            new RunnerError(`Codex app-server returned malformed JSON: ${line}`),
+          ),
         );
         return;
       }
@@ -559,6 +585,25 @@ export class CodexAppServerSession implements LiveRunnerSession {
       this.#activeTurn = null;
       activeTurn.reject(error);
     }
+  }
+
+  #appendStartupStderr(text: string): void {
+    if (text.length === 0 || this.#latestTurnNumber !== null) {
+      return;
+    }
+    this.#startupStderr = `${this.#startupStderr}${text}`.slice(
+      -STARTUP_STDERR_LIMIT,
+    );
+  }
+
+  #withStartupStderr(error: Error): Error {
+    const stderr = this.#startupStderr.trim();
+    if (stderr.length === 0 || this.#latestTurnNumber !== null) {
+      return error;
+    }
+    return new RunnerError(`${error.message}\nStartup stderr:\n${stderr}`, {
+      cause: error,
+    });
   }
 }
 
