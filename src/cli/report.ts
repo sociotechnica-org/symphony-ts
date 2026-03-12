@@ -2,6 +2,10 @@ import path from "node:path";
 import { loadWorkflowWorkspaceRoot } from "../config/workflow.js";
 import { publishIssueToFactoryRuns } from "../integration/factory-runs.js";
 import { createDefaultIssueReportEnrichers } from "../runner/codex-report-enricher.js";
+import {
+  writeCampaignDigest,
+  type CampaignSelection,
+} from "../observability/campaign-report.js";
 import { writeIssueReport } from "../observability/issue-report.js";
 import type { IssueReportEnricher } from "../observability/issue-report-enrichment.js";
 
@@ -16,16 +20,30 @@ export type ReportCliArgs =
       readonly issueNumber: number;
       readonly workflowPath: string;
       readonly archiveRoot: string;
+    }
+  | {
+      readonly command: "campaign";
+      readonly workflowPath: string;
+      readonly selection: CampaignSelection;
     };
 
 export function parseReportArgs(argv: readonly string[]): ReportCliArgs {
   const args = argv.slice(2);
   const command = args[0];
 
-  if (command !== "issue" && command !== "publish") {
+  if (command !== "issue" && command !== "publish" && command !== "campaign") {
     throw new Error(
-      "Usage: symphony-report <issue|publish> --issue <number> [--workflow <path>] [--archive-root <path>]",
+      "Usage: symphony-report <issue|publish|campaign> [--issue <number>] [--issues <a,b,c> | --from <YYYY-MM-DD> --to <YYYY-MM-DD>] [--workflow <path>] [--archive-root <path>]",
     );
+  }
+
+  const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
+  if (command === "campaign") {
+    return {
+      command: "campaign",
+      workflowPath: path.resolve(process.cwd(), workflowPath),
+      selection: parseCampaignSelection(args),
+    };
   }
 
   const issueValue = readOptionValue(args, "--issue");
@@ -37,7 +55,6 @@ export function parseReportArgs(argv: readonly string[]): ReportCliArgs {
   }
   const issueNumber = Number.parseInt(issueValue, 10);
 
-  const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
   if (command === "issue") {
     return {
       command: "issue",
@@ -76,6 +93,13 @@ export async function runReportCli(
     );
     return;
   }
+  if (args.command === "campaign") {
+    const generated = await writeCampaignDigest(workspaceRoot, args.selection);
+    process.stdout.write(
+      `Generated campaign digest ${generated.digest.campaignId}\nsummary.md: ${generated.outputPaths.summaryFile}\ntimeline.md: ${generated.outputPaths.timelineFile}\ngithub-activity.md: ${generated.outputPaths.githubActivityFile}\ntoken-usage.md: ${generated.outputPaths.tokenUsageFile}\nlearnings.md: ${generated.outputPaths.learningsFile}\n`,
+    );
+    return;
+  }
 
   const published = await publishIssueToFactoryRuns({
     workspaceRoot,
@@ -98,4 +122,65 @@ function readOptionValue(args: readonly string[], flag: string): string | null {
     throw new Error(`Missing value for ${flag}`);
   }
   return value;
+}
+
+function parseCampaignSelection(args: readonly string[]): CampaignSelection {
+  const issuesValue = readOptionValue(args, "--issues");
+  const from = readOptionValue(args, "--from");
+  const to = readOptionValue(args, "--to");
+
+  if (issuesValue !== null && (from !== null || to !== null)) {
+    throw new Error(
+      "Campaign selection must use either --issues or --from/--to, not both",
+    );
+  }
+
+  if (issuesValue !== null) {
+    const issueNumbers = issuesValue
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (issueNumbers.length === 0) {
+      throw new Error("Missing required --issues <a,b,c> option");
+    }
+    for (const issueValue of issueNumbers) {
+      if (!/^[1-9]\d*$/u.test(issueValue)) {
+        throw new Error(`Invalid issue number in --issues: ${issueValue}`);
+      }
+    }
+    return {
+      kind: "issues",
+      issueNumbers: issueNumbers
+        .map((issueValue) => Number.parseInt(issueValue, 10))
+        .sort((left, right) => left - right),
+    };
+  }
+
+  if (from === null && to === null) {
+    throw new Error(
+      "Campaign generation requires either --issues <a,b,c> or --from <YYYY-MM-DD> --to <YYYY-MM-DD>",
+    );
+  }
+  if (from === null || to === null) {
+    throw new Error(
+      "Campaign date-window selection requires both --from and --to",
+    );
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(from)) {
+    throw new Error(`Invalid campaign from date: ${from}`);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(to)) {
+    throw new Error(`Invalid campaign to date: ${to}`);
+  }
+  if (from > to) {
+    throw new Error(
+      `Campaign date window must satisfy --from <= --to; received ${from} > ${to}`,
+    );
+  }
+
+  return {
+    kind: "date-window",
+    from,
+    to,
+  };
 }

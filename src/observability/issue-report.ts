@@ -43,6 +43,12 @@ export interface StoredIssueReport {
   readonly outputPaths: IssueReportPaths;
 }
 
+export interface StoredIssueReportDocument {
+  readonly report: IssueReportDocument;
+  readonly rawReportJson: string;
+  readonly outputPaths: IssueReportPaths;
+}
+
 export interface IssueReportSummary {
   readonly status: IssueReportAvailability;
   readonly issueNumber: number;
@@ -213,7 +219,7 @@ export interface GeneratedIssueReport {
   readonly outputPaths: IssueReportPaths;
 }
 
-function deriveIssueReportsRoot(workspaceRoot: string): string {
+export function deriveIssueReportsRoot(workspaceRoot: string): string {
   return path.join(
     path.dirname(deriveFactoryRuntimeRoot(workspaceRoot)),
     "reports",
@@ -289,34 +295,16 @@ export async function writeIssueReport(
   return generated;
 }
 
-export async function readIssueReport(
+export async function readIssueReportDocument(
   workspaceRoot: string,
   issueNumber: number,
-): Promise<StoredIssueReport> {
+): Promise<StoredIssueReportDocument> {
   const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
-  const [rawReportJsonResult, rawReportMarkdownResult] =
-    await Promise.allSettled([
-      readRequiredIssueReportFile(
-        outputPaths.reportJsonFile,
-        issueNumber,
-        "JSON",
-      ),
-      readRequiredIssueReportFile(
-        outputPaths.reportMarkdownFile,
-        issueNumber,
-        "markdown",
-      ),
-    ]);
-
-  if (rawReportJsonResult.status === "rejected") {
-    throw rawReportJsonResult.reason;
-  }
-  if (rawReportMarkdownResult.status === "rejected") {
-    throw rawReportMarkdownResult.reason;
-  }
-
-  const rawReportJson = rawReportJsonResult.value;
-  const rawReportMarkdown = rawReportMarkdownResult.value;
+  const rawReportJson = await readRequiredIssueReportFile(
+    outputPaths.reportJsonFile,
+    issueNumber,
+    "JSON",
+  );
 
   let parsedReport: unknown;
   try {
@@ -338,8 +326,39 @@ export async function readIssueReport(
   return {
     report,
     rawReportJson,
-    rawReportMarkdown,
     outputPaths,
+  };
+}
+
+export async function readIssueReport(
+  workspaceRoot: string,
+  issueNumber: number,
+): Promise<StoredIssueReport> {
+  const [storedDocumentResult, rawReportMarkdownResult] =
+    await Promise.allSettled([
+      readIssueReportDocument(workspaceRoot, issueNumber),
+      readRequiredIssueReportFile(
+        deriveIssueReportPaths(workspaceRoot, issueNumber).reportMarkdownFile,
+        issueNumber,
+        "markdown",
+      ),
+    ]);
+
+  if (storedDocumentResult.status === "rejected") {
+    throw storedDocumentResult.reason;
+  }
+  if (rawReportMarkdownResult.status === "rejected") {
+    throw rawReportMarkdownResult.reason;
+  }
+
+  const storedDocument = storedDocumentResult.value;
+  const rawReportMarkdown = rawReportMarkdownResult.value;
+
+  return {
+    report: storedDocument.report,
+    rawReportJson: storedDocument.rawReportJson,
+    rawReportMarkdown,
+    outputPaths: storedDocument.outputPaths,
   };
 }
 
