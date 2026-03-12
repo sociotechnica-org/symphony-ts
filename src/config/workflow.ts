@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
+import { parseLocalRunnerCommand } from "../runner/local-command.js";
 import type {
   AgentRunnerConfig,
   GitHubBootstrapTrackerConfig,
@@ -474,12 +475,9 @@ function resolveAgentRunnerConfig(
 }
 
 function inferAgentRunnerConfig(command: string): AgentRunnerConfig {
-  const executable = command
-    .trim()
-    .split(/\s+/u)
-    .find((token) => !token.includes("="));
+  const executable = parseLocalRunnerCommand(command).executable;
 
-  if (executable !== undefined && path.basename(executable) === "codex") {
+  if (executable !== null && path.basename(executable) === "codex") {
     return { kind: "codex" };
   }
 

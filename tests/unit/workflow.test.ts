@@ -340,6 +340,49 @@ agent:
     });
   });
 
+  it("infers codex from quoted commands using the shared shell tokenizer", async () => {
+    const dir = await createTempDir("workflow-inferred-quoted-codex-runner-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  command: "'codex' exec -m gpt-5.4"
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.agent.runner).toEqual({
+      kind: "codex",
+    });
+  });
+
   it("derives workspace.repoUrl from tracker.repo and api_url when repo_url is omitted", async () => {
     const dir = await createTempDir("workflow-derived-url-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
