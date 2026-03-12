@@ -134,7 +134,7 @@ export class StatusDashboard {
   }
 
   refresh(): void {
-    if (!this.#state.enabled) return;
+    if (this.#stopped || !this.#state.enabled) return;
     this.#refreshRuntimeConfig();
     this.#maybeRender();
   }
@@ -161,8 +161,10 @@ export class StatusDashboard {
   }
 
   #onTick(): void {
-    if (!this.#state.enabled) return;
+    if (this.#stopped || !this.#state.enabled) return;
     this.#refreshRuntimeConfig();
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (!this.#state.enabled) return;
     this.#maybeRender();
     this.#scheduleTick();
   }

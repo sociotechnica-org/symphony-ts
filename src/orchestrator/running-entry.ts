@@ -226,6 +226,13 @@ export function integrateCodexUpdate(
 
   const prevSessionId = entry.sessionId;
   const newSessionId = extractSessionId(entry, payload);
+
+  if (newSessionId !== null && newSessionId !== prevSessionId) {
+    entry.codexLastReportedInputTokens = 0;
+    entry.codexLastReportedOutputTokens = 0;
+    entry.codexLastReportedTotalTokens = 0;
+  }
+
   const tokenDelta = extractTokenDelta(entry, payload);
   const pid = extractPid(payload);
 
@@ -252,12 +259,7 @@ export function integrateCodexUpdate(
   entry.codexOutputTokens += tokenDelta.outputTokens;
   entry.codexTotalTokens += tokenDelta.totalTokens;
 
-  if (
-    newSessionId !== null &&
-    newSessionId !== prevSessionId &&
-    (update.event === "codex/event/task_started" ||
-      update.event === "thread/started")
-  ) {
+  if (update.event === "turn/completed") {
     entry.turnCount += 1;
   }
 
