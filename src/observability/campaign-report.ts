@@ -440,7 +440,7 @@ function buildCampaignTimeline(
   const entries = reports.flatMap((storedReport) => {
     const issueNumber = storedReport.report.summary.issueNumber;
     const issueTitle = storedReport.report.summary.title;
-    const timelineEntries = storedReport.report.timeline.map((entry) => ({
+    return storedReport.report.timeline.map((entry) => ({
       at: entry.at,
       issueNumber,
       issueTitle,
@@ -452,24 +452,6 @@ function buildCampaignTimeline(
       details: entry.details,
       sourceReport: storedReport.outputPaths.reportJsonFile,
     }));
-    const operatorEntries =
-      storedReport.report.operatorInterventions.entries.map((entry) => ({
-        at: entry.at,
-        issueNumber,
-        issueTitle,
-        kind: `operator-${entry.kind}`,
-        title:
-          entry.kind === "approved"
-            ? "Plan review approved"
-            : "Plan review waived",
-        summary: entry.summary,
-        attemptNumber: null,
-        sessionId: null,
-        details: entry.details,
-        sourceReport: storedReport.outputPaths.reportJsonFile,
-      }));
-
-    return [...timelineEntries, ...operatorEntries];
   });
 
   return entries.sort(compareCampaignTimelineEntries);
@@ -522,6 +504,10 @@ function buildCampaignGitHubActivity(
   const failingChecks = countNamedPatterns(
     pullRequests.flatMap((pullRequest) => pullRequest.failingChecks),
   );
+  const unavailableReportCount = reports.filter(
+    (storedReport) =>
+      storedReport.report.githubActivity.status === "unavailable",
+  ).length;
   const partialReportCount = reports.filter(
     (storedReport) => storedReport.report.githubActivity.status !== "complete",
   ).length;
@@ -548,7 +534,11 @@ function buildCampaignGitHubActivity(
 
   return {
     status:
-      partialReportCount === 0 && reports.length > 0 ? "complete" : "partial",
+      reports.length === 0 || unavailableReportCount === reports.length
+        ? "unavailable"
+        : partialReportCount === 0
+          ? "complete"
+          : "partial",
     summary: buildGitHubSummary(
       pullRequests.length,
       reviewFeedbackRounds,
@@ -917,25 +907,20 @@ function buildOverallCampaignOutcome(
     return `All ${issueCount.toString()} selected issues completed successfully.`;
   }
 
-  const parts = [
-    `Completed ${outcomeCounts.succeeded.toString()} of ${issueCount.toString()} selected issues.`,
-  ];
+  const lead = `Completed ${outcomeCounts.succeeded.toString()} of ${issueCount.toString()} selected issues.`;
+  const qualifiers: string[] = [];
   if (outcomeCounts.failed > 0) {
-    parts.push(`${outcomeCounts.failed.toString()} failed`);
+    qualifiers.push(`${outcomeCounts.failed.toString()} failed`);
   }
   if (outcomeCounts.partial > 0) {
-    parts.push(`${outcomeCounts.partial.toString()} remained partial`);
+    qualifiers.push(`${outcomeCounts.partial.toString()} remained partial`);
   }
   if (outcomeCounts.unknown > 0) {
-    parts.push(`${outcomeCounts.unknown.toString()} remained unknown`);
+    qualifiers.push(`${outcomeCounts.unknown.toString()} remained unknown`);
   }
-  const firstPart = parts[0];
-  if (firstPart === undefined) {
-    return "No issue reports were selected.";
-  }
-  return parts.length === 1
-    ? firstPart
-    : `${firstPart} ${parts.slice(1).join(", ")}.`;
+  return qualifiers.length === 0
+    ? lead
+    : `${lead} ${qualifiers.join(", ")}.`;
 }
 
 function buildGitHubSummary(
