@@ -247,7 +247,13 @@ export class StatusDashboard {
     this.#state.lastTpsValue = tps;
 
     const sparkline = tpsSparkline(this.#state.sparklineSamples, nowMs);
-    const content = formatSnapshotContent(snapshot, tps, undefined, sparkline);
+    const content = formatSnapshotContent(
+      snapshot,
+      tps,
+      undefined,
+      sparkline,
+      nowMs,
+    );
     this.#maybeEnqueueRender(content, nowMs);
   }
 
@@ -284,6 +290,7 @@ export class StatusDashboard {
 
   #onFlushRender(): void {
     this.#state.flushTimerRef = null;
+    if (this.#stopped) return;
     const content = this.#state.pendingContent;
     this.#state.pendingContent = null;
     if (content !== null) {
@@ -319,6 +326,7 @@ export function formatSnapshotContent(
   tps: number,
   terminalColumnsOverride?: number,
   sparkline?: string,
+  nowMs?: number,
 ): string {
   const sparklineSuffix =
     sparkline !== undefined && sparkline !== "" ? ` ${sparkline}` : "";
@@ -329,7 +337,7 @@ export function formatSnapshotContent(
       colorize("│ Throughput: ", BOLD) +
         colorize(`${formatTps(tps)} tps`, CYAN) +
         sparklineSuffix,
-      formatRefreshLine(null),
+      formatRefreshLine(null, nowMs ?? Date.now()),
       "╰─",
     ]
       .flat()
@@ -374,7 +382,7 @@ export function formatSnapshotContent(
       colorize(`total ${formatCount(codexTotals.totalTokens)}`, YELLOW),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
     ...projectLine,
-    formatRefreshLine(polling),
+    formatRefreshLine(polling, nowMs ?? Date.now()),
     colorize("├─ Running", BOLD),
     "│",
     runningTableHeaderRow(eventWidth),
@@ -392,14 +400,17 @@ export function formatSnapshotContent(
 
 // ─── Header helpers ───────────────────────────────────────────────────────
 
-function formatRefreshLine(polling: TuiSnapshot["polling"] | null): string {
+function formatRefreshLine(
+  polling: TuiSnapshot["polling"] | null,
+  nowMs: number,
+): string {
   if (polling === null) {
     return colorize("│ Next refresh: ", BOLD) + colorize("n/a", GRAY);
   }
   if (polling.checkingNow) {
     return colorize("│ Next refresh: ", BOLD) + colorize("checking now…", CYAN);
   }
-  const dueInMs = Math.max(0, polling.nextPollAtMs - Date.now());
+  const dueInMs = Math.max(0, polling.nextPollAtMs - nowMs);
   const seconds = Math.ceil(dueInMs / 1000);
   return (
     colorize("│ Next refresh: ", BOLD) + colorize(`${String(seconds)}s`, CYAN)
@@ -704,8 +715,8 @@ export function tpsSparkline(
 // ─── Snapshot fingerprinting ──────────────────────────────────────────────
 
 /**
- * Compute a stable fingerprint of a TuiSnapshot, excluding time-varying fields
- * (secondsRunning, dueInMs) that change every tick. This lets the deduplication
+ * Compute a stable fingerprint of a TuiSnapshot, excluding clock-derived fields
+ * (secondsRunning, countdown) that change every tick. This lets the deduplication
  * guard skip formatSnapshotContent when only the clock has advanced.
  */
 function snapshotFingerprint(snapshot: TuiSnapshot): string {
@@ -723,6 +734,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       codexOutputTokens: e.codexOutputTokens,
       codexAppServerPid: e.codexAppServerPid,
       lastCodexEvent: e.lastCodexEvent,
+      lastCodexMessage: e.lastCodexMessage,
     })),
     retrying: snapshot.retrying.map((r) => ({
       issueNumber: r.issueNumber,
