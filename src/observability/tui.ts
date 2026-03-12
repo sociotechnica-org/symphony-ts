@@ -358,7 +358,8 @@ export function formatSnapshotContent(
     projectUrl,
   } = snapshot;
   const eventWidth = runningEventWidth(terminalColumnsOverride);
-  const runningRows = formatRunningRows(running, eventWidth);
+  const effectiveNowMs = nowMs ?? Date.now();
+  const runningRows = formatRunningRows(running, eventWidth, effectiveNowMs);
   const runningToBackoffSpacer = running.length > 0 ? ["│"] : [];
   const backoffRows = formatRetryRows(retrying);
 
@@ -386,7 +387,7 @@ export function formatSnapshotContent(
       colorize(`total ${formatCount(codexTotals.totalTokens)}`, YELLOW),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
     ...projectLine,
-    formatRefreshLine(polling, nowMs ?? Date.now()),
+    formatRefreshLine(polling, effectiveNowMs),
     colorize("├─ Running", BOLD),
     "│",
     runningTableHeaderRow(eventWidth),
@@ -490,19 +491,21 @@ function runningTableSeparatorRow(eventWidth: number): string {
 function formatRunningRows(
   running: TuiSnapshot["running"],
   eventWidth: number,
+  nowMs: number,
 ): string[] {
   if (running.length === 0) {
     return ["│  " + colorize("No active agents", GRAY), "│"];
   }
-  return running.map((entry) => formatRunningRow(entry, eventWidth));
+  return running.map((entry) => formatRunningRow(entry, eventWidth, nowMs));
 }
 
 function formatRunningRow(
   entry: TuiSnapshot["running"][number],
   eventWidth: number,
+  nowMs: number,
 ): string {
   const runtimeSecs = Math.floor(
-    (Date.now() - entry.startedAt.getTime()) / 1000,
+    (nowMs - entry.startedAt.getTime()) / 1000,
   );
   const issue = formatCell(entry.identifier, ID_WIDTH);
   const stage = formatCell(entry.issueState, STAGE_WIDTH);
@@ -584,7 +587,7 @@ function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
 }
 
 function formatDueIn(ms: number): string {
-  const secs = Math.round(ms / 1000);
+  const secs = Math.ceil(ms / 1000);
   return `${String(secs)}s`;
 }
 
@@ -724,7 +727,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       codexOutputTokens: e.codexOutputTokens,
       codexAppServerPid: e.codexAppServerPid,
       lastCodexEvent: e.lastCodexEvent,
-      lastCodexMessage: e.lastCodexMessage,
+      lastCodexTimestamp: e.lastCodexTimestamp,
     })),
     retrying: snapshot.retrying.map((r) => ({
       issueNumber: r.issueNumber,
@@ -1301,8 +1304,8 @@ function sanitize(value: string): string {
   return value
     .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
     .replace(/\x1b./g, "")
+    .replace(/[\r\n]+/g, " ")
     .replace(/[\x00-\x1f\x7f]/g, "")
-    .replace(/\n/g, " ")
     .trim();
 }
 

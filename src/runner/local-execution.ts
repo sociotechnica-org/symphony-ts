@@ -235,7 +235,11 @@ export async function executeLocalRunnerCommand(
       ) {
         const update = tryParseStdoutEvent(stdoutLineBuffer);
         if (update !== undefined) {
-          execution.options.onUpdate(update);
+          try {
+            execution.options.onUpdate(update);
+          } catch {
+            // Prevent a throwing onUpdate from hanging the Promise.
+          }
         }
       }
       void spawnNotificationPromise.finally(() => {
