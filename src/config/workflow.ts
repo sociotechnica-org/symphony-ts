@@ -12,6 +12,7 @@ import type {
   PromptBuilder,
   ResolvedConfig,
   TrackerConfig,
+  WatchdogConfig,
   WorkflowDefinition,
 } from "../domain/workflow.js";
 
@@ -37,6 +38,11 @@ const DEFAULT_LINEAR_TERMINAL_STATES = [
   "Duplicate",
   "Done",
 ] as const;
+const DEFAULT_DISABLED_WATCHDOG_CONFIG: Omit<WatchdogConfig, "enabled"> = {
+  checkIntervalMs: 60_000,
+  stallThresholdMs: 300_000,
+  maxRecoveryAttempts: 2,
+};
 const SUPPORTED_TRACKER_KINDS = ["github-bootstrap", "linear"] as const;
 const SUPPORTED_AGENT_RUNNER_KINDS = ["codex", "generic-command"] as const;
 type SupportedTrackerKind = (typeof SUPPORTED_TRACKER_KINDS)[number];
@@ -109,6 +115,13 @@ function requireUrlString(value: unknown, field: string): string {
 function requireNumber(value: unknown, field: string): number {
   if (typeof value !== "number" || Number.isNaN(value)) {
     throw new ConfigError(`Expected number for ${field}`);
+  }
+  return value;
+}
+
+function requireBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new ConfigError(`Expected boolean for ${field}`);
   }
   return value;
 }
@@ -365,17 +378,26 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
     }
   }
 
+  const resolvedPolling = {
+    intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
+    maxConcurrentRuns: requireNumber(
+      polling["max_concurrent_runs"],
+      "polling.max_concurrent_runs",
+    ),
+    retry: resolveRetryConfig(polling["retry"]),
+  };
+  const resolvedWatchdog = resolveWatchdogConfig(polling["watchdog"]);
+
   const resolved: ResolvedConfig = {
     workflowPath,
     tracker: resolvedTracker,
-    polling: {
-      intervalMs: requireNumber(polling["interval_ms"], "polling.interval_ms"),
-      maxConcurrentRuns: requireNumber(
-        polling["max_concurrent_runs"],
-        "polling.max_concurrent_runs",
-      ),
-      retry: resolveRetryConfig(polling["retry"]),
-    },
+    polling:
+      resolvedWatchdog === undefined
+        ? resolvedPolling
+        : {
+            ...resolvedPolling,
+            watchdog: resolvedWatchdog,
+          },
     workspace: {
       root: path.resolve(
         path.dirname(workflowPath),
@@ -626,6 +648,81 @@ function resolveRetryConfig(value: unknown): {
           ),
     backoffMs: requireNumber(retry["backoff_ms"], "polling.retry.backoff_ms"),
   };
+}
+
+function resolveWatchdogConfig(value: unknown): WatchdogConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError("Expected object for polling.watchdog");
+  }
+
+  const watchdog = value as Record<string, unknown>;
+  const enabled =
+    watchdog["enabled"] === undefined
+      ? true
+      : requireBoolean(watchdog["enabled"], "polling.watchdog.enabled");
+  const checkIntervalMs = requireOptionalPositiveInteger(
+    watchdog["check_interval_ms"],
+    "polling.watchdog.check_interval_ms",
+    enabled ? undefined : DEFAULT_DISABLED_WATCHDOG_CONFIG.checkIntervalMs,
+  );
+  const stallThresholdMs = requireOptionalPositiveInteger(
+    watchdog["stall_threshold_ms"],
+    "polling.watchdog.stall_threshold_ms",
+    enabled ? undefined : DEFAULT_DISABLED_WATCHDOG_CONFIG.stallThresholdMs,
+  );
+  const maxRecoveryAttempts = requireOptionalRecoveryAttempts(
+    watchdog["max_recovery_attempts"],
+    "polling.watchdog.max_recovery_attempts",
+    enabled ? undefined : DEFAULT_DISABLED_WATCHDOG_CONFIG.maxRecoveryAttempts,
+  );
+
+  return {
+    enabled,
+    checkIntervalMs,
+    stallThresholdMs,
+    maxRecoveryAttempts,
+  };
+}
+
+function requireOptionalPositiveInteger(
+  value: unknown,
+  field: string,
+  fallback: number | undefined,
+): number {
+  if (value === undefined) {
+    if (fallback === undefined) {
+      throw new ConfigError(`Expected number for ${field}`);
+    }
+    return fallback;
+  }
+
+  const resolved = requireNumber(value, field);
+  if (!Number.isInteger(resolved) || resolved <= 0) {
+    throw new ConfigError(`${field} must be an integer > 0`);
+  }
+  return resolved;
+}
+
+function requireOptionalRecoveryAttempts(
+  value: unknown,
+  field: string,
+  fallback: number | undefined,
+): number {
+  if (value === undefined) {
+    if (fallback === undefined) {
+      throw new ConfigError(`Expected number for ${field}`);
+    }
+    return fallback;
+  }
+
+  const resolved = requireNumber(value, field);
+  if (!Number.isInteger(resolved) || resolved < 0) {
+    throw new ConfigError(`${field} must be an integer >= 0`);
+  }
+  return resolved;
 }
 
 export async function loadWorkflow(
