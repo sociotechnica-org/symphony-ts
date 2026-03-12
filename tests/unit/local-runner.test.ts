@@ -4,7 +4,10 @@ import type { AgentConfig } from "../../src/domain/workflow.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { ClaudeCodeRunner } from "../../src/runner/claude-code.js";
-import { buildClaudeResumeCommand } from "../../src/runner/claude-code-command.js";
+import {
+  buildClaudeResumeCommand,
+  parseClaudeCodeResult,
+} from "../../src/runner/claude-code-command.js";
 import { CodexRunner } from "../../src/runner/codex.js";
 import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
@@ -400,6 +403,68 @@ describe("runners", () => {
     ).toBe(
       "claude --resume fresh-session -p --output-format json --permission-mode bypassPermissions",
     );
+  });
+
+  it("parses the Claude result object even when stdout has trailing non-JSON lines", () => {
+    expect(
+      parseClaudeCodeResult(
+        [
+          '{"type":"result","session_id":"claude-session-1","modelUsage":{"claude-sonnet-4-5":{}}}',
+          "warning: trailing diagnostic",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      sessionId: "claude-session-1",
+      model: "claude-sonnet-4-5",
+      modelCount: 1,
+    });
+  });
+
+  it("warns when Claude reports multiple models in one turn", async () => {
+    const logger: Logger = {
+      info() {},
+      warn: vi.fn(),
+      error() {},
+    };
+    const executeSpy = vi
+      .spyOn(ClaudeCodeRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: "result",
+          session_id: "claude-session-1",
+          modelUsage: {
+            "claude-sonnet-4-5": {},
+            "claude-haiku-4-5": {},
+          },
+        }),
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:01.000Z",
+      });
+
+    try {
+      const runner = new ClaudeCodeRunner(createClaudeCodeConfig(), logger);
+      const liveSession = await runner.startSession(createSession());
+
+      const result = await liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      });
+
+      expect(result.session.model).toBe("claude-sonnet-4-5");
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Claude Code turn reported multiple models",
+        expect.objectContaining({
+          issueNumber: 1,
+          turnNumber: 1,
+          modelCount: 2,
+          selectedModel: "claude-sonnet-4-5",
+        }),
+      );
+    } finally {
+      executeSpy.mockRestore();
+    }
   });
 
   it("selects the newest matching Codex session by parsed timestamp", async () => {

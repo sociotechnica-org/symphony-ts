@@ -40,8 +40,11 @@ export class ClaudeCodeLiveSession implements LiveRunnerSession {
       config: AgentConfig,
       execution: LocalCommandExecutionOptions,
     ) => Promise<RunnerExecutionResult> = executeLocalRunnerCommand,
+    skipValidation = false,
   ) {
-    validateClaudeCodeConfig(config);
+    if (!skipValidation) {
+      validateClaudeCodeConfig(config);
+    }
     this.#config = config;
     this.#logger = logger;
     this.#runSession = session;
@@ -72,6 +75,14 @@ export class ClaudeCodeLiveSession implements LiveRunnerSession {
 
     if (executionResult.exitCode === 0) {
       const result = parseClaudeCodeResult(executionResult.stdout);
+      if (result.modelCount > 1) {
+        this.#logger.warn("Claude Code turn reported multiple models", {
+          issueNumber: this.#runSession.issue.number,
+          turnNumber: turn.turnNumber,
+          modelCount: result.modelCount,
+          selectedModel: result.model,
+        });
+      }
       this.#description = {
         ...this.#description,
         model: result.model ?? this.#description.model,

@@ -36,6 +36,7 @@ export class ClaudeCodeRunner implements Runner {
           this.#logger,
           session,
           ClaudeCodeRunner.executeCommand,
+          true,
         ),
       );
     } catch (error) {

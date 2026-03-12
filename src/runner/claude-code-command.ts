@@ -7,6 +7,7 @@ import type { RunnerSessionDescription } from "./service.js";
 interface ParsedClaudeCodeResult {
   readonly sessionId: string | null;
   readonly model: string | null;
+  readonly modelCount: number;
 }
 
 const CLAUDE_RESULT_OUTPUT_FORMAT = "json";
@@ -14,6 +15,9 @@ const CLAUDE_HEADLESS_PERMISSION_FLAGS = [
   "--dangerously-skip-permissions",
   "--permission-mode=bypassPermissions",
 ] as const;
+// Keep this list aligned with Claude flags that consume the next token. If the
+// CLI adds new value-taking flags and this set is not updated,
+// ensureNoPromptArgument can misclassify the value token as a prompt argument.
 const CLAUDE_VALUE_FLAGS = new Set([
   "--model",
   "--output-format",
@@ -131,42 +135,51 @@ export function parseClaudeCodeResult(stdout: string): ParsedClaudeCodeResult {
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const candidate = lines.at(-1);
-  if (candidate === undefined) {
+  if (lines.length === 0) {
     throw new RunnerError(
       "Claude Code runner requires JSON output but stdout was empty",
     );
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(candidate);
-  } catch (error) {
-    throw new RunnerError("Claude Code runner returned malformed JSON output", {
-      cause: error instanceof Error ? error : new Error(String(error)),
-    });
+  let fallbackCandidate: Record<string, unknown> | null = null;
+  for (const line of [...lines].reverse()) {
+    const parsed = tryParseResultLine(line);
+    if (parsed === null) {
+      continue;
+    }
+    if (fallbackCandidate === null) {
+      fallbackCandidate = parsed;
+    }
+    if (parsed["type"] === "result") {
+      return toParsedClaudeCodeResult(parsed);
+    }
   }
 
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new RunnerError(
-      "Claude Code runner requires a JSON object result payload",
-    );
+  if (fallbackCandidate !== null) {
+    return toParsedClaudeCodeResult(fallbackCandidate);
   }
 
-  const result = parsed as Record<string, unknown>;
+  throw new RunnerError("Claude Code runner returned malformed JSON output");
+}
+
+function toParsedClaudeCodeResult(
+  result: Record<string, unknown>,
+): ParsedClaudeCodeResult {
   const sessionId =
     typeof result["session_id"] === "string" ? result["session_id"] : null;
   const modelUsage = result["modelUsage"];
-  const model =
+  const modelKeys =
     modelUsage !== null &&
     typeof modelUsage === "object" &&
     !Array.isArray(modelUsage)
-      ? firstObjectKey(modelUsage as Record<string, unknown>)
-      : null;
+      ? Object.keys(modelUsage as Record<string, unknown>)
+      : [];
+  const model = modelKeys[0] ?? null;
 
   return {
     sessionId,
     model,
+    modelCount: modelKeys.length,
   };
 }
 
@@ -302,9 +315,18 @@ function flagConsumesNextValue(token: string): boolean {
   return CLAUDE_VALUE_FLAGS.has(token);
 }
 
-function firstObjectKey(object: Record<string, unknown>): string | null {
-  for (const key of Object.keys(object)) {
-    return key;
+function tryParseResultLine(line: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
   }
-  return null;
 }
