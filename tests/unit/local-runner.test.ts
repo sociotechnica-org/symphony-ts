@@ -214,7 +214,14 @@ describe("LocalRunner", () => {
       });
 
     try {
-      const sessionsRoot = path.join(tempHome, ".codex", "sessions", "2026", "03", "11");
+      const sessionsRoot = path.join(
+        tempHome,
+        ".codex",
+        "sessions",
+        "2026",
+        "03",
+        "11",
+      );
       await fs.mkdir(sessionsRoot, { recursive: true });
       await fs.writeFile(
         path.join(sessionsRoot, "z-session.jsonl"),
