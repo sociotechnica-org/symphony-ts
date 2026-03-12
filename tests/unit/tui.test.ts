@@ -160,11 +160,11 @@ describe("formatSnapshotContent", () => {
     const output = formatSnapshotContent(snapshot, 0);
     expect(output).toContain("MT-102");
     expect(output).toContain("attempt=3");
-    expect(output).toContain("12.500s");
+    expect(output).toContain("13s");
     expect(output).toContain("error=rate limited");
   });
 
-  it("preserves retry millisecond precision when present", () => {
+  it("rounds retry countdown to nearest second", () => {
     const snapshot = makeSnapshot({
       retrying: [
         {
@@ -177,7 +177,7 @@ describe("formatSnapshotContent", () => {
       ],
     });
     const output = formatSnapshotContent(snapshot, 0);
-    expect(output).toContain("12.567s");
+    expect(output).toContain("13s");
   });
 
   it("renders retry entry with null error without crashing", () => {

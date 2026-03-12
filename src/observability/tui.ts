@@ -118,7 +118,8 @@ export class StatusDashboard {
   }
 
   start(): void {
-    if (!this.#state.enabled) return;
+    if (this.#stopped || this.#state.tickTimer !== null || !this.#state.enabled)
+      return;
     this.#scheduleTick();
   }
 
@@ -568,9 +569,8 @@ function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
 }
 
 function formatDueIn(ms: number): string {
-  const secs = Math.floor(ms / 1000);
-  const millis = ms % 1000;
-  return `${String(secs)}.${String(millis).padStart(3, "0")}s`;
+  const secs = Math.round(ms / 1000);
+  return `${String(secs)}s`;
 }
 
 function sanitizeRetryError(error: string): string {

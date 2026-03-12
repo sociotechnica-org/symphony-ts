@@ -128,7 +128,7 @@ export interface TuiSnapshot {
 }
 
 export interface Orchestrator {
-  runOnce(): Promise<void>;
+  runOnce(signal?: AbortSignal): Promise<void>;
   runLoop(signal?: AbortSignal): Promise<void>;
 }
 
@@ -333,9 +333,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#persistStatusSnapshot();
 
     if (availableSlots <= 0) {
-      this.#state.polling.nextPollAtMs =
-        Date.now() + this.#config.polling.intervalMs;
-      this.#notifyDashboard();
       return;
     }
 
@@ -355,12 +352,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     await Promise.all(runs);
-
-    // Set nextPollAtMs after agents complete so the TUI countdown reflects
-    // actual time until next poll, not time since fetch completed.
-    this.#state.polling.nextPollAtMs =
-      Date.now() + this.#config.polling.intervalMs;
-    this.#notifyDashboard();
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {
@@ -382,6 +373,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
       this.#state.polling.nextPollAtMs =
         Date.now() + this.#config.polling.intervalMs;
+      this.#notifyDashboard();
       await this.#sleep(this.#config.polling.intervalMs, signal);
     }
     // signal is optional — keep ?. for safety even though TypeScript narrows
