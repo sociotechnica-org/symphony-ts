@@ -185,12 +185,10 @@ function extractTokenDelta(
 
   // Update high-water marks to the actual reported values so that
   // counters stay in sync even when only some token types change.
-  if (reported.input > 0)
-    entry.codexLastReportedInputTokens = reported.input;
+  if (reported.input > 0) entry.codexLastReportedInputTokens = reported.input;
   if (reported.output > 0)
     entry.codexLastReportedOutputTokens = reported.output;
-  if (reported.total > 0)
-    entry.codexLastReportedTotalTokens = reported.total;
+  if (reported.total > 0) entry.codexLastReportedTotalTokens = reported.total;
 
   return delta;
 }
