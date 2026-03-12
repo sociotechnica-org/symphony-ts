@@ -474,6 +474,46 @@ class SecondTurnFailingLiveRunner implements Runner {
   }
 }
 
+class RecordingLiveSessionRunner implements Runner {
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
+  async run(): Promise<RunResult> {
+    throw new Error("runner.run should not be called");
+  }
+
+  async startSession(): Promise<LiveRunnerSession> {
+    let latestTurnNumber: number | null = null;
+    const backendSessionId = "codex-session-77";
+    return {
+      describe() {
+        return {
+          ...createRunnerSessionDescription(),
+          backendSessionId,
+          latestTurnNumber,
+        };
+      },
+      async runTurn(turn): Promise<RunnerTurnResult> {
+        latestTurnNumber = turn.turnNumber;
+        const timestamp = `2026-03-09T16:4${turn.turnNumber.toString()}:00.000Z`;
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+          session: {
+            ...createRunnerSessionDescription(),
+            backendSessionId,
+            latestTurnNumber,
+          },
+        };
+      },
+    };
+  }
+}
+
 class RecordingIssueArtifactStore implements IssueArtifactStore {
   readonly observations: IssueArtifactObservation[] = [];
 
@@ -1693,6 +1733,67 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("preserves live-session turn metadata when max-turn exhaustion fails a missing-target lifecycle", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(88)],
+    });
+    tracker.setLifecycleSequence(88, [
+      lifecycle("missing-target", "symphony/88"),
+      lifecycle("missing-target", "symphony/88"),
+      lifecycle("missing-target", "symphony/88"),
+    ]);
+    const tempRoot = await createTempDir(
+      "symphony-missing-target-max-turn-artifact-test-",
+    );
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 1,
+              backoffMs: 0,
+            },
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingLiveSessionRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(tracker.failed).toEqual([
+        {
+          issueNumber: 88,
+          reason:
+            "Reached agent.max_turns (3) with remaining missing-target work: missing-target for symphony/88",
+        },
+      ]);
+
+      const attempt = await readIssueArtifactAttempt(tempRoot, 88, 1);
+      const session = await readIssueArtifactSession(
+        tempRoot,
+        88,
+        attempt.sessionId!,
+      );
+      expect(attempt.latestTurnNumber).toBe(3);
+      expect(session.backendSessionId).toBe("codex-session-77");
+      expect(session.latestTurnNumber).toBe(3);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(78)],
@@ -1787,7 +1888,7 @@ describe("BootstrapOrchestrator", () => {
 
     await orchestrator.runOnce();
 
-    expect(describeSessionCalls).toBe(3);
+    expect(describeSessionCalls).toBe(2);
   });
 
   it("does not block one issue's artifact writes behind another issue's queue", async () => {

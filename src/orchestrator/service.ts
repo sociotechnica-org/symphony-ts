@@ -584,6 +584,7 @@ export class BootstrapOrchestrator implements Orchestrator {
 
       while (true) {
         const turn = await this.#createRunTurn(
+          session.prompt,
           issue,
           attempt,
           currentLifecycle,
@@ -671,6 +672,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async #createRunTurn(
+    initialPrompt: string,
     issue: RuntimeIssue,
     attempt: number,
     pullRequest: HandoffLifecycle | null,
@@ -680,11 +682,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       turnNumber,
       prompt:
         turnNumber === 1
-          ? await this.#promptBuilder.build({
-              issue,
-              attempt: attempt > 1 ? attempt : null,
-              pullRequest,
-            })
+          ? initialPrompt
           : await this.#promptBuilder.buildContinuation({
               issue,
               turnNumber,
@@ -859,7 +857,7 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     if (lifecycle.kind === "missing-target") {
       await this.#handleFailure(
-        session.runSession,
+        session,
         attempt,
         this.#maxTurnsSummary(lifecycle),
         finishedAt,
