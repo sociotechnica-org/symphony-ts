@@ -251,50 +251,56 @@ export class BootstrapOrchestrator implements Orchestrator {
   async runOnce(): Promise<void> {
     this.#state.polling.checkingNow = true;
     this.#notifyDashboard();
-    noteStatusAction(this.#state.status, {
-      kind: "poll-started",
-      summary: "Polling tracker for ready and running issues",
-      issueNumber: null,
-    });
-    await this.#persistStatusSnapshot();
-    await this.#tracker.ensureLabels();
-    this.#logger.info("Poll started");
-    const [readyCandidates, runningCandidates, failedCandidates] =
-      await Promise.all([
-        this.#tracker.fetchReadyIssues(),
-        this.#tracker.fetchRunningIssues(),
-        this.#fetchFailedCandidatesForStatus(),
-      ]);
-    setTrackerIssueCounts(this.#state.status, {
-      ready: readyCandidates.length,
-      running: runningCandidates.length,
-      failed: failedCandidates.length,
-    });
-    this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
-    await this.#reconcileRunningIssueOwnership(runningCandidates);
-    const dueRetries = this.#collectDueRetries();
-    const queue = this.#mergeQueue(
-      readyCandidates,
-      runningCandidates,
-      dueRetries,
-    );
-    const availableSlots =
-      this.#config.polling.maxConcurrentRuns -
-      this.#state.runningIssueNumbers.size;
-    this.#logger.info("Poll candidates fetched", {
-      readyCount: readyCandidates.length,
-      runningCount: runningCandidates.length,
-      failedCount: failedCandidates.length,
-      candidateCount: queue.length,
-      availableSlots,
-    });
-    noteStatusAction(this.#state.status, {
-      kind: "poll-fetched",
-      summary: `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`,
-      issueNumber: null,
-    });
-    this.#state.polling.checkingNow = false;
-    this.#notifyDashboard();
+
+    let readyCandidates: readonly RuntimeIssue[];
+    let runningCandidates: readonly RuntimeIssue[];
+    let failedCandidates: readonly RuntimeIssue[];
+    let queue: readonly QueueEntry[];
+    let availableSlots: number;
+
+    try {
+      noteStatusAction(this.#state.status, {
+        kind: "poll-started",
+        summary: "Polling tracker for ready and running issues",
+        issueNumber: null,
+      });
+      await this.#persistStatusSnapshot();
+      await this.#tracker.ensureLabels();
+      this.#logger.info("Poll started");
+      [readyCandidates, runningCandidates, failedCandidates] =
+        await Promise.all([
+          this.#tracker.fetchReadyIssues(),
+          this.#tracker.fetchRunningIssues(),
+          this.#fetchFailedCandidatesForStatus(),
+        ]);
+      setTrackerIssueCounts(this.#state.status, {
+        ready: readyCandidates.length,
+        running: runningCandidates.length,
+        failed: failedCandidates.length,
+      });
+      this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
+      await this.#reconcileRunningIssueOwnership(runningCandidates);
+      const dueRetries = this.#collectDueRetries();
+      queue = this.#mergeQueue(readyCandidates, runningCandidates, dueRetries);
+      availableSlots =
+        this.#config.polling.maxConcurrentRuns -
+        this.#state.runningIssueNumbers.size;
+      this.#logger.info("Poll candidates fetched", {
+        readyCount: readyCandidates.length,
+        runningCount: runningCandidates.length,
+        failedCount: failedCandidates.length,
+        candidateCount: queue.length,
+        availableSlots,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "poll-fetched",
+        summary: `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`,
+        issueNumber: null,
+      });
+    } finally {
+      this.#state.polling.checkingNow = false;
+      this.#notifyDashboard();
+    }
     await this.#persistStatusSnapshot();
 
     if (availableSlots <= 0) {
