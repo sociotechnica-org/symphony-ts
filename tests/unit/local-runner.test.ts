@@ -68,6 +68,14 @@ function createCodexConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   };
 }
 
+function createLoggerSpy(): Logger {
+  return {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+}
+
 function createGenericCommandConfig(command: string): AgentConfig {
   return {
     runner: {
@@ -151,7 +159,12 @@ if (process.argv[2] !== "app-server") {
   process.exit(1);
 }
 
-process.on("SIGTERM", () => process.exit(0));
+process.on("SIGTERM", () => {
+  if (mode === "ignore-sigterm") {
+    return;
+  }
+  process.exit(0);
+});
 
 const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
@@ -199,6 +212,9 @@ rl.on("line", (line) => {
   if (payload.method === "turn/start") {
     turnCount += 1;
     const turnId = "turn-" + String(turnCount);
+    if (mode === "unexpected-response-id") {
+      send({ id: payload.id + 1000, result: { turn: { id: "unexpected-turn" } } });
+    }
     send({ id: payload.id, result: { turn: { id: turnId } } });
     send({
       method: "turn/started",
@@ -618,11 +634,7 @@ describe("runners", () => {
       await createTempDir("fake-codex-log-"),
       "rpc.jsonl",
     );
-    const logger: Logger = {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    };
+    const logger = createLoggerSpy();
     const runner = new CodexRunner(
       createCodexConfig({
         command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox --profile strict -m gpt-5.4 -C . -`,
@@ -825,11 +837,7 @@ describe("runners", () => {
 
   it("ignores malformed non-terminal Codex stream lines after turn start", async () => {
     const fakeCodex = await createFakeCodexExecutable();
-    const logger: Logger = {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-    };
+    const logger = createLoggerSpy();
     const runner = new CodexRunner(
       createCodexConfig({
         command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
@@ -886,6 +894,81 @@ describe("runners", () => {
 
     expect(spawnedPid).toBeGreaterThan(0);
     await waitForExit(spawnedPid);
+  });
+
+  it("warns and ignores unexpected Codex app-server response ids", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logger = createLoggerSpy();
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "unexpected-response-id",
+        },
+      }),
+      logger,
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      const result = await liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Codex app-server returned a response with an unexpected id",
+        expect.objectContaining({
+          expectedId: 3,
+          receivedId: 1003,
+          method: "turn/start",
+        }),
+      );
+    } finally {
+      await liveSession.close();
+    }
+  });
+
+  it("schedules Codex app-server close timers only once across concurrent close calls", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "ignore-sigterm",
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+
+    try {
+      await liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      });
+
+      const existingTimerCount = timeoutSpy.mock.calls.length;
+      const closePromise = liveSession.close().catch(() => {});
+      const secondClosePromise = liveSession.close().catch(() => {});
+
+      await Promise.resolve();
+
+      const timerDelays = timeoutSpy.mock.calls
+        .slice(existingTimerCount)
+        .map((call) => call[1]);
+      expect(
+        timerDelays.filter(
+          (delay) => delay === 200 || delay === 5_000,
+        ),
+      ).toHaveLength(2);
+
+      await Promise.all([closePromise, secondClosePromise]);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 
   it("rejects Codex runner construction when the command is not the codex CLI", () => {

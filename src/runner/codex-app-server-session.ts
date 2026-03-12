@@ -18,7 +18,7 @@ import type {
 
 const INITIALIZE_REQUEST_ID = 1;
 const THREAD_START_REQUEST_ID = 2;
-const TURN_START_REQUEST_ID = 3;
+const TURN_START_FIRST_REQUEST_ID = 3;
 const TERMINATION_GRACE_MS = 200;
 const CLOSE_TIMEOUT_MS = 5_000;
 const STARTUP_STDERR_LIMIT = 4_096;
@@ -58,7 +58,8 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #appServerPid: number | null = null;
   #loggedDroppedArgs = false;
   #closingReason: "timeout" | "aborted" | null = null;
-  #nextTurnStartRequestId = TURN_START_REQUEST_ID;
+  #closeTimersScheduled = false;
+  #nextTurnStartRequestId = TURN_START_FIRST_REQUEST_ID;
   #startupStderr = "";
 
   constructor(config: AgentConfig, logger: Logger, session: RunSession) {
@@ -140,7 +141,12 @@ export class CodexAppServerSession implements LiveRunnerSession {
         this.#closeReject = reject;
       });
     }
-    if (child.exitCode === null && child.signalCode === null) {
+    if (
+      child.exitCode === null &&
+      child.signalCode === null &&
+      !this.#closeTimersScheduled
+    ) {
+      this.#closeTimersScheduled = true;
       child.kill("SIGTERM");
       setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
@@ -157,6 +163,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
           this.#closeReject = null;
           this.#closeResolve = null;
           this.#closePromise = null;
+          this.#closeTimersScheduled = false;
         }
       }, CLOSE_TIMEOUT_MS);
     }
@@ -277,6 +284,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
         this.#rejectActiveState(error);
       }
       this.#child = null;
+      this.#closeTimersScheduled = false;
       this.#closeResolve?.();
       this.#closeResolve = null;
       this.#closeReject = null;
@@ -493,6 +501,15 @@ export class CodexAppServerSession implements LiveRunnerSession {
       return;
     }
     if (message["id"] !== pending.id) {
+      this.#logger.warn(
+        "Codex app-server returned a response with an unexpected id",
+        {
+          runSessionId: this.#runSession.id,
+          expectedId: pending.id,
+          receivedId: message["id"],
+          method: pending.method,
+        },
+      );
       return;
     }
     this.#pendingResponse = null;
