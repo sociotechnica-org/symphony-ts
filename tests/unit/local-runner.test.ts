@@ -960,9 +960,7 @@ describe("runners", () => {
         .slice(existingTimerCount)
         .map((call) => call[1]);
       expect(
-        timerDelays.filter(
-          (delay) => delay === 200 || delay === 5_000,
-        ),
+        timerDelays.filter((delay) => delay === 200 || delay === 5_000),
       ).toHaveLength(2);
 
       await Promise.all([closePromise, secondClosePromise]);
