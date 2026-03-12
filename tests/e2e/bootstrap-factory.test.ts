@@ -297,7 +297,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       apiUrl: server.baseUrl,
       runnerKind: "claude-code",
       agentCommand:
-        "claude -p --output-format json --permission-mode bypassPermissions --model sonnet",
+        "claude --add-dir . --file=WORKFLOW.md -p --output-format json --permission-mode bypassPermissions --model sonnet",
       maxTurns: 2,
     });
     const orchestrator = await createOrchestrator(workflowPath);

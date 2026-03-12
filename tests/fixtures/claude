@@ -32,10 +32,10 @@ while (($# > 0)); do
       RESUME_SESSION_ID="${2:-}"
       shift 2
       ;;
-    --permission-mode|--session-id|--allowedTools|--allowed-tools|--disallowedTools|--disallowed-tools|--tools|--append-system-prompt|--system-prompt|--fallback-model|--effort|--agent|--debug-file|--input-format|--json-schema|--max-budget-usd|--settings|--setting-sources)
+    --permission-mode|--session-id|--allowedTools|--allowed-tools|--disallowedTools|--disallowed-tools|--tools|--append-system-prompt|--system-prompt|--fallback-model|--effort|--agent|--debug-file|--input-format|--json-schema|--max-budget-usd|--settings|--setting-sources|--add-dir|--mcp-config|--plugin-dir|--betas|--file)
       shift 2
       ;;
-    --permission-mode=*|--session-id=*|--allowedTools=*|--allowed-tools=*|--disallowedTools=*|--disallowed-tools=*|--tools=*|--append-system-prompt=*|--system-prompt=*|--fallback-model=*|--effort=*|--agent=*|--debug-file=*|--input-format=*|--json-schema=*|--max-budget-usd=*|--settings=*|--setting-sources=*)
+    --permission-mode=*|--session-id=*|--allowedTools=*|--allowed-tools=*|--disallowedTools=*|--disallowed-tools=*|--tools=*|--append-system-prompt=*|--system-prompt=*|--fallback-model=*|--effort=*|--agent=*|--debug-file=*|--input-format=*|--json-schema=*|--max-budget-usd=*|--settings=*|--setting-sources=*|--add-dir=*|--mcp-config=*|--plugin-dir=*|--betas=*|--file=*)
       shift
       ;;
     --dangerously-skip-permissions|--allow-dangerously-skip-permissions|--disable-slash-commands|--verbose)
