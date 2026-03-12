@@ -1,8 +1,9 @@
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { RunSession, RunSpawnEvent } from "../domain/run.js";
+import type { RunSession } from "../domain/run.js";
 import type { Logger } from "../observability/logger.js";
+import type { RunnerSpawnedEvent } from "../runner/service.js";
 
 function isStaleLeaseError(code: string | undefined): boolean {
   return code === "ENOENT" || code === "ENOTDIR" || code === "ESRCH";
@@ -119,7 +120,7 @@ export class LocalIssueLeaseManager {
     );
   }
 
-  recordRunnerSpawn(lockDir: string, event: RunSpawnEvent): void {
+  recordRunnerSpawn(lockDir: string, event: RunnerSpawnedEvent): void {
     const record = this.#readRecordSync(lockDir);
     if (record === null) {
       return;

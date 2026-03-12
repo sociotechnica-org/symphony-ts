@@ -14,20 +14,7 @@ export interface RunSession {
   readonly attempt: RunAttempt;
 }
 
-export interface RunSpawnEvent {
-  readonly pid: number;
-  readonly spawnedAt: string;
-}
-
 export interface RunTurn {
   readonly prompt: string;
   readonly turnNumber: number;
-}
-
-export interface RunResult {
-  readonly exitCode: number;
-  readonly stdout: string;
-  readonly stderr: string;
-  readonly startedAt: string;
-  readonly finishedAt: string;
 }

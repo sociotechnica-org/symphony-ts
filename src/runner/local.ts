@@ -1,4 +1,4 @@
-import type { RunResult, RunSession } from "../domain/run.js";
+import type { RunSession } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { executeLocalRunnerCommand } from "./local-execution.js";
@@ -6,6 +6,7 @@ import { LocalRunnerSession } from "./local-live-session.js";
 import { describeLocalRunnerSession } from "./local-session-description.js";
 import type {
   Runner,
+  RunnerExecutionResult,
   RunnerRunOptions,
   RunnerSessionDescription,
 } from "./service.js";
@@ -41,7 +42,7 @@ export class LocalRunner implements Runner {
   async run(
     session: RunSession,
     options?: RunnerRunOptions,
-  ): Promise<RunResult> {
+  ): Promise<RunnerExecutionResult> {
     return await LocalRunner.executeCommand(this.#logger, this.#config, {
       command: this.#config.command,
       prompt: session.prompt,
@@ -54,7 +55,7 @@ export class LocalRunner implements Runner {
 
   static async executeCommand(
     ...args: Parameters<typeof executeLocalRunnerCommand>
-  ): Promise<RunResult> {
+  ): Promise<RunnerExecutionResult> {
     return await executeLocalRunnerCommand(...args);
   }
 }

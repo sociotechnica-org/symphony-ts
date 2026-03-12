@@ -3,7 +3,7 @@ import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
-import type { RunSpawnEvent, RunSession, RunTurn } from "../domain/run.js";
+import type { RunSession, RunTurn } from "../domain/run.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -33,7 +33,9 @@ import {
 } from "../observability/status.js";
 import type {
   LiveRunnerSession,
+  RunnerEvent,
   Runner,
+  RunnerSpawnedEvent,
   RunnerTurnResult,
 } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
@@ -699,7 +701,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     lockDir: string,
     signal: AbortSignal,
   ): Promise<RunnerTurnResult> {
-    const onSpawn = (event: RunSpawnEvent): void => {
+    const onEvent = (event: RunnerEvent): void => {
       this.#recordRunnerSpawn(
         {
           runSession: session,
@@ -716,7 +718,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (liveRunnerSession !== undefined) {
       return await liveRunnerSession.runTurn(turn, {
         signal,
-        onSpawn,
+        onEvent,
       });
     }
     const result = await this.#runner.run(
@@ -726,7 +728,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       },
       {
         signal,
-        onSpawn,
+        onEvent,
       },
     );
     return {
@@ -1505,7 +1507,7 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   #createRunnerSpawnObservation(
     session: RunSessionArtifactsState,
-    event: RunSpawnEvent,
+    event: RunnerSpawnedEvent,
     turnNumber: number,
   ): IssueArtifactObservation {
     const sessionArtifacts = this.#createSessionObservationArtifacts(session);
@@ -1815,7 +1817,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   #recordRunnerSpawn(
     session: RunSessionArtifactsState,
     lockDir: string,
-    event: RunSpawnEvent,
+    event: RunnerSpawnedEvent,
     turnNumber: number,
   ): void {
     const issueNumber = session.runSession.issue.number;
@@ -1834,7 +1836,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber,
       at: event.spawnedAt,
     });
-    // The runner onSpawn callback is synchronous; snapshot persistence is optional.
+    // The runner event callback is synchronous; snapshot persistence is optional.
     void this.#persistStatusSnapshot();
     void this.#recordIssueArtifact(
       this.#createRunnerSpawnObservation(session, event, turnNumber),

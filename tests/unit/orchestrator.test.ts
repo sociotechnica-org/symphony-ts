@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import type { HandoffLifecycle } from "../../src/domain/handoff.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
-import type { RunResult, RunSession } from "../../src/domain/run.js";
+import type { RunSession } from "../../src/domain/run.js";
 import type { PreparedWorkspace } from "../../src/domain/workspace.js";
 import type {
   PromptBuilder,
@@ -27,6 +27,7 @@ import type { Logger } from "../../src/observability/logger.js";
 import type {
   LiveRunnerSession,
   Runner,
+  RunnerExecutionResult,
   RunnerTurnResult,
 } from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
@@ -384,7 +385,7 @@ class ConcurrencyRunner implements Runner {
     return createRunnerSessionDescription();
   }
 
-  async run(session: RunSession): Promise<RunResult> {
+  async run(session: RunSession): Promise<RunnerExecutionResult> {
     this.startedIssues.push(session.issue.number);
     this.#active += 1;
     this.maxActive = Math.max(this.maxActive, this.#active);
@@ -413,7 +414,7 @@ class RecordingRunner implements Runner {
     return createRunnerSessionDescription();
   }
 
-  async run(session: RunSession): Promise<RunResult> {
+  async run(session: RunSession): Promise<RunnerExecutionResult> {
     this.sessionIds.push(session.id);
     this.attempts.push(session.attempt.sequence);
     this.prompts.push(session.prompt);
@@ -439,7 +440,7 @@ class SecondTurnFailingLiveRunner implements Runner {
     return createRunnerSessionDescription();
   }
 
-  async run(): Promise<RunResult> {
+  async run(): Promise<RunnerExecutionResult> {
     throw new Error("runner.run should not be called");
   }
 
@@ -479,7 +480,7 @@ class RecordingLiveSessionRunner implements Runner {
     return createRunnerSessionDescription();
   }
 
-  async run(): Promise<RunResult> {
+  async run(): Promise<RunnerExecutionResult> {
     throw new Error("runner.run should not be called");
   }
 
@@ -581,7 +582,7 @@ class BlockingRecordingRunner implements Runner {
     await this.issueStarted.get(issueNumber)?.promise;
   }
 
-  async run(session: RunSession): Promise<RunResult> {
+  async run(session: RunSession): Promise<RunnerExecutionResult> {
     this.startedIssues.push(session.issue.number);
     this.issueStarted.get(session.issue.number)?.resolve();
     await this.#finish.promise;
@@ -741,7 +742,7 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(): Promise<RunResult> {
+        async run(): Promise<RunnerExecutionResult> {
           runnerCalls += 1;
           throw new Error("runner should not be called");
         },
@@ -781,7 +782,7 @@ describe("BootstrapOrchestrator", () => {
           describeSession() {
             return createRunnerSessionDescription();
           },
-          async run(): Promise<RunResult> {
+          async run(): Promise<RunnerExecutionResult> {
             runnerCalls += 1;
             throw new Error("runner should not be called");
           },
@@ -963,7 +964,7 @@ describe("BootstrapOrchestrator", () => {
           describeSession() {
             return createRunnerSessionDescription();
           },
-          async run(): Promise<RunResult> {
+          async run(): Promise<RunnerExecutionResult> {
             runnerCalls += 1;
             throw new Error("runner should not be called");
           },
@@ -1184,7 +1185,7 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(): Promise<RunResult> {
+        async run(): Promise<RunnerExecutionResult> {
           throw new Error("runner should not be called");
         },
       },
@@ -1276,7 +1277,7 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(): Promise<RunResult> {
+        async run(): Promise<RunnerExecutionResult> {
           runnerCalls += 1;
           throw new Error("runner should not be called");
         },
@@ -1504,7 +1505,7 @@ describe("BootstrapOrchestrator", () => {
       describeSession() {
         return createRunnerSessionDescription();
       },
-      async run(session): Promise<RunResult> {
+      async run(session): Promise<RunnerExecutionResult> {
         runnerCalls.push(session.attempt.sequence);
         const timestamp = new Date().toISOString();
         return {
@@ -1570,9 +1571,10 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(_session, options): Promise<RunResult> {
+        async run(_session, options): Promise<RunnerExecutionResult> {
           const timestamp = "2026-03-09T16:30:00.000Z";
-          await options?.onSpawn?.({
+          await options?.onEvent?.({
+            kind: "spawned",
             pid: runnerPid,
             spawnedAt: timestamp,
           });
@@ -1649,8 +1651,9 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(_session, options): Promise<RunResult> {
-          await options?.onSpawn?.({
+        async run(_session, options): Promise<RunnerExecutionResult> {
+          await options?.onEvent?.({
+            kind: "spawned",
             pid: runnerPid,
             spawnedAt: "2026-03-09T16:35:00.000Z",
           });
@@ -2020,7 +2023,7 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(): Promise<RunResult> {
+        async run(): Promise<RunnerExecutionResult> {
           const timestamp = "2026-03-09T16:45:00.000Z";
           return {
             exitCode: 17,
@@ -2071,7 +2074,7 @@ describe("BootstrapOrchestrator", () => {
           describeSessionCalls += 1;
           return createRunnerSessionDescription();
         },
-        async run(): Promise<RunResult> {
+        async run(): Promise<RunnerExecutionResult> {
           const timestamp = "2026-03-09T17:00:00.000Z";
           return {
             exitCode: 0,
@@ -2143,7 +2146,7 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(): Promise<RunResult> {
+        async run(): Promise<RunnerExecutionResult> {
           const timestamp = new Date().toISOString();
           return {
             exitCode: 17,
@@ -2193,7 +2196,7 @@ describe("BootstrapOrchestrator", () => {
         describeSession() {
           return createRunnerSessionDescription();
         },
-        async run(session): Promise<RunResult> {
+        async run(session): Promise<RunnerExecutionResult> {
           runnerCalls.push(session.attempt.sequence);
           const timestamp = new Date().toISOString();
           return {
@@ -2253,19 +2256,21 @@ describe("BootstrapOrchestrator", () => {
           describeSession() {
             return createRunnerSessionDescription();
           },
-          async run(_session, options): Promise<RunResult> {
+          async run(_session, options): Promise<RunnerExecutionResult> {
             started.resolve();
-            return await new Promise<RunResult>((_resolve, reject) => {
-              options?.signal?.addEventListener(
-                "abort",
-                () => {
-                  reject(
-                    new RunnerAbortedError("Runner cancelled by shutdown"),
-                  );
-                },
-                { once: true },
-              );
-            });
+            return await new Promise<RunnerExecutionResult>(
+              (_resolve, reject) => {
+                options?.signal?.addEventListener(
+                  "abort",
+                  () => {
+                    reject(
+                      new RunnerAbortedError("Runner cancelled by shutdown"),
+                    );
+                  },
+                  { once: true },
+                );
+              },
+            );
           },
         },
         new NullLogger(),
@@ -2363,7 +2368,7 @@ describe("BootstrapOrchestrator watchdog", () => {
       async run(_session, options) {
         runStarted.resolve();
         // Simulate a runner that stalls indefinitely until aborted
-        return new Promise<RunResult>((resolve, reject) => {
+        return new Promise<RunnerExecutionResult>((resolve, reject) => {
           const handleAbort = (): void => {
             runAborted = true;
             reject(new RunnerAbortedError("Aborted"));
@@ -2434,7 +2439,7 @@ describe("BootstrapOrchestrator watchdog", () => {
         return createRunnerSessionDescription();
       },
       async run(_session, options) {
-        return new Promise<RunResult>((resolve, reject) => {
+        return new Promise<RunnerExecutionResult>((resolve, reject) => {
           const handleAbort = (): void => {
             abortCount += 1;
             reject(new RunnerAbortedError("Aborted"));
@@ -2518,7 +2523,7 @@ describe("BootstrapOrchestrator watchdog", () => {
         return createRunnerSessionDescription();
       },
       async run(_session, options) {
-        return new Promise<RunResult>((_resolve, reject) => {
+        return new Promise<RunnerExecutionResult>((_resolve, reject) => {
           const handleAbort = (): void => {
             abortCount += 1;
             void readFactoryStatusSnapshot(deriveStatusFilePath(tmpDir))
