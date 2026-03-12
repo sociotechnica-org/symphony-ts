@@ -114,8 +114,8 @@ export async function runCli(argv: readonly string[]): Promise<void> {
       "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
     )
   ) {
-    const B = "\x1b[1;31m";
-    const R = "\x1b[0m";
+    const B = process.stdout.isTTY ? "\x1b[1;31m" : "";
+    const R = process.stdout.isTTY ? "\x1b[0m" : "";
     process.stdout.write(
       [
         `${B}╭──────────────────────────────────────────────────────────────╮${R}`,

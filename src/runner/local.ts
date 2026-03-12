@@ -228,6 +228,32 @@ export class LocalRunner implements Runner {
         });
       });
       child.on("close", (exitCode) => {
+        // Flush any remaining partial line in the buffer
+        if (options?.onUpdate !== undefined && stdoutLineBuffer.trim() !== "") {
+          try {
+            const parsed = JSON.parse(stdoutLineBuffer.trim()) as unknown;
+            if (
+              parsed !== null &&
+              typeof parsed === "object" &&
+              !Array.isArray(parsed)
+            ) {
+              const obj = parsed as Record<string, unknown>;
+              const event =
+                typeof obj["event"] === "string"
+                  ? obj["event"]
+                  : typeof obj["method"] === "string"
+                    ? obj["method"]
+                    : "unknown";
+              options.onUpdate({
+                event,
+                payload: parsed,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } catch {
+            // not a complete JSON line — ignore
+          }
+        }
         void spawnNotificationPromise.finally(() => {
           finish(() => {
             const finishedAt = new Date().toISOString();
