@@ -705,7 +705,21 @@ export function tpsSparkline(
  */
 function snapshotFingerprint(snapshot: TuiSnapshot): string {
   return JSON.stringify({
-    running: snapshot.running,
+    running: snapshot.running.map((e) => ({
+      issueNumber: e.issueNumber,
+      identifier: e.identifier,
+      issueState: e.issueState,
+      startedAt: e.startedAt,
+      retryAttempt: e.retryAttempt,
+      sessionId: e.sessionId,
+      turnCount: e.turnCount,
+      codexTotalTokens: e.codexTotalTokens,
+      codexInputTokens: e.codexInputTokens,
+      codexOutputTokens: e.codexOutputTokens,
+      codexAppServerPid: e.codexAppServerPid,
+      lastCodexEvent: e.lastCodexEvent,
+      lastCodexTimestamp: e.lastCodexTimestamp,
+    })),
     retrying: snapshot.retrying.map((r) => ({
       issueNumber: r.issueNumber,
       identifier: r.identifier,
