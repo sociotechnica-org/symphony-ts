@@ -454,6 +454,51 @@ agent:
     });
   });
 
+  it("loads an explicit Claude Code runner selection", async () => {
+    const dir = await createTempDir("workflow-claude-code-runner-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: claude-code
+  command: claude -p --output-format json --permission-mode bypassPermissions
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.agent.runner).toEqual({
+      kind: "claude-code",
+    });
+  });
+
   it("rejects an unsupported agent.runner.kind", async () => {
     const dir = await createTempDir("workflow-invalid-runner-kind-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
@@ -493,7 +538,7 @@ agent:
     );
 
     await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
-      "Unsupported agent.runner.kind 'claude'. Supported kinds: codex, generic-command",
+      "Unsupported agent.runner.kind 'claude'. Supported kinds: codex, generic-command, claude-code",
     );
   });
 

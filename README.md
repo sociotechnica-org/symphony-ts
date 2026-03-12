@@ -20,7 +20,7 @@ OpenAI released [the Symphony spec](https://github.com/openai/symphony) to addre
 
 ## Quick Start
 
-**Prerequisites:** Node.js 20+, `pnpm`, `git`, [`gh`](https://cli.github.com/) (authenticated), and [`codex`](https://github.com/openai/codex) installed locally.
+**Prerequisites:** Node.js 20+, `pnpm`, `git`, [`gh`](https://cli.github.com/) (authenticated), and at least one supported local runner installed: [`codex`](https://github.com/openai/codex) or [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview).
 
 ```bash
 git clone https://github.com/sociotechnica-org/symphony-ts.git
@@ -159,29 +159,55 @@ agent:
   max_turns: 20
 ```
 
-| Field                          | Purpose                                                        |
-| ------------------------------ | -------------------------------------------------------------- |
-| `tracker.repo`                 | GitHub repository to poll for labeled issues                   |
-| `tracker.review_bot_logins`    | PR comment authors treated as actionable bot review            |
-| `polling.interval_ms`          | How often to check for new work                                |
-| `polling.max_concurrent_runs`  | Local concurrency cap                                          |
-| `workspace.root`               | Where isolated workspaces are created                          |
-| `workspace.repo_url`           | SSH or HTTPS URL of the repository cloned for each workspace   |
-| `workspace.branch_prefix`      | Issue branch naming prefix                                     |
-| `agent.runner.kind`            | Selects the execution backend (`codex` or `generic-command`)   |
-| `agent.command`                | Subprocess command to launch the coding agent                  |
-| `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path          |
-| `agent.timeout_ms`             | Max wall-clock time per runner turn                            |
-| `agent.max_turns`              | Max in-process continuation turns per worker run               |
-| `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`) |
+| Field                          | Purpose                                                                      |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| `tracker.repo`                 | GitHub repository to poll for labeled issues                                 |
+| `tracker.review_bot_logins`    | PR comment authors treated as actionable bot review                          |
+| `polling.interval_ms`          | How often to check for new work                                              |
+| `polling.max_concurrent_runs`  | Local concurrency cap                                                        |
+| `workspace.root`               | Where isolated workspaces are created                                        |
+| `workspace.repo_url`           | SSH or HTTPS URL of the repository cloned for each workspace                 |
+| `workspace.branch_prefix`      | Issue branch naming prefix                                                   |
+| `agent.runner.kind`            | Selects the execution backend (`codex`, `claude-code`, or `generic-command`) |
+| `agent.command`                | Subprocess command to launch the coding agent                                |
+| `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path                        |
+| `agent.timeout_ms`             | Max wall-clock time per runner turn                                          |
+| `agent.max_turns`              | Max in-process continuation turns per worker run                             |
+| `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`)               |
 
 `agent.timeout_ms` applies to each runner turn. If `agent.max_turns` is greater
 than `1`, a single worker run can consume multiple per-turn timeout windows
 before it exits.
 
 `agent.runner.kind` keeps backend selection in `WORKFLOW.md`. Use `codex` for
-the built-in Codex continuation path, or `generic-command` to launch another
-local CLI through the same orchestrator path:
+the built-in Codex continuation path, `claude-code` for the first-class Claude
+Code adapter, or `generic-command` to launch another local CLI through the same
+orchestrator path:
+
+```yaml
+agent:
+  runner:
+    kind: claude-code
+  command: claude -p --output-format json --permission-mode bypassPermissions --model sonnet
+  prompt_transport: stdin
+  timeout_ms: 1800000
+  max_turns: 20
+```
+
+The Claude Code adapter expects a headless JSON command shape so Symphony can
+capture `session_id` for continuation turns and status artifacts. Keep these
+constraints in `WORKFLOW.md`:
+
+- use `claude -p` / `claude --print`
+- include `--output-format json`
+- use non-interactive permissions such as `--permission-mode bypassPermissions`
+  or `--dangerously-skip-permissions`
+- keep `agent.prompt_transport: stdin`
+- do not bake `--resume`, `--continue`, `--session-id`, or a prompt argument
+  into `agent.command`; the runner owns those continuation details
+
+Use `generic-command` when you want raw subprocess execution without
+Claude-specific session semantics:
 
 ```yaml
 agent:

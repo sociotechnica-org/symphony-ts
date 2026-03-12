@@ -28,7 +28,7 @@ async function writeWorkflow(options: {
   readonly remotePath: string;
   readonly endpoint: string;
   readonly agentCommand: string;
-  readonly runnerKind?: "codex" | "generic-command";
+  readonly runnerKind?: "codex" | "generic-command" | "claude-code";
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   await fs.writeFile(

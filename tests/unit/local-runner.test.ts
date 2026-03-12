@@ -3,6 +3,11 @@ import type { RunSession } from "../../src/domain/run.js";
 import type { AgentConfig } from "../../src/domain/workflow.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import { ClaudeCodeRunner } from "../../src/runner/claude-code.js";
+import {
+  buildClaudeResumeCommand,
+  parseClaudeCodeResult,
+} from "../../src/runner/claude-code-command.js";
 import { CodexRunner } from "../../src/runner/codex.js";
 import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
@@ -72,6 +77,21 @@ function createGenericCommandConfig(command: string): AgentConfig {
   };
 }
 
+function createClaudeCodeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
+  return {
+    runner: {
+      kind: "claude-code",
+    },
+    command:
+      "claude -p --output-format json --permission-mode bypassPermissions --model sonnet",
+    promptTransport: "stdin",
+    timeoutMs: 5_000,
+    maxTurns: 3,
+    env: {},
+    ...overrides,
+  };
+}
+
 describe("runners", () => {
   it("describes Codex-backed sessions with provider and model metadata", () => {
     const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
@@ -94,6 +114,21 @@ describe("runners", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "generic-command",
       model: null,
+      backendSessionId: null,
+      latestTurnNumber: null,
+      logPointers: [],
+    });
+  });
+
+  it("describes Claude Code sessions with provider and model metadata", () => {
+    const runner = new ClaudeCodeRunner(
+      createClaudeCodeConfig(),
+      new JsonLogger(),
+    );
+
+    expect(runner.describeSession(createSession())).toEqual({
+      provider: "claude-code",
+      model: "sonnet",
       backendSessionId: null,
       latestTurnNumber: null,
       logPointers: [],
@@ -152,6 +187,37 @@ describe("runners", () => {
       await expect(runner.run(createSession())).resolves.toMatchObject({
         exitCode: 0,
         stdout: "ok",
+      });
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      executeSpy.mockRestore();
+    }
+  });
+
+  it("keeps ClaudeCodeRunner.run on the one-shot execute-and-return path", async () => {
+    const executeSpy = vi
+      .spyOn(ClaudeCodeRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          session_id: "claude-session-1",
+          modelUsage: {
+            "claude-sonnet-4-5": {},
+          },
+        }),
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:01.000Z",
+      });
+
+    try {
+      const runner = new ClaudeCodeRunner(
+        createClaudeCodeConfig(),
+        new JsonLogger(),
+      );
+
+      await expect(runner.run(createSession())).resolves.toMatchObject({
+        exitCode: 0,
       });
       expect(executeSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -221,6 +287,184 @@ describe("runners", () => {
     await expect(runner.run(session)).rejects.toMatchObject({
       message: "Runner timed out after 50ms",
     });
+  });
+
+  it("reuses the Claude backend session id for continuation turns", async () => {
+    const executeSpy = vi
+      .spyOn(ClaudeCodeRunner, "executeCommand")
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          session_id: "claude-session-1",
+          modelUsage: {
+            "claude-sonnet-4-5": {},
+          },
+        }),
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:01.000Z",
+      })
+      .mockResolvedValueOnce({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          session_id: "claude-session-1",
+          modelUsage: {
+            "claude-sonnet-4-5": {},
+          },
+        }),
+        stderr: "",
+        startedAt: "2026-03-11T10:00:02.000Z",
+        finishedAt: "2026-03-11T10:00:03.000Z",
+      });
+
+    try {
+      const runner = new ClaudeCodeRunner(
+        createClaudeCodeConfig(),
+        new JsonLogger(),
+      );
+      const liveSession = await runner.startSession(createSession());
+
+      const firstTurn = await liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      });
+      const secondTurn = await liveSession.runTurn({
+        turnNumber: 2,
+        prompt: "second",
+      });
+
+      expect(firstTurn.session.backendSessionId).toBe("claude-session-1");
+      expect(secondTurn.session.backendSessionId).toBe("claude-session-1");
+      expect(secondTurn.session.latestTurnNumber).toBe(2);
+      expect(
+        (executeSpy.mock.calls[1]?.[2] as { command: string } | undefined)
+          ?.command,
+      ).toContain("--resume claude-session-1");
+    } finally {
+      executeSpy.mockRestore();
+    }
+  });
+
+  it("fails when a Claude continuation turn is requested without a session id", async () => {
+    const executeSpy = vi
+      .spyOn(ClaudeCodeRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          modelUsage: {
+            "claude-sonnet-4-5": {},
+          },
+        }),
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:01.000Z",
+      });
+
+    try {
+      const runner = new ClaudeCodeRunner(
+        createClaudeCodeConfig(),
+        new JsonLogger(),
+      );
+      const liveSession = await runner.startSession(createSession());
+
+      await liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      });
+
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 2,
+          prompt: "second",
+        }),
+      ).rejects.toThrowError(
+        "Claude Code continuation turn requested but no backend session id was returned by the previous turn",
+      );
+    } finally {
+      executeSpy.mockRestore();
+    }
+  });
+
+  it("drops session ids paired with prior Claude continue flags during resume reconstruction", () => {
+    expect(
+      buildClaudeResumeCommand(
+        "claude --continue stale-session -p --output-format json --permission-mode bypassPermissions",
+        "fresh-session",
+      ),
+    ).toBe(
+      "claude --resume fresh-session -p --output-format json --permission-mode bypassPermissions",
+    );
+
+    expect(
+      buildClaudeResumeCommand(
+        "claude -c stale-session -p --output-format json --permission-mode bypassPermissions",
+        "fresh-session",
+      ),
+    ).toBe(
+      "claude --resume fresh-session -p --output-format json --permission-mode bypassPermissions",
+    );
+  });
+
+  it("parses the Claude result object even when stdout has trailing non-JSON lines", () => {
+    expect(
+      parseClaudeCodeResult(
+        [
+          '{"type":"result","session_id":"claude-session-1","modelUsage":{"claude-sonnet-4-5":{}}}',
+          "warning: trailing diagnostic",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      sessionId: "claude-session-1",
+      model: "claude-sonnet-4-5",
+      modelCount: 1,
+    });
+  });
+
+  it("warns when Claude reports multiple models in one turn", async () => {
+    const logger: Logger = {
+      info() {},
+      warn: vi.fn(),
+      error() {},
+    };
+    const executeSpy = vi
+      .spyOn(ClaudeCodeRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: "result",
+          session_id: "claude-session-1",
+          modelUsage: {
+            "claude-sonnet-4-5": {},
+            "claude-haiku-4-5": {},
+          },
+        }),
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:01.000Z",
+      });
+
+    try {
+      const runner = new ClaudeCodeRunner(createClaudeCodeConfig(), logger);
+      const liveSession = await runner.startSession(createSession());
+
+      const result = await liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      });
+
+      expect(result.session.model).toBe("claude-sonnet-4-5");
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Claude Code turn reported multiple models",
+        expect.objectContaining({
+          issueNumber: 1,
+          turnNumber: 1,
+          modelCount: 2,
+          selectedModel: "claude-sonnet-4-5",
+        }),
+      );
+    } finally {
+      executeSpy.mockRestore();
+    }
   });
 
   it("selects the newest matching Codex session by parsed timestamp", async () => {
@@ -605,6 +849,66 @@ describe("runners", () => {
         ),
     ).toThrowError(
       "Codex runner requires agent.command to invoke the codex CLI",
+    );
+  });
+
+  it("rejects Claude Code runner construction when the command is not the claude CLI", () => {
+    expect(
+      () =>
+        new ClaudeCodeRunner(
+          {
+            ...createClaudeCodeConfig(),
+            command:
+              "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+          },
+          new JsonLogger(),
+        ),
+    ).toThrowError(
+      "Claude Code runner requires agent.command to invoke the claude CLI",
+    );
+  });
+
+  it("rejects Claude Code runner construction when the command is missing JSON print mode", () => {
+    expect(
+      () =>
+        new ClaudeCodeRunner(
+          {
+            ...createClaudeCodeConfig(),
+            command: "claude --permission-mode bypassPermissions",
+          },
+          new JsonLogger(),
+        ),
+    ).toThrowError(
+      "Claude Code runner requires agent.command to include --print",
+    );
+
+    expect(
+      () =>
+        new ClaudeCodeRunner(
+          {
+            ...createClaudeCodeConfig(),
+            command:
+              "claude -p --output-format text --permission-mode bypassPermissions",
+          },
+          new JsonLogger(),
+        ),
+    ).toThrowError(
+      "Claude Code runner requires agent.command to include --output-format json",
+    );
+  });
+
+  it("rejects Claude Code continuation sessions configured with file prompt transport", () => {
+    expect(
+      () =>
+        new ClaudeCodeRunner(
+          {
+            ...createClaudeCodeConfig(),
+            promptTransport: "file",
+          },
+          new JsonLogger(),
+        ),
+    ).toThrowError(
+      "Claude Code runner requires agent.prompt_transport to be 'stdin'",
     );
   });
 });
