@@ -491,7 +491,7 @@ function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
   return retrying.map((entry) => {
     const dueStr = formatDueIn(entry.dueInMs);
     const errorPart =
-      entry.lastError.trim() !== ""
+      entry.lastError !== null && entry.lastError.trim() !== ""
         ? " " + colorize(`error=${sanitizeRetryError(entry.lastError)}`, DIM)
         : "";
     return (

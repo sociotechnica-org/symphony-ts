@@ -129,6 +129,24 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("error=rate limited");
   });
 
+  it("renders retry entry with null error without crashing", () => {
+    const snapshot = makeSnapshot({
+      retrying: [
+        {
+          issueNumber: 2,
+          identifier: "MT-102",
+          nextAttempt: 1,
+          dueInMs: 2_000,
+          lastError: null,
+        },
+      ],
+    });
+    const output = formatSnapshotContent(snapshot, 0);
+    expect(output).toContain("MT-102");
+    expect(output).toContain("attempt=1");
+    expect(output).not.toContain("error=");
+  });
+
   it("renders polling as checking now", () => {
     const snapshot = makeSnapshot({
       polling: {
