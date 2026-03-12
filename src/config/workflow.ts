@@ -409,8 +409,11 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   if (!["stdin", "file"].includes(resolved.agent.promptTransport)) {
     throw new ConfigError("agent.prompt_transport must be 'stdin' or 'file'");
   }
-  if (resolved.agent.maxTurns < 1) {
-    throw new ConfigError("agent.max_turns must be >= 1");
+  if (
+    !Number.isInteger(resolved.agent.maxTurns) ||
+    resolved.agent.maxTurns < 1
+  ) {
+    throw new ConfigError("agent.max_turns must be an integer >= 1");
   }
 
   if (resolved.polling.maxConcurrentRuns < 1) {

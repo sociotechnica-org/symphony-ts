@@ -176,6 +176,30 @@ agent:
     );
   });
 
+  it("rejects a non-integer agent.max_turns", async () => {
+    const dir = await createTempDir("workflow-max-turns-fractional-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}
+  max_turns: 1.5`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "agent.max_turns must be an integer >= 1",
+    );
+  });
+
   it("derives workspace.repoUrl from tracker.repo and api_url when repo_url is omitted", async () => {
     const dir = await createTempDir("workflow-derived-url-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
