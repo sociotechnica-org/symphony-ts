@@ -98,14 +98,14 @@ Not applicable. This issue does not change retries, continuations, reconciliatio
 
 ## Validation Failure Matrix
 
-| Observed input | Boundary facts available | Expected decision |
-| --- | --- | --- |
-| `agent.runner.kind` omitted and `agent.command` starts with `codex` | raw command string, parsed executable | preserve existing inference and resolve `runner.kind: codex` |
+| Observed input                                                              | Boundary facts available              | Expected decision                                                      |
+| --------------------------------------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------------- |
+| `agent.runner.kind` omitted and `agent.command` starts with `codex`         | raw command string, parsed executable | preserve existing inference and resolve `runner.kind: codex`           |
 | `agent.runner.kind` omitted and `agent.command` does not start with `codex` | raw command string, parsed executable | preserve existing inference and resolve `runner.kind: generic-command` |
-| `agent.runner.kind: codex` and command executable is not `codex` | explicit kind, parsed executable | fail `loadWorkflow()` with `ConfigError` naming the explicit mismatch |
-| `agent.runner.kind: claude-code` and command executable is not `claude` | explicit kind, parsed executable | fail `loadWorkflow()` with `ConfigError` naming the explicit mismatch |
-| `agent.runner.kind: generic-command` with a `codex` or `claude` command | explicit kind, parsed executable | load successfully; generic command is the permissive fallback path |
-| explicit supported runner kind with a compatible command | explicit kind, parsed executable | load successfully and preserve the explicit kind |
+| `agent.runner.kind: codex` and command executable is not `codex`            | explicit kind, parsed executable      | fail `loadWorkflow()` with `ConfigError` naming the explicit mismatch  |
+| `agent.runner.kind: claude-code` and command executable is not `claude`     | explicit kind, parsed executable      | fail `loadWorkflow()` with `ConfigError` naming the explicit mismatch  |
+| `agent.runner.kind: generic-command` with a `codex` or `claude` command     | explicit kind, parsed executable      | load successfully; generic command is the permissive fallback path     |
+| explicit supported runner kind with a compatible command                    | explicit kind, parsed executable      | load successfully and preserve the explicit kind                       |
 
 ## Observability Requirements
 

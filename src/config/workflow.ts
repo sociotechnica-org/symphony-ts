@@ -525,10 +525,7 @@ function validateExplicitAgentRunnerKind(
   }
 
   const executable = parseLocalRunnerCommand(command).executable;
-  if (
-    executable !== null &&
-    path.basename(executable) === requiredExecutable
-  ) {
+  if (executable !== null && path.basename(executable) === requiredExecutable) {
     return;
   }
 
