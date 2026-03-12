@@ -259,6 +259,11 @@ export class StatusDashboard {
     if (
       isRenderNow(this.#state.lastRenderedAtMs, this.#state.renderIntervalMs)
     ) {
+      if (this.#state.flushTimerRef !== null) {
+        clearTimeout(this.#state.flushTimerRef);
+        this.#state.flushTimerRef = null;
+      }
+      this.#state.pendingContent = null;
       this.#renderContent(content, nowMs);
     } else {
       this.#scheduleFlushRender(content, nowMs);
@@ -533,7 +538,9 @@ function statusDotColor(event: string | null): string {
   if (event === null || event === "none") return RED;
   if (event === "codex/event/token_count") return YELLOW;
   if (event === "codex/event/task_started") return GREEN;
-  if (event === "turn/completed") return MAGENTA;
+  if (event === "turn/completed" || event === "turn_completed") {
+    return MAGENTA;
+  }
   return BLUE;
 }
 

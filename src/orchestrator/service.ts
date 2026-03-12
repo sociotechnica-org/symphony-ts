@@ -217,7 +217,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: retry.issue.number,
         identifier: retry.issue.identifier,
         nextAttempt: retry.nextAttempt,
-        dueInMs: Math.max(0, Math.round((retry.dueAt - now) / 1000) * 1000),
+        dueInMs: Math.max(0, retry.dueAt - now),
         lastError: retry.lastError,
       });
     }

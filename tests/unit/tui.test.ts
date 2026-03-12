@@ -96,7 +96,16 @@ describe("formatSnapshotContent", () => {
           codexOutputTokens: 2521,
           codexAppServerPid: 12345,
           lastCodexEvent: "turn_completed",
-          lastCodexMessage: null,
+          lastCodexMessage: {
+            method: "turn_completed",
+            params: {
+              usage: {
+                inputTokens: 2000,
+                outputTokens: 2521,
+                totalTokens: 4521,
+              },
+            },
+          },
           lastCodexTimestamp: null,
         },
       ],
@@ -153,6 +162,22 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("attempt=3");
     expect(output).toContain("12.500s");
     expect(output).toContain("error=rate limited");
+  });
+
+  it("preserves retry millisecond precision when present", () => {
+    const snapshot = makeSnapshot({
+      retrying: [
+        {
+          issueNumber: 2,
+          identifier: "MT-102",
+          nextAttempt: 3,
+          dueInMs: 12_567,
+          lastError: "rate limited",
+        },
+      ],
+    });
+    const output = formatSnapshotContent(snapshot, 0);
+    expect(output).toContain("12.567s");
   });
 
   it("renders retry entry with null error without crashing", () => {
