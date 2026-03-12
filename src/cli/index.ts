@@ -119,12 +119,13 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     process.stdout.write(
       [
         `${B}╭──────────────────────────────────────────────────────────────╮${R}`,
-        `${B}│  ⚠  Symphony is about to run agents on your behalf            │${R}`,
-        `${B}│                                                                │${R}`,
-        `${B}│  To confirm you understand and wish to proceed, re-run with:  │${R}`,
-        `${B}│                                                                │${R}`,
-        `${B}│    --i-understand-that-this-will-be-running-without-the-      │${R}`,
-        `${B}│    usual-guardrails                                            │${R}`,
+        `${B}│  Symphony is about to run agents on your behalf.             │${R}`,
+        `${B}│                                                              │${R}`,
+        `${B}│  To confirm you understand and wish to proceed,              │${R}`,
+        `${B}│  re-run with the flag:                                       │${R}`,
+        `${B}│                                                              │${R}`,
+        `${B}│    --i-understand-that-this-will-be-running-                 │${R}`,
+        `${B}│    without-the-usual-guardrails                              │${R}`,
         `${B}╰──────────────────────────────────────────────────────────────╯${R}`,
       ].join("\n") + "\n",
     );
