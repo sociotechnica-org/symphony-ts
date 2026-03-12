@@ -59,7 +59,7 @@ export function summarizeLifecycleAtTurnExit(
   }
   return {
     ...lifecycle,
-    summary: buildMaxTurnsSummary(lifecycle, maxTurns),
+    summary: summarizeTurnBudgetExhaustion(lifecycle, maxTurns),
   };
 }
 
@@ -71,6 +71,13 @@ export function buildMaxTurnsSummary(
 }
 
 export function summarizeMissingTargetFailure(
+  lifecycle: HandoffLifecycle,
+  maxTurns: number,
+): string {
+  return summarizeTurnBudgetExhaustion(lifecycle, maxTurns);
+}
+
+function summarizeTurnBudgetExhaustion(
   lifecycle: HandoffLifecycle,
   maxTurns: number,
 ): string {

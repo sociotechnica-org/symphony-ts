@@ -23,6 +23,8 @@ export async function executeLocalRunnerCommand(
   execution: LocalCommandExecutionOptions,
 ): Promise<RunResult> {
   const startedAt = new Date().toISOString();
+  // Multi-turn runs keep per-turn prompt files distinct; older one-shot runs
+  // used `.symphony-prompt.md`.
   const promptFile = `${execution.session.workspace.path}/.symphony-prompt.turn-${execution.turnNumber.toString()}.md`;
 
   if (execution.promptTransport === "file") {

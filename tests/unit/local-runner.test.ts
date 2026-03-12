@@ -551,4 +551,22 @@ describe("LocalRunner", () => {
       await fs.rm(tempHome, { recursive: true, force: true });
     }
   });
+
+  it("fails fast when Codex continuation is configured with file prompt transport", () => {
+    const runner = new LocalRunner(
+      {
+        command:
+          "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+        promptTransport: "file",
+        timeoutMs: 5_000,
+        maxTurns: 2,
+        env: {},
+      },
+      new JsonLogger(),
+    );
+
+    expect(() => runner.startSession!(createSession())).toThrowError(
+      "Codex continuation turns require agent.prompt_transport to be 'stdin'",
+    );
+  });
 });

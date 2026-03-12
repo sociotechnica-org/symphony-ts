@@ -1842,6 +1842,72 @@ describe("BootstrapOrchestrator", () => {
     ]);
   });
 
+  it("keeps the raw actionable-follow-up summary when max_turns is one", async () => {
+    const tempRoot = await createTempDir("symphony-single-turn-follow-up-");
+    const tracker = new SequencedTracker({
+      ready: [createIssue(90)],
+    });
+    try {
+      tracker.setLifecycleSequence(90, [
+        lifecycle("missing-target", "symphony/90"),
+        lifecycle("actionable-follow-up", "symphony/90", {
+          actionableReviewFeedback: [
+            {
+              id: "feedback-1",
+              kind: "review-thread",
+              threadId: "thread-1",
+              authorLogin: "greptile[bot]",
+              body: "Please tighten the remaining edge case",
+              createdAt: "2026-03-12T00:00:00.000Z",
+              url: "https://example.test/review/1",
+              path: "src/orchestrator/service.ts",
+              line: 123,
+            },
+          ],
+        }),
+      ]);
+
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          agent: {
+            ...baseConfig.agent,
+            maxTurns: 1,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 2,
+              backoffMs: 0,
+            },
+          },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingLiveSessionRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      const issueStatus = status.activeIssues.find(
+        (issue) => issue.issueNumber === 90,
+      );
+      expect(issueStatus?.summary).toBe("actionable-follow-up for symphony/90");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(78)],

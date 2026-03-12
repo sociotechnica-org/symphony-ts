@@ -44,6 +44,7 @@ export class LocalRunnerSession implements LiveRunnerSession {
     this.#logger = logger;
     this.#runSession = session;
     this.#baseDescription = describeLocalRunnerSession(config.command);
+    validateContinuationSessionConfig(config, this.#baseDescription);
     this.#executeCommand = executeCommand;
   }
 
@@ -137,5 +138,20 @@ export class LocalRunnerSession implements LiveRunnerSession {
       this.#loggedDroppedResumeArgs = true;
     }
     return resume.command;
+  }
+}
+
+function validateContinuationSessionConfig(
+  config: AgentConfig,
+  description: RunnerSessionDescription,
+): void {
+  if (
+    description.provider === "codex" &&
+    config.maxTurns > 1 &&
+    config.promptTransport !== "stdin"
+  ) {
+    throw new RunnerError(
+      "Codex continuation turns require agent.prompt_transport to be 'stdin'",
+    );
   }
 }

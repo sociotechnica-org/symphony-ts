@@ -61,6 +61,7 @@ function filterCodexResumeArgs(args: readonly string[]): {
       continue;
     }
     if (token === "--json") {
+      droppedArgs.push(token);
       continue;
     }
     if (
