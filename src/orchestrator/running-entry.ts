@@ -1,4 +1,5 @@
 import type { RunUpdateEvent } from "../domain/run.js";
+import { getMapKey, mapPath } from "../domain/codex-payload.js";
 
 export interface RunningEntry {
   readonly issueNumber: number;
@@ -53,49 +54,12 @@ interface TokenDelta {
   readonly totalTokens: number;
 }
 
-function mapValue(
-  map: Record<string, unknown>,
-  keys: readonly string[],
-): unknown {
-  for (const key of keys) {
-    if (
-      Object.hasOwn(map, key) &&
-      map[key] !== undefined &&
-      map[key] !== null
-    ) {
-      return map[key];
-    }
-  }
-  return undefined;
-}
-
-function mapPath(obj: unknown, path: readonly string[]): unknown {
-  let current: unknown = obj;
-  for (const key of path) {
-    if (
-      current === null ||
-      current === undefined ||
-      typeof current !== "object" ||
-      Array.isArray(current)
-    ) {
-      return undefined;
-    }
-    const record = current as Record<string, unknown>;
-    current =
-      record[key] ??
-      record[
-        key.replace(/_([a-z])/g, (_, c: string) => (c as string).toUpperCase())
-      ];
-  }
-  return current;
-}
-
 function extractTokenDelta(
   entry: RunningEntry,
   payload: Record<string, unknown>,
 ): TokenDelta {
   const inputRaw =
-    mapValue(payload, ["input_tokens", "inputTokens"]) ??
+    getMapKey(payload, ["input_tokens", "inputTokens"]) ??
     mapPath(payload, [
       "params",
       "msg",
@@ -116,7 +80,7 @@ function extractTokenDelta(
     mapPath(payload, ["usage", "inputTokens"]) ??
     mapPath(payload, ["usage", "input_tokens"]);
   const outputRaw =
-    mapValue(payload, ["output_tokens", "outputTokens"]) ??
+    getMapKey(payload, ["output_tokens", "outputTokens"]) ??
     mapPath(payload, [
       "params",
       "msg",
@@ -137,7 +101,7 @@ function extractTokenDelta(
     mapPath(payload, ["usage", "outputTokens"]) ??
     mapPath(payload, ["usage", "output_tokens"]);
   const totalRaw =
-    mapValue(payload, ["total_tokens", "totalTokens"]) ??
+    getMapKey(payload, ["total_tokens", "totalTokens"]) ??
     mapPath(payload, [
       "params",
       "msg",
@@ -207,7 +171,7 @@ function extractSessionId(
   payload: Record<string, unknown>,
 ): string | null {
   const raw =
-    mapValue(payload, ["session_id", "sessionId"]) ??
+    getMapKey(payload, ["session_id", "sessionId"]) ??
     mapPath(payload, ["params", "sessionId"]) ??
     mapPath(payload, ["params", "session_id"]);
   if (typeof raw === "string" && raw.length > 0) {
@@ -218,7 +182,7 @@ function extractSessionId(
 
 function extractPid(payload: Record<string, unknown>): number | null {
   const raw =
-    mapValue(payload, ["pid", "app_server_pid", "appServerPid"]) ??
+    getMapKey(payload, ["pid", "app_server_pid", "appServerPid"]) ??
     mapPath(payload, ["params", "pid"]);
   if (typeof raw === "number" && raw > 0) {
     return raw;

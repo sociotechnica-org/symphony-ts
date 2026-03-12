@@ -932,8 +932,11 @@ describe("TUI dashboard integration", () => {
 
     orchestrator.setDashboardNotify(() => dashboard.refresh());
     dashboard.start();
-    await orchestrator.runOnce();
-    dashboard.stop();
+    try {
+      await orchestrator.runOnce();
+    } finally {
+      dashboard.stop();
+    }
 
     expect(frames.length).toBeGreaterThan(0);
     expect(frames[0]).toContain("SYMPHONY STATUS");

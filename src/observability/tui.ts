@@ -8,6 +8,7 @@
  */
 
 import type { ObservabilityConfig } from "../domain/workflow.js";
+import { getKey, getMapKey, mapPath } from "../domain/codex-payload.js";
 import type { TuiSnapshot } from "../orchestrator/service.js";
 
 // ─── ANSI constants ────────────────────────────────────────────────────────
@@ -1314,46 +1315,7 @@ function parseInteger(value: unknown): number | null {
 }
 
 // ─── Map helpers ─────────────────────────────────────────────────────────
-
-function getKey(obj: Record<string, unknown>, key: string): unknown {
-  if (Object.hasOwn(obj, key)) return obj[key];
-  // camelCase fallback
-  const camel = key.replace(/_([a-z])/g, (_, c: string) =>
-    (c as string).toUpperCase(),
-  );
-  if (camel !== key && Object.hasOwn(obj, camel)) return obj[camel];
-  // snake_case fallback
-  const snake = key.replace(/([A-Z])/g, "_$1").toLowerCase();
-  if (snake !== key && Object.hasOwn(obj, snake)) return obj[snake];
-  return undefined;
-}
-
-function getMapKey(obj: unknown, keys: string[]): unknown {
-  if (obj === null || typeof obj !== "object" || Array.isArray(obj))
-    return undefined;
-  const record = obj as Record<string, unknown>;
-  for (const key of keys) {
-    const val = getKey(record, key);
-    if (val !== undefined && val !== null) return val;
-  }
-  return undefined;
-}
-
-function mapPath(obj: unknown, path: string[]): unknown {
-  let current: unknown = obj;
-  for (const key of path) {
-    if (
-      current === null ||
-      current === undefined ||
-      typeof current !== "object" ||
-      Array.isArray(current)
-    ) {
-      return undefined;
-    }
-    current = getKey(current as Record<string, unknown>, key);
-  }
-  return current;
-}
+// getKey, getMapKey, mapPath imported from ../domain/codex-payload.js
 
 function extractFirstPath(
   payload: unknown,
