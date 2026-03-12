@@ -391,6 +391,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
     retry: resolveRetryConfig(polling["retry"]),
   };
   const resolvedWatchdog = resolveWatchdogConfig(polling["watchdog"]);
+  const agentCommand = requireString(agent["command"], "agent.command");
 
   const resolved: ResolvedConfig = {
     workflowPath,
@@ -425,8 +426,8 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
           : requireStringArray(hooks["after_create"], "hooks.after_create"),
     },
     agent: {
-      runner: resolveAgentRunnerConfig(agent),
-      command: requireString(agent["command"], "agent.command"),
+      runner: resolveAgentRunnerConfig(agent, agentCommand),
+      command: agentCommand,
       promptTransport: requireString(
         agent["prompt_transport"],
         "agent.prompt_transport",
@@ -473,13 +474,12 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
 
 function resolveAgentRunnerConfig(
   agent: Readonly<Record<string, unknown>>,
+  command: string,
 ): AgentRunnerConfig {
   const rawRunner = agent["runner"];
 
   if (rawRunner === undefined) {
-    return inferAgentRunnerConfig(
-      requireString(agent["command"], "agent.command"),
-    );
+    return inferAgentRunnerConfig(command);
   }
 
   const runner = coerceOptionalObject(rawRunner, "agent.runner");
@@ -489,6 +489,8 @@ function resolveAgentRunnerConfig(
       `Unsupported agent.runner.kind '${kind}'. Supported kinds: ${SUPPORTED_AGENT_RUNNER_KINDS.join(", ")}`,
     );
   }
+
+  validateExplicitAgentRunnerKind(kind, command);
 
   switch (kind) {
     case "codex":
@@ -510,6 +512,32 @@ function inferAgentRunnerConfig(command: string): AgentRunnerConfig {
   }
 
   return { kind: "generic-command" };
+}
+
+function validateExplicitAgentRunnerKind(
+  kind: SupportedAgentRunnerKind,
+  command: string,
+): void {
+  const requiredExecutable =
+    kind === "codex" ? "codex" : kind === "claude-code" ? "claude" : null;
+  if (requiredExecutable === null) {
+    return;
+  }
+
+  const executable = parseLocalRunnerCommand(command).executable;
+  if (executable === null) {
+    throw new ConfigError(
+      `agent.runner.kind '${kind}' requires agent.command to invoke the ${requiredExecutable} CLI, but no executable could be determined from the command`,
+    );
+  }
+
+  if (path.basename(executable) === requiredExecutable) {
+    return;
+  }
+
+  throw new ConfigError(
+    `agent.runner.kind '${kind}' requires agent.command to invoke the ${requiredExecutable} CLI`,
+  );
 }
 
 function exhaustiveAgentRunnerKind(value: never): never {
