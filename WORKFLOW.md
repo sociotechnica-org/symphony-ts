@@ -72,7 +72,7 @@ Rules:
 12. Do not begin substantial implementation until the plan is explicitly `approved` by a human or explicitly `waived` by issue or operator instructions that say not to wait for human feedback.
 13. If plan approval is explicitly waived, record that in your issue/PR notes and continue directly from plan into implementation.
 14. Implement the issue completely, including docs and tests required by the repo process.
-15. Run `codex review --base origin/main` on your changes and fix the findings before opening a PR.
+15. Run a local self-review pass when a reliable review tool is available, and fix the findings before opening a PR.
 16. Run the relevant local checks before finishing.
 17. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
 18. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
