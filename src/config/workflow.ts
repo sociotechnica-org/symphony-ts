@@ -47,6 +47,15 @@ interface PromptRenderInput {
   readonly config: ResolvedConfig;
 }
 
+interface ContinuationPromptRenderInput {
+  readonly issue: {
+    readonly identifier: string;
+  };
+  readonly turnNumber: number;
+  readonly maxTurns: number;
+  readonly pullRequest: HandoffLifecycle | null;
+}
+
 interface ParsedWorkflow {
   readonly frontMatter: RawWorkflow;
   readonly body: string;
@@ -386,6 +395,10 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         "agent.prompt_transport",
       ) as "stdin" | "file",
       timeoutMs: requireNumber(agent["timeout_ms"], "agent.timeout_ms"),
+      maxTurns:
+        agent["max_turns"] === undefined
+          ? 1
+          : requireNumber(agent["max_turns"], "agent.max_turns"),
       env: {
         ...Object.fromEntries(
           Object.entries((agent["env"] ?? {}) as Record<string, unknown>).map(
@@ -399,6 +412,12 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
 
   if (!["stdin", "file"].includes(resolved.agent.promptTransport)) {
     throw new ConfigError("agent.prompt_transport must be 'stdin' or 'file'");
+  }
+  if (
+    !Number.isInteger(resolved.agent.maxTurns) ||
+    resolved.agent.maxTurns < 1
+  ) {
+    throw new ConfigError("agent.max_turns must be an integer >= 1");
   }
 
   if (resolved.polling.maxConcurrentRuns < 1) {
@@ -627,6 +646,29 @@ async function renderPromptTemplate(
   }
 }
 
+function renderContinuationPrompt(
+  input: ContinuationPromptRenderInput,
+): string {
+  const lines = [
+    "Continuation guidance:",
+    "",
+    "- The previous turn completed normally, but the issue is still in an active state.",
+    `- This is continuation turn #${input.turnNumber.toString()} of ${input.maxTurns.toString()} for the current agent run.`,
+    "- Resume from the current workspace state instead of restarting from scratch.",
+    "- If your runner preserves prior thread history, use it. Otherwise, restate only the minimum missing context you need before acting.",
+  ];
+  if (input.pullRequest !== null) {
+    lines.push(
+      `- Current tracker handoff lifecycle: ${input.pullRequest.kind}.`,
+    );
+    lines.push(`- Current tracker summary: ${input.pullRequest.summary}`);
+  }
+  lines.push(
+    "- Focus on the remaining issue work and only end the turn early if you are truly blocked.",
+  );
+  return lines.join("\n");
+}
+
 export function createPromptBuilder(
   definition: WorkflowDefinition,
 ): PromptBuilder {
@@ -638,6 +680,16 @@ export function createPromptBuilder(
         pullRequest: input.pullRequest,
         config: definition.config,
       });
+    },
+    buildContinuation(input): Promise<string> {
+      return Promise.resolve(
+        renderContinuationPrompt({
+          issue: input.issue,
+          turnNumber: input.turnNumber,
+          maxTurns: input.maxTurns,
+          pullRequest: input.pullRequest,
+        }),
+      );
     },
   };
 }

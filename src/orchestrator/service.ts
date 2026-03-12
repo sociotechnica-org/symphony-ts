@@ -3,7 +3,7 @@ import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
-import type { RunResult, RunSpawnEvent, RunSession } from "../domain/run.js";
+import type { RunSpawnEvent, RunSession, RunTurn } from "../domain/run.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -31,9 +31,20 @@ import {
   deriveStatusFilePath,
   writeFactoryStatusSnapshot,
 } from "../observability/status.js";
-import type { Runner, RunnerSessionDescription } from "../runner/service.js";
+import type {
+  LiveRunnerSession,
+  Runner,
+  RunnerTurnResult,
+} from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
+import {
+  createContinuationRunTurn,
+  type RunSessionArtifactsState,
+  summarizeMissingTargetFailure,
+  shouldContinueTurnLoop,
+  summarizeLifecycleTurnBudgetFailure,
+} from "./continuation-turns.js";
 import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
@@ -479,12 +490,22 @@ export class BootstrapOrchestrator implements Orchestrator {
     });
     await this.#persistStatusSnapshot();
     const workspace = await this.#workspaceManager.prepareWorkspace({ issue });
-    const prompt = await this.#promptBuilder.build({
+    const initialPrompt = await this.#promptBuilder.build({
       issue,
       attempt: attempt > 1 ? attempt : null,
       pullRequest,
     });
-    const session = this.#createRunSession(issue, workspace, prompt, attempt);
+    const session = this.#createRunSession(
+      issue,
+      workspace,
+      initialPrompt,
+      attempt,
+    );
+    let sessionState: RunSessionArtifactsState = {
+      runSession: session,
+      description: this.#runner.describeSession(session),
+      latestTurnNumber: null,
+    };
     upsertActiveIssue(this.#state.status, issue, {
       source,
       runSequence: attempt,
@@ -523,7 +544,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     });
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
-      this.#createRunStartedObservation(issue, attempt, session, pullRequest),
+      this.#createRunStartedObservation(
+        issue,
+        attempt,
+        sessionState,
+        pullRequest,
+      ),
     );
     await this.#leaseManager.recordRun(lockDir, session);
     const abortController = new AbortController();
@@ -545,14 +571,102 @@ export class BootstrapOrchestrator implements Orchestrator {
       watchdogStop.signal,
     );
 
-    let result: RunResult;
     try {
-      result = await this.#runner.run(session, {
-        signal: abortController.signal,
-        onSpawn: (event) => {
-          this.#recordRunnerSpawn(session, lockDir, event);
-        },
-      });
+      const liveRunnerSession = await this.#runner.startSession?.(session);
+      this.#warnIfContinuationSessionUnavailable(
+        issue,
+        workspace.branchName,
+        session,
+        liveRunnerSession,
+      );
+      let currentLifecycle = pullRequest;
+      let turnNumber = 1;
+
+      while (true) {
+        const turn = await this.#createRunTurn(
+          session.prompt,
+          issue,
+          currentLifecycle,
+          turnNumber,
+        );
+        const result = await this.#runRunnerTurn(
+          session,
+          liveRunnerSession,
+          turn,
+          lockDir,
+          abortController.signal,
+        );
+        sessionState = {
+          runSession: session,
+          description: result.session,
+          latestTurnNumber: turn.turnNumber,
+        };
+
+        if (result.exitCode !== 0) {
+          await this.#handleFailure(
+            sessionState,
+            attempt,
+            `Runner exited with ${result.exitCode}\n${result.stderr}`,
+            result.finishedAt,
+          );
+          return;
+        }
+
+        const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
+          workspace.branchName,
+          currentLifecycle,
+        );
+
+        if (nextLifecycle.kind === "handoff-ready") {
+          await this.#completeIssue(issue, {
+            attemptNumber: attempt,
+            branchName: workspace.branchName,
+            session: sessionState,
+            finishedAt: result.finishedAt,
+          });
+          await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
+          return;
+        }
+
+        if (
+          shouldContinueTurnLoop(
+            nextLifecycle,
+            turn.turnNumber,
+            this.#config.agent.maxTurns,
+          )
+        ) {
+          this.#logger.info("Continuing agent turn on live session", {
+            issueNumber: issue.number,
+            branchName: workspace.branchName,
+            runSessionId: session.id,
+            backendSessionId: result.session.backendSessionId,
+            lifecycle: nextLifecycle.kind,
+            turnNumber: turn.turnNumber + 1,
+            maxTurns: this.#config.agent.maxTurns,
+          });
+          currentLifecycle = nextLifecycle;
+          turnNumber += 1;
+          continue;
+        }
+
+        await this.#handleTurnLifecycleExit(
+          issue,
+          attempt,
+          source,
+          workspace.branchName,
+          nextLifecycle,
+          sessionState,
+          result.finishedAt,
+        );
+        return;
+      }
+    } catch (error) {
+      await this.#handleFailure(
+        sessionState,
+        attempt,
+        this.#normalizeFailure(error as Error),
+        new Date().toISOString(),
+      );
     } finally {
       watchdogStop.abort();
       await watchdogPromise;
@@ -560,62 +674,124 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#state.runAbortControllers.delete(issue.number);
       clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
     }
+  }
 
-    if (result.exitCode !== 0) {
-      await this.#handleFailure(
-        session,
-        attempt,
-        `Runner exited with ${result.exitCode}\n${result.stderr}`,
-        result.finishedAt,
+  async #createRunTurn(
+    initialPrompt: string,
+    issue: RuntimeIssue,
+    pullRequest: HandoffLifecycle | null,
+    turnNumber: number,
+  ): Promise<RunTurn> {
+    return await createContinuationRunTurn({
+      initialPrompt,
+      promptBuilder: this.#promptBuilder,
+      issue,
+      pullRequest,
+      turnNumber,
+      maxTurns: this.#config.agent.maxTurns,
+    });
+  }
+
+  async #runRunnerTurn(
+    session: RunSession,
+    liveRunnerSession: LiveRunnerSession | undefined,
+    turn: RunTurn,
+    lockDir: string,
+    signal: AbortSignal,
+  ): Promise<RunnerTurnResult> {
+    const onSpawn = (event: RunSpawnEvent): void => {
+      this.#recordRunnerSpawn(
+        {
+          runSession: session,
+          description:
+            liveRunnerSession?.describe() ??
+            this.#runner.describeSession(session),
+          latestTurnNumber: turn.turnNumber,
+        },
+        lockDir,
+        event,
+        turn.turnNumber,
       );
+    };
+    if (liveRunnerSession !== undefined) {
+      return await liveRunnerSession.runTurn(turn, {
+        signal,
+        onSpawn,
+      });
+    }
+    const result = await this.#runner.run(
+      {
+        ...session,
+        prompt: turn.prompt,
+      },
+      {
+        signal,
+        onSpawn,
+      },
+    );
+    return {
+      ...result,
+      session: this.#runner.describeSession(session),
+    };
+  }
+
+  #warnIfContinuationSessionUnavailable(
+    issue: RuntimeIssue,
+    branchName: string,
+    session: RunSession,
+    liveRunnerSession: LiveRunnerSession | undefined,
+  ): void {
+    if (liveRunnerSession !== undefined || this.#config.agent.maxTurns <= 1) {
       return;
     }
 
-    try {
-      const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
-        workspace.branchName,
-        pullRequest,
-      );
+    this.#logger.warn(
+      "Runner does not support live continuation sessions; continuation turns will cold-start new subprocesses",
+      {
+        issueNumber: issue.number,
+        branchName,
+        runSessionId: session.id,
+        maxTurns: this.#config.agent.maxTurns,
+      },
+    );
+  }
 
-      if (nextLifecycle.kind === "handoff-ready") {
-        await this.#completeIssue(issue, {
-          attemptNumber: attempt,
-          branchName: workspace.branchName,
-          session,
-          finishedAt: result.finishedAt,
-        });
-        await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
-        return;
-      }
-
-      if (nextLifecycle.kind === "missing-target") {
-        await this.#handleFailure(
-          session,
-          attempt,
-          nextLifecycle.summary,
-          result.finishedAt,
-        );
-        return;
-      }
-
+  async #handleTurnLifecycleExit(
+    issue: RuntimeIssue,
+    attempt: number,
+    source: "ready" | "running",
+    branchName: string,
+    lifecycle: HandoffLifecycle,
+    session: RunSessionArtifactsState,
+    finishedAt: string,
+  ): Promise<void> {
+    if (
+      lifecycle.kind === "awaiting-system-checks" ||
+      lifecycle.kind === "awaiting-human-handoff" ||
+      lifecycle.kind === "awaiting-landing" ||
+      lifecycle.kind === "actionable-follow-up"
+    ) {
+      const summary = lifecycle.summary;
       noteLifecycleForIssue(
         this.#state.status,
         issue,
         source,
         attempt,
-        workspace.branchName,
-        nextLifecycle,
+        branchName,
+        lifecycle,
       );
       this.#logger.info("Issue remains in handoff lifecycle", {
         issueNumber: issue.number,
-        branchName: workspace.branchName,
-        runSessionId: session.id,
-        lifecycle: nextLifecycle.kind,
-        summary: nextLifecycle.summary,
+        branchName,
+        runSessionId: session.runSession.id,
+        backendSessionId: session.description.backendSessionId,
+        lifecycle: lifecycle.kind,
+        summary,
+        turnNumber: session.latestTurnNumber,
       });
       noteStatusAction(this.#state.status, {
-        kind: nextLifecycle.kind,
-        summary: nextLifecycle.summary,
+        kind: lifecycle.kind,
+        summary,
         issueNumber: issue.number,
       });
       await this.#persistStatusSnapshot();
@@ -623,11 +799,11 @@ export class BootstrapOrchestrator implements Orchestrator {
         this.#createLifecycleObservation(
           issue,
           attempt,
-          workspace.branchName,
-          nextLifecycle,
+          branchName,
+          lifecycle,
           {
             session,
-            finishedAt: result.finishedAt,
+            finishedAt,
           },
         ),
       );
@@ -636,30 +812,50 @@ export class BootstrapOrchestrator implements Orchestrator {
         this.#state.followUp,
         issue.number,
         attempt,
-        nextLifecycle,
+        lifecycle,
         this.#config.polling.retry.maxFollowUpAttempts,
       );
       if (decision.kind === "exhausted") {
+        const failureSummary = summarizeLifecycleTurnBudgetFailure(
+          lifecycle,
+          session.latestTurnNumber,
+          this.#config.agent.maxTurns,
+        );
+        const failureLifecycle =
+          failureSummary === lifecycle.summary
+            ? lifecycle
+            : {
+                ...lifecycle,
+                summary: failureSummary,
+              };
         await this.#failIssue(
           issue,
-          this.#followUpFailureMessage(nextLifecycle),
+          this.#followUpFailureMessage(failureLifecycle),
           {
             attemptNumber: attempt,
-            branchName: workspace.branchName,
+            branchName,
             session,
-            finishedAt: result.finishedAt,
-            lifecycle: nextLifecycle,
+            finishedAt,
+            lifecycle: failureLifecycle,
           },
         );
       }
-    } catch (error) {
+      return;
+    }
+
+    if (lifecycle.kind === "missing-target") {
       await this.#handleFailure(
         session,
         attempt,
-        this.#normalizeFailure(error as Error),
-        new Date().toISOString(),
+        summarizeMissingTargetFailure(lifecycle, this.#config.agent.maxTurns),
+        finishedAt,
       );
+      return;
     }
+
+    throw new OrchestratorError(
+      `Unsupported lifecycle exit from runner turn loop: ${lifecycle.kind}`,
+    );
   }
 
   async #completeIssue(
@@ -667,7 +863,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     options?: {
       readonly attemptNumber?: number;
       readonly branchName?: string | null;
-      readonly session?: RunSession;
+      readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
     },
   ): Promise<void> {
@@ -836,34 +1032,43 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async #handleFailure(
-    session: RunSession,
+    session: RunSession | RunSessionArtifactsState,
     attempt: number,
     message: string,
     finishedAt = new Date().toISOString(),
   ): Promise<void> {
+    const runSession = "runSession" in session ? session.runSession : session;
+    const sessionState =
+      "runSession" in session
+        ? session
+        : {
+            runSession,
+            description: this.#runner.describeSession(runSession),
+            latestTurnNumber: null,
+          };
     this.#logger.error("Issue run failed", {
-      issueNumber: session.issue.number,
+      issueNumber: runSession.issue.number,
       attempt,
       error: message,
-      workspacePath: session.workspace.path,
-      runSessionId: session.id,
+      workspacePath: runSession.workspace.path,
+      runSessionId: runSession.id,
     });
     noteStatusAction(this.#state.status, {
       kind: "run-failed",
       summary: message,
-      issueNumber: session.issue.number,
+      issueNumber: runSession.issue.number,
     });
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
       this.#createAttemptFailureObservation(
-        session,
+        sessionState,
         attempt,
         message,
         finishedAt,
       ),
     );
-    await this.#scheduleRetryOrFailSafely(session.issue, attempt, message, {
-      session,
+    await this.#scheduleRetryOrFailSafely(runSession.issue, attempt, message, {
+      session: sessionState,
       finishedAt,
     });
   }
@@ -893,7 +1098,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
     message: string,
     options?: {
-      readonly session?: RunSession;
+      readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
     },
   ): Promise<void> {
@@ -914,7 +1119,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     runSequence: number,
     message: string,
     options?: {
-      readonly session?: RunSession;
+      readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
     },
   ): Promise<void> {
@@ -957,7 +1162,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const failureOptions = {
       attemptNumber: runSequence,
       branchName:
-        options?.session?.workspace.branchName ??
+        options?.session?.runSession.workspace.branchName ??
         this.#branchName(issue.number),
       ...(options?.session === undefined ? {} : { session: options.session }),
       ...(options?.finishedAt === undefined
@@ -973,7 +1178,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     options?: {
       readonly attemptNumber?: number;
       readonly branchName?: string | null;
-      readonly session?: RunSession;
+      readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
       readonly lifecycle?: HandoffLifecycle | null;
     },
@@ -1093,26 +1298,27 @@ export class BootstrapOrchestrator implements Orchestrator {
   #createRunStartedObservation(
     issue: RuntimeIssue,
     attempt: number,
-    session: RunSession,
+    session: RunSessionArtifactsState,
     lifecycle: HandoffLifecycle | null,
   ): IssueArtifactObservation {
     const sessionArtifacts = this.#createSessionObservationArtifacts(session);
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
-        observedAt: session.startedAt,
+        observedAt: session.runSession.startedAt,
         outcome: "running",
         summary: `Running ${issue.identifier}`,
-        branchName: session.workspace.branchName,
+        branchName: session.runSession.workspace.branchName,
         latestAttemptNumber: attempt,
-        latestSessionId: session.id,
+        latestSessionId: session.runSession.id,
       }),
       attempt: this.#createAttemptArtifact(issue, attempt, {
         outcome: "running",
         summary: `Running ${issue.identifier}`,
-        branchName: session.workspace.branchName,
-        sessionId: session.id,
-        startedAt: session.startedAt,
+        branchName: session.runSession.workspace.branchName,
+        sessionId: session.runSession.id,
+        startedAt: session.runSession.startedAt,
         lifecycle,
+        latestTurnNumber: session.latestTurnNumber,
       }),
       ...sessionArtifacts,
     };
@@ -1124,7 +1330,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     branchName: string,
     lifecycle: HandoffLifecycle,
     options?: {
-      readonly session?: RunSession;
+      readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string | undefined;
     },
   ): IssueArtifactObservation {
@@ -1133,9 +1339,11 @@ export class BootstrapOrchestrator implements Orchestrator {
     const event = this.#createLifecycleEvent(
       issue,
       attempt,
-      options?.session?.id ?? null,
+      options?.session?.runSession.id ?? null,
       lifecycle,
       observedAt,
+      options?.session?.latestTurnNumber ?? null,
+      options?.session?.description.backendSessionId ?? null,
     );
     const sessionArtifacts =
       options?.session === undefined
@@ -1150,7 +1358,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName,
         latestAttemptNumber:
           options?.session === undefined ? undefined : attempt,
-        latestSessionId: options?.session?.id,
+        latestSessionId: options?.session?.runSession.id,
       }),
       events: event === null ? [] : [event],
       attempt:
@@ -1160,11 +1368,12 @@ export class BootstrapOrchestrator implements Orchestrator {
               outcome: currentOutcome,
               summary: lifecycle.summary,
               branchName,
-              sessionId: options.session.id,
-              startedAt: options.session.startedAt,
+              sessionId: options.session.runSession.id,
+              startedAt: options.session.runSession.startedAt,
               finishedAt: observedAt,
               lifecycle,
               runnerPid: this.#currentRunnerPid(issue.number),
+              latestTurnNumber: options.session.latestTurnNumber,
             }),
       session: sessionArtifacts?.session,
       logPointers: sessionArtifacts?.logPointers,
@@ -1172,7 +1381,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createAttemptFailureObservation(
-    session: RunSession,
+    session: RunSessionArtifactsState,
     attempt: number,
     message: string,
     finishedAt: string,
@@ -1182,22 +1391,23 @@ export class BootstrapOrchestrator implements Orchestrator {
       finishedAt,
     );
     return {
-      issue: this.#createIssueArtifactUpdate(session.issue, {
+      issue: this.#createIssueArtifactUpdate(session.runSession.issue, {
         observedAt: finishedAt,
         outcome: "attempt-failed",
-        summary: `Run failed for ${session.issue.identifier}; evaluating retry state`,
-        branchName: session.workspace.branchName,
+        summary: `Run failed for ${session.runSession.issue.identifier}; evaluating retry state`,
+        branchName: session.runSession.workspace.branchName,
         latestAttemptNumber: attempt,
-        latestSessionId: session.id,
+        latestSessionId: session.runSession.id,
       }),
-      attempt: this.#createAttemptArtifact(session.issue, attempt, {
+      attempt: this.#createAttemptArtifact(session.runSession.issue, attempt, {
         outcome: "failed",
         summary: message,
-        branchName: session.workspace.branchName,
-        sessionId: session.id,
-        startedAt: session.startedAt,
+        branchName: session.runSession.workspace.branchName,
+        sessionId: session.runSession.id,
+        startedAt: session.runSession.startedAt,
         finishedAt,
-        runnerPid: this.#currentRunnerPid(session.issue.number),
+        runnerPid: this.#currentRunnerPid(session.runSession.issue.number),
+        latestTurnNumber: session.latestTurnNumber,
       }),
       ...sessionArtifacts,
     };
@@ -1239,7 +1449,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly summary: string;
       readonly attemptNumber?: number | undefined;
       readonly branchName?: string | null | undefined;
-      readonly session?: RunSession | undefined;
+      readonly session?: RunSessionArtifactsState | undefined;
       readonly runnerPid?: number | null | undefined;
       readonly lifecycle?: HandoffLifecycle | null | undefined;
     },
@@ -1258,16 +1468,19 @@ export class BootstrapOrchestrator implements Orchestrator {
         summary: options.summary,
         branchName: options.branchName,
         latestAttemptNumber: options.attemptNumber,
-        latestSessionId: options.session?.id,
+        latestSessionId: options.session?.runSession.id,
       }),
       events: [
         this.#createIssueEvent(outcome, issue, {
           observedAt: options.observedAt,
           attemptNumber: options.attemptNumber,
-          sessionId: options.session?.id,
+          sessionId: options.session?.runSession.id,
           details: {
             branch: options.branchName ?? null,
             summary: options.summary,
+            latestTurnNumber: options.session?.latestTurnNumber ?? null,
+            backendSessionId:
+              options.session?.description.backendSessionId ?? null,
           },
         }),
       ],
@@ -1278,11 +1491,12 @@ export class BootstrapOrchestrator implements Orchestrator {
               outcome,
               summary: options.summary,
               branchName: options.branchName ?? null,
-              sessionId: options.session?.id ?? null,
-              startedAt: options.session?.startedAt ?? null,
+              sessionId: options.session?.runSession.id ?? null,
+              startedAt: options.session?.runSession.startedAt ?? null,
               finishedAt: options.observedAt,
               lifecycle: options.lifecycle ?? null,
               runnerPid: options.runnerPid ?? null,
+              latestTurnNumber: options.session?.latestTurnNumber ?? null,
             }),
       session: sessionArtifacts?.session,
       logPointers: sessionArtifacts?.logPointers,
@@ -1290,39 +1504,43 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createRunnerSpawnObservation(
-    session: RunSession,
+    session: RunSessionArtifactsState,
     event: RunSpawnEvent,
+    turnNumber: number,
   ): IssueArtifactObservation {
     const sessionArtifacts = this.#createSessionObservationArtifacts(session);
     return {
-      issue: this.#createIssueArtifactUpdate(session.issue, {
+      issue: this.#createIssueArtifactUpdate(session.runSession.issue, {
         observedAt: event.spawnedAt,
         outcome: "running",
-        summary: `Running ${session.issue.identifier}`,
-        branchName: session.workspace.branchName,
-        latestAttemptNumber: session.attempt.sequence,
-        latestSessionId: session.id,
+        summary: `Running ${session.runSession.issue.identifier}`,
+        branchName: session.runSession.workspace.branchName,
+        latestAttemptNumber: session.runSession.attempt.sequence,
+        latestSessionId: session.runSession.id,
       }),
       events: [
-        this.#createIssueEvent("runner-spawned", session.issue, {
+        this.#createIssueEvent("runner-spawned", session.runSession.issue, {
           observedAt: event.spawnedAt,
-          attemptNumber: session.attempt.sequence,
-          sessionId: session.id,
+          attemptNumber: session.runSession.attempt.sequence,
+          sessionId: session.runSession.id,
           details: {
             pid: event.pid,
+            turnNumber,
+            backendSessionId: session.description.backendSessionId,
           },
         }),
       ],
       attempt: this.#createAttemptArtifact(
-        session.issue,
-        session.attempt.sequence,
+        session.runSession.issue,
+        session.runSession.attempt.sequence,
         {
           outcome: "running",
-          summary: `Running ${session.issue.identifier}`,
-          branchName: session.workspace.branchName,
-          sessionId: session.id,
-          startedAt: session.startedAt,
+          summary: `Running ${session.runSession.issue.identifier}`,
+          branchName: session.runSession.workspace.branchName,
+          sessionId: session.runSession.id,
+          startedAt: session.runSession.startedAt,
           runnerPid: event.pid,
+          latestTurnNumber: session.latestTurnNumber,
         },
       ),
       ...sessionArtifacts,
@@ -1335,13 +1553,19 @@ export class BootstrapOrchestrator implements Orchestrator {
     sessionId: string | null,
     lifecycle: HandoffLifecycle,
     observedAt: string,
+    latestTurnNumber: number | null,
+    backendSessionId: string | null,
   ): IssueArtifactEvent | null {
     if (lifecycle.kind === "awaiting-human-handoff") {
       return this.#createIssueEvent("plan-ready", issue, {
         observedAt,
         attemptNumber: attempt,
         sessionId,
-        details: this.#createLifecycleEventDetails(lifecycle),
+        details: this.#createLifecycleEventDetails(
+          lifecycle,
+          latestTurnNumber,
+          backendSessionId,
+        ),
       });
     }
 
@@ -1363,7 +1587,11 @@ export class BootstrapOrchestrator implements Orchestrator {
       observedAt,
       attemptNumber: attempt,
       sessionId,
-      details: this.#createLifecycleEventDetails(lifecycle),
+      details: this.#createLifecycleEventDetails(
+        lifecycle,
+        latestTurnNumber,
+        backendSessionId,
+      ),
     });
   }
 
@@ -1396,11 +1624,15 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   #createLifecycleEventDetails(
     lifecycle: HandoffLifecycle,
+    latestTurnNumber?: number | null,
+    backendSessionId?: string | null,
   ): Readonly<Record<string, unknown>> {
     return {
       lifecycleKind: lifecycle.kind,
       branch: lifecycle.branchName,
       summary: lifecycle.summary,
+      latestTurnNumber: latestTurnNumber ?? null,
+      backendSessionId: backendSessionId ?? null,
       pullRequest:
         lifecycle.pullRequest === null
           ? null
@@ -1422,16 +1654,15 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createSessionObservationArtifacts(
-    session: RunSession,
+    session: RunSessionArtifactsState,
     finishedAt?: string,
   ): {
     readonly session: IssueArtifactSessionSnapshot;
     readonly logPointers: IssueArtifactLogPointerSessionEntry;
   } {
-    const description = this.#runner.describeSession(session);
     return {
-      session: this.#createSessionArtifact(session, description, finishedAt),
-      logPointers: this.#createSessionLogPointers(session, description),
+      session: this.#createSessionArtifact(session, finishedAt),
+      logPointers: this.#createSessionLogPointers(session),
     };
   }
 
@@ -1447,6 +1678,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly finishedAt?: string | null;
       readonly lifecycle?: HandoffLifecycle | null;
       readonly runnerPid?: number | null;
+      readonly latestTurnNumber?: number | null;
     },
   ): IssueArtifactAttemptSnapshot {
     return {
@@ -1459,6 +1691,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       outcome: options.outcome,
       summary: options.summary,
       sessionId: options.sessionId,
+      latestTurnNumber: options.latestTurnNumber ?? null,
       runnerPid: options.runnerPid ?? null,
       pullRequest: this.#createPullRequestArtifactSnapshot(
         options.lifecycle ?? null,
@@ -1469,34 +1702,34 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #createSessionArtifact(
-    session: RunSession,
-    description: RunnerSessionDescription,
+    session: RunSessionArtifactsState,
     finishedAt?: string,
   ): IssueArtifactSessionSnapshot {
     return {
       version: ISSUE_ARTIFACT_SCHEMA_VERSION,
-      issueNumber: session.issue.number,
-      attemptNumber: session.attempt.sequence,
-      sessionId: session.id,
-      provider: description.provider,
-      model: description.model,
-      startedAt: session.startedAt,
+      issueNumber: session.runSession.issue.number,
+      attemptNumber: session.runSession.attempt.sequence,
+      sessionId: session.runSession.id,
+      provider: session.description.provider,
+      model: session.description.model,
+      backendSessionId: session.description.backendSessionId,
+      latestTurnNumber: session.latestTurnNumber,
+      startedAt: session.runSession.startedAt,
       finishedAt: finishedAt ?? null,
-      workspacePath: session.workspace.path,
-      branch: session.workspace.branchName,
-      logPointers: description.logPointers.map((pointer) =>
+      workspacePath: session.runSession.workspace.path,
+      branch: session.runSession.workspace.branchName,
+      logPointers: session.description.logPointers.map((pointer) =>
         this.#createLogPointer(pointer),
       ),
     };
   }
 
   #createSessionLogPointers(
-    session: RunSession,
-    description: RunnerSessionDescription,
+    session: RunSessionArtifactsState,
   ): IssueArtifactLogPointerSessionEntry {
     return {
-      sessionId: session.id,
-      pointers: description.logPointers.map((pointer) =>
+      sessionId: session.runSession.id,
+      pointers: session.description.logPointers.map((pointer) =>
         this.#createLogPointer(pointer),
       ),
       archiveLocation: null,
@@ -1580,11 +1813,12 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   #recordRunnerSpawn(
-    session: RunSession,
+    session: RunSessionArtifactsState,
     lockDir: string,
     event: RunSpawnEvent,
+    turnNumber: number,
   ): void {
-    const issueNumber = session.issue.number;
+    const issueNumber = session.runSession.issue.number;
     this.#leaseManager.recordRunnerSpawn(lockDir, event);
     const entry = this.#state.status.activeIssues.get(issueNumber);
     if (entry) {
@@ -1596,19 +1830,20 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     noteStatusAction(this.#state.status, {
       kind: "runner-spawned",
-      summary: `Runner PID ${event.pid.toString()} attached`,
+      summary: `Runner PID ${event.pid.toString()} attached for turn ${turnNumber.toString()}`,
       issueNumber,
       at: event.spawnedAt,
     });
     // The runner onSpawn callback is synchronous; snapshot persistence is optional.
     void this.#persistStatusSnapshot();
     void this.#recordIssueArtifact(
-      this.#createRunnerSpawnObservation(session, event),
+      this.#createRunnerSpawnObservation(session, event, turnNumber),
     );
     this.#logger.info("Runner process attached to active issue", {
       issueNumber,
       runnerPid: event.pid,
       spawnedAt: event.spawnedAt,
+      turnNumber,
     });
   }
 

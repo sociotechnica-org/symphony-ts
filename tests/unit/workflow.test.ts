@@ -83,6 +83,7 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.tracker.kind).toBe("github-bootstrap");
     expect(workflow.config.polling.retry.maxAttempts).toBe(2);
     expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
+    expect(workflow.config.agent.maxTurns).toBe(1);
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
       "sociotechnica-org/symphony-ts",
     );
@@ -105,6 +106,102 @@ ${buildSharedWorkflowSections()}`,
     });
     expect(rendered).toContain("repo#1");
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
+  });
+
+  it("renders continuation guidance separately from the workflow template", async () => {
+    const dir = await createTempDir("workflow-continuation-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create:
+    - git fetch origin
+agent:
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  max_turns: 4
+  env:
+    FOO: bar`,
+        "Issue {{ issue.identifier }} / {{ config.tracker.repo }}",
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.agent.maxTurns).toBe(4);
+    const promptBuilder = createPromptBuilder(workflow);
+    const rendered = await promptBuilder.buildContinuation({
+      issue: {
+        id: "1",
+        identifier: "repo#1",
+        number: 1,
+        title: "T",
+        description: "D",
+        labels: ["a"],
+        state: "open",
+        url: "https://example.test/issues/1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      turnNumber: 2,
+      maxTurns: workflow.config.agent.maxTurns,
+      pullRequest: null,
+    });
+
+    expect(rendered).toContain("Continuation guidance:");
+    expect(rendered).toContain("continuation turn #2 of 4");
+    expect(rendered).toContain(
+      "If your runner preserves prior thread history, use it.",
+    );
+    expect(rendered).not.toContain("previous Codex turn");
+    expect(rendered).not.toContain(
+      "Issue repo#1 / sociotechnica-org/symphony-ts",
+    );
+  });
+
+  it("rejects a non-integer agent.max_turns", async () => {
+    const dir = await createTempDir("workflow-max-turns-fractional-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}
+  max_turns: 1.5`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "agent.max_turns must be an integer >= 1",
+    );
   });
 
   it("derives workspace.repoUrl from tracker.repo and api_url when repo_url is omitted", async () => {

@@ -39,6 +39,7 @@ async function writeWorkflow(options: {
   retryBackoffMs?: number;
   maxAttempts?: number;
   maxFollowUpAttempts?: number;
+  maxTurns?: number;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   await fs.writeFile(
@@ -73,6 +74,7 @@ agent:
   command: ${options.agentCommand}
   prompt_transport: stdin
   timeout_ms: 30000
+  max_turns: ${options.maxTurns ?? 3}
   env: {}
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.

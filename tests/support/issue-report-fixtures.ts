@@ -146,6 +146,7 @@ export async function seedSuccessfulIssueArtifacts(
       outcome: "awaiting-review",
       summary: "PR opened and awaiting checks",
       sessionId,
+      latestTurnNumber: 1,
       runnerPid: 4242,
       pullRequest: {
         number: 144,
@@ -168,6 +169,8 @@ export async function seedSuccessfulIssueArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      backendSessionId: "codex-session-1",
+      latestTurnNumber: 1,
       startedAt: attemptStartedAt,
       finishedAt: prOpenedAt,
       workspacePath: path.join(
@@ -321,6 +324,7 @@ export async function seedFailedIssueArtifacts(
       outcome: "attempt-failed",
       summary: "No open pull request found",
       sessionId,
+      latestTurnNumber: 1,
       runnerPid: 5252,
       pullRequest: null,
       review: null,
@@ -333,6 +337,8 @@ export async function seedFailedIssueArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      backendSessionId: "codex-session-2",
+      latestTurnNumber: 1,
       startedAt: attemptStartedAt,
       finishedAt: retryScheduledAt,
       workspacePath: path.join(
@@ -397,6 +403,7 @@ export async function seedSessionAnchoredPartialArtifacts(
     outcome: "attempt-failed",
     summary: "Observed from attempt snapshot only",
     sessionId,
+    latestTurnNumber: 1,
     runnerPid: 6363,
     pullRequest: null,
     review: null,
@@ -412,6 +419,8 @@ export async function seedSessionAnchoredPartialArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      backendSessionId: "codex-session-partial",
+      latestTurnNumber: 1,
       startedAt: "2026-03-09T12:00:00.000Z",
       finishedAt: "2026-03-09T12:05:00.000Z",
       workspacePath: path.join(
@@ -473,6 +482,7 @@ export async function seedLateUnfinishedSessionArtifacts(
     outcome: "attempt-failed",
     summary: "Observed from an unfinished late-start session snapshot",
     sessionId,
+    latestTurnNumber: 1,
     runnerPid: 7474,
     pullRequest: null,
     review: null,
@@ -488,6 +498,8 @@ export async function seedLateUnfinishedSessionArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      backendSessionId: "codex-session-late",
+      latestTurnNumber: 1,
       startedAt,
       finishedAt: null,
       workspacePath: path.join(

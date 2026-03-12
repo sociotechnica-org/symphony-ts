@@ -24,7 +24,11 @@ import {
   readFactoryStatusSnapshot,
 } from "../../src/observability/status.js";
 import type { Logger } from "../../src/observability/logger.js";
-import type { Runner } from "../../src/runner/service.js";
+import type {
+  LiveRunnerSession,
+  Runner,
+  RunnerTurnResult,
+} from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
 import type { WorkspaceManager } from "../../src/workspace/service.js";
 import fs from "node:fs/promises";
@@ -39,6 +43,8 @@ function createRunnerSessionDescription() {
   return {
     provider: "test-runner",
     model: null,
+    backendSessionId: null,
+    latestTurnNumber: null,
     logPointers: [],
   } as const;
 }
@@ -106,6 +112,7 @@ const baseConfig: ResolvedConfig = {
     command: "test-agent",
     promptTransport: "stdin",
     timeoutMs: 1_000,
+    maxTurns: 3,
     env: {},
   },
 };
@@ -116,6 +123,20 @@ const staticPromptBuilder: PromptBuilder = {
       issue: issue.identifier,
       attempt,
       pullRequest: pullRequest?.kind ?? null,
+    });
+  },
+  async buildContinuation({
+    issue,
+    turnNumber,
+    maxTurns,
+    pullRequest,
+  }): Promise<string> {
+    return JSON.stringify({
+      issue: issue.identifier,
+      turnNumber,
+      maxTurns,
+      pullRequest: pullRequest?.kind ?? null,
+      mode: "continuation",
     });
   },
 };
@@ -407,6 +428,92 @@ class RecordingRunner implements Runner {
   }
 }
 
+class StartSessionRejectingRunner extends RecordingRunner {
+  async startSession(): Promise<never> {
+    throw new Error("failed to start live session");
+  }
+}
+
+class SecondTurnFailingLiveRunner implements Runner {
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
+  async run(): Promise<RunResult> {
+    throw new Error("runner.run should not be called");
+  }
+
+  async startSession(): Promise<LiveRunnerSession> {
+    let latestTurnNumber: number | null = null;
+    const backendSessionId = "codex-session-77";
+    return {
+      describe() {
+        return {
+          ...createRunnerSessionDescription(),
+          backendSessionId,
+          latestTurnNumber,
+        };
+      },
+      async runTurn(turn): Promise<RunnerTurnResult> {
+        latestTurnNumber = turn.turnNumber;
+        const timestamp = formatTurnTimestamp(30, turn.turnNumber);
+        return {
+          exitCode: turn.turnNumber === 2 ? 17 : 0,
+          stdout: "",
+          stderr: turn.turnNumber === 2 ? "simulated failure" : "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+          session: {
+            ...createRunnerSessionDescription(),
+            backendSessionId,
+            latestTurnNumber,
+          },
+        };
+      },
+    };
+  }
+}
+
+class RecordingLiveSessionRunner implements Runner {
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
+  async run(): Promise<RunResult> {
+    throw new Error("runner.run should not be called");
+  }
+
+  async startSession(): Promise<LiveRunnerSession> {
+    let latestTurnNumber: number | null = null;
+    const backendSessionId = "codex-session-77";
+    return {
+      describe() {
+        return {
+          ...createRunnerSessionDescription(),
+          backendSessionId,
+          latestTurnNumber,
+        };
+      },
+      async runTurn(turn): Promise<RunnerTurnResult> {
+        latestTurnNumber = turn.turnNumber;
+        const timestamp = formatTurnTimestamp(40, turn.turnNumber);
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+          session: {
+            ...createRunnerSessionDescription(),
+            backendSessionId,
+            latestTurnNumber,
+          },
+        };
+      },
+    };
+  }
+}
+
 class RecordingIssueArtifactStore implements IssueArtifactStore {
   readonly observations: IssueArtifactObservation[] = [];
 
@@ -415,6 +522,12 @@ class RecordingIssueArtifactStore implements IssueArtifactStore {
   ): Promise<void> {
     this.observations.push(observation);
   }
+}
+
+function formatTurnTimestamp(baseMinute: number, turnNumber: number): string {
+  const minute = (baseMinute + turnNumber) % 60;
+  const hour = 16 + Math.floor((baseMinute + turnNumber) / 60);
+  return `2026-03-09T${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}:00.000Z`;
 }
 
 class PerIssueBlockingArtifactStore implements IssueArtifactStore {
@@ -731,6 +844,50 @@ describe("BootstrapOrchestrator", () => {
         deriveStatusFilePath(tempRoot),
       );
       expect(snapshot.activeIssues[0]?.status).toBe("awaiting-human-handoff");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when continuation turns fall back to cold-start subprocesses", async () => {
+    const tempRoot = await createTempDir("symphony-cold-start-warning-test-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(33)],
+      });
+      tracker.setLifecycleSequence(33, [
+        lifecycle("missing-target", "symphony/33"),
+        lifecycle("actionable-follow-up", "symphony/33"),
+        lifecycle("handoff-ready", "symphony/33"),
+      ]);
+      const logger = new NullLogger();
+      const runner = new RecordingRunner();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        logger,
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runner.prompts).toHaveLength(2);
+      expect(logger.warnings).toContainEqual({
+        message:
+          "Runner does not support live continuation sessions; continuation turns will cold-start new subprocesses",
+        data: expect.objectContaining({
+          issueNumber: 33,
+          maxTurns: 3,
+        }),
+      });
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -1223,7 +1380,8 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([
       {
         issueNumber: 73,
-        reason: "actionable-follow-up for symphony/73",
+        reason:
+          "Reached agent.max_turns (3) with remaining actionable-follow-up work: actionable-follow-up for symphony/73",
       },
     ]);
   });
@@ -1287,7 +1445,7 @@ describe("BootstrapOrchestrator", () => {
     await orchestrator.runOnce();
     await orchestrator.runOnce();
 
-    expect(runner.attempts).toEqual([1, 2]);
+    expect(runner.attempts).toEqual([1, 2, 2]);
     expect(tracker.failed).toEqual([]);
     expect(tracker.completed).toEqual([74]);
   });
@@ -1517,8 +1675,322 @@ describe("BootstrapOrchestrator", () => {
       1,
     );
     expect(attempt.outcome).toBe("failed");
-    expect(attempt.sessionId).toBeNull();
+    expect(attempt.sessionId).not.toBeNull();
     expect(attempt.runnerPid).toBe(runnerPid);
+  });
+
+  it("records live-session turn metadata when a continuation turn fails", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(77)],
+    });
+    tracker.setLifecycleSequence(77, [
+      lifecycle("missing-target", "symphony/77"),
+      lifecycle("actionable-follow-up", "symphony/77", {
+        failingCheckNames: ["CI"],
+      }),
+    ]);
+    const tempRoot = await createTempDir(
+      "symphony-live-session-failure-artifact-test-",
+    );
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 1,
+              backoffMs: 0,
+            },
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new SecondTurnFailingLiveRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(tracker.failed).toEqual([
+        {
+          issueNumber: 77,
+          reason: "Runner exited with 17\nsimulated failure",
+        },
+      ]);
+
+      const attempt = await readIssueArtifactAttempt(tempRoot, 77, 1);
+      const session = await readIssueArtifactSession(
+        tempRoot,
+        77,
+        attempt.sessionId!,
+      );
+      expect(attempt.latestTurnNumber).toBe(2);
+      expect(session.backendSessionId).toBe("codex-session-77");
+      expect(session.latestTurnNumber).toBe(2);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves live-session turn metadata when max-turn exhaustion fails a missing-target lifecycle", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(88)],
+    });
+    tracker.setLifecycleSequence(88, [
+      lifecycle("missing-target", "symphony/88"),
+      lifecycle("missing-target", "symphony/88"),
+      lifecycle("missing-target", "symphony/88"),
+    ]);
+    const tempRoot = await createTempDir(
+      "symphony-missing-target-max-turn-artifact-test-",
+    );
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 1,
+              backoffMs: 0,
+            },
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingLiveSessionRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(tracker.failed).toEqual([
+        {
+          issueNumber: 88,
+          reason:
+            "Reached agent.max_turns (3) with remaining missing-target work: missing-target for symphony/88",
+        },
+      ]);
+
+      const attempt = await readIssueArtifactAttempt(tempRoot, 88, 1);
+      const session = await readIssueArtifactSession(
+        tempRoot,
+        88,
+        attempt.sessionId!,
+      );
+      expect(attempt.latestTurnNumber).toBe(3);
+      expect(session.backendSessionId).toBe("codex-session-77");
+      expect(session.latestTurnNumber).toBe(3);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the raw missing-target summary when max_turns is one", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(89)],
+    });
+    tracker.setLifecycleSequence(89, [
+      lifecycle("missing-target", "symphony/89"),
+      lifecycle("missing-target", "symphony/89"),
+    ]);
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        agent: {
+          ...baseConfig.agent,
+          maxTurns: 1,
+        },
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            maxFollowUpAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      new RecordingLiveSessionRunner(),
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 89,
+        reason: "missing-target for symphony/89",
+      },
+    ]);
+  });
+
+  it("keeps the raw actionable-follow-up summary when max_turns is one", async () => {
+    const tempRoot = await createTempDir("symphony-single-turn-follow-up-");
+    const tracker = new SequencedTracker({
+      ready: [createIssue(90)],
+    });
+    try {
+      tracker.setLifecycleSequence(90, [
+        lifecycle("missing-target", "symphony/90"),
+        lifecycle("actionable-follow-up", "symphony/90", {
+          actionableReviewFeedback: [
+            {
+              id: "feedback-1",
+              kind: "review-thread",
+              threadId: "thread-1",
+              authorLogin: "greptile[bot]",
+              body: "Please tighten the remaining edge case",
+              createdAt: "2026-03-12T00:00:00.000Z",
+              url: "https://example.test/review/1",
+              path: "src/orchestrator/service.ts",
+              line: 123,
+            },
+          ],
+        }),
+      ]);
+
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          agent: {
+            ...baseConfig.agent,
+            maxTurns: 1,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 2,
+              backoffMs: 0,
+            },
+          },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingLiveSessionRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      const issueStatus = status.activeIssues.find(
+        (issue) => issue.issueNumber === 90,
+      );
+      expect(issueStatus?.summary).toBe("actionable-follow-up for symphony/90");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps actionable follow-up status summaries raw when max turns are reached but retries remain", async () => {
+    const tempRoot = await createTempDir("symphony-max-turn-follow-up-status-");
+    const tracker = new SequencedTracker({
+      ready: [createIssue(91)],
+    });
+    try {
+      tracker.setLifecycleSequence(91, [
+        lifecycle("missing-target", "symphony/91"),
+        lifecycle("actionable-follow-up", "symphony/91", {
+          actionableReviewFeedback: [
+            {
+              id: "feedback-1",
+              kind: "review-thread",
+              threadId: "thread-1",
+              authorLogin: "greptile[bot]",
+              body: "Please tighten the remaining edge case",
+              createdAt: "2026-03-12T00:00:00.000Z",
+              url: "https://example.test/review/1",
+              path: "src/orchestrator/service.ts",
+              line: 123,
+            },
+          ],
+          unresolvedThreadIds: ["thread-1"],
+        }),
+        lifecycle("actionable-follow-up", "symphony/91", {
+          actionableReviewFeedback: [
+            {
+              id: "feedback-2",
+              kind: "review-thread",
+              threadId: "thread-2",
+              authorLogin: "greptile[bot]",
+              body: "Please tighten the remaining edge case",
+              createdAt: "2026-03-12T00:01:00.000Z",
+              url: "https://example.test/review/2",
+              path: "src/orchestrator/service.ts",
+              line: 124,
+            },
+          ],
+          unresolvedThreadIds: ["thread-2"],
+        }),
+      ]);
+
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          agent: {
+            ...baseConfig.agent,
+            maxTurns: 3,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 3,
+              backoffMs: 0,
+            },
+          },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingLiveSessionRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      const issueStatus = status.activeIssues.find(
+        (issue) => issue.issueNumber === 91,
+      );
+      expect(issueStatus?.summary).toBe("actionable-follow-up for symphony/91");
+      expect(tracker.failed).toEqual([]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("records an explicit attempt-failed issue state before retry scheduling", async () => {
@@ -2154,6 +2626,54 @@ describe("BootstrapOrchestrator watchdog", () => {
       tracker,
       new StaticWorkspaceManager(),
       failingRunner,
+      logger,
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    await orchestrator.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
+    expect(
+      tracker.retried.some(({ reason }) => reason.includes("Stall detected")),
+    ).toBe(false);
+  });
+
+  it("stops the watchdog when live session startup fails", async () => {
+    const issue = createIssue(57);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(57, [
+      lifecycle("missing-target", "symphony/57"),
+    ]);
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const logger = new NullLogger();
+    const { NullLivenessProbe } =
+      await import("../../src/orchestrator/liveness-probe.js");
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      new StartSessionRejectingRunner(),
       logger,
       undefined,
       new NullLivenessProbe(),

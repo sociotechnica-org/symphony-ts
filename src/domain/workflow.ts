@@ -59,6 +59,7 @@ export interface AgentConfig {
   readonly command: string;
   readonly promptTransport: "stdin" | "file";
   readonly timeoutMs: number;
+  readonly maxTurns: number;
   readonly env: Readonly<Record<string, string>>;
 }
 
@@ -80,6 +81,12 @@ export interface PromptBuilder {
   build(input: {
     readonly issue: RuntimeIssue;
     readonly attempt: number | null;
+    readonly pullRequest: HandoffLifecycle | null;
+  }): Promise<string>;
+  buildContinuation(input: {
+    readonly issue: RuntimeIssue;
+    readonly turnNumber: number;
+    readonly maxTurns: number;
     readonly pullRequest: HandoffLifecycle | null;
   }): Promise<string>;
 }

@@ -1,4 +1,9 @@
-import type { RunResult, RunSession, RunSpawnEvent } from "../domain/run.js";
+import type {
+  RunResult,
+  RunSession,
+  RunSpawnEvent,
+  RunTurn,
+} from "../domain/run.js";
 export interface RunnerLogPointer {
   readonly name: string;
   readonly location: string | null;
@@ -8,6 +13,8 @@ export interface RunnerLogPointer {
 export interface RunnerSessionDescription {
   readonly provider: string;
   readonly model: string | null;
+  readonly backendSessionId: string | null;
+  readonly latestTurnNumber: number | null;
   readonly logPointers: readonly RunnerLogPointer[];
 }
 
@@ -20,6 +27,16 @@ export interface RunnerRunOptions {
   readonly onSpawn?: (event: RunSpawnEvent) => void | Promise<void>;
 }
 
+export interface RunnerTurnResult extends RunResult {
+  readonly session: RunnerSessionDescription;
+}
+
+export interface LiveRunnerSession {
+  describe(): RunnerSessionDescription;
+  runTurn(turn: RunTurn, options?: RunnerRunOptions): Promise<RunnerTurnResult>;
+}
+
 export interface Runner extends RunnerSessionDescriber {
   run(session: RunSession, options?: RunnerRunOptions): Promise<RunResult>;
+  startSession?(session: RunSession): Promise<LiveRunnerSession>;
 }

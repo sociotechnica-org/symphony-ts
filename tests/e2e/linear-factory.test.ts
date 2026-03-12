@@ -63,6 +63,7 @@ agent:
   command: ${options.agentCommand}
   prompt_transport: stdin
   timeout_ms: 30000
+  max_turns: 3
   env: {}
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
