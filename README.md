@@ -147,7 +147,7 @@ workspace:
 agent:
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   timeout_ms: 1800000
-  max_turns: 3
+  max_turns: 20
 ```
 
 | Field                          | Purpose                                                        |
