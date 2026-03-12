@@ -33,6 +33,8 @@ const CLAUDE_VALUE_FLAGS = new Set([
   "--debug-file",
   "--agent",
   "--session-id",
+  "--continue",
+  "-c",
   "--resume",
   "-r",
   "--add-dir",

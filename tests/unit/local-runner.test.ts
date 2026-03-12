@@ -4,6 +4,7 @@ import type { AgentConfig } from "../../src/domain/workflow.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { ClaudeCodeRunner } from "../../src/runner/claude-code.js";
+import { buildClaudeResumeCommand } from "../../src/runner/claude-code-command.js";
 import { CodexRunner } from "../../src/runner/codex.js";
 import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
@@ -379,6 +380,26 @@ describe("runners", () => {
     } finally {
       executeSpy.mockRestore();
     }
+  });
+
+  it("drops session ids paired with prior Claude continue flags during resume reconstruction", () => {
+    expect(
+      buildClaudeResumeCommand(
+        "claude --continue stale-session -p --output-format json --permission-mode bypassPermissions",
+        "fresh-session",
+      ),
+    ).toBe(
+      "claude --resume fresh-session -p --output-format json --permission-mode bypassPermissions",
+    );
+
+    expect(
+      buildClaudeResumeCommand(
+        "claude -c stale-session -p --output-format json --permission-mode bypassPermissions",
+        "fresh-session",
+      ),
+    ).toBe(
+      "claude --resume fresh-session -p --output-format json --permission-mode bypassPermissions",
+    );
   });
 
   it("selects the newest matching Codex session by parsed timestamp", async () => {
