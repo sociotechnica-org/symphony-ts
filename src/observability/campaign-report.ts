@@ -677,8 +677,11 @@ function buildCampaignLearnings(
       ? `Stabilize recurring failing checks: ${renderPatternSummary(githubActivity.failingChecks)}.`
       : "",
   ]);
+  const repeatedObservationCount = collectObservationClusters(reports).filter(
+    (cluster) => cluster.issueNumbers.length > 1,
+  ).length;
   const gaps = dedupeStrings([
-    crossIssueConclusions.length === 0
+    repeatedObservationCount === 0
       ? "No repeated issue-level learning titles appeared across the selected reports."
       : "",
     reports.some(
