@@ -203,6 +203,55 @@ describe("issue report generation", () => {
     ]);
   });
 
+  it("downgrades every stored token-usage session when rewriting a report to schema v1", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-downgrade-");
+    tempRoots.push(tempDir);
+    const reportJsonFile = path.join(tempDir, "report.json");
+
+    await fs.writeFile(
+      reportJsonFile,
+      `${JSON.stringify(
+        {
+          version: ISSUE_REPORT_SCHEMA_VERSION,
+          tokenUsage: {
+            sessions: [
+              {
+                sessionId: "session-1",
+                status: "complete",
+                notes: ["note-1"],
+              },
+              {
+                sessionId: "session-2",
+                status: "partial",
+                notes: ["note-2"],
+              },
+            ],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    await downgradeIssueReportSchemaVersion(reportJsonFile);
+
+    const downgraded = JSON.parse(
+      await fs.readFile(reportJsonFile, "utf8"),
+    ) as {
+      readonly version: number;
+      readonly tokenUsage: {
+        readonly sessions: readonly Record<string, unknown>[];
+      };
+    };
+
+    expect(downgraded.version).toBe(1);
+    expect(downgraded.tokenUsage.sessions).toEqual([
+      { sessionId: "session-1" },
+      { sessionId: "session-2" },
+    ]);
+  });
+
   it.each(["approved", "waived"] as const)(
     "does not keep awaiting plan review after a %s handoff event",
     async (decisionKind) => {

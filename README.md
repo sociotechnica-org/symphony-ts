@@ -2,7 +2,7 @@
 
 A local-first factory orchestrator that turns GitHub issues into pull requests — and lets you see the whole assembly line.
 
-Symphony polls your issue tracker, claims work, spins up AI coding agents, supervises their runs, and follows through on CI failures and review feedback until the PR is merge-ready. Your entire factory configuration lives in a single `WORKFLOW.md` file. No hosted infrastructure, no centralized state, no complexity.
+Symphony polls your issue tracker, claims work, spins up AI coding agents, supervises their runs, and follows through on CI failures and review feedback until the PR is landed. Your entire factory configuration lives in a single `WORKFLOW.md` file. No hosted infrastructure, no centralized state, no complexity.
 
 ## Why Symphony?
 
@@ -117,7 +117,7 @@ from existing issue reports. They are written under:
 5. After plan approval, the agent implements the issue and opens a PR
 6. Symphony monitors CI and automated review feedback on the PR
 7. If CI fails or reviewers request changes, the agent pushes follow-up commits on the same branch
-8. When the PR is green and all feedback is resolved, Symphony comments on the issue and closes it
+8. When the PR is green, all feedback is resolved, and the merge is actually observed, Symphony comments on the issue and closes it
 
 If a run fails, Symphony retries. After retries are exhausted, it marks the issue `symphony:failed`.
 
@@ -278,7 +278,7 @@ Tests run in three layers: unit tests for pure logic, integration tests for adap
 
 What works today:
 
-- Full issue lifecycle from ready through merge-ready PR
+- Full issue lifecycle from ready through landed PR
 - GitHub Issues and Linear tracker adapters
 - Plan review station with human approval gate
 - CI and automated review follow-up loop

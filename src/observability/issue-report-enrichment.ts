@@ -1,3 +1,4 @@
+import { formatErrorMessage } from "../domain/error-format.js";
 import type {
   IssueReportDocument,
   IssueReportTokenUsage,
@@ -294,8 +295,4 @@ function hasRunnerEnrichmentSourceArtifacts(
 
 function uniqueStrings(values: readonly string[]): readonly string[] {
   return [...new Set(values)];
-}
-
-function formatErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -43,6 +43,7 @@ export function createLifecycle(
             number: 1,
             url: `https://example.test/pulls/${branchName}`,
             branchName,
+            headSha: "test-head-sha",
             latestCommitAt: new Date().toISOString(),
           },
     checks: [],

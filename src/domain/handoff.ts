@@ -2,6 +2,7 @@ export type HandoffLifecycleKind =
   | "missing-target"
   | "awaiting-human-handoff"
   | "awaiting-system-checks"
+  | "awaiting-landing"
   | "actionable-follow-up"
   | "handoff-ready";
 
@@ -11,6 +12,7 @@ export interface PullRequestHandle {
   readonly number: number;
   readonly url: string;
   readonly branchName: string;
+  readonly headSha: string | null;
   readonly latestCommitAt: string | null;
 }
 

@@ -157,7 +157,9 @@ export function noteLifecycleForIssue(
           ? "awaiting-human-handoff"
           : lifecycle.kind === "awaiting-system-checks"
             ? "awaiting-system-checks"
-            : "queued",
+            : lifecycle.kind === "awaiting-landing"
+              ? "awaiting-landing"
+              : "queued",
     summary: lifecycle.summary,
     pullRequest:
       lifecycle.pullRequest === null
@@ -165,6 +167,7 @@ export function noteLifecycleForIssue(
         : {
             number: lifecycle.pullRequest.number,
             url: lifecycle.pullRequest.url,
+            headSha: lifecycle.pullRequest.headSha,
             latestCommitAt: lifecycle.pullRequest.latestCommitAt,
           },
     checks: {
@@ -178,6 +181,7 @@ export function noteLifecycleForIssue(
     blockedReason:
       lifecycle.kind === "awaiting-human-handoff" ||
       lifecycle.kind === "awaiting-system-checks" ||
+      lifecycle.kind === "awaiting-landing" ||
       lifecycle.kind === "actionable-follow-up"
         ? lifecycle.summary
         : null,

@@ -145,7 +145,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("keeps the issue running after PR open until checks become green", async () => {
+  it("keeps the issue running after PR open until the pull request is merged", async () => {
     server.seedIssue({
       number: 1,
       title: "Implement Symphony",
@@ -157,7 +157,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       rootDir: tempDir,
       remotePath,
       apiUrl: server.baseUrl,
-      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
     });
     const orchestrator = await createOrchestrator(workflowPath);
 
@@ -187,6 +187,27 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     server.setPullRequestCheckRuns("symphony/1", [
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
+
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(1);
+    expect(issue.state).toBe("open");
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+
+    const landingStatus = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(landingStatus.factoryState).toBe("blocked");
+    expect(landingStatus.lastAction?.kind).toBe("awaiting-landing");
+    expect(landingStatus.activeIssues[0]).toMatchObject({
+      issueNumber: 1,
+      status: "awaiting-landing",
+      branchName: "symphony/1",
+    });
+
+    server.mergePullRequest("symphony/1");
 
     await orchestrator.runOnce();
 
@@ -255,6 +276,108 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
+  });
+
+  it("does not immediately re-close a reopened issue while its clean pull request is still open", async () => {
+    server.seedIssue({
+      number: 47,
+      title: "Reopened regression",
+      body: "Do not auto-close before merge",
+      labels: ["symphony:running"],
+    });
+    server.addIssueComment({
+      issueNumber: 47,
+      body: "Symphony completed this issue successfully.",
+    });
+    await server.recordPullRequest({
+      title: "PR for issue 47",
+      body: "",
+      head: "symphony/47",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/47", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(47);
+    expect(issue.state).toBe("open");
+    expect(
+      issue.comments.filter(
+        (body) => body === "Symphony completed this issue successfully.",
+      ),
+    ).toHaveLength(1);
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    const activeIssue = status.activeIssues.find(
+      (entry) => entry.issueNumber === 47,
+    );
+    expect(activeIssue).toMatchObject({
+      issueNumber: 47,
+      status: "awaiting-landing",
+      branchName: "symphony/47",
+    });
+  });
+
+  it("does not immediately re-close a reopened issue because of a previously merged PR", async () => {
+    server.seedIssue({
+      number: 48,
+      title: "Reopened merged regression",
+      body: "Do not treat an old merged PR as current work",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/48", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    await orchestrator.runOnce();
+    server.mergePullRequest("symphony/48", "2020-01-01T00:00:00.000Z");
+    await orchestrator.runOnce();
+
+    let issue = server.getIssue(48);
+    expect(issue.state).toBe("closed");
+    expect(
+      issue.comments.filter(
+        (body) => body === "Symphony completed this issue successfully.",
+      ),
+    ).toHaveLength(1);
+    expect(server.getPullRequests()).toHaveLength(1);
+
+    server.setIssueState(48, "open");
+    server.setIssueLabels(48, ["symphony:ready"]);
+
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(48);
+    expect(issue.state).toBe("open");
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+    expect(
+      issue.comments.filter(
+        (body) => body === "Symphony completed this issue successfully.",
+      ),
+    ).toHaveLength(1);
   });
 
   it("generates a detached per-issue report from runtime artifacts without mutating raw artifacts", async () => {
@@ -359,6 +482,13 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     await orchestrator.runOnce();
 
     issue = server.getIssue(2);
+    expect(issue.state).toBe("open");
+
+    server.mergePullRequest("symphony/2");
+
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(2);
     expect(issue.state).toBe("closed");
   });
 
@@ -413,7 +543,14 @@ describe("Phase 1.2 PR lifecycle factory", () => {
 
     await orchestrator.runOnce();
 
-    const issue = server.getIssue(3);
+    let issue = server.getIssue(3);
+    expect(issue.state).toBe("open");
+
+    server.mergePullRequest("symphony/3");
+
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(3);
     expect(issue.state).toBe("closed");
   });
 
@@ -481,6 +618,13 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       server.setPullRequestCheckRuns("symphony/4", [
         { name: "CI", status: "completed", conclusion: "success" },
       ]);
+
+      await orchestrator.runOnce();
+
+      issue = server.getIssue(4);
+      expect(issue.state).toBe("open");
+
+      server.mergePullRequest("symphony/4");
 
       await orchestrator.runOnce();
 

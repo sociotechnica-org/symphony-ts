@@ -252,7 +252,7 @@ describe("factory-runs publication", () => {
           code: "EIO",
         });
       }
-      return await copyFile(source, destination);
+      await copyFile(source, destination);
     });
 
     const published = await publishIssueToFactoryRuns({

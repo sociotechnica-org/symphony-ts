@@ -23,6 +23,7 @@ export type IssueArtifactOutcome =
   | "attempt-failed"
   | "awaiting-plan-review"
   | "awaiting-review"
+  | "awaiting-landing"
   | "needs-follow-up"
   | "retry-scheduled"
   | "succeeded"
@@ -67,6 +68,7 @@ export interface IssueArtifactEvent {
 export interface IssueArtifactPullRequestSnapshot {
   readonly number: number;
   readonly url: string;
+  readonly headSha?: string | null;
   readonly latestCommitAt: string | null;
 }
 

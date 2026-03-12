@@ -35,13 +35,28 @@ export interface GitHubIssueCommentResponse {
   } | null;
 }
 
-export interface GitHubPullRequestResponse {
+interface GitHubPullRequestListResponse {
   readonly number: number;
   readonly html_url: string;
+  readonly state: string;
   readonly head: {
     readonly ref: string;
     readonly sha: string;
   };
+}
+
+export interface GitHubPullRequestResponse extends GitHubPullRequestListResponse {
+  readonly landingState: "open" | "merged";
+  readonly mergedAt: string | null;
+}
+
+interface GitHubPullRequestDetailsResponse {
+  readonly merged_at: string | null;
+}
+
+interface MergedGitHubPullRequestResponse extends GitHubPullRequestListResponse {
+  readonly landingState: "merged";
+  readonly mergedAt: string;
 }
 
 interface GitHubCheckRunsResponse {
@@ -442,16 +457,55 @@ export class GitHubClient {
     }
   }
 
-  async findOpenPullRequest(
+  async findPullRequest(
     headBranch: string,
   ): Promise<GitHubPullRequestResponse | null> {
-    const pulls = await this.#request<GitHubPullRequestResponse[]>(
+    const pulls = await this.#request<GitHubPullRequestListResponse[]>(
       "GET",
       this.#issuePath(
-        `pulls?state=open&head=${encodeURIComponent(`${this.#repoOwner}:${headBranch}`)}`,
+        `pulls?state=all&per_page=100&head=${encodeURIComponent(`${this.#repoOwner}:${headBranch}`)}`,
       ),
     );
-    return pulls.find((pull) => pull.head.ref === headBranch) ?? null;
+    const matchingPulls = pulls.filter((pull) => pull.head.ref === headBranch);
+    const openPull = matchingPulls.find((pull) => pull.state === "open");
+    if (openPull) {
+      return {
+        ...openPull,
+        landingState: "open",
+        mergedAt: null,
+      };
+    }
+
+    const mergedPulls = (
+      await Promise.all(
+        matchingPulls
+          .filter((pull) => pull.state === "closed")
+          .map(
+            async (pull): Promise<MergedGitHubPullRequestResponse | null> => {
+              const mergedAt = await this.#getPullRequestMergedAt(pull.number);
+              if (mergedAt === null) {
+                return null;
+              }
+              return {
+                ...pull,
+                landingState: "merged",
+                mergedAt,
+              };
+            },
+          ),
+      )
+    ).filter(
+      (pullRequest): pullRequest is MergedGitHubPullRequestResponse =>
+        pullRequest !== null,
+    );
+    mergedPulls.sort(
+      (left, right) => Date.parse(right.mergedAt) - Date.parse(left.mergedAt),
+    );
+    if (mergedPulls[0]) {
+      return mergedPulls[0];
+    }
+
+    return null;
   }
 
   async getChecks(commitRef: string): Promise<readonly PullRequestCheck[]> {
@@ -572,6 +626,9 @@ export class GitHubClient {
         : reviewThreadsAfter;
     }
 
+    // The while(true) loop above always runs at least once and sets pullRequest
+    // on the first iteration (or throws via the page null check).
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (!pullRequest) {
       throw new TrackerError(`Pull request ${number} was not found in GraphQL`);
     }
@@ -650,6 +707,14 @@ export class GitHubClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  async #getPullRequestMergedAt(number: number): Promise<string | null> {
+    const pullRequest = await this.#request<GitHubPullRequestDetailsResponse>(
+      "GET",
+      this.#issuePath(`pulls/${number.toString()}`),
+    );
+    return pullRequest.merged_at;
   }
 
   #issuePath(suffix: string): string {

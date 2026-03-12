@@ -46,7 +46,7 @@ describe("GitHubBootstrapTracker", () => {
     await server.stop();
   });
 
-  it("claims issues, keeps retries in running state, and only closes when the PR is ready", async () => {
+  it("claims issues, keeps retries in running state, and only closes when the PR is merged", async () => {
     const tracker = createTracker(server);
 
     await tracker.ensureLabels();
@@ -77,6 +77,11 @@ describe("GitHubBootstrapTracker", () => {
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
 
+    expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
+      "awaiting-landing",
+    );
+
+    server.mergePullRequest("symphony/7");
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
       "handoff-ready",
     );
@@ -315,7 +320,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.kind).toBe("awaiting-landing");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
@@ -335,11 +340,11 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.kind).toBe("awaiting-landing");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
-  it("stabilizes a no-check PR in the tracker before reporting it ready", async () => {
+  it("stabilizes a no-check PR in the tracker before reporting it as awaiting landing", async () => {
     const tracker = createTracker(server);
 
     await server.recordPullRequest({
@@ -355,8 +360,100 @@ describe("GitHubBootstrapTracker", () => {
     expect(first.summary).toMatch(/waiting for pr checks to appear/i);
 
     const second = await tracker.inspectIssueHandoff("symphony/7");
-    expect(second.kind).toBe("handoff-ready");
-    expect(second.summary).toMatch(/merge-ready/i);
+    expect(second.kind).toBe("awaiting-landing");
+    expect(second.summary).toMatch(/awaiting merge/i);
+  });
+
+  it("reports handoff-ready after the same pull request is merged", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    const openLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(openLifecycle.kind).toBe("awaiting-landing");
+
+    server.mergePullRequest("symphony/7");
+
+    const mergedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(mergedLifecycle.kind).toBe("handoff-ready");
+    expect(mergedLifecycle.summary).toMatch(/has merged/i);
+  });
+
+  it("targets the latest open pull request when the same branch is reopened", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "Initial PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.mergePullRequest("symphony/7", "2020-01-01T00:00:00.000Z");
+
+    await server.recordPullRequest({
+      title: "Reopened PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: "greptile[bot]",
+      body: "Needs a follow-up commit",
+      path: "src/example.ts",
+      line: 12,
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.pullRequest?.url).toMatch(/\/pulls\/2$/);
+    expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
+  });
+
+  it("ignores a merged PR that was already completed on the issue", async () => {
+    const tracker = createTracker(server);
+    const mergedAt = "2026-03-11T12:05:27Z";
+
+    server.setIssueLabels(7, ["symphony:running"]);
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.mergePullRequest("symphony/7", mergedAt);
+    server.addIssueComment({
+      issueNumber: 7,
+      body: "done",
+      createdAt: "2026-03-11T12:05:28Z",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    const secondLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("missing-target");
+    expect(lifecycle.summary).toMatch(/no open pull request/i);
+    expect(secondLifecycle.kind).toBe("missing-target");
+    expect(server.countRequests("GET issues/7")).toBe(3);
+    expect(server.countRequests("GET issues/7/comments")).toBe(2);
   });
 
   it("deduplicates concurrent ensureLabels calls", async () => {
@@ -417,7 +514,7 @@ describe("GitHubBootstrapTracker", () => {
       lifecycle,
     );
     expect(server.isReviewThreadResolved(threadId)).toBe(true);
-    expect(refreshed.kind).toBe("handoff-ready");
+    expect(refreshed.kind).toBe("awaiting-landing");
   });
 
   it("does not auto-resolve human review threads after a follow-up push", async () => {
@@ -497,7 +594,7 @@ describe("GitHubBootstrapTracker", () => {
     await tracker.completeIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("handoff-ready");
+    expect(second.kind).toBe("awaiting-landing");
   });
 
   it("preserves no-check stabilization for other branches when another issue is claimed", async () => {
@@ -529,7 +626,7 @@ describe("GitHubBootstrapTracker", () => {
     await tracker.claimIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("handoff-ready");
+    expect(second.kind).toBe("awaiting-landing");
   });
 
   it("deduplicates two concurrent ensureLabels calls", async () => {

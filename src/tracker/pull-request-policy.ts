@@ -52,6 +52,26 @@ export function evaluatePullRequestLifecycle(
   snapshot: PullRequestSnapshot,
   previousNoCheckObservation: NoCheckObservation | undefined,
 ): PullRequestPolicyResult {
+  // GitHub bootstrap currently fast-paths merged PRs before this policy call.
+  // Keep this branch for defensive correctness in tests and any future caller
+  // that evaluates a merged snapshot directly.
+  if (snapshot.landingState === "merged") {
+    return {
+      lifecycle: {
+        kind: "handoff-ready",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        checks: snapshot.checks,
+        pendingCheckNames: [],
+        failingCheckNames: [],
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: `Pull request ${snapshot.pullRequest.url} has merged`,
+      },
+      nextNoCheckObservation: null,
+    };
+  }
+
   if (
     snapshot.botActionableReviewFeedback.length > 0 ||
     (snapshot.failingCheckNames.length > 0 &&
@@ -168,15 +188,15 @@ export function evaluatePullRequestLifecycle(
 
   return {
     lifecycle: {
-      kind: "handoff-ready",
+      kind: "awaiting-landing",
       branchName: snapshot.branchName,
       pullRequest: snapshot.pullRequest,
       checks: snapshot.checks,
-      pendingCheckNames: snapshot.pendingCheckNames,
-      failingCheckNames: snapshot.failingCheckNames,
+      pendingCheckNames: [],
+      failingCheckNames: [],
       actionableReviewFeedback: [],
       unresolvedThreadIds: [],
-      summary: `Pull request ${snapshot.pullRequest.url} is merge-ready`,
+      summary: `Pull request ${snapshot.pullRequest.url} is awaiting merge / landing`,
     },
     nextNoCheckObservation: null,
   };

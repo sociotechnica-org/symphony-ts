@@ -12,6 +12,7 @@ import type {
   LoadedIssueArtifacts,
 } from "../../src/observability/issue-report.js";
 import { generateIssueReport } from "../../src/observability/issue-report.js";
+import { asFiniteNumber } from "../../src/domain/number-coerce.js";
 import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
 import { createTempDir } from "../support/git.js";
 import {
@@ -148,6 +149,14 @@ describe("issue report enrichment", () => {
         totalTokens: 2750,
       }),
     );
+  });
+
+  it("treats NaN as unavailable in Codex numeric coercion", () => {
+    expect(asFiniteNumber(Number.NaN)).toBeNull();
+    expect(asFiniteNumber(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(asFiniteNumber(Number.NEGATIVE_INFINITY)).toBeNull();
+    expect(asFiniteNumber(2750)).toBe(2750);
+    expect(asFiniteNumber(null)).toBeNull();
   });
 
   it("keeps report generation successful when multiple Codex logs match the same session", async () => {

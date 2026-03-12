@@ -12,6 +12,7 @@ import type {
 export interface PullRequestSnapshot {
   readonly branchName: string;
   readonly pullRequest: PullRequestHandle;
+  readonly landingState: "open" | "merged";
   readonly checks: readonly PullRequestCheck[];
   readonly pendingCheckNames: readonly string[];
   readonly failingCheckNames: readonly string[];
@@ -120,8 +121,10 @@ export function createPullRequestSnapshot(input: {
       number: input.pullRequest.number,
       url: input.pullRequest.html_url,
       branchName: input.pullRequest.head.ref,
+      headSha: input.pullRequest.head.sha,
       latestCommitAt,
     },
+    landingState: input.pullRequest.landingState,
     checks: input.checks,
     pendingCheckNames,
     failingCheckNames,

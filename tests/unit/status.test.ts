@@ -58,6 +58,7 @@ function createSnapshot(
         pullRequest: {
           number: 12,
           url: "https://example.test/pr/12",
+          headSha: "head-sha-12",
           latestCommitAt: "2026-03-06T11:59:30.000Z",
         },
         checks: {
@@ -286,5 +287,32 @@ describe("factory status helpers", () => {
     const output = renderFactoryStatusSnapshot(createSnapshot());
 
     expect(output).toContain("Worker: unknown");
+  });
+
+  it("renders awaiting-landing issues distinctly", () => {
+    const output = renderFactoryStatusSnapshot(
+      createSnapshot({
+        lastAction: {
+          kind: "awaiting-landing",
+          summary:
+            "Pull request https://example.test/pr/12 is awaiting merge / landing",
+          at: "2026-03-06T12:00:00.000Z",
+          issueNumber: 12,
+        },
+        activeIssues: [
+          {
+            ...createSnapshot().activeIssues[0]!,
+            status: "awaiting-landing",
+            summary:
+              "Pull request https://example.test/pr/12 is awaiting merge / landing",
+            blockedReason:
+              "Pull request https://example.test/pr/12 is awaiting merge / landing",
+          },
+        ],
+      }),
+    );
+
+    expect(output).toContain("#12 Expose factory status [awaiting-landing]");
+    expect(output).toContain("awaiting merge / landing");
   });
 });

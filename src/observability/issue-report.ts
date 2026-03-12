@@ -508,9 +508,7 @@ function buildSummary(
     ...loaded.sessions.map((session) => session.startedAt),
   ]);
   const endedAt = latestTimestamp([
-    isTerminalOutcome(summary?.currentOutcome)
-      ? (summary?.lastUpdatedAt ?? null)
-      : null,
+    isTerminalOutcome(summary?.currentOutcome) ? summary.lastUpdatedAt : null,
     ...loaded.attempts.map((attempt) =>
       isTerminalOutcome(attempt.outcome) ? attempt.finishedAt : null,
     ),
@@ -1236,6 +1234,7 @@ function readPullRequestFromDetails(
   return {
     number: value["number"],
     url: value["url"],
+    headSha: typeof value["headSha"] === "string" ? value["headSha"] : null,
     latestCommitAt:
       typeof value["latestCommitAt"] === "string"
         ? value["latestCommitAt"]
@@ -1288,6 +1287,16 @@ function readEventSummary(
 ): string {
   const summary = details["summary"];
   return typeof summary === "string" && summary.length > 0 ? summary : fallback;
+}
+
+function readLifecycleKindFromDetails(
+  details: Readonly<Record<string, unknown>>,
+): IssueArtifactOutcome | null {
+  // Keep this key in sync with `#createLifecycleEventDetails` in
+  // `src/orchestrator/service.ts`, which records the tracker lifecycle kind for
+  // `pr-opened` events.
+  const lifecycleKind = details["lifecycleKind"];
+  return lifecycleKind === "awaiting-landing" ? "awaiting-landing" : null;
 }
 
 function formatEventDetails(
@@ -1381,32 +1390,26 @@ function inferOutcomeFromEvents(
   events: readonly IssueArtifactEvent[],
 ): IssueArtifactOutcome | null {
   for (const event of [...events].reverse()) {
-    if (event.kind === "succeeded") {
-      return "succeeded";
-    }
-    if (event.kind === "failed") {
-      return "failed";
-    }
-    if (event.kind === "retry-scheduled") {
-      return "retry-scheduled";
-    }
-    if (event.kind === "review-feedback") {
-      return "needs-follow-up";
-    }
-    if (event.kind === "pr-opened") {
-      return "awaiting-review";
-    }
-    if (event.kind === "runner-spawned") {
-      return "running";
-    }
-    if (event.kind === "approved" || event.kind === "waived") {
-      return "claimed";
-    }
-    if (event.kind === "plan-ready") {
-      return "awaiting-plan-review";
-    }
-    if (event.kind === "claimed") {
-      return "claimed";
+    switch (event.kind) {
+      case "succeeded":
+        return "succeeded";
+      case "failed":
+        return "failed";
+      case "retry-scheduled":
+        return "retry-scheduled";
+      case "review-feedback":
+        return "needs-follow-up";
+      case "pr-opened":
+        return readLifecycleKindFromDetails(event.details) ?? "awaiting-review";
+      case "runner-spawned":
+        return "running";
+      case "approved":
+      case "waived":
+        return "claimed";
+      case "plan-ready":
+        return "awaiting-plan-review";
+      case "claimed":
+        return "claimed";
     }
   }
   return null;
