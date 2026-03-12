@@ -283,9 +283,16 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   dashboard.start();
 
   if (args.once) {
+    const stopOnce = (): void => {
+      dashboard.stop();
+    };
+    process.on("SIGINT", stopOnce);
+    process.on("SIGTERM", stopOnce);
     try {
       await orchestrator.runOnce();
     } finally {
+      process.off("SIGINT", stopOnce);
+      process.off("SIGTERM", stopOnce);
       dashboard.stop();
     }
     return;
@@ -301,6 +308,8 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   try {
     await orchestrator.runLoop(abortController.signal);
   } finally {
+    process.off("SIGINT", stopDashboard);
+    process.off("SIGTERM", stopDashboard);
     dashboard.stop();
   }
 }

@@ -234,8 +234,10 @@ export class StatusDashboard {
     this.#state.lastTpsSecond = tpsSecond;
     this.#state.lastTpsValue = tps;
 
-    // Snapshot fingerprinting
-    const fingerprint = snapshot !== null ? JSON.stringify(snapshot) : null;
+    // Snapshot fingerprinting — exclude time-varying fields (secondsRunning,
+    // dueInMs) so the fingerprint only changes on actual state updates.
+    const fingerprint =
+      snapshot !== null ? snapshotFingerprint(snapshot) : null;
     const snapshotChanged = fingerprint !== this.#state.lastSnapshotFingerprint;
     const periodicDue = isPeriodicRerenderDue(
       this.#state.lastRenderedAtMs,
@@ -694,6 +696,34 @@ export function tpsSparkline(
     .join("");
 }
 
+// ─── Snapshot fingerprinting ──────────────────────────────────────────────
+
+/**
+ * Compute a stable fingerprint of a TuiSnapshot, excluding time-varying fields
+ * (secondsRunning, dueInMs) that change every tick. This lets the deduplication
+ * guard skip formatSnapshotContent when only the clock has advanced.
+ */
+function snapshotFingerprint(snapshot: TuiSnapshot): string {
+  return JSON.stringify({
+    running: snapshot.running,
+    retrying: snapshot.retrying.map((r) => ({
+      issueNumber: r.issueNumber,
+      identifier: r.identifier,
+      nextAttempt: r.nextAttempt,
+      lastError: r.lastError,
+    })),
+    codexTotals: {
+      inputTokens: snapshot.codexTotals.inputTokens,
+      outputTokens: snapshot.codexTotals.outputTokens,
+      totalTokens: snapshot.codexTotals.totalTokens,
+    },
+    rateLimits: snapshot.rateLimits,
+    polling: snapshot.polling,
+    maxConcurrentRuns: snapshot.maxConcurrentRuns,
+    projectUrl: snapshot.projectUrl,
+  });
+}
+
 // ─── Render timing helpers ────────────────────────────────────────────────
 
 function isPeriodicRerenderDue(
@@ -852,6 +882,8 @@ function humanizeByEvent(
       return `turn ended with error: ${formatReason(message)}`;
     case "startup/failed":
       return `startup failed: ${formatReason(message)}`;
+    case "turn/completed":
+      return humanizeMethod("turn/completed", payload) ?? "turn completed";
     case "turn/failed":
       return humanizeMethod("turn/failed", payload) ?? "turn failed";
     case "turn/cancelled":
