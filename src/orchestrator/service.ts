@@ -34,11 +34,17 @@ import {
 import type {
   LiveRunnerSession,
   Runner,
-  RunnerSessionDescription,
   RunnerTurnResult,
 } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
+import {
+  buildMaxTurnsSummary,
+  createContinuationRunTurn,
+  type RunSessionArtifactsState,
+  shouldContinueTurnLoop,
+  summarizeLifecycleAtTurnExit,
+} from "./continuation-turns.js";
 import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
@@ -80,12 +86,6 @@ interface QueueEntry {
   readonly issue: RuntimeIssue;
   readonly attempt: number;
   readonly source: "ready" | "running";
-}
-
-interface RunSessionArtifactsState {
-  readonly runSession: RunSession;
-  readonly description: RunnerSessionDescription;
-  readonly latestTurnNumber: number | null;
 }
 
 export class BootstrapOrchestrator implements Orchestrator {
@@ -586,7 +586,6 @@ export class BootstrapOrchestrator implements Orchestrator {
         const turn = await this.#createRunTurn(
           session.prompt,
           issue,
-          attempt,
           currentLifecycle,
           turnNumber,
         );
@@ -629,7 +628,13 @@ export class BootstrapOrchestrator implements Orchestrator {
           return;
         }
 
-        if (this.#shouldContinueTurnLoop(nextLifecycle, turn.turnNumber)) {
+        if (
+          shouldContinueTurnLoop(
+            nextLifecycle,
+            turn.turnNumber,
+            this.#config.agent.maxTurns,
+          )
+        ) {
           this.#logger.info("Continuing agent turn on live session", {
             issueNumber: issue.number,
             branchName: workspace.branchName,
@@ -674,22 +679,17 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #createRunTurn(
     initialPrompt: string,
     issue: RuntimeIssue,
-    attempt: number,
     pullRequest: HandoffLifecycle | null,
     turnNumber: number,
   ): Promise<RunTurn> {
-    return {
+    return await createContinuationRunTurn({
+      initialPrompt,
+      promptBuilder: this.#promptBuilder,
+      issue,
+      pullRequest,
       turnNumber,
-      prompt:
-        turnNumber === 1
-          ? initialPrompt
-          : await this.#promptBuilder.buildContinuation({
-              issue,
-              turnNumber,
-              maxTurns: this.#config.agent.maxTurns,
-              pullRequest,
-            }),
-    };
+      maxTurns: this.#config.agent.maxTurns,
+    });
   }
 
   async #runRunnerTurn(
@@ -760,19 +760,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     );
   }
 
-  #shouldContinueTurnLoop(
-    lifecycle: HandoffLifecycle,
-    turnNumber: number,
-  ): boolean {
-    if (turnNumber >= this.#config.agent.maxTurns) {
-      return false;
-    }
-    return (
-      lifecycle.kind === "actionable-follow-up" ||
-      lifecycle.kind === "missing-target"
-    );
-  }
-
   async #handleTurnLifecycleExit(
     issue: RuntimeIssue,
     attempt: number,
@@ -788,18 +775,12 @@ export class BootstrapOrchestrator implements Orchestrator {
       lifecycle.kind === "awaiting-landing" ||
       lifecycle.kind === "actionable-follow-up"
     ) {
-      const summary =
-        lifecycle.kind === "actionable-follow-up" &&
-        session.latestTurnNumber === this.#config.agent.maxTurns
-          ? this.#maxTurnsSummary(lifecycle)
-          : lifecycle.summary;
-      const lifecycleForStatus =
-        summary === lifecycle.summary
-          ? lifecycle
-          : {
-              ...lifecycle,
-              summary,
-            };
+      const lifecycleForStatus = summarizeLifecycleAtTurnExit(
+        lifecycle,
+        session.latestTurnNumber,
+        this.#config.agent.maxTurns,
+      );
+      const summary = lifecycleForStatus.summary;
       noteLifecycleForIssue(
         this.#state.status,
         issue,
@@ -859,7 +840,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleFailure(
         session,
         attempt,
-        this.#maxTurnsSummary(lifecycle),
+        buildMaxTurnsSummary(lifecycle, this.#config.agent.maxTurns),
         finishedAt,
       );
       return;
@@ -868,10 +849,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     throw new OrchestratorError(
       `Unsupported lifecycle exit from runner turn loop: ${lifecycle.kind}`,
     );
-  }
-
-  #maxTurnsSummary(lifecycle: HandoffLifecycle): string {
-    return `Reached agent.max_turns (${this.#config.agent.maxTurns.toString()}) with remaining ${lifecycle.kind} work: ${lifecycle.summary}`;
   }
 
   async #completeIssue(

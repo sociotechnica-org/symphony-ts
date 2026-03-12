@@ -456,7 +456,7 @@ class SecondTurnFailingLiveRunner implements Runner {
       },
       async runTurn(turn): Promise<RunnerTurnResult> {
         latestTurnNumber = turn.turnNumber;
-        const timestamp = `2026-03-09T16:3${turn.turnNumber.toString()}:00.000Z`;
+        const timestamp = formatTurnTimestamp(30, turn.turnNumber);
         return {
           exitCode: turn.turnNumber === 2 ? 17 : 0,
           stdout: "",
@@ -496,7 +496,7 @@ class RecordingLiveSessionRunner implements Runner {
       },
       async runTurn(turn): Promise<RunnerTurnResult> {
         latestTurnNumber = turn.turnNumber;
-        const timestamp = `2026-03-09T16:4${turn.turnNumber.toString()}:00.000Z`;
+        const timestamp = formatTurnTimestamp(40, turn.turnNumber);
         return {
           exitCode: 0,
           stdout: "",
@@ -522,6 +522,12 @@ class RecordingIssueArtifactStore implements IssueArtifactStore {
   ): Promise<void> {
     this.observations.push(observation);
   }
+}
+
+function formatTurnTimestamp(baseMinute: number, turnNumber: number): string {
+  const minute = (baseMinute + turnNumber) % 60;
+  const hour = 16 + Math.floor((baseMinute + turnNumber) / 60);
+  return `2026-03-09T${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}:00.000Z`;
 }
 
 class PerIssueBlockingArtifactStore implements IssueArtifactStore {

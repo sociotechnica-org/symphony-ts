@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RunSession } from "../../src/domain/run.js";
+import type { RunSession, RunSpawnEvent } from "../../src/domain/run.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
@@ -124,6 +124,40 @@ describe("LocalRunner", () => {
     expect(result.stderr).toContain("stdin write failed");
   });
 
+  it("keeps LocalRunner.run on the one-shot execute-and-return path for Codex", async () => {
+    const executeSpy = vi
+      .spyOn(LocalRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:01.000Z",
+      });
+
+    try {
+      const runner = new LocalRunner(
+        {
+          command:
+            "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+          promptTransport: "stdin",
+          timeoutMs: 5_000,
+          maxTurns: 3,
+          env: {},
+        },
+        new JsonLogger(),
+      );
+
+      await expect(runner.run(createSession())).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: "ok",
+      });
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      executeSpy.mockRestore();
+    }
+  });
+
   it("reports the spawned pid and aborts the runner child on shutdown", async () => {
     const runner = new LocalRunner(
       {
@@ -168,7 +202,7 @@ describe("LocalRunner", () => {
     let spawnedPid = -1;
 
     const run = runner.run(session, {
-      onSpawn: async (event) => {
+      onSpawn: async (event: RunSpawnEvent) => {
         spawnedPid = event.pid;
         throw new Error("persist failed");
       },
@@ -337,6 +371,104 @@ describe("LocalRunner", () => {
       });
 
       expect(result.session.backendSessionId).toBe("good-session");
+    } finally {
+      executeSpy.mockRestore();
+      homedirSpy.mockRestore();
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("skips unreadable Codex session jsonl files during session discovery", async () => {
+    const tempHome = await createTempDir("symphony-local-runner-home-");
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    const executeSpy = vi
+      .spyOn(LocalRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:05.000Z",
+      });
+
+    try {
+      const sessionsRoot = path.join(
+        tempHome,
+        ".codex",
+        "sessions",
+        "2026",
+        "03",
+        "11",
+      );
+      await fs.mkdir(sessionsRoot, { recursive: true });
+      const unreadablePath = path.join(
+        sessionsRoot,
+        "unreadable-session.jsonl",
+      );
+      await fs.writeFile(
+        unreadablePath,
+        `${JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "unreadable-session",
+            timestamp: "2026-03-11T10:00:03.000Z",
+            cwd: process.cwd(),
+            git: { branch: "symphony/1" },
+          },
+        })}\n`,
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(sessionsRoot, "good-session.jsonl"),
+        `${JSON.stringify({
+          type: "session_meta",
+          payload: {
+            id: "good-session",
+            timestamp: "2026-03-11T10:00:04.000Z",
+            cwd: process.cwd(),
+            git: { branch: "symphony/1" },
+          },
+        })}\n`,
+        "utf8",
+      );
+      const readFileSpy = vi
+        .spyOn(fs, "readFile")
+        .mockImplementation(async (filePath, encoding) => {
+          if (filePath === unreadablePath && encoding === "utf8") {
+            const error = new Error(
+              "permission denied",
+            ) as NodeJS.ErrnoException;
+            error.code = "EACCES";
+            throw error;
+          }
+          return await vi
+            .importActual<typeof import("node:fs/promises")>("node:fs/promises")
+            .then((module) => module.readFile(filePath, encoding as "utf8"));
+        });
+
+      try {
+        const runner = new LocalRunner(
+          {
+            command:
+              "codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -",
+            promptTransport: "stdin",
+            timeoutMs: 5_000,
+            maxTurns: 3,
+            env: {},
+          },
+          new JsonLogger(),
+        );
+
+        const liveSession = await runner.startSession(createSession());
+        const result = await liveSession.runTurn({
+          prompt: "initial prompt",
+          turnNumber: 1,
+        });
+
+        expect(result.session.backendSessionId).toBe("good-session");
+      } finally {
+        readFileSpy.mockRestore();
+      }
     } finally {
       executeSpy.mockRestore();
       homedirSpy.mockRestore();

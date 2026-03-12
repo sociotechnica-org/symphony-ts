@@ -16,6 +16,7 @@ Reduce cold-start review churn by reusing the same live Codex conversation acros
 - implement orchestration logic that re-checks normalized tracker handoff state between turns and decides whether to continue, wait, fail, or complete
 - capture the backend conversation/session identity for observability and issue artifacts
 - cover continuation turns, budget exhaustion, tracker-driven stop conditions, and session reuse with unit and end-to-end tests
+- extract the new continuation-turn policy and Codex-specific local-runner logic into focused helper modules so the orchestration and runner entrypoints do not keep accumulating branch-specific review fixes
 
 ## Non-goals
 
@@ -32,6 +33,7 @@ Reduce cold-start review churn by reusing the same live Codex conversation acros
 - `src/config/workflow.ts` exposes retry budgets but no per-run continuation-turn budget
 - issue/session observability records the Symphony run session id, but not the backend Codex conversation identity reused across follow-up turns
 - current e2e coverage proves workspace reuse across reruns, but not same-thread continuation across turns within one worker run
+- review on this PR is repeatedly finding edge-case bugs in the same two files (`src/orchestrator/service.ts` and `src/runner/local.ts`), which is a signal that too much turn-state and Codex-specific policy is still concentrated inline
 
 ## Decision Notes
 
@@ -79,6 +81,8 @@ Reduce cold-start review churn by reusing the same live Codex conversation acros
   - introduce a live-session contract such as `startSession()` plus `runTurn()`/`close()`, or an equivalent narrow API that supports multiple turns on one conversation
 - `src/runner/local.ts`
   - implement Codex `exec` + `exec resume` session reuse and session-id capture
+- `src/runner/` helper module(s)
+  - extract Codex resume-command reconstruction and session-log discovery/parsing out of `local.ts`
 - `src/orchestrator/service.ts`
   - replace the single successful-run path with an inner continuation-turn loop that consults normalized tracker lifecycle after each turn
 - `src/orchestrator/` runtime state helper(s)
@@ -133,6 +137,13 @@ This seam deliberately avoids:
 - new tracker policy
 - app-server protocol adoption
 - lease/watchdog redesign unrelated to turn continuity
+
+Because review has repeatedly found state-propagation bugs in `service.ts` and Codex-specific edge-policy bugs in `local.ts`, this slice now also includes a narrow refactor to keep:
+
+- continuation-turn policy/state helpers in focused `src/orchestrator/` module(s)
+- Codex resume-command and session-discovery behavior in focused `src/runner/` module(s)
+
+This is still one PR because the refactor is confined to the exact implementation seam introduced by this issue and directly reduces repeated review churn on the same code paths.
 
 ## Runtime State Model
 
@@ -252,19 +263,22 @@ This issue introduces a worker-run inner turn loop distinct from outer reruns.
    - reconcile tracker lifecycle after each successful turn
    - continue or stop based on normalized lifecycle and `agent.max_turns`
 6. Extract any dedicated runtime-state helper needed so turn count is not overloaded with retry/follow-up counters.
-7. Update issue-artifact/status session recording to include the backend session id and continuation-turn facts.
-8. Add focused fixtures and tests for:
+7. Extract Codex-specific resume command building and session-log discovery/parsing from `src/runner/local.ts` so the `LocalRunner` entrypoint stays a thin adapter and one-shot `run()` keeps its original execute-and-return contract.
+8. Update issue-artifact/status session recording to include the backend session id and continuation-turn facts.
+9. Add focused fixtures and tests for:
    - successful continuation on same backend session
    - stop-on-wait-state
    - stop-on-completion
    - `max_turns` exhaustion
    - failure when backend session id is missing
-9. Run repo gates and self-review before opening the PR:
-   - `pnpm format:check`
-   - `pnpm lint`
-   - `pnpm typecheck`
-   - `pnpm test`
-   - `codex review --base origin/main`
+   - unreadable/malformed Codex session files being skipped rather than aborting the turn
+10. Run repo gates and self-review before opening the PR:
+
+- `pnpm format:check`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test`
+- `codex review --base origin/main`
 
 ## Tests And Acceptance Scenarios
 
