@@ -30,7 +30,13 @@ pnpm install
 
 Your target repo needs three labels: `symphony:ready`, `symphony:running`, `symphony:failed`.
 
-Edit `WORKFLOW.md` to point `tracker.repo` and `workspace.repo_url` at your own repository (the checked-in default targets `sociotechnica-org/symphony-ts`). See [Configuration](#configuration) for all available fields.
+**Before running**, set `tracker.repo` in `WORKFLOW.md` to the GitHub repository you want Symphony to work against (e.g. `your-org/your-repo`). The checked-in default is blank — Symphony will refuse to start without it. You can also set the `SYMPHONY_REPO` environment variable instead:
+
+```bash
+export SYMPHONY_REPO=your-org/your-repo
+```
+
+See [Configuration](#configuration) for all available fields.
 
 Run one poll cycle:
 
