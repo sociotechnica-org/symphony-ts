@@ -741,11 +741,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     session: RunSession,
     liveRunnerSession: LiveRunnerSession | undefined,
   ): void {
-    if (
-      liveRunnerSession !== undefined ||
-      this.#config.agent.maxTurns <= 1 ||
-      this.#runner.startSession !== undefined
-    ) {
+    if (liveRunnerSession !== undefined || this.#config.agent.maxTurns <= 1) {
       return;
     }
 

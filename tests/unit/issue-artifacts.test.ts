@@ -243,4 +243,60 @@ describe("issue artifacts", () => {
       paths.eventsFile,
     );
   });
+
+  it("backfills latestTurnNumber from the latest session snapshot when finalizing an attempt", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const store = new LocalIssueArtifactStore(workspaceRoot);
+    const sessionId = "sociotechnica-org/symphony-ts#43/attempt-1";
+
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Runner continuation",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "running",
+        currentSummary: "Running",
+        observedAt: "2026-03-09T10:00:00.000Z",
+        latestAttemptNumber: 1,
+        latestSessionId: sessionId,
+      },
+      session: {
+        version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+        issueNumber: 43,
+        attemptNumber: 1,
+        sessionId,
+        provider: "codex",
+        model: "gpt-5",
+        backendSessionId: "backend-1",
+        latestTurnNumber: 3,
+        startedAt: "2026-03-09T10:00:00.000Z",
+        finishedAt: null,
+        workspacePath: "/tmp/workspaces/43",
+        branch: "symphony/43",
+        logPointers: [],
+      },
+    });
+
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Runner continuation",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "failed",
+        currentSummary: "failed",
+        observedAt: "2026-03-09T10:00:30.000Z",
+        latestAttemptNumber: 1,
+        latestSessionId: sessionId,
+      },
+    });
+
+    const attempt = await readIssueArtifactAttempt(workspaceRoot, 43, 1);
+    expect(attempt.latestTurnNumber).toBe(3);
+  });
 });

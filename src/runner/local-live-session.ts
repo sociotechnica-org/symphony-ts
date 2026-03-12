@@ -45,6 +45,12 @@ export class LocalRunnerSession implements LiveRunnerSession {
     this.#runSession = session;
     this.#baseDescription = describeLocalRunnerSession(config.command);
     validateContinuationSessionConfig(config, this.#baseDescription);
+    warnIfContinuationColdStarts(
+      this.#logger,
+      this.#runSession,
+      this.#baseDescription,
+      this.#config,
+    );
     this.#executeCommand = executeCommand;
   }
 
@@ -154,4 +160,24 @@ function validateContinuationSessionConfig(
       "Codex continuation turns require agent.prompt_transport to be 'stdin'",
     );
   }
+}
+
+function warnIfContinuationColdStarts(
+  logger: Logger,
+  session: RunSession,
+  description: RunnerSessionDescription,
+  config: AgentConfig,
+): void {
+  if (config.maxTurns <= 1 || description.provider === "codex") {
+    return;
+  }
+
+  logger.warn(
+    "Session reuse is not implemented for this provider; continuation turns will cold-start new subprocesses",
+    {
+      runSessionId: session.id,
+      provider: description.provider,
+      maxTurns: config.maxTurns,
+    },
+  );
 }

@@ -46,7 +46,7 @@ export function shouldContinueTurnLoop(
   );
 }
 
-export function buildMaxTurnsSummary(
+function buildMaxTurnsSummary(
   lifecycle: HandoffLifecycle,
   maxTurns: number,
 ): string {

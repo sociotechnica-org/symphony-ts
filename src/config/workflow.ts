@@ -648,10 +648,10 @@ function renderContinuationPrompt(
   const lines = [
     "Continuation guidance:",
     "",
-    "- The previous Codex turn completed normally, but the issue is still in an active state.",
+    "- The previous turn completed normally, but the issue is still in an active state.",
     `- This is continuation turn #${input.turnNumber.toString()} of ${input.maxTurns.toString()} for the current agent run.`,
-    "- Resume from the current workspace and existing thread context instead of restarting from scratch.",
-    "- The original task instructions and prior turn history are already present in this thread, so do not restate them before acting.",
+    "- Resume from the current workspace state instead of restarting from scratch.",
+    "- If your runner preserves prior thread history, use it. Otherwise, restate only the minimum missing context you need before acting.",
   ];
   if (input.pullRequest !== null) {
     lines.push(

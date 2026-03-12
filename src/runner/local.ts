@@ -24,14 +24,18 @@ export class LocalRunner implements Runner {
   }
 
   startSession(session: RunSession): Promise<LocalRunnerSession> {
-    return Promise.resolve(
-      new LocalRunnerSession(
-        this.#config,
-        this.#logger,
-        session,
-        LocalRunner.executeCommand,
-      ),
-    );
+    try {
+      return Promise.resolve(
+        new LocalRunnerSession(
+          this.#config,
+          this.#logger,
+          session,
+          LocalRunner.executeCommand,
+        ),
+      );
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
   async run(

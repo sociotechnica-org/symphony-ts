@@ -552,7 +552,80 @@ describe("LocalRunner", () => {
     }
   });
 
-  it("fails fast when Codex continuation is configured with file prompt transport", () => {
+  it("drops unknown value-consuming flags as a pair during Codex resume reconstruction", async () => {
+    const executeSpy = vi
+      .spyOn(LocalRunner, "executeCommand")
+      .mockResolvedValue({
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        startedAt: "2026-03-11T10:00:00.000Z",
+        finishedAt: "2026-03-11T10:00:05.000Z",
+      });
+    const warn = vi.fn<Logger["warn"]>();
+    const logger: Logger = {
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+    };
+    const tempHome = await createTempDir("symphony-local-runner-home-");
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+
+    try {
+      const sessionsRoot = path.join(
+        tempHome,
+        ".codex",
+        "sessions",
+        "2026",
+        "03",
+        "11",
+      );
+      await fs.mkdir(sessionsRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(sessionsRoot, "match.jsonl"),
+        `${JSON.stringify({
+          type: "session_meta",
+          timestamp: "2026-03-11T10:00:01.000Z",
+          payload: {
+            id: "codex-session-1",
+            timestamp: "2026-03-11T10:00:01.000Z",
+            cwd: process.cwd(),
+            git: { branch: "symphony/1" },
+          },
+        })}\n`,
+        "utf8",
+      );
+
+      const runner = new LocalRunner(
+        {
+          command:
+            "codex exec --dangerously-bypass-approvals-and-sandbox --profile --model -m gpt-5.4 -C . -",
+          promptTransport: "stdin",
+          timeoutMs: 5_000,
+          maxTurns: 3,
+          env: {},
+        },
+        logger,
+      );
+      const live = await runner.startSession!(createSession());
+
+      await live.runTurn({ turnNumber: 1, prompt: "first" });
+      await live.runTurn({ turnNumber: 2, prompt: "second" });
+
+      expect(warn).toHaveBeenCalledWith(
+        "Dropped unsupported Codex continuation arguments while building resume command",
+        expect.objectContaining({
+          droppedArgs: ["--profile", "--model"],
+        }),
+      );
+    } finally {
+      executeSpy.mockRestore();
+      homedirSpy.mockRestore();
+      await fs.rm(tempHome, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a rejected promise when Codex continuation is configured with file prompt transport", async () => {
     const runner = new LocalRunner(
       {
         command:
@@ -565,8 +638,39 @@ describe("LocalRunner", () => {
       new JsonLogger(),
     );
 
-    expect(() => runner.startSession!(createSession())).toThrowError(
+    await expect(runner.startSession!(createSession())).rejects.toThrowError(
       "Codex continuation turns require agent.prompt_transport to be 'stdin'",
+    );
+  });
+
+  it("warns when continuation turns will cold-start fresh subprocesses", async () => {
+    const warn = vi.fn<Logger["warn"]>();
+    const logger: Logger = {
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+    };
+
+    const runner = new LocalRunner(
+      {
+        command: "claude --project-id xyz",
+        promptTransport: "stdin",
+        timeoutMs: 5_000,
+        maxTurns: 3,
+        env: {},
+      },
+      logger,
+    );
+
+    const liveSession = await runner.startSession(createSession());
+
+    expect(liveSession.describe().provider).toBe("local-runner");
+    expect(warn).toHaveBeenCalledWith(
+      "Session reuse is not implemented for this provider; continuation turns will cold-start new subprocesses",
+      expect.objectContaining({
+        provider: "local-runner",
+        maxTurns: 3,
+      }),
     );
   });
 });

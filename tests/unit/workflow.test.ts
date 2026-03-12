@@ -171,6 +171,10 @@ agent:
 
     expect(rendered).toContain("Continuation guidance:");
     expect(rendered).toContain("continuation turn #2 of 4");
+    expect(rendered).toContain(
+      "If your runner preserves prior thread history, use it.",
+    );
+    expect(rendered).not.toContain("previous Codex turn");
     expect(rendered).not.toContain(
       "Issue repo#1 / sociotechnica-org/symphony-ts",
     );

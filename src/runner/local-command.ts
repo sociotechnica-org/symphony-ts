@@ -83,7 +83,7 @@ function readModelFlag(tokens: readonly string[]): string | null {
   return null;
 }
 
-export function tokenizeShellWords(command: string): readonly string[] {
+function tokenizeShellWords(command: string): readonly string[] {
   const tokens: string[] = [];
   let current = "";
   let quote: "'" | '"' | null = null;

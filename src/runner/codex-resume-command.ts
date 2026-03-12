@@ -48,6 +48,17 @@ export function buildCodexResumeCommand(
   };
 }
 
+/**
+ * Forward only the Codex exec arguments that are known to be compatible with
+ * `codex exec resume`. Unknown flags are dropped conservatively:
+ * - known switches are forwarded unchanged
+ * - known value-consuming flags are forwarded as flag/value pairs
+ * - unknown flags consume their following token as a pair when it looks like a
+ *   value-bearing argument, so continuation command reconstruction cannot leak
+ *   a stray value token into the resumed command
+ * - the stdin sentinel `-` is always rebuilt at the end because `resume`
+ *   expects `codex exec resume <session-id> -`
+ */
 function filterCodexResumeArgs(args: readonly string[]): {
   readonly filteredArgs: readonly string[];
   readonly droppedArgs: readonly string[];
@@ -78,7 +89,11 @@ function filterCodexResumeArgs(args: readonly string[]): {
       token === "--output-last-message"
     ) {
       const value = args[index + 1];
-      if (value !== undefined) {
+      if (
+        value !== undefined &&
+        value !== "-" &&
+        !value.startsWith("-")
+      ) {
         filteredArgs.push(token, value);
         index += 1;
       } else {
@@ -105,6 +120,15 @@ function filterCodexResumeArgs(args: readonly string[]): {
     ) {
       filteredArgs.push(token);
       continue;
+    }
+
+    if (token.startsWith("-")) {
+      const value = args[index + 1];
+      if (value !== undefined && value !== "-" && !value.startsWith("-")) {
+        droppedArgs.push(token, value);
+        index += 1;
+        continue;
+      }
     }
 
     droppedArgs.push(token);

@@ -339,6 +339,10 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       throw error;
     });
 
+    const latestTurnNumber =
+      existing?.latestTurnNumber ??
+      (await this.#readLatestSessionTurnNumber(paths, summary.latestSessionId));
+
     await writeJsonFile(attemptFile, {
       version: ISSUE_ARTIFACT_SCHEMA_VERSION,
       issueNumber: summary.issueNumber,
@@ -349,12 +353,36 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       outcome: summary.currentOutcome,
       summary: summary.currentSummary,
       sessionId: existing?.sessionId ?? summary.latestSessionId,
-      latestTurnNumber: existing?.latestTurnNumber ?? null,
+      latestTurnNumber,
       runnerPid: existing?.runnerPid ?? null,
       pullRequest: existing?.pullRequest ?? null,
       review: existing?.review ?? null,
       checks: existing?.checks ?? null,
     } satisfies IssueArtifactAttemptSnapshot);
+  }
+
+  async #readLatestSessionTurnNumber(
+    paths: IssueArtifactPaths,
+    sessionId: string | null,
+  ): Promise<number | null> {
+    if (sessionId === null) {
+      return null;
+    }
+
+    const sessionFile = path.join(
+      paths.sessionsDir,
+      `${encodeSessionFileName(sessionId)}.json`,
+    );
+    const snapshot = await readJsonFile<IssueArtifactSessionSnapshot>(
+      sessionFile,
+    ).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    });
+
+    return snapshot?.latestTurnNumber ?? null;
   }
 }
 
