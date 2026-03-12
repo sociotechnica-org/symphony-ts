@@ -255,7 +255,9 @@ export class CodexAppServerSession implements LiveRunnerSession {
     child.on("error", (error) => {
       this.#rejectActiveState(
         this.#withStartupStderr(
-          new RunnerError(`Failed to launch codex app-server`, { cause: error }),
+          new RunnerError(`Failed to launch codex app-server`, {
+            cause: error,
+          }),
         ),
       );
     });
@@ -460,7 +462,9 @@ export class CodexAppServerSession implements LiveRunnerSession {
       if (this.#pendingResponse !== null || this.#threadId === null) {
         this.#rejectActiveState(
           this.#withStartupStderr(
-            new RunnerError(`Codex app-server returned malformed JSON: ${line}`),
+            new RunnerError(
+              `Codex app-server returned malformed JSON: ${line}`,
+            ),
           ),
         );
         return;
