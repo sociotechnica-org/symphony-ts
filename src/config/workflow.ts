@@ -525,7 +525,13 @@ function validateExplicitAgentRunnerKind(
   }
 
   const executable = parseLocalRunnerCommand(command).executable;
-  if (executable !== null && path.basename(executable) === requiredExecutable) {
+  if (executable === null) {
+    throw new ConfigError(
+      `agent.runner.kind '${kind}' requires agent.command to invoke the ${requiredExecutable} CLI, but no executable could be determined from the command`,
+    );
+  }
+
+  if (path.basename(executable) === requiredExecutable) {
     return;
   }
 

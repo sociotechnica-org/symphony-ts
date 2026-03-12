@@ -497,6 +497,49 @@ agent:
     );
   });
 
+  it("rejects an explicit codex runner selection when the command has no executable", async () => {
+    const dir = await createTempDir("workflow-codex-runner-no-executable-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    max_follow_up_attempts: 3
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: MY_VAR=value
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "agent.runner.kind 'codex' requires agent.command to invoke the codex CLI, but no executable could be determined from the command",
+    );
+  });
+
   it("loads an explicit Claude Code runner selection", async () => {
     const dir = await createTempDir("workflow-claude-code-runner-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
