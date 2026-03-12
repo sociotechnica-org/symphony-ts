@@ -155,7 +155,6 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #factoryStartedAt: number = Date.now();
   #shutdownSignal: AbortSignal | undefined;
   #dashboardNotify: (() => void) | null = null;
-  readonly #factoryStartedAt: number = Date.now();
 
   constructor(
     config: ResolvedConfig,
