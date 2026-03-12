@@ -45,6 +45,9 @@ function createRunnerSessionDescription() {
     provider: "test-runner",
     model: null,
     backendSessionId: null,
+    backendThreadId: null,
+    latestTurnId: null,
+    appServerPid: null,
     latestTurnNumber: null,
     logPointers: [],
   } as const;
@@ -474,6 +477,7 @@ class SecondTurnFailingLiveRunner implements Runner {
           },
         };
       },
+      async close(): Promise<void> {},
     };
   }
 }
@@ -514,6 +518,7 @@ class RecordingLiveSessionRunner implements Runner {
           },
         };
       },
+      async close(): Promise<void> {},
     };
   }
 }

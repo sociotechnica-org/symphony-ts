@@ -59,9 +59,14 @@ export class LocalRunnerSession implements LiveRunnerSession {
     return {
       ...this.#baseDescription,
       backendSessionId: this.#backendSessionId,
+      backendThreadId: this.#baseDescription.backendThreadId,
+      latestTurnId: this.#baseDescription.latestTurnId,
+      appServerPid: this.#baseDescription.appServerPid,
       latestTurnNumber: this.#latestTurnNumber,
     };
   }
+
+  async close(): Promise<void> {}
 
   async runTurn(
     turn: RunTurn,

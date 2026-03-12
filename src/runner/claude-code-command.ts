@@ -57,6 +57,9 @@ export function describeClaudeCodeSession(
     provider: "claude-code",
     model: readOptionValue(command, ["--model"]),
     backendSessionId: null,
+    backendThreadId: null,
+    latestTurnId: null,
+    appServerPid: null,
     latestTurnNumber: null,
     logPointers: [],
   };

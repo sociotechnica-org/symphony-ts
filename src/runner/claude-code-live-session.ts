@@ -56,6 +56,8 @@ export class ClaudeCodeLiveSession implements LiveRunnerSession {
     return this.#description;
   }
 
+  async close(): Promise<void> {}
+
   async runTurn(
     turn: RunTurn,
     options?: RunnerRunOptions,
@@ -88,6 +90,9 @@ export class ClaudeCodeLiveSession implements LiveRunnerSession {
         model: result.model ?? this.#description.model,
         backendSessionId:
           result.sessionId ?? this.#description.backendSessionId,
+        backendThreadId: this.#description.backendThreadId,
+        latestTurnId: this.#description.latestTurnId,
+        appServerPid: this.#description.appServerPid,
         latestTurnNumber: turn.turnNumber,
       };
     }

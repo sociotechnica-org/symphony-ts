@@ -46,6 +46,9 @@ class FakeProviderLiveSession implements LiveRunnerSession {
       provider: "fake-provider",
       model: "fake-model",
       backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      appServerPid: null,
       latestTurnNumber: this.#latestTurnNumber,
       logPointers: [
         {
@@ -76,6 +79,8 @@ class FakeProviderLiveSession implements LiveRunnerSession {
       session: this.describe(),
     };
   }
+
+  async close(): Promise<void> {}
 }
 
 class FakeProviderRunner implements Runner {
@@ -84,6 +89,9 @@ class FakeProviderRunner implements Runner {
       provider: "fake-provider",
       model: "fake-model",
       backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     } as const;
@@ -128,6 +136,9 @@ describe("runner contract", () => {
       provider: "fake-provider",
       model: "fake-model",
       backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -182,6 +193,9 @@ describe("runner contract", () => {
         provider: "fake-provider",
         model: "fake-model",
         backendSessionId: null,
+        backendThreadId: null,
+        latestTurnId: null,
+        appServerPid: null,
         latestTurnNumber: 2,
         logPointers: [
           {

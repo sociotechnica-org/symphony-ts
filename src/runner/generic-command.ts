@@ -15,6 +15,9 @@ function describeGenericCommandSession(): RunnerSessionDescription {
     provider: "generic-command",
     model: null,
     backendSessionId: null,
+    backendThreadId: null,
+    latestTurnId: null,
+    appServerPid: null,
     latestTurnNumber: null,
     logPointers: [],
   };

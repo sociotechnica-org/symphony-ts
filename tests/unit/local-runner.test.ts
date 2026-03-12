@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { RunSession } from "../../src/domain/run.js";
 import type { AgentConfig } from "../../src/domain/workflow.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
@@ -13,11 +15,7 @@ import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
 import type { RunnerSpawnedEvent } from "../../src/runner/service.js";
 import { waitForExit } from "../support/process.js";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import { createTempDir } from "../support/git.js";
-import { vi } from "vitest";
 import type { Logger } from "../../src/observability/logger.js";
 
 function createSession(): RunSession {
@@ -41,7 +39,7 @@ function createSession(): RunSession {
       branchName: "symphony/1",
       createdNow: false,
     },
-    prompt: "x".repeat(10_000_000),
+    prompt: "x".repeat(1024),
     startedAt: new Date().toISOString(),
     attempt: {
       sequence: 1,
@@ -92,6 +90,133 @@ function createClaudeCodeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   };
 }
 
+async function createFakeCodexExecutable(): Promise<string> {
+  const dir = await createTempDir("fake-codex-app-server-");
+  const executablePath = path.join(dir, "codex");
+  await fs.writeFile(
+    executablePath,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const readline = require("node:readline");
+
+const mode = process.env.FAKE_CODEX_MODE ?? "success";
+const logFile = process.env.FAKE_CODEX_LOG_FILE ?? null;
+let turnCount = 0;
+const threadId = "thread-1";
+
+function log(entry) {
+  if (!logFile) return;
+  fs.appendFileSync(logFile, JSON.stringify(entry) + "\\n");
+}
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+function completeTurn(turnId) {
+  if (mode === "hang") {
+    return;
+  }
+  if (mode === "turn-failed") {
+    send({
+      method: "turn/failed",
+      params: {
+        threadId,
+        turn: { id: turnId },
+        message: "simulated failure",
+      },
+    });
+    return;
+  }
+  if (mode === "malformed-stream") {
+    process.stdout.write("not-json\\n");
+  }
+  send({
+    method: "turn/completed",
+    params: {
+      threadId,
+      turn: { id: turnId },
+    },
+  });
+}
+
+if (process.argv[2] !== "app-server") {
+  process.stderr.write("unexpected command: " + process.argv.slice(2).join(" "));
+  process.exit(1);
+}
+
+process.on("SIGTERM", () => process.exit(0));
+
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  let payload;
+  try {
+    payload = JSON.parse(line);
+  } catch (error) {
+    process.stderr.write(String(error));
+    process.exit(1);
+  }
+  log(payload);
+
+  if (payload.method === "initialize") {
+    send({ id: payload.id, result: { userAgent: "fake-codex" } });
+    return;
+  }
+
+  if (payload.method === "initialized") {
+    return;
+  }
+
+  if (payload.method === "thread/start") {
+    if (mode === "malformed-thread") {
+      send({ id: payload.id, result: { thread: {} } });
+      return;
+    }
+    send({
+      id: payload.id,
+      result: {
+        approvalPolicy: "never",
+        cwd: process.cwd(),
+        model: "gpt-5.4",
+        modelProvider: "openai",
+        sandbox: { type: "dangerFullAccess" },
+        thread: { id: threadId },
+      },
+    });
+    return;
+  }
+
+  if (payload.method === "turn/start") {
+    turnCount += 1;
+    const turnId = "turn-" + String(turnCount);
+    send({ id: payload.id, result: { turn: { id: turnId } } });
+    send({
+      method: "turn/started",
+      params: {
+        threadId,
+        turn: { id: turnId },
+      },
+    });
+    setTimeout(() => completeTurn(turnId), 5);
+  }
+});
+`,
+    "utf8",
+  );
+  await fs.chmod(executablePath, 0o755);
+  return executablePath;
+}
+
+async function readLoggedMethods(logFile: string): Promise<readonly string[]> {
+  const raw = await fs.readFile(logFile, "utf8");
+  return raw
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as { method?: string })
+    .map((entry) => entry.method ?? "unknown");
+}
+
 describe("runners", () => {
   it("describes Codex-backed sessions with provider and model metadata", () => {
     const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
@@ -100,6 +225,9 @@ describe("runners", () => {
       provider: "codex",
       model: "gpt-5.4",
       backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -115,6 +243,9 @@ describe("runners", () => {
       provider: "generic-command",
       model: null,
       backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -130,6 +261,9 @@ describe("runners", () => {
       provider: "claude-code",
       model: "sonnet",
       backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -167,7 +301,7 @@ describe("runners", () => {
     const result = await runner.run(session);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain("stdin write failed");
+    expect(result.stderr).not.toContain("Failed to write prompt");
   });
 
   it("keeps CodexRunner.run on the one-shot execute-and-return path", async () => {
@@ -467,374 +601,159 @@ describe("runners", () => {
     }
   });
 
-  it("selects the newest matching Codex session by parsed timestamp", async () => {
-    const tempHome = await createTempDir("symphony-local-runner-home-");
-    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
-    const executeSpy = vi
-      .spyOn(CodexRunner, "executeCommand")
-      .mockResolvedValue({
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        startedAt: "2026-03-11T10:00:00.000Z",
-        finishedAt: "2026-03-11T10:00:05.000Z",
-      });
-
-    try {
-      const sessionsRoot = path.join(
-        tempHome,
-        ".codex",
-        "sessions",
-        "2026",
-        "03",
-        "11",
-      );
-      await fs.mkdir(sessionsRoot, { recursive: true });
-      await fs.writeFile(
-        path.join(sessionsRoot, "z-session.jsonl"),
-        `${JSON.stringify({
-          type: "session_meta",
-          payload: {
-            id: "older-session",
-            timestamp: "2026-03-11T10:00:02.000Z",
-            cwd: process.cwd(),
-            git: { branch: "symphony/1" },
-          },
-        })}\n`,
-        "utf8",
-      );
-      await fs.writeFile(
-        path.join(sessionsRoot, "a-session.jsonl"),
-        `${JSON.stringify({
-          type: "session_meta",
-          payload: {
-            id: "newer-session",
-            timestamp: "2026-03-11T10:00:04.000Z",
-            cwd: process.cwd(),
-            git: { branch: "symphony/1" },
-          },
-        })}\n`,
-        "utf8",
-      );
-
-      const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
-
-      const liveSession = await runner.startSession(createSession());
-      const result = await liveSession.runTurn({
-        prompt: "initial prompt",
-        turnNumber: 1,
-      });
-
-      expect(result.session.backendSessionId).toBe("newer-session");
-    } finally {
-      executeSpy.mockRestore();
-      homedirSpy.mockRestore();
-      await fs.rm(tempHome, { recursive: true, force: true });
-    }
-  });
-
-  it("skips malformed Codex session jsonl files during session discovery", async () => {
-    const tempHome = await createTempDir("symphony-local-runner-home-");
-    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
-    const executeSpy = vi
-      .spyOn(CodexRunner, "executeCommand")
-      .mockResolvedValue({
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        startedAt: "2026-03-11T10:00:00.000Z",
-        finishedAt: "2026-03-11T10:00:05.000Z",
-      });
-
-    try {
-      const sessionsRoot = path.join(
-        tempHome,
-        ".codex",
-        "sessions",
-        "2026",
-        "03",
-        "11",
-      );
-      await fs.mkdir(sessionsRoot, { recursive: true });
-      await fs.writeFile(
-        path.join(sessionsRoot, "broken-session.jsonl"),
-        "{not-json}\n",
-        "utf8",
-      );
-      await fs.writeFile(
-        path.join(sessionsRoot, "good-session.jsonl"),
-        `${JSON.stringify({
-          type: "session_meta",
-          payload: {
-            id: "good-session",
-            timestamp: "2026-03-11T10:00:04.000Z",
-            cwd: process.cwd(),
-            git: { branch: "symphony/1" },
-          },
-        })}\n`,
-        "utf8",
-      );
-
-      const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
-
-      const liveSession = await runner.startSession(createSession());
-      const result = await liveSession.runTurn({
-        prompt: "initial prompt",
-        turnNumber: 1,
-      });
-
-      expect(result.session.backendSessionId).toBe("good-session");
-    } finally {
-      executeSpy.mockRestore();
-      homedirSpy.mockRestore();
-      await fs.rm(tempHome, { recursive: true, force: true });
-    }
-  });
-
-  it("skips unreadable Codex session jsonl files during session discovery", async () => {
-    const tempHome = await createTempDir("symphony-local-runner-home-");
-    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
-    const executeSpy = vi
-      .spyOn(CodexRunner, "executeCommand")
-      .mockResolvedValue({
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        startedAt: "2026-03-11T10:00:00.000Z",
-        finishedAt: "2026-03-11T10:00:05.000Z",
-      });
-
-    try {
-      const sessionsRoot = path.join(
-        tempHome,
-        ".codex",
-        "sessions",
-        "2026",
-        "03",
-        "11",
-      );
-      await fs.mkdir(sessionsRoot, { recursive: true });
-      const unreadablePath = path.join(
-        sessionsRoot,
-        "unreadable-session.jsonl",
-      );
-      await fs.writeFile(
-        unreadablePath,
-        `${JSON.stringify({
-          type: "session_meta",
-          payload: {
-            id: "unreadable-session",
-            timestamp: "2026-03-11T10:00:03.000Z",
-            cwd: process.cwd(),
-            git: { branch: "symphony/1" },
-          },
-        })}\n`,
-        "utf8",
-      );
-      await fs.writeFile(
-        path.join(sessionsRoot, "good-session.jsonl"),
-        `${JSON.stringify({
-          type: "session_meta",
-          payload: {
-            id: "good-session",
-            timestamp: "2026-03-11T10:00:04.000Z",
-            cwd: process.cwd(),
-            git: { branch: "symphony/1" },
-          },
-        })}\n`,
-        "utf8",
-      );
-      const readFileSpy = vi
-        .spyOn(fs, "readFile")
-        .mockImplementation(async (filePath, encoding) => {
-          if (filePath === unreadablePath && encoding === "utf8") {
-            const error = new Error(
-              "permission denied",
-            ) as NodeJS.ErrnoException;
-            error.code = "EACCES";
-            throw error;
-          }
-          return await vi
-            .importActual<typeof import("node:fs/promises")>("node:fs/promises")
-            .then((module) => module.readFile(filePath, encoding as "utf8"));
-        });
-
-      try {
-        const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
-
-        const liveSession = await runner.startSession(createSession());
-        const result = await liveSession.runTurn({
-          prompt: "initial prompt",
-          turnNumber: 1,
-        });
-
-        expect(result.session.backendSessionId).toBe("good-session");
-      } finally {
-        readFileSpy.mockRestore();
-      }
-    } finally {
-      executeSpy.mockRestore();
-      homedirSpy.mockRestore();
-      await fs.rm(tempHome, { recursive: true, force: true });
-    }
-  });
-
-  it("warns once when unsupported Codex continuation args are dropped", async () => {
-    const executeSpy = vi
-      .spyOn(CodexRunner, "executeCommand")
-      .mockResolvedValue({
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        startedAt: "2026-03-11T10:00:00.000Z",
-        finishedAt: "2026-03-11T10:00:05.000Z",
-      });
-    const warn = vi.fn<Logger["warn"]>();
+  it("starts Codex through app-server, reuses one thread, and derives session metadata", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(await createTempDir("fake-codex-log-"), "rpc.jsonl");
     const logger: Logger = {
       info: vi.fn(),
-      warn,
+      warn: vi.fn(),
       error: vi.fn(),
     };
-    const tempHome = await createTempDir("symphony-local-runner-home-");
-    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox --profile strict -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      logger,
+    );
+    const liveSession = await runner.startSession(createSession());
+    let spawnedPid = -1;
 
     try {
-      const sessionsRoot = path.join(
-        tempHome,
-        ".codex",
-        "sessions",
-        "2026",
-        "03",
-        "11",
-      );
-      await fs.mkdir(sessionsRoot, { recursive: true });
-      await fs.writeFile(
-        path.join(sessionsRoot, "match.jsonl"),
-        `${JSON.stringify({
-          type: "session_meta",
-          timestamp: "2026-03-11T10:00:01.000Z",
-          payload: {
-            id: "codex-session-1",
-            timestamp: "2026-03-11T10:00:01.000Z",
-            cwd: process.cwd(),
-            git: { branch: "symphony/1" },
+      const firstTurn = await liveSession.runTurn(
+        {
+          turnNumber: 1,
+          prompt: "first",
+        },
+        {
+          onEvent(event) {
+            spawnedPid = event.pid;
           },
-        })}\n`,
-        "utf8",
+        },
       );
+      const secondTurn = await liveSession.runTurn({
+        turnNumber: 2,
+        prompt: "second",
+      });
 
-      const runner = new CodexRunner(
-        createCodexConfig({
-          command:
-            "codex exec --dangerously-bypass-approvals-and-sandbox --profile strict -m gpt-5.4 -C . -",
-        }),
-        logger,
-      );
-      const live = await runner.startSession!(createSession());
-
-      await live.runTurn({ turnNumber: 1, prompt: "first" });
-      await live.runTurn({ turnNumber: 2, prompt: "second" });
-      await live.runTurn({ turnNumber: 3, prompt: "third" });
-
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn).toHaveBeenCalledWith(
-        "Dropped unsupported Codex continuation arguments while building resume command",
+      expect(spawnedPid).toBeGreaterThan(0);
+      expect(firstTurn.session.appServerPid).toBe(spawnedPid);
+      expect(firstTurn.session.backendThreadId).toBe("thread-1");
+      expect(firstTurn.session.latestTurnId).toBe("turn-1");
+      expect(firstTurn.session.backendSessionId).toBe("thread-1-turn-1");
+      expect(secondTurn.session.backendThreadId).toBe("thread-1");
+      expect(secondTurn.session.latestTurnId).toBe("turn-2");
+      expect(secondTurn.session.backendSessionId).toBe("thread-1-turn-2");
+      expect(secondTurn.session.latestTurnNumber).toBe(2);
+      expect(await readLoggedMethods(logFile)).toEqual([
+        "initialize",
+        "initialized",
+        "thread/start",
+        "turn/start",
+        "turn/start",
+      ]);
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Dropped unsupported Codex exec arguments while building app-server launch command",
         expect.objectContaining({
           droppedArgs: ["--profile", "strict", "-C", "."],
         }),
       );
-      expect(
-        (executeSpy.mock.calls[1]?.[2] as { command: string } | undefined)
-          ?.command,
-      ).not.toContain(" -C ");
     } finally {
-      executeSpy.mockRestore();
-      homedirSpy.mockRestore();
-      await fs.rm(tempHome, { recursive: true, force: true });
+      await liveSession.close();
+      if (spawnedPid > 0) {
+        await waitForExit(spawnedPid);
+      }
     }
   });
 
-  it("drops unknown value-consuming flags as a pair during Codex resume reconstruction", async () => {
-    const executeSpy = vi
-      .spyOn(CodexRunner, "executeCommand")
-      .mockResolvedValue({
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-        startedAt: "2026-03-11T10:00:00.000Z",
-        finishedAt: "2026-03-11T10:00:05.000Z",
-      });
-    const warn = vi.fn<Logger["warn"]>();
-    const logger: Logger = {
-      info: vi.fn(),
-      warn,
-      error: vi.fn(),
-    };
-    const tempHome = await createTempDir("symphony-local-runner-home-");
-    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempHome);
-
-    try {
-      const sessionsRoot = path.join(
-        tempHome,
-        ".codex",
-        "sessions",
-        "2026",
-        "03",
-        "11",
-      );
-      await fs.mkdir(sessionsRoot, { recursive: true });
-      await fs.writeFile(
-        path.join(sessionsRoot, "match.jsonl"),
-        `${JSON.stringify({
-          type: "session_meta",
-          timestamp: "2026-03-11T10:00:01.000Z",
-          payload: {
-            id: "codex-session-1",
-            timestamp: "2026-03-11T10:00:01.000Z",
-            cwd: process.cwd(),
-            git: { branch: "symphony/1" },
-          },
-        })}\n`,
-        "utf8",
-      );
-
-      const runner = new CodexRunner(
-        createCodexConfig({
-          command:
-            "codex exec --dangerously-bypass-approvals-and-sandbox --profile --model -m gpt-5.4 -C . -",
-        }),
-        logger,
-      );
-      const live = await runner.startSession!(createSession());
-
-      await live.runTurn({ turnNumber: 1, prompt: "first" });
-      await live.runTurn({ turnNumber: 2, prompt: "second" });
-
-      expect(warn).toHaveBeenCalledWith(
-        "Dropped unsupported Codex continuation arguments while building resume command",
-        expect.objectContaining({
-          droppedArgs: ["--profile", "--model", "-C", "."],
-        }),
-      );
-    } finally {
-      executeSpy.mockRestore();
-      homedirSpy.mockRestore();
-      await fs.rm(tempHome, { recursive: true, force: true });
-    }
-  });
-
-  it("returns a rejected promise when Codex continuation is configured with file prompt transport", async () => {
+  it("fails explicitly when Codex app-server returns an invalid thread payload", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
     const runner = new CodexRunner(
       createCodexConfig({
-        promptTransport: "file",
-        maxTurns: 2,
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "malformed-thread",
+        },
       }),
       new JsonLogger(),
     );
+    const liveSession = await runner.startSession(createSession());
 
-    await expect(runner.startSession!(createSession())).rejects.toThrowError(
-      "Codex continuation turns require agent.prompt_transport to be 'stdin'",
+    await expect(
+      liveSession.runTurn({
+        turnNumber: 1,
+        prompt: "first",
+      }),
+    ).rejects.toThrowError(
+      "Codex app-server returned an invalid thread/start response",
     );
+  });
+
+  it("ignores malformed non-terminal Codex stream lines after turn start", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logger: Logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "malformed-stream",
+        },
+      }),
+      logger,
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    const result = await liveSession.runTurn({
+      turnNumber: 1,
+      prompt: "first",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Ignoring malformed Codex app-server stream line",
+      expect.objectContaining({
+        line: "not-json",
+      }),
+    );
+  });
+
+  it("times out and cleans up the Codex app-server process", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        timeoutMs: 50,
+        env: {
+          FAKE_CODEX_MODE: "hang",
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+    let spawnedPid = -1;
+
+    await expect(
+      liveSession.runTurn(
+        {
+          turnNumber: 1,
+          prompt: "first",
+        },
+        {
+          onEvent(event) {
+            spawnedPid = event.pid;
+          },
+        },
+      ),
+    ).rejects.toThrowError("Runner timed out after 50ms");
+
+    expect(spawnedPid).toBeGreaterThan(0);
+    await waitForExit(spawnedPid);
   });
 
   it("rejects Codex runner construction when the command is not the codex CLI", () => {

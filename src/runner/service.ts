@@ -26,6 +26,9 @@ export interface RunnerSessionDescription {
   readonly provider: string;
   readonly model: string | null;
   readonly backendSessionId: string | null;
+  readonly backendThreadId: string | null;
+  readonly latestTurnId: string | null;
+  readonly appServerPid: number | null;
   readonly latestTurnNumber: number | null;
   readonly logPointers: readonly RunnerLogPointer[];
 }
@@ -46,6 +49,7 @@ export interface RunnerTurnResult extends RunnerExecutionResult {
 export interface LiveRunnerSession {
   describe(): RunnerSessionDescription;
   runTurn(turn: RunTurn, options?: RunnerRunOptions): Promise<RunnerTurnResult>;
+  close(): Promise<void>;
 }
 
 export interface Runner extends RunnerSessionDescriber {

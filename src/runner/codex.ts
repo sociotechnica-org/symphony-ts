@@ -4,7 +4,7 @@ import { RunnerError } from "../domain/errors.js";
 import type { Logger } from "../observability/logger.js";
 import { describeLocalRunnerBackend } from "./local-command.js";
 import { executeLocalRunnerCommand } from "./local-execution.js";
-import { LocalRunnerSession } from "./local-live-session.js";
+import { CodexAppServerSession } from "./codex-app-server-session.js";
 import { describeLocalRunnerSession } from "./local-session-description.js";
 import type {
   Runner,
@@ -39,15 +39,10 @@ export class CodexRunner implements Runner {
     return describeLocalRunnerSession(this.#config.command);
   }
 
-  startSession(session: RunSession): Promise<LocalRunnerSession> {
+  startSession(session: RunSession): Promise<CodexAppServerSession> {
     try {
       return Promise.resolve(
-        new LocalRunnerSession(
-          this.#config,
-          this.#logger,
-          session,
-          CodexRunner.executeCommand,
-        ),
+        new CodexAppServerSession(this.#config, this.#logger, session),
       );
     } catch (error) {
       return Promise.reject(error);

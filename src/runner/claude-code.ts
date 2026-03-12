@@ -49,20 +49,24 @@ export class ClaudeCodeRunner implements Runner {
     options?: RunnerRunOptions,
   ): Promise<RunnerExecutionResult> {
     const liveSession = await this.startSession(session);
-    const result = await liveSession.runTurn(
-      {
-        turnNumber: 1,
-        prompt: session.prompt,
-      },
-      options,
-    );
-    return {
-      exitCode: result.exitCode,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      startedAt: result.startedAt,
-      finishedAt: result.finishedAt,
-    };
+    try {
+      const result = await liveSession.runTurn(
+        {
+          turnNumber: 1,
+          prompt: session.prompt,
+        },
+        options,
+      );
+      return {
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        startedAt: result.startedAt,
+        finishedAt: result.finishedAt,
+      };
+    } finally {
+      await liveSession.close();
+    }
   }
 
   static async executeCommand(
