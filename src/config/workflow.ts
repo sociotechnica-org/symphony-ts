@@ -336,7 +336,11 @@ function resolveObservabilityConfig(
   const renderIntervalMs = raw["render_interval_ms"];
   return {
     dashboardEnabled:
-      dashboardEnabled === undefined ? true : Boolean(dashboardEnabled),
+      dashboardEnabled === undefined
+        ? true
+        : dashboardEnabled === false || dashboardEnabled === "false"
+          ? false
+          : Boolean(dashboardEnabled),
     refreshMs:
       refreshMs === undefined
         ? 1000

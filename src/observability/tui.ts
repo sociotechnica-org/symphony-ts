@@ -526,7 +526,7 @@ function statusDotColor(event: string | null): string {
   if (event === null || event === "none") return RED;
   if (event === "codex/event/token_count") return YELLOW;
   if (event === "codex/event/task_started") return GREEN;
-  if (event === "turn_completed") return MAGENTA;
+  if (event === "turn/completed") return MAGENTA;
   return BLUE;
 }
 
@@ -719,8 +719,9 @@ function formatCount(value: number): string {
 }
 
 function formatRuntimeSeconds(seconds: number): string {
-  const mins = Math.floor(seconds / 60);
-  const secs = seconds % 60;
+  const total = Math.floor(seconds);
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
   return `${String(mins)}m ${String(secs)}s`;
 }
 
