@@ -26,7 +26,7 @@ Use this skill when acting as the operator for the local Symphony factory.
 6. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
    - `Plan review: approved`
    - `Plan review: changes-requested`
-   - `Plan review: waived`
+   - `Plan review: waived` (record why in the comment)
 7. After posting a review decision, verify the factory acknowledges it and transitions correctly.
 8. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
