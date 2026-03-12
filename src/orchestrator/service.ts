@@ -1147,9 +1147,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     };
     const onUpdate = (event: RunUpdateEvent): void => {
       try {
-        const entry = this.#state.runningEntries.get(
-          session.issue.number,
-        );
+        const entry = this.#state.runningEntries.get(session.issue.number);
         if (entry !== undefined) {
           const { tokenDelta } = integrateCodexUpdate(entry, event);
           this.#state.codexTotals.inputTokens += tokenDelta.inputTokens;

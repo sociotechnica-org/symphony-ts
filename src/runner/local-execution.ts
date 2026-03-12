@@ -229,7 +229,10 @@ export async function executeLocalRunnerCommand(
     });
     child.on("close", (exitCode) => {
       // Flush any remaining partial line in the buffer
-      if (execution.options?.onUpdate !== undefined && stdoutLineBuffer.trim() !== "") {
+      if (
+        execution.options?.onUpdate !== undefined &&
+        stdoutLineBuffer.trim() !== ""
+      ) {
         const update = tryParseStdoutEvent(stdoutLineBuffer);
         if (update !== undefined) {
           execution.options.onUpdate(update);
