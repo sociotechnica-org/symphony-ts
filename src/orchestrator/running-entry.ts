@@ -182,6 +182,16 @@ function extractTokenDelta(
       reported.total - entry.codexLastReportedTotalTokens,
     ),
   };
+
+  // Update high-water marks to the actual reported values so that
+  // counters stay in sync even when only some token types change.
+  if (reported.input > 0)
+    entry.codexLastReportedInputTokens = reported.input;
+  if (reported.output > 0)
+    entry.codexLastReportedOutputTokens = reported.output;
+  if (reported.total > 0)
+    entry.codexLastReportedTotalTokens = reported.total;
+
   return delta;
 }
 
@@ -235,16 +245,6 @@ export function integrateCodexUpdate(
 
   const tokenDelta = extractTokenDelta(entry, payload);
   const pid = extractPid(payload);
-
-  if (
-    tokenDelta.inputTokens > 0 ||
-    tokenDelta.outputTokens > 0 ||
-    tokenDelta.totalTokens > 0
-  ) {
-    entry.codexLastReportedInputTokens += tokenDelta.inputTokens;
-    entry.codexLastReportedOutputTokens += tokenDelta.outputTokens;
-    entry.codexLastReportedTotalTokens += tokenDelta.totalTokens;
-  }
 
   entry.sessionId = newSessionId;
   entry.lastCodexEvent = update.event;
