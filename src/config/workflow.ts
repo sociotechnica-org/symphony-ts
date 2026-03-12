@@ -651,7 +651,9 @@ function renderContinuationPrompt(
     "- The original task instructions and prior turn history are already present in this thread, so do not restate them before acting.",
   ];
   if (input.pullRequest !== null) {
-    lines.push(`- Current tracker handoff lifecycle: ${input.pullRequest.kind}.`);
+    lines.push(
+      `- Current tracker handoff lifecycle: ${input.pullRequest.kind}.`,
+    );
     lines.push(`- Current tracker summary: ${input.pullRequest.summary}`);
   }
   lines.push(

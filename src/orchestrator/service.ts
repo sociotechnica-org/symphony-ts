@@ -3,11 +3,7 @@ import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
-import type {
-  RunSpawnEvent,
-  RunSession,
-  RunTurn,
-} from "../domain/run.js";
+import type { RunSpawnEvent, RunSession, RunTurn } from "../domain/run.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -548,7 +544,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     });
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
-      this.#createRunStartedObservation(issue, attempt, sessionState, pullRequest),
+      this.#createRunStartedObservation(
+        issue,
+        attempt,
+        sessionState,
+        pullRequest,
+      ),
     );
     await this.#leaseManager.recordRun(lockDir, session);
     const abortController = new AbortController();
@@ -699,7 +700,8 @@ export class BootstrapOrchestrator implements Orchestrator {
         {
           runSession: session,
           description:
-            liveRunnerSession?.describe() ?? this.#runner.describeSession(session),
+            liveRunnerSession?.describe() ??
+            this.#runner.describeSession(session),
           latestTurnNumber: turn.turnNumber,
         },
         lockDir,
@@ -793,10 +795,16 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
       await this.#persistStatusSnapshot();
       await this.#recordIssueArtifact(
-        this.#createLifecycleObservation(issue, attempt, branchName, lifecycleForStatus, {
-          session,
-          finishedAt,
-        }),
+        this.#createLifecycleObservation(
+          issue,
+          attempt,
+          branchName,
+          lifecycleForStatus,
+          {
+            session,
+            finishedAt,
+          },
+        ),
       );
 
       const decision = noteLifecycleObservation(
@@ -1816,11 +1824,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     // The runner onSpawn callback is synchronous; snapshot persistence is optional.
     void this.#persistStatusSnapshot();
     void this.#recordIssueArtifact(
-      this.#createRunnerSpawnObservation(
-        session,
-        event,
-        turnNumber,
-      ),
+      this.#createRunnerSpawnObservation(session, event, turnNumber),
     );
     this.#logger.info("Runner process attached to active issue", {
       issueNumber,

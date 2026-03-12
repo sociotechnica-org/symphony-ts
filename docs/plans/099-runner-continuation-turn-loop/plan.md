@@ -204,17 +204,17 @@ This issue introduces a worker-run inner turn loop distinct from outer reruns.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Initial turn fails to start | no backend session id yet | unchanged | existing failure retry path |
-| Initial turn succeeds and tracker says `handoff-ready` | workspace exists, session may have backend id | terminal handoff | complete issue and close runner session |
-| Initial turn succeeds and tracker says `awaiting-system-checks` | backend session id captured | non-actionable waiting state | stop inner loop, persist session metadata, leave issue running |
-| Initial turn succeeds and tracker says `awaiting-human-handoff` | backend session id captured | non-actionable waiting state | stop inner loop, persist session metadata, wait for human feedback |
-| Initial turn succeeds and tracker says `actionable-follow-up`, turns remain | backend session id captured | actionable follow-up | send continuation prompt on same backend session |
-| Continuation turn succeeds and tracker still says `actionable-follow-up`, turns remain | same backend session id | actionable follow-up | continue same live session |
+| Observed condition                                                                           | Local facts available                             | Normalized tracker facts available     | Expected decision                                                                                                          |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Initial turn fails to start                                                                  | no backend session id yet                         | unchanged                              | existing failure retry path                                                                                                |
+| Initial turn succeeds and tracker says `handoff-ready`                                       | workspace exists, session may have backend id     | terminal handoff                       | complete issue and close runner session                                                                                    |
+| Initial turn succeeds and tracker says `awaiting-system-checks`                              | backend session id captured                       | non-actionable waiting state           | stop inner loop, persist session metadata, leave issue running                                                             |
+| Initial turn succeeds and tracker says `awaiting-human-handoff`                              | backend session id captured                       | non-actionable waiting state           | stop inner loop, persist session metadata, wait for human feedback                                                         |
+| Initial turn succeeds and tracker says `actionable-follow-up`, turns remain                  | backend session id captured                       | actionable follow-up                   | send continuation prompt on same backend session                                                                           |
+| Continuation turn succeeds and tracker still says `actionable-follow-up`, turns remain       | same backend session id                           | actionable follow-up                   | continue same live session                                                                                                 |
 | Continuation turn succeeds and tracker still says actionable work, but `max_turns` exhausted | same backend session id, `turnNumber == maxTurns` | actionable follow-up or missing-target | record explicit exhaustion outcome and hand off to existing outer retry/follow-up policy without cold-looping indefinitely |
-| Continuation turn fails after prior successful turns | backend session id captured | unchanged | existing failure retry path; next outer rerun may start a fresh worker run |
-| Runner cannot recover backend session id from successful first turn | stdout/stderr/JSONL available | actionable follow-up after turn 1 | treat as runner failure rather than silently cold-starting continuation |
+| Continuation turn fails after prior successful turns                                         | backend session id captured                       | unchanged                              | existing failure retry path; next outer rerun may start a fresh worker run                                                 |
+| Runner cannot recover backend session id from successful first turn                          | stdout/stderr/JSONL available                     | actionable follow-up after turn 1      | treat as runner failure rather than silently cold-starting continuation                                                    |
 
 ## Storage / Persistence Contract
 

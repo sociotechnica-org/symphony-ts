@@ -171,7 +171,9 @@ agent:
 
     expect(rendered).toContain("Continuation guidance:");
     expect(rendered).toContain("continuation turn #2 of 4");
-    expect(rendered).not.toContain("Issue repo#1 / sociotechnica-org/symphony-ts");
+    expect(rendered).not.toContain(
+      "Issue repo#1 / sociotechnica-org/symphony-ts",
+    );
   });
 
   it("derives workspace.repoUrl from tracker.repo and api_url when repo_url is omitted", async () => {

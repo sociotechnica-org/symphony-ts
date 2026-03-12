@@ -175,9 +175,12 @@ export class LocalRunner implements Runner {
           return;
         }
         const reason = error instanceof Error ? error.message : String(error);
-        spawnError = new RunnerError(`Failed to record runner spawn: ${reason}`, {
-          cause: error instanceof Error ? error : new Error(reason),
-        });
+        spawnError = new RunnerError(
+          `Failed to record runner spawn: ${reason}`,
+          {
+            cause: error instanceof Error ? error : new Error(reason),
+          },
+        );
         terminateChild();
       };
 
@@ -248,7 +251,9 @@ export class LocalRunner implements Runner {
           finish(() => {
             const finishedAt = new Date().toISOString();
             if (timedOut) {
-              reject(new RunnerError(`Runner timed out after ${config.timeoutMs}ms`));
+              reject(
+                new RunnerError(`Runner timed out after ${config.timeoutMs}ms`),
+              );
               return;
             }
             if (aborted) {
@@ -371,7 +376,10 @@ class LocalRunnerSession implements LiveRunnerSession {
         "Cannot start a Codex continuation turn without a backend session id",
       );
     }
-    return buildCodexResumeCommand(this.#config.command, this.#backendSessionId);
+    return buildCodexResumeCommand(
+      this.#config.command,
+      this.#backendSessionId,
+    );
   }
 }
 
@@ -382,7 +390,9 @@ function buildCodexResumeCommand(command: string, sessionId: string): string {
     path.basename(parsed.executable) !== "codex" ||
     parsed.executableIndex < 0
   ) {
-    throw new RunnerError("Cannot build a Codex resume command from a non-Codex runner");
+    throw new RunnerError(
+      "Cannot build a Codex resume command from a non-Codex runner",
+    );
   }
 
   const prefix = parsed.tokens.slice(0, parsed.executableIndex);
@@ -477,14 +487,14 @@ async function findCodexSession(input: {
   const matches: CodexSessionMatch[] = [];
 
   for (const root of candidateRoots) {
-    const entries = await fs.readdir(root, { withFileTypes: true }).catch(
-      (error) => {
+    const entries = await fs
+      .readdir(root, { withFileTypes: true })
+      .catch((error) => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
           return [];
         }
         throw error;
-      },
-    );
+      });
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".jsonl")) {
         continue;
@@ -522,12 +532,14 @@ async function findCodexSession(input: {
     }
   }
 
-  return matches.sort((left, right) => left.filePath.localeCompare(right.filePath)).at(-1) ?? null;
+  return (
+    matches
+      .sort((left, right) => left.filePath.localeCompare(right.filePath))
+      .at(-1) ?? null
+  );
 }
 
-async function parseCodexSessionMeta(
-  filePath: string,
-): Promise<{
+async function parseCodexSessionMeta(filePath: string): Promise<{
   readonly id: string;
   readonly timestamp: string;
   readonly cwd: string;
@@ -569,10 +581,19 @@ function deriveCandidateDayRoots(
 ): readonly string[] {
   const startMs = Date.parse(startedAt);
   const finishMs = Date.parse(finishedAt);
-  const anchors = [startMs, finishMs, startMs - 24 * 60 * 60 * 1000, finishMs + 24 * 60 * 60 * 1000]
+  const anchors = [
+    startMs,
+    finishMs,
+    startMs - 24 * 60 * 60 * 1000,
+    finishMs + 24 * 60 * 60 * 1000,
+  ]
     .filter((value) => Number.isFinite(value))
     .map((value) => value as number);
-  return [...new Set(anchors.map((value) => path.join(sessionsRoot, formatDatePath(value))))];
+  return [
+    ...new Set(
+      anchors.map((value) => path.join(sessionsRoot, formatDatePath(value))),
+    ),
+  ];
 }
 
 function formatDatePath(timestampMs: number): string {
