@@ -500,6 +500,26 @@ describe("StatusDashboard", () => {
     expect(offlineOutput).toContain("app_status=offline");
   });
 
+  it("stop() is idempotent — calling twice does not render offline frame twice", () => {
+    const renders: string[] = [];
+    const dashboard = new StatusDashboard(
+      () => makeSnapshot(),
+      () => makeConfig(),
+      {
+        renderFn: (c) => renders.push(c),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 1,
+      },
+    );
+    dashboard.stop();
+    dashboard.stop();
+    const offlineCount = renders.filter((r) =>
+      r.includes("app_status=offline"),
+    ).length;
+    expect(offlineCount).toBe(1);
+  });
+
   it("refresh() triggers immediate render", () => {
     const rendered: string[] = [];
     const dashboard = new StatusDashboard(
