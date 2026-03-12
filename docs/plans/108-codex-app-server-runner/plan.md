@@ -210,18 +210,18 @@ This issue changes stateful long-lived execution behavior and therefore needs an
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| `codex app-server` process fails before `initialize` response | workspace path, command, maybe pid | unchanged | fail runner startup, record startup failure, outer retry policy decides next step |
-| `initialize` succeeds but `thread/start` response is malformed or missing nested thread id | pid, stdout payload, no thread id | unchanged | treat as runner failure, close subprocess, do not attempt continuation |
-| first `turn/start` succeeds and `turn/completed` arrives | pid, thread id, turn id | post-turn lifecycle from tracker | existing orchestrator continuation policy decides continue / wait / complete |
-| continuation turn succeeds on same thread | same pid, same thread id, new turn id | actionable follow-up or terminal/waiting lifecycle | continue or stop according to existing policy |
-| stdout emits malformed non-terminal JSON line during stream | pid, raw line, active thread/turn ids | unchanged until successful turn end | log malformed diagnostic and continue streaming unless terminal parsing becomes impossible |
-| stdout emits malformed terminal payload for `turn/completed` / `turn/failed` semantics | pid, raw line, active turn | unchanged | treat as runner failure, close subprocess, keep state inspectable |
-| subprocess exits while turn is in flight | pid, exit status, active thread/turn ids | unchanged | runner failure, close session, outer retry path |
-| turn times out while process stays alive | pid, active thread/turn ids | unchanged | interrupt or stop subprocess if supported, mark runner failure, cleanup before returning |
-| worker abort/shutdown arrives during active turn | abort signal, pid, active thread/turn ids | unchanged | stop session promptly, clean subprocess, surface aborted run |
-| actionable follow-up remains after `agent.max_turns` | healthy session metadata, latest successful turn | actionable lifecycle | orchestrator records explicit max-turn exhaustion outcome; runner closes cleanly |
+| Observed condition                                                                         | Local facts available                            | Normalized tracker facts available                 | Expected decision                                                                          |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `codex app-server` process fails before `initialize` response                              | workspace path, command, maybe pid               | unchanged                                          | fail runner startup, record startup failure, outer retry policy decides next step          |
+| `initialize` succeeds but `thread/start` response is malformed or missing nested thread id | pid, stdout payload, no thread id                | unchanged                                          | treat as runner failure, close subprocess, do not attempt continuation                     |
+| first `turn/start` succeeds and `turn/completed` arrives                                   | pid, thread id, turn id                          | post-turn lifecycle from tracker                   | existing orchestrator continuation policy decides continue / wait / complete               |
+| continuation turn succeeds on same thread                                                  | same pid, same thread id, new turn id            | actionable follow-up or terminal/waiting lifecycle | continue or stop according to existing policy                                              |
+| stdout emits malformed non-terminal JSON line during stream                                | pid, raw line, active thread/turn ids            | unchanged until successful turn end                | log malformed diagnostic and continue streaming unless terminal parsing becomes impossible |
+| stdout emits malformed terminal payload for `turn/completed` / `turn/failed` semantics     | pid, raw line, active turn                       | unchanged                                          | treat as runner failure, close subprocess, keep state inspectable                          |
+| subprocess exits while turn is in flight                                                   | pid, exit status, active thread/turn ids         | unchanged                                          | runner failure, close session, outer retry path                                            |
+| turn times out while process stays alive                                                   | pid, active thread/turn ids                      | unchanged                                          | interrupt or stop subprocess if supported, mark runner failure, cleanup before returning   |
+| worker abort/shutdown arrives during active turn                                           | abort signal, pid, active thread/turn ids        | unchanged                                          | stop session promptly, clean subprocess, surface aborted run                               |
+| actionable follow-up remains after `agent.max_turns`                                       | healthy session metadata, latest successful turn | actionable lifecycle                               | orchestrator records explicit max-turn exhaustion outcome; runner closes cleanly           |
 
 ## Storage / Persistence Contract
 

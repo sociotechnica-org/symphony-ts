@@ -603,7 +603,10 @@ describe("runners", () => {
 
   it("starts Codex through app-server, reuses one thread, and derives session metadata", async () => {
     const fakeCodex = await createFakeCodexExecutable();
-    const logFile = path.join(await createTempDir("fake-codex-log-"), "rpc.jsonl");
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
     const logger: Logger = {
       info: vi.fn(),
       warn: vi.fn(),

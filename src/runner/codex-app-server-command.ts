@@ -2,16 +2,9 @@ import path from "node:path";
 import { RunnerError } from "../domain/errors.js";
 import { parseLocalRunnerCommand, quoteShellToken } from "./local-command.js";
 
-type CodexApprovalPolicy =
-  | "untrusted"
-  | "on-failure"
-  | "on-request"
-  | "never";
+type CodexApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
 
-type CodexSandboxMode =
-  | "read-only"
-  | "workspace-write"
-  | "danger-full-access";
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
 export interface CodexAppServerCommand {
   readonly launchCommand: string;

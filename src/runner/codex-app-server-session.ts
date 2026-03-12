@@ -165,7 +165,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   #spawnProcess(onEvent?: (event: RunnerEvent) => void | Promise<void>): void {
-    if (!this.#loggedDroppedArgs && this.#appServerCommand.droppedArgs.length > 0) {
+    if (
+      !this.#loggedDroppedArgs &&
+      this.#appServerCommand.droppedArgs.length > 0
+    ) {
       this.#logger.warn(
         "Dropped unsupported Codex exec arguments while building app-server launch command",
         {
@@ -287,7 +290,9 @@ export class CodexAppServerSession implements LiveRunnerSession {
     const thread = asRecord(result["thread"]);
     const threadId = typeof thread?.["id"] === "string" ? thread["id"] : null;
     if (threadId === null) {
-      throw new RunnerError("Codex app-server returned an invalid thread/start response");
+      throw new RunnerError(
+        "Codex app-server returned an invalid thread/start response",
+      );
     }
     this.#threadId = threadId;
   }
@@ -407,7 +412,9 @@ export class CodexAppServerSession implements LiveRunnerSession {
       if (newlineIndex < 0) {
         return;
       }
-      const line = this.#stdoutBuffer.slice(0, newlineIndex).replace(/\r$/u, "");
+      const line = this.#stdoutBuffer
+        .slice(0, newlineIndex)
+        .replace(/\r$/u, "");
       this.#stdoutBuffer = this.#stdoutBuffer.slice(newlineIndex + 1);
       this.#handleStdoutLine(line);
     }
@@ -480,11 +487,9 @@ export class CodexAppServerSession implements LiveRunnerSession {
     pending.resolve(result);
   }
 
-  #handleNotification(
-    message: Record<string, unknown>,
-    rawLine: string,
-  ): void {
-    const method = typeof message["method"] === "string" ? message["method"] : null;
+  #handleNotification(message: Record<string, unknown>, rawLine: string): void {
+    const method =
+      typeof message["method"] === "string" ? message["method"] : null;
     const params = asRecord(message["params"]);
     if (method === null || params === null) {
       return;
