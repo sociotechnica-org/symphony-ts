@@ -57,8 +57,16 @@ class FakeProviderLiveSession implements LiveRunnerSession {
     } as const;
   }
 
-  async runTurn(turn: RunTurn): Promise<RunnerTurnResult> {
+  async runTurn(
+    turn: RunTurn,
+    options?: RunnerRunOptions,
+  ): Promise<RunnerTurnResult> {
     this.#latestTurnNumber = turn.turnNumber;
+    await options?.onEvent?.({
+      kind: "spawned",
+      pid: 31337,
+      spawnedAt: "2026-03-12T10:00:00.000Z",
+    });
     return {
       exitCode: 0,
       stdout: `completed turn ${turn.turnNumber.toString()}`,
@@ -142,13 +150,25 @@ describe("runner contract", () => {
   it("supports live sessions without Codex-specific resume state", async () => {
     const runner = new FakeProviderRunner();
     const startSession = runner.startSession;
+    const events: RunnerEvent[] = [];
     expect(startSession).toBeDefined();
     const liveSession = await startSession!(createSession());
     const result = await liveSession.runTurn({
       prompt: "Continuation prompt",
       turnNumber: 2,
+    }, {
+      onEvent(event) {
+        events.push(event);
+      },
     });
 
+    expect(events).toEqual([
+      {
+        kind: "spawned",
+        pid: 31337,
+        spawnedAt: "2026-03-12T10:00:00.000Z",
+      },
+    ]);
     expect(result).toEqual({
       exitCode: 0,
       stdout: "completed turn 2",
