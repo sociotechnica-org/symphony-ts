@@ -1380,7 +1380,8 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.failed).toEqual([
       {
         issueNumber: 73,
-        reason: "actionable-follow-up for symphony/73",
+        reason:
+          "Reached agent.max_turns (3) with remaining actionable-follow-up work: actionable-follow-up for symphony/73",
       },
     ]);
   });
@@ -1903,6 +1904,90 @@ describe("BootstrapOrchestrator", () => {
         (issue) => issue.issueNumber === 90,
       );
       expect(issueStatus?.summary).toBe("actionable-follow-up for symphony/90");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps actionable follow-up status summaries raw when max turns are reached but retries remain", async () => {
+    const tempRoot = await createTempDir("symphony-max-turn-follow-up-status-");
+    const tracker = new SequencedTracker({
+      ready: [createIssue(91)],
+    });
+    try {
+      tracker.setLifecycleSequence(91, [
+        lifecycle("missing-target", "symphony/91"),
+        lifecycle("actionable-follow-up", "symphony/91", {
+          actionableReviewFeedback: [
+            {
+              id: "feedback-1",
+              kind: "review-thread",
+              threadId: "thread-1",
+              authorLogin: "greptile[bot]",
+              body: "Please tighten the remaining edge case",
+              createdAt: "2026-03-12T00:00:00.000Z",
+              url: "https://example.test/review/1",
+              path: "src/orchestrator/service.ts",
+              line: 123,
+            },
+          ],
+          unresolvedThreadIds: ["thread-1"],
+        }),
+        lifecycle("actionable-follow-up", "symphony/91", {
+          actionableReviewFeedback: [
+            {
+              id: "feedback-2",
+              kind: "review-thread",
+              threadId: "thread-2",
+              authorLogin: "greptile[bot]",
+              body: "Please tighten the remaining edge case",
+              createdAt: "2026-03-12T00:01:00.000Z",
+              url: "https://example.test/review/2",
+              path: "src/orchestrator/service.ts",
+              line: 124,
+            },
+          ],
+          unresolvedThreadIds: ["thread-2"],
+        }),
+      ]);
+
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          agent: {
+            ...baseConfig.agent,
+            maxTurns: 3,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 1,
+              maxFollowUpAttempts: 3,
+              backoffMs: 0,
+            },
+          },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingLiveSessionRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      const issueStatus = status.activeIssues.find(
+        (issue) => issue.issueNumber === 91,
+      );
+      expect(issueStatus?.summary).toBe("actionable-follow-up for symphony/91");
+      expect(tracker.failed).toEqual([]);
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }

@@ -43,7 +43,7 @@ import {
   type RunSessionArtifactsState,
   summarizeMissingTargetFailure,
   shouldContinueTurnLoop,
-  summarizeLifecycleAtTurnExit,
+  summarizeLifecycleTurnBudgetFailure,
 } from "./continuation-turns.js";
 import {
   clearFollowUpRuntimeState,
@@ -775,19 +775,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       lifecycle.kind === "awaiting-landing" ||
       lifecycle.kind === "actionable-follow-up"
     ) {
-      const lifecycleForStatus = summarizeLifecycleAtTurnExit(
-        lifecycle,
-        session.latestTurnNumber,
-        this.#config.agent.maxTurns,
-      );
-      const summary = lifecycleForStatus.summary;
+      const summary = lifecycle.summary;
       noteLifecycleForIssue(
         this.#state.status,
         issue,
         source,
         attempt,
         branchName,
-        lifecycleForStatus,
+        lifecycle,
       );
       this.#logger.info("Issue remains in handoff lifecycle", {
         issueNumber: issue.number,
@@ -809,7 +804,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           issue,
           attempt,
           branchName,
-          lifecycleForStatus,
+          lifecycle,
           {
             session,
             finishedAt,
@@ -825,13 +820,29 @@ export class BootstrapOrchestrator implements Orchestrator {
         this.#config.polling.retry.maxFollowUpAttempts,
       );
       if (decision.kind === "exhausted") {
-        await this.#failIssue(issue, this.#followUpFailureMessage(lifecycle), {
-          attemptNumber: attempt,
-          branchName,
-          session,
-          finishedAt,
+        const failureSummary = summarizeLifecycleTurnBudgetFailure(
           lifecycle,
-        });
+          session.latestTurnNumber,
+          this.#config.agent.maxTurns,
+        );
+        const failureLifecycle =
+          failureSummary === lifecycle.summary
+            ? lifecycle
+            : {
+                ...lifecycle,
+                summary: failureSummary,
+              };
+        await this.#failIssue(
+          issue,
+          this.#followUpFailureMessage(failureLifecycle),
+          {
+            attemptNumber: attempt,
+            branchName,
+            session,
+            finishedAt,
+            lifecycle: failureLifecycle,
+          },
+        );
       }
       return;
     }
