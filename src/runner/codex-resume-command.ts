@@ -89,11 +89,7 @@ function filterCodexResumeArgs(args: readonly string[]): {
       token === "--output-last-message"
     ) {
       const value = args[index + 1];
-      if (
-        value !== undefined &&
-        value !== "-" &&
-        !value.startsWith("-")
-      ) {
+      if (value !== undefined && value !== "-" && !value.startsWith("-")) {
         filteredArgs.push(token, value);
         index += 1;
       } else {
