@@ -15,6 +15,7 @@ export interface RunnerSpawnedEvent {
 }
 
 export type RunnerEvent = RunnerSpawnedEvent;
+
 export interface RunnerLogPointer {
   readonly name: string;
   readonly location: string | null;

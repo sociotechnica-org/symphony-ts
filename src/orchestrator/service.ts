@@ -722,6 +722,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       },
     };
     const onEvent = (event: RunnerEvent): void => {
+      // If `RunnerEvent` grows beyond spawn notifications, keep the dispatch
+      // map explicit and add a cast at this call site to preserve the
+      // correlation between `event.kind` and the handler parameter type.
       runnerEventHandlers[event.kind](event);
     };
     if (liveRunnerSession !== undefined) {

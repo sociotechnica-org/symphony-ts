@@ -141,7 +141,9 @@ describe("runner contract", () => {
 
   it("supports live sessions without Codex-specific resume state", async () => {
     const runner = new FakeProviderRunner();
-    const liveSession = await runner.startSession!(createSession());
+    const startSession = runner.startSession;
+    expect(startSession).toBeDefined();
+    const liveSession = await startSession!(createSession());
     const result = await liveSession.runTurn({
       prompt: "Continuation prompt",
       turnNumber: 2,
