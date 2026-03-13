@@ -590,6 +590,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       clearLandingRuntimeState(this.#state.landing, issue.number);
     }
 
+    // Intentionally record the post-request lifecycle after the landing event.
+    // The landing artifact captures that the merge command was issued; this
+    // follow-up observation captures the tracker-visible state after refresh.
     noteLifecycleForIssue(
       this.#state.status,
       issue,

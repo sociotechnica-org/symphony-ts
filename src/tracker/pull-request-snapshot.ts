@@ -110,18 +110,20 @@ export function createPullRequestSnapshot(input: {
             line: null,
           }));
 
-  const hasLandingCommand = input.reviewState.comments.nodes.some((comment) => {
-    const authorLogin = comment.author?.login ?? null;
-    return (
-      isHumanLandingApprover(
-        authorLogin,
-        comment.authorAssociation,
-        reviewBotLogins,
-      ) &&
-      isAfter(comment.createdAt, latestCommitAt) &&
-      parseLandingCommandSignal(comment.body)
-    );
-  });
+  const hasLandingCommand =
+    latestCommitAt !== null &&
+    input.reviewState.comments.nodes.some((comment) => {
+      const authorLogin = comment.author?.login ?? null;
+      return (
+        isHumanLandingApprover(
+          authorLogin,
+          comment.authorAssociation,
+          reviewBotLogins,
+        ) &&
+        isAfter(comment.createdAt, latestCommitAt) &&
+        parseLandingCommandSignal(comment.body)
+      );
+    });
 
   const actionableReviewFeedback = [
     ...unresolvedThreads,
