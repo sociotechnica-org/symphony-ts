@@ -13,7 +13,7 @@ OpenAI released [the Symphony spec](https://github.com/openai/symphony) to addre
 **What makes symphony-ts different:**
 
 - **Runs locally.** Point it at a repo and it starts working issues. No servers to deploy, no accounts to create.
-- **Adapter pattern for everything.** Pluggable trackers (GitHub and Linear) and a provider-neutral runner contract with a local Codex adapter today, remote workers planned. Swap any layer without touching the others.
+- **Adapter pattern for everything.** Pluggable trackers (GitHub and Linear) and a provider-neutral runner contract with built-in `codex`, `claude-code`, and `generic-command` adapters today, remote workers planned. Swap any layer without touching the others.
 - **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in your tracker (GitHub Issues or Linear) instead of a separate control plane. Today's bootstrap runtime is designed for one local factory instance; broader multi-instance coordination is planned.
 - **Visibility.** The tracker gives you real-time visibility into the whole factory. A local status surface shows worker-level detail.
 - **It builds itself.** Symphony works `symphony-ts` issues and opens PRs back into this repo. The [self-hosting loop](docs/guides/self-hosting-loop.md) is how we develop it.
@@ -50,25 +50,33 @@ Run continuously:
 pnpm tsx bin/symphony.ts run
 ```
 
-Check factory status:
+Check the workflow-derived status snapshot:
 
 ```bash
 pnpm tsx bin/symphony.ts status          # terminal view
 pnpm tsx bin/symphony.ts status --json   # machine-readable
 ```
 
-Control the local detached factory runtime from the repo root:
+Control or inspect the local detached factory runtime from the repo root:
 
 ```bash
 pnpm tsx bin/symphony.ts factory start
-pnpm tsx bin/symphony.ts factory status
+pnpm tsx bin/symphony.ts factory status        # control/runtime view
+pnpm tsx bin/symphony.ts factory watch         # live read-only watch surface
+pnpm tsx bin/symphony.ts factory status --json
 pnpm tsx bin/symphony.ts factory restart
 pnpm tsx bin/symphony.ts factory stop
 ```
 
-These commands target the checked-out runtime under `.tmp/factory-main`, so the
-operator no longer needs to `cd` into the runtime checkout or manually combine
-`screen` with `pkill` cleanup.
+These commands target the checked-out runtime under `.tmp/factory-main`. Use
+`status` when you want the raw runtime snapshot for a specific workflow path,
+and use `factory status` when you want the detached runtime control state plus
+the embedded status snapshot. Operators should generally start with
+`factory status`, then use `factory watch` for continuous monitoring.
+
+For detached monitoring, do not use raw `screen -r symphony-factory` as the
+normal watch path. Attaching that way gives your terminal the worker's
+foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
 
 The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, session identity, heartbeat/action
@@ -166,7 +174,6 @@ polling:
 
 workspace:
   root: ./.tmp/workspaces
-  repo_url: git@github.com:your-org/your-repo.git
   branch_prefix: symphony/
 
 agent:
@@ -178,25 +185,31 @@ agent:
   max_turns: 20
 ```
 
-| Field                          | Purpose                                                                      |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| `tracker.repo`                 | GitHub repository to poll for labeled issues                                 |
-| `tracker.review_bot_logins`    | PR comment authors treated as actionable bot review                          |
-| `polling.interval_ms`          | How often to check for new work                                              |
-| `polling.max_concurrent_runs`  | Local concurrency cap                                                        |
-| `workspace.root`               | Where isolated workspaces are created                                        |
-| `workspace.repo_url`           | SSH or HTTPS URL of the repository cloned for each workspace                 |
-| `workspace.branch_prefix`      | Issue branch naming prefix                                                   |
-| `agent.runner.kind`            | Selects the execution backend (`codex`, `claude-code`, or `generic-command`) |
-| `agent.command`                | Runner command shape; Codex reuses its flags to launch `codex app-server`    |
-| `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path                        |
-| `agent.timeout_ms`             | Max wall-clock time per runner turn                                          |
-| `agent.max_turns`              | Max in-process continuation turns per worker run                             |
-| `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`)               |
+| Field                          | Purpose                                                                       |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| `tracker.repo`                 | GitHub repository to poll for labeled issues                                  |
+| `tracker.review_bot_logins`    | PR comment authors treated as actionable bot review                           |
+| `polling.interval_ms`          | How often to check for new work                                               |
+| `polling.max_concurrent_runs`  | Local concurrency cap                                                         |
+| `workspace.root`               | Where isolated workspaces are created                                         |
+| `workspace.repo_url`           | Explicit SSH or HTTPS clone URL when it cannot be derived from tracker config |
+| `workspace.branch_prefix`      | Issue branch naming prefix                                                    |
+| `agent.runner.kind`            | Selects the execution backend (`codex`, `claude-code`, or `generic-command`)  |
+| `agent.command`                | Runner command shape; Codex reuses its flags to launch `codex app-server`     |
+| `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path                         |
+| `agent.timeout_ms`             | Max wall-clock time per runner turn                                           |
+| `agent.max_turns`              | Max in-process continuation turns per worker run                              |
+| `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`)                |
 
 `agent.timeout_ms` applies to each runner turn. If `agent.max_turns` is greater
 than `1`, a single worker run can consume multiple per-turn timeout windows
 before it exits.
+
+For `tracker.kind: github-bootstrap`, Symphony can derive the workspace clone
+URL from `tracker.repo` (or `SYMPHONY_REPO`) for the normal bootstrap flow.
+Set `workspace.repo_url` explicitly when you want to override that derived URL
+or when using a tracker/config path that does not provide enough repository
+information on its own.
 
 `agent.runner.kind` keeps backend selection in `WORKFLOW.md`. Use `codex` for
 the built-in long-lived Codex app-server path, `claude-code` for the first-class
@@ -311,7 +324,7 @@ src/
   domain/                    Shared runtime types and errors
   observability/             Structured logging
   orchestrator/              Polling, retries, dispatch
-  runner/                    Codex subprocess execution
+  runner/                    Local runner adapters and live session handling
   tracker/                   GitHub and Linear tracker adapters
   workspace/                 Local git workspace management
 tests/
@@ -356,7 +369,7 @@ Tests run in three layers: unit tests for pure logic, integration tests for adap
 
 ## Status & Roadmap
 
-**Current phase: 1.2** — single local instance, GitHub Issues and Linear trackers, local Codex runner.
+**Current phase: 1.2** — single local instance, GitHub Issues and Linear trackers, detached factory control, and local multi-runner execution.
 
 What works today:
 
@@ -366,6 +379,7 @@ What works today:
 - CI and automated review follow-up loop
 - Orphaned run recovery on restart
 - Local factory status surface and per-issue reporting
+- Safe detached factory watch surface via `symphony factory watch`
 - Self-hosting: Symphony builds itself
 
 What's planned:

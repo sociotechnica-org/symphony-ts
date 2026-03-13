@@ -373,6 +373,79 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
   });
 
+  it("records landing-failed when the merge request throws before dispatch completes", async () => {
+    server.seedIssue({
+      number: 81,
+      title: "Landing failure semantics",
+      body: "Record thrown landing failures distinctly",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/81", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    await orchestrator.runOnce();
+    server.addPullRequestComment({
+      head: "symphony/81",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
+    server.setPullRequestLandingBehavior("symphony/81", {
+      failureStatus: 500,
+      failureMessage: "merge temporarily blocked",
+    });
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(81);
+    expect(issue.state).toBe("open");
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.lastAction?.kind).toBe("landing-failed");
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      81,
+    );
+    expect(artifactSummary.currentOutcome).toBe("attempt-failed");
+
+    const artifactEvents = await readIssueArtifactEvents(
+      path.join(tempDir, ".tmp", "workspaces"),
+      81,
+    );
+    expect(artifactEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "landing-failed",
+        details: expect.objectContaining({
+          success: false,
+          lifecycleKind: "attempt-failed",
+          summary: expect.stringContaining(
+            "Landing request failed for sociotechnica-org/symphony-ts#81",
+          ),
+          error: expect.stringContaining("merge temporarily blocked"),
+        }),
+      }),
+    );
+    expect(artifactEvents).not.toContainEqual(
+      expect.objectContaining({
+        kind: "landing-requested",
+        attemptNumber: 2,
+      }),
+    );
+  });
+
   it("pushes the reviewed plan branch before plan-ready and keeps the plan recoverable from the remote", async () => {
     server.seedIssue({
       number: 53,

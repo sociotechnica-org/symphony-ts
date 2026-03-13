@@ -10,6 +10,7 @@
 import type { ObservabilityConfig } from "../domain/workflow.js";
 import { getKey, getMapKey, mapPath } from "../domain/codex-payload.js";
 import type { TuiSnapshot } from "../orchestrator/service.js";
+import type { RunnerVisibilitySnapshot } from "../runner/service.js";
 import { setLogFile, getLogFilePath } from "./logger.js";
 
 // ─── ANSI constants ────────────────────────────────────────────────────────
@@ -535,13 +536,16 @@ function formatRunningRow(
     TOKENS_WIDTH,
     "right",
   );
-  const session = formatCell(compactSessionId(entry.sessionId), SESSION_WIDTH);
-  const eventLabel = formatCell(
-    humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent),
-    eventWidth,
+  const session = formatCell(
+    compactSessionId(resolveSessionDisplay(entry)),
+    SESSION_WIDTH,
   );
+  const eventLabel = formatCell(describeRunningEvent(entry), eventWidth);
 
-  const statusColor = statusDotColor(entry.lastCodexEvent);
+  const statusColor = statusDotColor(
+    entry.lastCodexEvent,
+    entry.runnerVisibility,
+  );
 
   return (
     "│ " +
@@ -565,12 +569,38 @@ function formatRunningRow(
 
 // Event names are normalized to canonical slash form by integrateCodexUpdate,
 // so downstream consumers only need to handle one form per event.
-function statusDotColor(event: string | null): string {
+function statusDotColor(
+  event: string | null,
+  visibility: RunnerVisibilitySnapshot | null,
+): string {
+  if (visibility !== null) {
+    switch (visibility.state) {
+      case "completed":
+        return MAGENTA;
+      case "failed":
+      case "timed-out":
+      case "cancelled":
+        return RED;
+      case "starting":
+        return CYAN;
+      case "waiting":
+        return YELLOW;
+      case "running":
+        return BLUE;
+      case "idle":
+        return GRAY;
+    }
+    return unreachableVisibilityState(visibility.state);
+  }
   if (event === null || event === "none") return RED;
   if (event === "codex/event/token_count") return YELLOW;
   if (event === "codex/event/task_started") return GREEN;
   if (event === "turn/completed") return MAGENTA;
   return BLUE;
+}
+
+function unreachableVisibilityState(state: never): never {
+  throw new Error(`Unhandled runner visibility state: ${state as string}`);
 }
 
 // ─── Backoff queue ────────────────────────────────────────────────────────
@@ -742,6 +772,23 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       lastCodexEvent: e.lastCodexEvent,
       lastCodexMessage: e.lastCodexMessage,
       lastCodexTimestamp: e.lastCodexTimestamp,
+      runnerVisibility:
+        e.runnerVisibility === null
+          ? null
+          : {
+              state: e.runnerVisibility.state,
+              session: {
+                backendSessionId: e.runnerVisibility.session.backendSessionId,
+                backendThreadId: e.runnerVisibility.session.backendThreadId,
+                latestTurnId: e.runnerVisibility.session.latestTurnId,
+              },
+              lastActionSummary: e.runnerVisibility.lastActionSummary,
+              waitingReason: e.runnerVisibility.waitingReason,
+              stdoutSummary: e.runnerVisibility.stdoutSummary,
+              errorSummary: e.runnerVisibility.errorSummary,
+              cancelledAt: e.runnerVisibility.cancelledAt,
+              timedOutAt: e.runnerVisibility.timedOutAt,
+            },
     })),
     retrying: snapshot.retrying.map((r) => ({
       issueNumber: r.issueNumber,
@@ -877,6 +924,97 @@ export function humanizeEvent(
   const byEvent =
     eventType !== null ? humanizeByEvent(eventType, message, payload) : null;
   return truncate(byEvent ?? humanizePayload(payload), 140);
+}
+
+function describeRunningEvent(entry: TuiSnapshot["running"][number]): string {
+  const fromVisibility = humanizeRunnerVisibility(entry.runnerVisibility);
+  if (fromVisibility !== null) {
+    return fromVisibility;
+  }
+  // Keep the event column on the best available text source even when
+  // runnerVisibility still only contributes state for the dot color.
+  return humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent);
+}
+
+function resolveSessionDisplay(
+  entry: TuiSnapshot["running"][number],
+): string | null {
+  if (entry.sessionId !== null) {
+    return entry.sessionId;
+  }
+  const visibility = entry.runnerVisibility;
+  if (visibility === null) {
+    return null;
+  }
+  return (
+    visibility.session.backendThreadId ??
+    visibility.session.backendSessionId ??
+    visibility.session.latestTurnId
+  );
+}
+
+function humanizeRunnerVisibility(
+  visibility: RunnerVisibilitySnapshot | null,
+): string | null {
+  if (visibility === null) {
+    return null;
+  }
+
+  const stdoutSummary = visibility.stdoutSummary;
+  if (stdoutSummary !== null) {
+    const humanized = humanizeVisibilitySummary(stdoutSummary);
+    if (humanized !== null) {
+      return humanized;
+    }
+  }
+
+  if (visibility.lastActionSummary !== null) {
+    return visibility.lastActionSummary;
+  }
+  if (visibility.waitingReason !== null) {
+    return `waiting: ${visibility.waitingReason}`;
+  }
+  if (visibility.errorSummary !== null) {
+    return visibility.errorSummary;
+  }
+  return null;
+}
+
+function humanizeVisibilitySummary(summary: string): string | null {
+  const trimmed = summary.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const parsed = parseJsonObject(trimmed);
+  if (parsed !== null) {
+    return humanizeEvent(parsed, extractEventType(parsed));
+  }
+  return trimmed;
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+    ) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // fall back to the raw summary
+  }
+  return null;
+}
+
+function extractEventType(payload: Record<string, unknown>): string | null {
+  const method = getKey(payload, "method");
+  if (typeof method === "string" && method.trim() !== "") {
+    return method;
+  }
+  const type = getMapKey(payload, ["type", "event"]);
+  return typeof type === "string" && type.trim() !== "" ? type : null;
 }
 
 function unwrapPayload(message: unknown): unknown {

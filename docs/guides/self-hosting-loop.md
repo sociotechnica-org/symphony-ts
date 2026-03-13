@@ -11,7 +11,9 @@ Make sure these are installed and configured:
 - `pnpm`
 - `git`
 - `gh auth login`
-- `codex`
+- one supported local runner:
+  - `codex`, or
+  - Claude Code (`claude`)
 
 Then install repo dependencies:
 
@@ -24,10 +26,22 @@ pnpm install
 The checked-in `WORKFLOW.md` should point at:
 
 - `tracker.repo: sociotechnica-org/symphony-ts`
-- `workspace.repo_url: git@github.com:sociotechnica-org/symphony-ts.git`
 - `agent.command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`
 
-That means the local orchestrator will poll the real `symphony-ts` GitHub repo and create issue branches inside local workspaces cloned from that same repository.
+If you want to self-host with Claude Code instead of Codex, change the checked-in
+worker settings before starting the factory:
+
+- set `agent.runner.kind: claude-code`
+- set `agent.command` to a valid Claude Code invocation such as
+  `claude -p --output-format json --permission-mode bypassPermissions --model sonnet`
+
+For the bootstrap GitHub flow, Symphony can derive the workspace clone URL from
+`tracker.repo`, so the checked-in workflow does not need an explicit
+`workspace.repo_url` for self-hosting.
+
+That means the local orchestrator will poll the real `symphony-ts` GitHub repo
+and create issue branches inside local workspaces cloned from that same
+repository.
 
 ### 3. Create a real GitHub issue
 
@@ -37,21 +51,42 @@ Describe the task normally. Then add the label `symphony:ready` — that's the d
 
 ### 4. Start Symphony locally
 
-Run one poll cycle:
+Run one poll cycle directly:
 
 ```bash
 pnpm tsx bin/symphony.ts run --once
 ```
 
-Or run the worker continuously:
+Or run the worker continuously in the current shell:
 
 ```bash
 pnpm tsx bin/symphony.ts run
 ```
 
-In continuous mode, Symphony will keep polling for additional ready issues.
+Or start the detached local factory runtime from the repo root:
 
-During or after a run, Symphony writes the latest derived status snapshot to `.tmp/status.json`. The `status` CLI reads that file and renders either a simple terminal view or the raw JSON contract for future tooling.
+```bash
+pnpm tsx bin/symphony.ts factory start
+pnpm tsx bin/symphony.ts factory status
+pnpm tsx bin/symphony.ts factory watch
+```
+
+In continuous mode, Symphony will keep polling for additional ready issues. The
+factory-control commands are the normal operator surface for the detached
+runtime under `.tmp/factory-main`.
+
+Symphony now has two status surfaces:
+
+- `pnpm tsx bin/symphony.ts status` reads the workflow-derived status snapshot
+- `pnpm tsx bin/symphony.ts factory status` inspects the detached runtime and
+  embeds the latest status snapshot when available
+
+For self-hosting operations, prefer `factory status` first, then `factory watch`
+when you want a live read-only monitor.
+
+Do not use raw `screen -r symphony-factory` as the normal watch path. That
+attach path gives your terminal direct foreground ownership of the worker, so
+an accidental `Ctrl-C` can stop the detached factory.
 
 ### 5. Watch the issue lifecycle
 
@@ -61,7 +96,8 @@ When Symphony picks up the issue, it should:
 2. Create or reuse a local workspace under `./.tmp/workspaces/`
 3. Create branch `symphony/<issue-number>`
 4. Have the worker draft the technical plan and stop at the human review station unless plan approval is waived
-5. Run Codex implementation work from the approved or waived plan
+5. Run implementation work from the approved or waived plan using the configured
+   runner
 6. Push the branch
 7. Open a PR against `main`
 8. Keep polling that PR for CI and automated review state
@@ -82,7 +118,8 @@ Symphony owns the local PR follow-through loop:
 - Push follow-up commits when the PR needs more work
 - Stop only when the PR is actually clean and waiting for landing approval
 
-Human approval remains explicit: once the PR is ready, post `/land` on the PR. Symphony uses that handoff to execute the landing path itself.
+Human approval remains explicit: once the PR is ready, post `/land` on the PR.
+Symphony uses that handoff to execute the landing path itself.
 
 That merged PR becomes the new version of Symphony that will work the next issue.
 
@@ -102,3 +139,5 @@ That is the self-hosting loop:
 - Run only one local Symphony instance against this repo at a time (Phase 1.2 constraint).
 - If you want to inspect a failed run, set `workspace.cleanup_on_success: false` temporarily or inspect the workspace before the next retry.
 - Use `--once` when you want tight control over one issue at a time.
+- Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart|status|watch` over ad hoc `screen` and
+  process cleanup when operating the detached runtime.

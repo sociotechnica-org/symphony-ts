@@ -15,6 +15,8 @@ const execFile = promisify(execFileCallback);
 
 export const FACTORY_RUNTIME_DIRECTORY = path.join(".tmp", "factory-main");
 export const FACTORY_SCREEN_SESSION_NAME = "symphony-factory";
+export const FACTORY_RUN_GUARDRAILS_ACK_FLAG =
+  "--i-understand-that-this-will-be-running-without-the-usual-guardrails";
 const START_TIMEOUT_MS = 15_000;
 const STOP_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_MS = 250;
@@ -82,6 +84,7 @@ export interface FactoryControlDeps {
   readonly launchScreenSession?: (options: {
     readonly runtimeRoot: string;
     readonly sessionName: string;
+    readonly command: readonly string[];
   }) => Promise<void>;
   readonly quitScreenSession?: (sessionId: string) => Promise<void>;
   readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
@@ -160,6 +163,7 @@ export async function startFactory(
   await launchScreenSession({
     runtimeRoot: paths.runtimeRoot,
     sessionName: FACTORY_SCREEN_SESSION_NAME,
+    command: createFactoryRunCommand(),
   });
 
   const deadline = now() + START_TIMEOUT_MS;
@@ -645,15 +649,12 @@ async function defaultListScreenSessions(): Promise<
 async function defaultLaunchScreenSession(options: {
   readonly runtimeRoot: string;
   readonly sessionName: string;
+  readonly command: readonly string[];
 }): Promise<void> {
-  await execFile(
-    "screen",
-    ["-dmS", options.sessionName, "pnpm", "tsx", "bin/symphony.ts", "run"],
-    {
-      cwd: options.runtimeRoot,
-      timeout: 5_000,
-    },
-  );
+  await execFile("screen", ["-dmS", options.sessionName, ...options.command], {
+    cwd: options.runtimeRoot,
+    timeout: 5_000,
+  });
 }
 
 async function defaultQuitScreenSession(sessionId: string): Promise<void> {
@@ -685,4 +686,14 @@ function isMissingScreenSessionError(error: unknown): boolean {
     combined.includes("no such screen session") ||
     combined.includes("no such session")
   );
+}
+
+export function createFactoryRunCommand(): readonly string[] {
+  return [
+    "pnpm",
+    "tsx",
+    "bin/symphony.ts",
+    "run",
+    FACTORY_RUN_GUARDRAILS_ACK_FLAG,
+  ];
 }

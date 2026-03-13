@@ -9,6 +9,7 @@ import {
 } from "../../src/observability/tui.js";
 import type { TuiSnapshot } from "../../src/orchestrator/service.js";
 import type { ObservabilityConfig } from "../../src/domain/workflow.js";
+import type { RunnerVisibilitySnapshot } from "../../src/runner/service.js";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -41,6 +42,35 @@ function makeConfig(
     dashboardEnabled: true,
     refreshMs: 1000,
     renderIntervalMs: 16,
+    ...overrides,
+  };
+}
+
+function makeRunnerVisibility(
+  overrides: Partial<RunnerVisibilitySnapshot> = {},
+): RunnerVisibilitySnapshot {
+  return {
+    state: "running",
+    phase: "turn-execution",
+    session: {
+      provider: "codex",
+      model: "gpt-5.4",
+      backendSessionId: "thread-abc-turn-1",
+      backendThreadId: "thread-abc",
+      latestTurnId: "turn-1",
+      appServerPid: 12345,
+      latestTurnNumber: 1,
+      logPointers: [],
+    },
+    lastHeartbeatAt: "2026-03-13T10:00:05.000Z",
+    lastActionAt: "2026-03-13T10:00:05.000Z",
+    lastActionSummary: "Codex app-server stdout activity",
+    waitingReason: null,
+    stdoutSummary: null,
+    stderrSummary: null,
+    errorSummary: null,
+    cancelledAt: null,
+    timedOutAt: null,
     ...overrides,
   };
 }
@@ -107,6 +137,7 @@ describe("formatSnapshotContent", () => {
             },
           },
           lastCodexTimestamp: null,
+          runnerVisibility: null,
         },
       ],
     });
@@ -254,6 +285,7 @@ describe("formatSnapshotContent", () => {
             },
           },
           lastCodexTimestamp: new Date().toISOString(),
+          runnerVisibility: null,
         },
         {
           issueNumber: 11,
@@ -276,6 +308,7 @@ describe("formatSnapshotContent", () => {
             },
           },
           lastCodexTimestamp: new Date().toISOString(),
+          runnerVisibility: null,
         },
       ],
       retrying: [
@@ -300,11 +333,7 @@ describe("formatSnapshotContent", () => {
     const output = formatSnapshotContent(snapshot, 150.5, 120, "▁▂▃▄▅▆", nowMs);
 
     // Strip ANSI codes for easier inspection
-    const plain = output.replace(
-      // eslint-disable-next-line no-control-regex
-      /\x1b\[[0-9;]*m/g,
-      "",
-    );
+    const plain = output.replace(/\x1b\[[0-9;]*m/g, "");
     const lines = plain.split("\n");
 
     // --- Header section ---
@@ -547,6 +576,112 @@ describe("humanizeEvent", () => {
     const result = humanizeEvent(msg, null);
     expect(result.length).toBeLessThanOrEqual(143); // 140 + "..."
   });
+
+  it("renders no codex message yet for truly silent runs", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 138,
+            identifier: "#138",
+            issueState: "running",
+            startedAt: new Date("2026-03-13T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: null,
+            lastCodexMessage: null,
+            lastCodexTimestamp: null,
+            runnerVisibility: null,
+          },
+        ],
+      }),
+      0,
+      140,
+      "",
+      new Date("2026-03-13T10:00:30.000Z").getTime(),
+    );
+
+    expect(output).toContain("no codex message yet");
+  });
+
+  it("prefers runner visibility stdout over the silent fallback", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 138,
+            identifier: "#138",
+            issueState: "running",
+            startedAt: new Date("2026-03-13T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: null,
+            lastCodexMessage: null,
+            lastCodexTimestamp: null,
+            runnerVisibility: makeRunnerVisibility({
+              stdoutSummary: JSON.stringify({
+                method: "thread/started",
+                params: { thread: { id: "thread-live-123" } },
+              }),
+            }),
+          },
+        ],
+      }),
+      0,
+      160,
+      "",
+      new Date("2026-03-13T10:00:30.000Z").getTime(),
+    );
+
+    expect(output).not.toContain("no codex message yet");
+    expect(output).toContain("thread started (thread-live-123)");
+    expect(output).toContain("thread-abc");
+  });
+
+  it("falls back to runner action text when visibility has no stdout preview", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 138,
+            identifier: "#138",
+            issueState: "running",
+            startedAt: new Date("2026-03-13T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: null,
+            lastCodexMessage: null,
+            lastCodexTimestamp: null,
+            runnerVisibility: makeRunnerVisibility({
+              lastActionSummary: "Planning step 2",
+            }),
+          },
+        ],
+      }),
+      0,
+      160,
+      "",
+      new Date("2026-03-13T10:00:30.000Z").getTime(),
+    );
+
+    expect(output).toContain("Planning step 2");
+    expect(output).not.toContain("no codex message yet");
+  });
 });
 
 // ─── rollingTps ───────────────────────────────────────────────────────────────
@@ -766,5 +901,207 @@ describe("StatusDashboard", () => {
     dashboard.stop();
     // Deduplicated: should be 1 render (initial) + possibly 1 periodic rerender per second
     expect(rendered.length).toBeLessThanOrEqual(3);
+  });
+
+  it("ignores runner visibility heartbeat-only timestamp churn in the fingerprint", () => {
+    const rendered: string[] = [];
+    let snapshot = makeSnapshot({
+      running: [
+        {
+          issueNumber: 138,
+          identifier: "#138",
+          issueState: "running",
+          startedAt: new Date("2026-03-13T10:00:00.000Z"),
+          retryAttempt: 1,
+          sessionId: null,
+          turnCount: 1,
+          codexTotalTokens: 0,
+          codexInputTokens: 0,
+          codexOutputTokens: 0,
+          codexAppServerPid: 12345,
+          lastCodexEvent: null,
+          lastCodexMessage: null,
+          lastCodexTimestamp: null,
+          runnerVisibility: makeRunnerVisibility({
+            lastHeartbeatAt: "2026-03-13T10:00:05.000Z",
+            lastActionAt: "2026-03-13T10:00:05.000Z",
+            lastActionSummary: "Codex app-server stdout activity",
+          }),
+        },
+      ],
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 1,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      running: [
+        {
+          ...snapshot.running[0]!,
+          runnerVisibility: makeRunnerVisibility({
+            lastHeartbeatAt: "2026-03-13T10:00:06.000Z",
+            lastActionAt: "2026-03-13T10:00:06.000Z",
+            lastActionSummary: "Codex app-server stdout activity",
+          }),
+        },
+      ],
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(2);
+    expect(rendered[0]).toContain("thread");
+    expect(rendered[1]).toContain("app_status=offline");
+  });
+
+  it("ignores runner visibility stderr-only churn in the fingerprint", () => {
+    const rendered: string[] = [];
+    let snapshot = makeSnapshot({
+      running: [
+        {
+          issueNumber: 138,
+          identifier: "#138",
+          issueState: "running",
+          startedAt: new Date("2026-03-13T10:00:00.000Z"),
+          retryAttempt: 1,
+          sessionId: null,
+          turnCount: 1,
+          codexTotalTokens: 0,
+          codexInputTokens: 0,
+          codexOutputTokens: 0,
+          codexAppServerPid: 12345,
+          lastCodexEvent: null,
+          lastCodexMessage: null,
+          lastCodexTimestamp: null,
+          runnerVisibility: makeRunnerVisibility({
+            lastActionSummary: "Codex app-server stdout activity",
+            stdoutSummary: JSON.stringify({
+              method: "thread/started",
+              params: { thread: { id: "thread-live-123" } },
+            }),
+            stderrSummary: "warning: first diagnostic",
+          }),
+        },
+      ],
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 1,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      running: [
+        {
+          ...snapshot.running[0]!,
+          runnerVisibility: makeRunnerVisibility({
+            lastActionSummary: "Codex app-server stdout activity",
+            stdoutSummary: JSON.stringify({
+              method: "thread/started",
+              params: { thread: { id: "thread-live-123" } },
+            }),
+            stderrSummary: "warning: second diagnostic",
+          }),
+        },
+      ],
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(2);
+    expect(rendered[0]).toContain("thread started (thread-live-123)");
+    expect(rendered[1]).toContain("app_status=offline");
+  });
+
+  it("ignores non-rendered runner visibility phase and session churn in the fingerprint", () => {
+    const rendered: string[] = [];
+    let snapshot = makeSnapshot({
+      running: [
+        {
+          issueNumber: 138,
+          identifier: "#138",
+          issueState: "running",
+          startedAt: new Date("2026-03-13T10:00:00.000Z"),
+          retryAttempt: 1,
+          sessionId: null,
+          turnCount: 1,
+          codexTotalTokens: 0,
+          codexInputTokens: 0,
+          codexOutputTokens: 0,
+          codexAppServerPid: 12345,
+          lastCodexEvent: null,
+          lastCodexMessage: null,
+          lastCodexTimestamp: null,
+          runnerVisibility: makeRunnerVisibility({
+            phase: "turn-execution",
+            session: {
+              ...makeRunnerVisibility().session,
+              model: "gpt-5.4",
+              appServerPid: 12345,
+              latestTurnNumber: 1,
+            },
+            stdoutSummary: JSON.stringify({
+              method: "thread/started",
+              params: { thread: { id: "thread-live-123" } },
+            }),
+          }),
+        },
+      ],
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 1,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      running: [
+        {
+          ...snapshot.running[0]!,
+          runnerVisibility: makeRunnerVisibility({
+            phase: "awaiting-external",
+            session: {
+              ...makeRunnerVisibility().session,
+              model: "gpt-5.5",
+              appServerPid: 54321,
+              latestTurnNumber: 2,
+            },
+            stdoutSummary: JSON.stringify({
+              method: "thread/started",
+              params: { thread: { id: "thread-live-123" } },
+            }),
+          }),
+        },
+      ],
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(2);
+    expect(rendered[0]).toContain("thread started (thread-live-123)");
+    expect(rendered[1]).toContain("app_status=offline");
   });
 });
