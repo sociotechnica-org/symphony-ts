@@ -14,7 +14,24 @@ export interface RunnerSpawnedEvent {
   readonly spawnedAt: string;
 }
 
-export type RunnerEvent = RunnerSpawnedEvent;
+export type RunnerVisibilityState =
+  | "idle"
+  | "starting"
+  | "running"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "timed-out";
+
+export type RunnerVisibilityPhase =
+  | "boot"
+  | "session-start"
+  | "turn-execution"
+  | "turn-finished"
+  | "handoff-reconciliation"
+  | "awaiting-external"
+  | "shutdown";
 
 export interface RunnerLogPointer {
   readonly name: string;
@@ -32,6 +49,28 @@ export interface RunnerSessionDescription {
   readonly latestTurnNumber: number | null;
   readonly logPointers: readonly RunnerLogPointer[];
 }
+
+export interface RunnerVisibilitySnapshot {
+  readonly state: RunnerVisibilityState;
+  readonly phase: RunnerVisibilityPhase;
+  readonly session: RunnerSessionDescription;
+  readonly lastHeartbeatAt: string | null;
+  readonly lastActionAt: string | null;
+  readonly lastActionSummary: string | null;
+  readonly waitingReason: string | null;
+  readonly stdoutSummary: string | null;
+  readonly stderrSummary: string | null;
+  readonly errorSummary: string | null;
+  readonly cancelledAt: string | null;
+  readonly timedOutAt: string | null;
+}
+
+export interface RunnerVisibilityEvent {
+  readonly kind: "visibility";
+  readonly visibility: RunnerVisibilitySnapshot;
+}
+
+export type RunnerEvent = RunnerSpawnedEvent | RunnerVisibilityEvent;
 
 export interface RunnerSessionDescriber {
   describeSession(session: RunSession): RunnerSessionDescription;
@@ -58,4 +97,17 @@ export interface Runner extends RunnerSessionDescriber {
     options?: RunnerRunOptions,
   ): Promise<RunnerExecutionResult>;
   startSession?(session: RunSession): Promise<LiveRunnerSession>;
+}
+
+const SUMMARY_LIMIT = 160;
+
+export function summarizeRunnerText(text: string): string | null {
+  const collapsed = text.replace(/\s+/gu, " ").trim();
+  if (collapsed.length === 0) {
+    return null;
+  }
+  if (collapsed.length <= SUMMARY_LIMIT) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, SUMMARY_LIMIT - 3)}...`;
 }

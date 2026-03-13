@@ -33,9 +33,10 @@ import {
 } from "../observability/status.js";
 import type {
   LiveRunnerSession,
-  RunnerEvent,
   Runner,
+  RunnerEvent,
   RunnerSpawnedEvent,
+  RunnerVisibilitySnapshot,
   RunnerTurnResult,
 } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
@@ -78,6 +79,7 @@ import {
   initWatchdogEntry,
   recordWatchdogRecovery,
 } from "./watchdog-state.js";
+import { summarizeRunnerText } from "../runner/service.js";
 
 export interface Orchestrator {
   runOnce(): Promise<void>;
@@ -484,6 +486,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       ownerPid: process.pid,
       runnerPid: null,
       blockedReason: null,
+      runnerVisibility: null,
     });
     noteStatusAction(this.#state.status, {
       kind: "run-preparing",
@@ -538,6 +541,13 @@ export class BootstrapOrchestrator implements Orchestrator {
         unresolvedThreadCount: pullRequest?.unresolvedThreadIds.length ?? 0,
       },
       blockedReason: null,
+      runnerVisibility: this.#buildRunnerVisibility(sessionState.description, {
+        state: "starting",
+        phase: "boot",
+        lastHeartbeatAt: session.startedAt,
+        lastActionAt: session.startedAt,
+        lastActionSummary: "Runner session created",
+      }),
     });
     noteStatusAction(this.#state.status, {
       kind: "run-started",
@@ -592,6 +602,17 @@ export class BootstrapOrchestrator implements Orchestrator {
           currentLifecycle,
           turnNumber,
         );
+        this.#setIssueRunnerVisibility(
+          issue.number,
+          this.#buildRunnerVisibility(sessionState.description, {
+            state: "running",
+            phase: "turn-execution",
+            lastHeartbeatAt: new Date().toISOString(),
+            lastActionAt: new Date().toISOString(),
+            lastActionSummary: `Starting turn ${turn.turnNumber.toString()}`,
+          }),
+        );
+        await this.#persistStatusSnapshot();
         const result = await this.#runRunnerTurn(
           session,
           liveRunnerSession,
@@ -606,6 +627,21 @@ export class BootstrapOrchestrator implements Orchestrator {
         };
 
         if (result.exitCode !== 0) {
+          this.#setIssueRunnerVisibility(
+            issue.number,
+            this.#buildRunnerVisibility(result.session, {
+              state: "failed",
+              phase: "turn-finished",
+              lastHeartbeatAt: result.finishedAt,
+              lastActionAt: result.finishedAt,
+              lastActionSummary: `Turn ${turn.turnNumber.toString()} failed`,
+              stdoutSummary: summarizeRunnerText(result.stdout),
+              stderrSummary: summarizeRunnerText(result.stderr),
+              errorSummary: summarizeRunnerText(
+                `Runner exited with ${result.exitCode}\n${result.stderr}`,
+              ),
+            }),
+          );
           await this.#handleFailure(
             sessionState,
             attempt,
@@ -615,6 +651,34 @@ export class BootstrapOrchestrator implements Orchestrator {
           return;
         }
 
+        this.#setIssueRunnerVisibility(
+          issue.number,
+          this.#buildRunnerVisibility(result.session, {
+            state: "completed",
+            phase: "turn-finished",
+            lastHeartbeatAt: result.finishedAt,
+            lastActionAt: result.finishedAt,
+            lastActionSummary: `Turn ${turn.turnNumber.toString()} completed`,
+            stdoutSummary: summarizeRunnerText(result.stdout),
+            stderrSummary: summarizeRunnerText(result.stderr),
+          }),
+        );
+
+        this.#setIssueRunnerVisibility(
+          issue.number,
+          this.#buildRunnerVisibility(result.session, {
+            state: "waiting",
+            phase: "handoff-reconciliation",
+            lastHeartbeatAt: result.finishedAt,
+            lastActionAt: result.finishedAt,
+            lastActionSummary: `Reconciling handoff after turn ${turn.turnNumber.toString()}`,
+            waitingReason: "Waiting for tracker reconciliation",
+            stdoutSummary: summarizeRunnerText(result.stdout),
+            stderrSummary: summarizeRunnerText(result.stderr),
+          }),
+          result.finishedAt,
+        );
+        await this.#persistStatusSnapshot();
         const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
           workspace.branchName,
           currentLifecycle,
@@ -664,6 +728,11 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
     } catch (error) {
+      this.#setIssueFailureVisibility(
+        sessionState.runSession.issue.number,
+        sessionState.description,
+        error as Error,
+      );
       await this.#handleFailure(
         sessionState,
         attempt,
@@ -710,31 +779,31 @@ export class BootstrapOrchestrator implements Orchestrator {
     lockDir: string,
     signal: AbortSignal,
   ): Promise<RunnerTurnResult> {
-    const runnerEventHandlers: {
-      [Kind in RunnerEvent["kind"]]: (
-        event: Extract<RunnerEvent, { kind: Kind }>,
-      ) => void;
-    } = {
-      spawned: (event): void => {
-        this.#recordRunnerSpawn(
-          {
-            runSession: session,
-            description:
-              liveRunnerSession?.describe() ??
-              this.#runner.describeSession(session),
-            latestTurnNumber: turn.turnNumber,
-          },
-          lockDir,
-          event,
-          turn.turnNumber,
-        );
-      },
-    };
     const onEvent = (event: RunnerEvent): void => {
-      // If `RunnerEvent` grows beyond spawn notifications, keep the dispatch
-      // map explicit and add a cast at this call site to preserve the
-      // correlation between `event.kind` and the handler parameter type.
-      runnerEventHandlers[event.kind](event);
+      switch (event.kind) {
+        case "spawned":
+          this.#recordRunnerSpawn(
+            {
+              runSession: session,
+              description:
+                liveRunnerSession?.describe() ??
+                this.#runner.describeSession(session),
+              latestTurnNumber: turn.turnNumber,
+            },
+            lockDir,
+            event,
+            turn.turnNumber,
+          );
+          return;
+        case "visibility":
+          this.#setIssueRunnerVisibility(
+            session.issue.number,
+            event.visibility,
+            event.visibility.lastHeartbeatAt ?? undefined,
+          );
+          void this.#persistStatusSnapshot();
+          return;
+      }
     };
     if (liveRunnerSession !== undefined) {
       return await liveRunnerSession.runTurn(turn, {
@@ -795,6 +864,18 @@ export class BootstrapOrchestrator implements Orchestrator {
       lifecycle.kind === "actionable-follow-up"
     ) {
       const summary = lifecycle.summary;
+      this.#setIssueRunnerVisibility(
+        issue.number,
+        this.#buildRunnerVisibility(session.description, {
+          state: "waiting",
+          phase: "awaiting-external",
+          lastHeartbeatAt: finishedAt,
+          lastActionAt: finishedAt,
+          lastActionSummary: `Turn ${session.latestTurnNumber?.toString() ?? "?"} handed off`,
+          waitingReason: summary,
+        }),
+        finishedAt,
+      );
       noteLifecycleForIssue(
         this.#state.status,
         issue,
@@ -1852,6 +1933,33 @@ export class BootstrapOrchestrator implements Orchestrator {
         ...entry,
         runnerPid: event.pid,
         updatedAt: event.spawnedAt,
+        runnerVisibility: this.#buildRunnerVisibility(
+          {
+            ...(entry.runnerVisibility?.session ?? session.description),
+            appServerPid: event.pid,
+          },
+          {
+            ...(entry.runnerVisibility === null
+              ? {
+                  state: "starting",
+                  phase: "session-start",
+                }
+              : {
+                  state: entry.runnerVisibility.state,
+                  phase: entry.runnerVisibility.phase,
+                }),
+            lastHeartbeatAt:
+              entry.runnerVisibility?.lastHeartbeatAt ?? event.spawnedAt,
+            lastActionAt: event.spawnedAt,
+            lastActionSummary: `Runner process spawned for turn ${turnNumber.toString()}`,
+            waitingReason: entry.runnerVisibility?.waitingReason ?? null,
+            stdoutSummary: entry.runnerVisibility?.stdoutSummary ?? null,
+            stderrSummary: entry.runnerVisibility?.stderrSummary ?? null,
+            errorSummary: entry.runnerVisibility?.errorSummary ?? null,
+            cancelledAt: entry.runnerVisibility?.cancelledAt ?? null,
+            timedOutAt: entry.runnerVisibility?.timedOutAt ?? null,
+          },
+        ),
       });
     }
     noteStatusAction(this.#state.status, {
@@ -1871,6 +1979,93 @@ export class BootstrapOrchestrator implements Orchestrator {
       spawnedAt: event.spawnedAt,
       turnNumber,
     });
+  }
+
+  #setIssueRunnerVisibility(
+    issueNumber: number,
+    runnerVisibility: RunnerVisibilitySnapshot,
+    updatedAt?: string,
+  ): void {
+    const entry = this.#state.status.activeIssues.get(issueNumber);
+    if (entry === undefined) {
+      return;
+    }
+    this.#state.status.activeIssues.set(issueNumber, {
+      ...entry,
+      updatedAt: updatedAt ?? runnerVisibility.lastActionAt ?? entry.updatedAt,
+      runnerVisibility,
+    });
+  }
+
+  #setIssueFailureVisibility(
+    issueNumber: number,
+    session: RunSessionArtifactsState["description"],
+    error: Error,
+  ): void {
+    const observedAt = new Date().toISOString();
+    const normalized = this.#normalizeFailure(error);
+    if (error instanceof RunnerAbortedError) {
+      this.#setIssueRunnerVisibility(
+        issueNumber,
+        this.#buildRunnerVisibility(session, {
+          state: "cancelled",
+          phase: "shutdown",
+          lastHeartbeatAt: observedAt,
+          lastActionAt: observedAt,
+          lastActionSummary: "Runner cancelled",
+          errorSummary: normalized,
+          cancelledAt: observedAt,
+        }),
+        observedAt,
+      );
+      return;
+    }
+    const timedOut = normalized.includes("timed out");
+    this.#setIssueRunnerVisibility(
+      issueNumber,
+      this.#buildRunnerVisibility(session, {
+        state: timedOut ? "timed-out" : "failed",
+        phase: timedOut ? "shutdown" : "turn-finished",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary: timedOut ? "Runner timed out" : "Runner failed",
+        errorSummary: normalized,
+        ...(timedOut ? { timedOutAt: observedAt } : {}),
+      }),
+      observedAt,
+    );
+  }
+
+  #buildRunnerVisibility(
+    session: RunSessionArtifactsState["description"],
+    options: {
+      readonly state: RunnerVisibilitySnapshot["state"];
+      readonly phase: RunnerVisibilitySnapshot["phase"];
+      readonly lastHeartbeatAt?: string | null;
+      readonly lastActionAt?: string | null;
+      readonly lastActionSummary?: string | null;
+      readonly waitingReason?: string | null;
+      readonly stdoutSummary?: string | null;
+      readonly stderrSummary?: string | null;
+      readonly errorSummary?: string | null;
+      readonly cancelledAt?: string | null;
+      readonly timedOutAt?: string | null;
+    },
+  ): RunnerVisibilitySnapshot {
+    return {
+      state: options.state,
+      phase: options.phase,
+      session,
+      lastHeartbeatAt: options.lastHeartbeatAt ?? null,
+      lastActionAt: options.lastActionAt ?? null,
+      lastActionSummary: options.lastActionSummary ?? null,
+      waitingReason: options.waitingReason ?? null,
+      stdoutSummary: options.stdoutSummary ?? null,
+      stderrSummary: options.stderrSummary ?? null,
+      errorSummary: options.errorSummary ?? null,
+      cancelledAt: options.cancelledAt ?? null,
+      timedOutAt: options.timedOutAt ?? null,
+    };
   }
 
   #abortActiveRuns(): void {

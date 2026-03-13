@@ -8,12 +8,14 @@ import {
   buildCodexAppServerCommand,
   type CodexAppServerCommand,
 } from "./codex-app-server-command.js";
+import { summarizeRunnerText } from "./service.js";
 import type {
   LiveRunnerSession,
   RunnerEvent,
   RunnerRunOptions,
   RunnerSessionDescription,
   RunnerTurnResult,
+  RunnerVisibilitySnapshot,
 } from "./service.js";
 
 const INITIALIZE_REQUEST_ID = 1;
@@ -61,6 +63,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #closeTimersScheduled = false;
   #nextTurnStartRequestId = TURN_START_FIRST_REQUEST_ID;
   #startupStderr = "";
+  #currentOnEvent: ((event: RunnerEvent) => void | Promise<void>) | null = null;
 
   constructor(config: AgentConfig, logger: Logger, session: RunSession) {
     this.#config = config;
@@ -117,7 +120,15 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }, this.#config.timeoutMs);
 
     try {
+      this.#currentOnEvent = options?.onEvent ?? null;
       options?.signal?.addEventListener("abort", handleAbort, { once: true });
+      await this.#emitVisibility({
+        state: "starting",
+        phase: "session-start",
+        lastHeartbeatAt: new Date().toISOString(),
+        lastActionAt: new Date().toISOString(),
+        lastActionSummary: "Starting Codex app-server session",
+      });
 
       const runPromise = (async (): Promise<RunnerTurnResult> => {
         await this.#ensureStarted(options);
@@ -125,6 +136,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       })();
       return await Promise.race([runPromise, timeoutPromise, abortPromise]);
     } finally {
+      this.#currentOnEvent = null;
       clearTimeout(timeoutHandle);
       options?.signal?.removeEventListener("abort", handleAbort);
     }
@@ -230,33 +242,67 @@ export class CodexAppServerSession implements LiveRunnerSession {
     });
 
     if (child.pid !== undefined) {
+      const spawnedAt = new Date().toISOString();
       Promise.resolve(
         onEvent?.({
           kind: "spawned",
           pid: child.pid,
-          spawnedAt: new Date().toISOString(),
+          spawnedAt,
         }),
-      ).catch((error) => {
-        void this.close().finally(() => {
-          this.#rejectActiveState(
-            new RunnerError(
-              `Failed to record runner spawn: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
-            ),
-          );
+      )
+        .then(() =>
+          this.#emitVisibility({
+            state: "starting",
+            phase: "session-start",
+            lastHeartbeatAt: spawnedAt,
+            lastActionAt: spawnedAt,
+            lastActionSummary: "Codex app-server process spawned",
+          }),
+        )
+        .catch((error) => {
+          void this.close().finally(() => {
+            this.#rejectActiveState(
+              new RunnerError(
+                `Failed to record runner spawn: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              ),
+            );
+          });
         });
-      });
     }
 
     child.stdout.on("data", (chunk: Buffer | string) => {
-      this.#handleStdoutChunk(chunk.toString());
+      const text = chunk.toString();
+      this.#handleStdoutChunk(text);
+      if (this.#activeTurn !== null) {
+        const observedAt = new Date().toISOString();
+        void this.#emitVisibility({
+          state: "running",
+          phase: "turn-execution",
+          lastHeartbeatAt: observedAt,
+          lastActionAt: observedAt,
+          lastActionSummary: "Codex app-server stdout activity",
+          stdoutSummary: summarizeRunnerText(this.#activeTurn.stdout),
+          stderrSummary: summarizeRunnerText(this.#activeTurn.stderr),
+        });
+      }
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
       this.#appendStartupStderr(text);
       if (this.#activeTurn !== null) {
         this.#activeTurn.stderr += text;
+        const observedAt = new Date().toISOString();
+        void this.#emitVisibility({
+          state: "running",
+          phase: "turn-execution",
+          lastHeartbeatAt: observedAt,
+          lastActionAt: observedAt,
+          lastActionSummary: "Codex app-server stderr activity",
+          stdoutSummary: summarizeRunnerText(this.#activeTurn.stdout),
+          stderrSummary: summarizeRunnerText(this.#activeTurn.stderr),
+        });
       }
     });
     child.on("error", (error) => {
@@ -330,6 +376,13 @@ export class CodexAppServerSession implements LiveRunnerSession {
       );
     }
     this.#threadId = threadId;
+    await this.#emitVisibility({
+      state: "starting",
+      phase: "session-start",
+      lastHeartbeatAt: new Date().toISOString(),
+      lastActionAt: new Date().toISOString(),
+      lastActionSummary: "Codex thread started",
+    });
   }
 
   async #startTurn(
@@ -344,6 +397,13 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     const startedAt = new Date().toISOString();
+    await this.#emitVisibility({
+      state: "running",
+      phase: "turn-execution",
+      lastHeartbeatAt: startedAt,
+      lastActionAt: startedAt,
+      lastActionSummary: `Starting Codex turn ${turn.turnNumber.toString()}`,
+    });
     const result = await new Promise<RunnerTurnResult>((resolve, reject) => {
       this.#activeTurn = {
         turnNumber: turn.turnNumber,
@@ -553,6 +613,15 @@ export class CodexAppServerSession implements LiveRunnerSession {
       if (turnId !== null) {
         this.#latestTurnId = turnId;
       }
+      void this.#emitVisibility({
+        state: "running",
+        phase: "turn-execution",
+        lastHeartbeatAt: new Date().toISOString(),
+        lastActionAt: new Date().toISOString(),
+        lastActionSummary: `Codex acknowledged turn ${
+          this.#activeTurn?.turnNumber.toString() ?? "?"
+        }`,
+      });
       return;
     }
 
@@ -563,6 +632,19 @@ export class CodexAppServerSession implements LiveRunnerSession {
 
     if (method === "turn/failed" || method === "turn/cancelled") {
       const params = asRecord(message["params"]);
+      const observedAt = new Date().toISOString();
+      void this.#emitVisibility({
+        state: method === "turn/cancelled" ? "cancelled" : "failed",
+        phase: method === "turn/cancelled" ? "shutdown" : "turn-finished",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary:
+          method === "turn/cancelled"
+            ? "Codex turn cancelled"
+            : "Codex turn failed",
+        errorSummary: summarizeRunnerText(JSON.stringify(params ?? {})),
+        cancelledAt: method === "turn/cancelled" ? observedAt : null,
+      });
       this.#rejectActiveTurn(
         new RunnerError(
           `Codex app-server reported ${method}: ${JSON.stringify(params ?? {})}`,
@@ -579,6 +661,15 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
     this.#latestTurnNumber = activeTurn.turnNumber;
     this.#activeTurn = null;
+    void this.#emitVisibility({
+      state: "completed",
+      phase: "turn-finished",
+      lastHeartbeatAt: new Date().toISOString(),
+      lastActionAt: new Date().toISOString(),
+      lastActionSummary: `Turn ${activeTurn.turnNumber.toString()} completed`,
+      stdoutSummary: summarizeRunnerText(activeTurn.stdout),
+      stderrSummary: summarizeRunnerText(activeTurn.stderr),
+    });
     activeTurn.resolve({
       exitCode: 0,
       stdout: activeTurn.stdout,
@@ -596,7 +687,31 @@ export class CodexAppServerSession implements LiveRunnerSession {
       return;
     }
     this.#activeTurn = null;
-    activeTurn.reject(asError(error));
+    const observedAt = new Date().toISOString();
+    const resolvedError = asError(error);
+    void this.#emitVisibility({
+      state:
+        this.#closingReason === "aborted"
+          ? "cancelled"
+          : this.#closingReason === "timeout"
+            ? "timed-out"
+            : "failed",
+      phase: this.#closingReason === null ? "turn-finished" : "shutdown",
+      lastHeartbeatAt: observedAt,
+      lastActionAt: observedAt,
+      lastActionSummary:
+        this.#closingReason === "aborted"
+          ? "Runner cancelled"
+          : this.#closingReason === "timeout"
+            ? "Runner timed out"
+            : "Runner failed",
+      stdoutSummary: summarizeRunnerText(activeTurn.stdout),
+      stderrSummary: summarizeRunnerText(activeTurn.stderr),
+      errorSummary: summarizeRunnerText(resolvedError.message),
+      cancelledAt: this.#closingReason === "aborted" ? observedAt : null,
+      timedOutAt: this.#closingReason === "timeout" ? observedAt : null,
+    });
+    activeTurn.reject(resolvedError);
   }
 
   #rejectActiveState(error: Error): void {
@@ -629,6 +744,52 @@ export class CodexAppServerSession implements LiveRunnerSession {
     return new RunnerError(`${error.message}\nStartup stderr:\n${stderr}`, {
       cause: error,
     });
+  }
+
+  async #emitVisibility(visibility: {
+    readonly state: RunnerVisibilitySnapshot["state"];
+    readonly phase: RunnerVisibilitySnapshot["phase"];
+    readonly lastHeartbeatAt?: string | null;
+    readonly lastActionAt?: string | null;
+    readonly lastActionSummary?: string | null;
+    readonly waitingReason?: string | null;
+    readonly stdoutSummary?: string | null;
+    readonly stderrSummary?: string | null;
+    readonly errorSummary?: string | null;
+    readonly cancelledAt?: string | null;
+    readonly timedOutAt?: string | null;
+  }): Promise<void> {
+    const onEvent = this.#currentOnEvent;
+    if (onEvent === null) {
+      return;
+    }
+    try {
+      await onEvent({
+        kind: "visibility",
+        visibility: {
+          session: this.describe(),
+          state: visibility.state,
+          phase: visibility.phase,
+          lastHeartbeatAt: visibility.lastHeartbeatAt ?? null,
+          lastActionAt: visibility.lastActionAt ?? null,
+          lastActionSummary: visibility.lastActionSummary ?? null,
+          waitingReason: visibility.waitingReason ?? null,
+          stdoutSummary: visibility.stdoutSummary ?? null,
+          stderrSummary: visibility.stderrSummary ?? null,
+          errorSummary: visibility.errorSummary ?? null,
+          cancelledAt: visibility.cancelledAt ?? null,
+          timedOutAt: visibility.timedOutAt ?? null,
+        },
+      });
+    } catch (error) {
+      this.#rejectActiveState(
+        new RunnerError(
+          `Failed to record runner visibility: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        ),
+      );
+    }
   }
 }
 
