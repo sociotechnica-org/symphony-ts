@@ -19,6 +19,7 @@ import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { createRunner } from "../../src/runner/factory.js";
 import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
+import { parsePlanReadyCommentMetadata } from "../../src/tracker/plan-review-comment.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
   countRemoteBranchCommits,
@@ -308,11 +309,26 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(server.getPullRequests()).toHaveLength(0);
     expect(issue.comments).toHaveLength(1);
-    expect(issue.comments[0]).toContain("Plan status: plan-ready");
-    expect(issue.comments[0]).toContain("Branch: `symphony/53`");
-    expect(issue.comments[0]).toContain(
+    const planReadyComment = issue.comments[0];
+    expect(planReadyComment).toBeDefined();
+    if (!planReadyComment) {
+      throw new Error("expected plan-ready comment to be present");
+    }
+    expect(planReadyComment).toContain("Plan status: plan-ready");
+    expect(planReadyComment).toContain("Branch: `symphony/53`");
+    expect(planReadyComment).toContain(
       "Plan URL: https://github.com/sociotechnica-org/symphony-ts/blob/symphony/53/docs/plans/53-bootstrap-plan-review/plan.md",
     );
+    expect(parsePlanReadyCommentMetadata(planReadyComment)).toEqual({
+      planPath: "docs/plans/53-bootstrap-plan-review/plan.md",
+      branchName: "symphony/53",
+      planUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/blob/symphony/53/docs/plans/53-bootstrap-plan-review/plan.md",
+      branchUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/tree/symphony/53",
+      compareUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/compare/main...symphony/53",
+    });
 
     const status = await readFactoryStatusSnapshot(
       path.join(tempDir, ".tmp", "status.json"),

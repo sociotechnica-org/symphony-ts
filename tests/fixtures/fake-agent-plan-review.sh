@@ -27,6 +27,8 @@ git commit -m "Draft plan for ${SYMPHONY_ISSUE_IDENTIFIER}"
 git push origin "HEAD:${SYMPHONY_BRANCH_NAME}"
 
 COMMENT_FILE=".plan-ready-comment.md"
+# Keep this body aligned with src/tracker/plan-review-comment.ts; the e2e test
+# parses it through the shared metadata parser to catch drift at the contract edge.
 cat > "$COMMENT_FILE" <<EOF
 Plan status: plan-ready
 

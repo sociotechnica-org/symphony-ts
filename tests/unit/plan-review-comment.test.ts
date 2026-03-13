@@ -63,6 +63,18 @@ describe("plan-review-comment", () => {
     ).toBeNull();
   });
 
+  it("returns null when backtick-wrapped metadata collapses to an empty value", () => {
+    expect(
+      parsePlanReadyCommentMetadata(`Plan status: plan-ready
+
+Plan path: \`
+Branch: \`symphony/53\`
+Plan URL: https://github.com/sociotechnica-org/symphony-ts/blob/symphony/53/docs/plans/053-plan-review-branch-recoverability/plan.md
+Branch URL: https://github.com/sociotechnica-org/symphony-ts/tree/symphony/53
+Compare URL: https://github.com/sociotechnica-org/symphony-ts/compare/main...symphony/53`),
+    ).toBeNull();
+  });
+
   it("derives GitHub review links from repo, branch, and plan path", () => {
     expect(
       buildPlanReadyCommentMetadata({
