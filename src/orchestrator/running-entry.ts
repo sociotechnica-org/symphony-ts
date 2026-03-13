@@ -194,7 +194,9 @@ function extractSessionId(
   const raw =
     getMapKey(payload, ["session_id", "sessionId"]) ??
     mapPath(payload, ["params", "sessionId"]) ??
-    mapPath(payload, ["params", "session_id"]);
+    mapPath(payload, ["params", "session_id"]) ??
+    mapPath(payload, ["params", "msg", "payload", "session_id"]) ??
+    mapPath(payload, ["params", "msg", "payload", "sessionId"]);
   if (typeof raw === "string" && raw.length > 0) {
     return raw;
   }

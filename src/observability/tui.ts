@@ -917,6 +917,10 @@ function humanizeByEvent(
 
 function humanizeWrapperEvent(suffix: string, payload: unknown): string {
   switch (suffix) {
+    case "session.start":
+      return "session started";
+    case "session.end":
+      return "session ended";
     case "task_started":
       return "task started";
     case "user_message":
@@ -941,6 +945,7 @@ function humanizeWrapperEvent(suffix: string, payload: unknown): string {
       return humanizeStreamingEvent("reasoning streaming", payload);
     case "reasoning_content_delta":
       return humanizeStreamingEvent("reasoning content streaming", payload);
+    case "reasoning":
     case "agent_reasoning":
       return humanizeReasoningUpdate(payload);
     case "exec_command_begin":
@@ -1187,7 +1192,9 @@ function humanizeExecCommandBegin(payload: unknown): string {
 function humanizeExecCommandEnd(payload: unknown): string {
   const exitCode =
     mapPath(payload, ["params", "msg", "exit_code"]) ??
-    mapPath(payload, ["params", "msg", "exitCode"]);
+    mapPath(payload, ["params", "msg", "exitCode"]) ??
+    mapPath(payload, ["params", "msg", "payload", "exit_code"]) ??
+    mapPath(payload, ["params", "msg", "payload", "exitCode"]);
   return typeof exitCode === "number"
     ? `command completed (exit ${String(exitCode)})`
     : "command completed";
@@ -1198,6 +1205,7 @@ function extractCommand(payload: unknown): string | null {
   const raw =
     parsedCmd ??
     mapPath(payload, ["params", "msg", "command"]) ??
+    mapPath(payload, ["params", "msg", "payload", "command"]) ??
     mapPath(payload, ["params", "command"]) ??
     mapPath(payload, ["params", "cmd"]) ??
     mapPath(payload, ["params", "argv"]) ??

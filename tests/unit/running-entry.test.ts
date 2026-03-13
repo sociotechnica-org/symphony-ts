@@ -91,6 +91,28 @@ describe("integrateCodexUpdate", () => {
     expect(entry.codexTotalTokens).toBe(1200);
   });
 
+  it("extracts session ID from nested Codex JSON-RPC payload", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    integrateCodexUpdate(entry, {
+      event: "codex/event/session.start",
+      payload: {
+        method: "notifications/message",
+        params: {
+          msg: {
+            payload: {
+              type: "session.start",
+              session_id: "smoke-sess-001",
+            },
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(entry.sessionId).toBe("smoke-sess-001");
+  });
+
   it("never decreases token high-water marks", () => {
     const entry = createRunningEntry(99, "issue-99", "open", 1);
 

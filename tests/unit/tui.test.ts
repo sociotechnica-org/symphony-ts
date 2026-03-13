@@ -362,6 +362,38 @@ describe("humanizeEvent", () => {
     );
   });
 
+  it("humanizes codex/event/session.start wrapper event", () => {
+    expect(humanizeEvent({}, "codex/event/session.start")).toBe(
+      "session started",
+    );
+  });
+
+  it("humanizes codex/event/session.end wrapper event", () => {
+    expect(humanizeEvent({}, "codex/event/session.end")).toBe("session ended");
+  });
+
+  it("humanizes codex/event/reasoning wrapper event", () => {
+    const msg = {
+      params: { msg: { payload: { text: "Analyzing the code..." } } },
+    };
+    const result = humanizeEvent(msg, "codex/event/reasoning");
+    expect(result).toContain("reasoning");
+  });
+
+  it("humanizes codex/event/exec_command_begin wrapper event", () => {
+    const msg = { params: { msg: { command: "git diff" } } };
+    expect(humanizeEvent(msg, "codex/event/exec_command_begin")).toBe(
+      "git diff",
+    );
+  });
+
+  it("humanizes codex/event/exec_command_end wrapper event", () => {
+    const msg = { params: { msg: { exit_code: 0 } } };
+    expect(humanizeEvent(msg, "codex/event/exec_command_end")).toBe(
+      "command completed (exit 0)",
+    );
+  });
+
   it("truncates long events to 140 characters", () => {
     const longText = "x".repeat(200);
     const msg = {
