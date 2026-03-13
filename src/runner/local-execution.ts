@@ -24,13 +24,29 @@ function tryParseStdoutEvent(line: string): RunUpdateEvent | undefined {
     return undefined;
   }
   const obj = parsed as Record<string, unknown>;
+  // Prefer explicit "event" field, then drill into Codex JSON-RPC payload type,
+  // then fall back to the raw "method" field.
+  const payloadType = extractPayloadType(obj);
   const event =
     typeof obj["event"] === "string"
       ? obj["event"]
-      : typeof obj["method"] === "string"
-        ? obj["method"]
-        : "unknown";
+      : payloadType ??
+        (typeof obj["method"] === "string" ? obj["method"] : "unknown");
   return { event, payload: parsed, timestamp: new Date().toISOString() };
+}
+
+function extractPayloadType(obj: Record<string, unknown>): string | undefined {
+  const params = obj["params"];
+  if (params === null || typeof params !== "object" || Array.isArray(params))
+    return undefined;
+  const msg = (params as Record<string, unknown>)["msg"];
+  if (msg === null || typeof msg !== "object" || Array.isArray(msg))
+    return undefined;
+  const payload = (msg as Record<string, unknown>)["payload"];
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload))
+    return undefined;
+  const type = (payload as Record<string, unknown>)["type"];
+  return typeof type === "string" ? type : undefined;
 }
 
 export interface LocalCommandExecutionOptions {

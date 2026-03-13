@@ -64,6 +64,13 @@ function extractTokenDelta(
       "params",
       "msg",
       "payload",
+      "total_token_usage",
+      "input_tokens",
+    ]) ??
+    mapPath(payload, [
+      "params",
+      "msg",
+      "payload",
       "info",
       "total_token_usage",
       "input_tokens",
@@ -85,6 +92,13 @@ function extractTokenDelta(
       "params",
       "msg",
       "payload",
+      "total_token_usage",
+      "output_tokens",
+    ]) ??
+    mapPath(payload, [
+      "params",
+      "msg",
+      "payload",
       "info",
       "total_token_usage",
       "output_tokens",
@@ -102,6 +116,13 @@ function extractTokenDelta(
     mapPath(payload, ["usage", "output_tokens"]);
   const totalRaw =
     getMapKey(payload, ["total_tokens", "totalTokens"]) ??
+    mapPath(payload, [
+      "params",
+      "msg",
+      "payload",
+      "total_token_usage",
+      "total_tokens",
+    ]) ??
     mapPath(payload, [
       "params",
       "msg",

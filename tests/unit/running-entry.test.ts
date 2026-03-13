@@ -59,6 +59,38 @@ describe("integrateCodexUpdate", () => {
     expect(entry.lastCodexEvent).toBe("turn/completed");
   });
 
+  it("extracts tokens from nested Codex JSON-RPC payload", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "reasoning",
+      payload: {
+        method: "notifications/message",
+        params: {
+          msg: {
+            payload: {
+              type: "reasoning",
+              text: "Analyzing...",
+              total_token_usage: {
+                input_tokens: 800,
+                output_tokens: 400,
+                total_tokens: 1200,
+              },
+            },
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta.inputTokens).toBe(800);
+    expect(result.tokenDelta.outputTokens).toBe(400);
+    expect(result.tokenDelta.totalTokens).toBe(1200);
+    expect(entry.codexInputTokens).toBe(800);
+    expect(entry.codexOutputTokens).toBe(400);
+    expect(entry.codexTotalTokens).toBe(1200);
+  });
+
   it("never decreases token high-water marks", () => {
     const entry = createRunningEntry(99, "issue-99", "open", 1);
 
