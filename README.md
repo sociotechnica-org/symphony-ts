@@ -317,11 +317,11 @@ docs/
 Before substantial implementation begins, the workflow requires a human review station for technical plans:
 
 1. The agent writes `docs/plans/<issue-number>-<task-name>/plan.md`
-2. The agent posts a `plan-ready` issue comment and hands off for review
+2. The agent commits that reviewed `plan.md`, pushes the issue branch, and posts a `plan-ready` issue comment with direct GitHub links to the branch and plan file
 3. If human feedback requests changes, the agent revises the plan and posts another `plan-ready` summary
 4. Coding begins only after the plan is approved or explicitly waived with instructions not to wait
 
-This uses issue comments and checked-in repo guidance. It does not require a dashboard or tracker-specific approval subsystem. If plan approval is waived, the agent proceeds directly to implementation.
+This uses issue comments plus the pushed issue branch as the canonical review surface. It does not require a dashboard or tracker-specific approval subsystem. If plan approval is waived, the agent proceeds directly to implementation.
 
 ## Development
 

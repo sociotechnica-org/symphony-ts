@@ -41,6 +41,46 @@ if [[ "$1" == "pr" && "$2" == "create" ]]; then
   exit 0
 fi
 
+if [[ "$1" == "issue" && "$2" == "comment" ]]; then
+  shift 2
+  ISSUE_NUMBER="${1:-}"
+  shift || true
+  REPO="sociotechnica-org/symphony-ts"
+  BODY=""
+  BODY_FILE=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        REPO="$2"
+        shift 2
+        ;;
+      --body)
+        BODY="$2"
+        shift 2
+        ;;
+      --body-file)
+        BODY_FILE="$2"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  if [[ -n "$BODY_FILE" ]]; then
+    BODY="$(cat "$BODY_FILE")"
+  fi
+  JSON_PAYLOAD="$(
+    ISSUE_NUMBER="$ISSUE_NUMBER" BODY="$BODY" \
+      node -e 'process.stdout.write(JSON.stringify({ issueNumber: Number(process.env.ISSUE_NUMBER), body: process.env.BODY }))'
+  )"
+  curl -sS -X POST "${MOCK_GITHUB_API_URL}/repos/${REPO}/issues/${ISSUE_NUMBER}/comments" \
+    -H 'content-type: application/json' \
+    -d "$JSON_PAYLOAD" >/dev/null
+  echo "https://example.test/issues/${ISSUE_NUMBER}#issuecomment"
+  exit 0
+fi
+
 if [[ "$1" == "auth" && "$2" == "token" ]]; then
   printf '%s\n' "${GH_TOKEN:-test-token}"
   exit 0

@@ -19,6 +19,7 @@ import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { createRunner } from "../../src/runner/factory.js";
 import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
+import { parsePlanReadyCommentMetadata } from "../../src/tracker/plan-review-comment.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
   countRemoteBranchCommits,
@@ -291,6 +292,88 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
+  });
+
+  it("pushes the reviewed plan branch before plan-ready and keeps the plan recoverable from the remote", async () => {
+    server.seedIssue({
+      number: 53,
+      title: "Recoverable plan review",
+      body: "Push the plan branch before asking for review",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-plan-review.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(53);
+    expect(issue.state).toBe("open");
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+    expect(server.getPullRequests()).toHaveLength(0);
+    expect(issue.comments).toHaveLength(1);
+    const planReadyComment = issue.comments[0];
+    expect(planReadyComment).toBeDefined();
+    if (!planReadyComment) {
+      throw new Error("expected plan-ready comment to be present");
+    }
+    expect(planReadyComment).toContain("Plan status: plan-ready");
+    expect(planReadyComment).toContain("Branch: `symphony/53`");
+    expect(planReadyComment).toContain(
+      "Plan URL: https://github.com/sociotechnica-org/symphony-ts/blob/symphony/53/docs/plans/53-bootstrap-plan-review/plan.md",
+    );
+    expect(parsePlanReadyCommentMetadata(planReadyComment)).toEqual({
+      planPath: "docs/plans/53-bootstrap-plan-review/plan.md",
+      branchName: "symphony/53",
+      planUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/blob/symphony/53/docs/plans/53-bootstrap-plan-review/plan.md",
+      branchUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/tree/symphony/53",
+      compareUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/compare/main...symphony/53",
+    });
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.factoryState).toBe("blocked");
+    expect(status.lastAction?.kind).toBe("awaiting-human-handoff");
+    expect(status.activeIssues[0]).toMatchObject({
+      issueNumber: 53,
+      status: "awaiting-human-handoff",
+      branchName: "symphony/53",
+    });
+
+    const workspacePath = path.join(
+      tempDir,
+      ".tmp",
+      "workspaces",
+      "sociotechnica-org_symphony-ts_53",
+    );
+    await expect(fs.stat(workspacePath)).resolves.toBeDefined();
+    await fs.rm(workspacePath, { recursive: true, force: true });
+    await expect(fs.stat(workspacePath)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    const reviewedPlan = await readRemoteBranchFile(
+      remotePath,
+      "symphony/53",
+      "docs/plans/53-bootstrap-plan-review/plan.md",
+    );
+    expect(reviewedPlan).toContain("# Issue 53 Plan");
+    expect(reviewedPlan).toContain(
+      "Exercise the recoverable plan-review handoff.",
+    );
+
+    expect(await countRemoteBranchCommits(remotePath, "symphony/53")).toBe(1);
   });
 
   it("runs a complete GitHub factory handoff loop through the Claude Code runner", async () => {
