@@ -93,4 +93,46 @@ Compare URL: https://github.com/sociotechnica-org/symphony-ts/compare/main...sym
         "https://github.com/sociotechnica-org/symphony-ts/compare/main...symphony/53",
     });
   });
+
+  it("URL-encodes branch and plan path segments in GitHub links", () => {
+    expect(
+      buildPlanReadyCommentMetadata({
+        repo: "sociotechnica-org/symphony-ts",
+        planPath: "docs/plans/053 weird?/plan#.md",
+        branchName: "feature/review#53?draft",
+        baseBranch: "release/1.0%",
+      }),
+    ).toEqual({
+      planPath: "docs/plans/053 weird?/plan#.md",
+      branchName: "feature/review#53?draft",
+      planUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/blob/feature/review%2353%3Fdraft/docs/plans/053%20weird%3F/plan%23.md",
+      branchUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/tree/feature/review%2353%3Fdraft",
+      compareUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/compare/release/1.0%25...feature/review%2353%3Fdraft",
+    });
+  });
+
+  it("parses metadata labels literally even when they contain regex metacharacters", () => {
+    const body = [
+      "Plan status: plan-ready",
+      "",
+      "Plan path: `docs/plans/053-plan-review-branch-recoverability/plan.md`",
+      "Branch: `symphony/53`",
+      "Plan URL: https://example.test/plan",
+      "Branch URL: https://example.test/branch",
+      "Compare URL: https://example.test/compare",
+      "",
+      "Plan URL?: https://example.test/not-the-plan-url",
+    ].join("\n");
+
+    expect(parsePlanReadyCommentMetadata(body)).toEqual({
+      planPath: "docs/plans/053-plan-review-branch-recoverability/plan.md",
+      branchName: "symphony/53",
+      planUrl: "https://example.test/plan",
+      branchUrl: "https://example.test/branch",
+      compareUrl: "https://example.test/compare",
+    });
+  });
 });

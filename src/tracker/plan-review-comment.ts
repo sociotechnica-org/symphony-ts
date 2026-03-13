@@ -56,6 +56,17 @@ export interface PlanReadyCommentMetadata {
   readonly compareUrl: string;
 }
 
+function encodeGitHubPath(path: string): string {
+  return path
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function buildPlanReadyCommentMetadata(input: {
   readonly repo: string;
   readonly planPath: string;
@@ -68,9 +79,9 @@ export function buildPlanReadyCommentMetadata(input: {
   return {
     planPath: input.planPath,
     branchName: input.branchName,
-    planUrl: `${repositoryUrl}/blob/${input.branchName}/${input.planPath}`,
-    branchUrl: `${repositoryUrl}/tree/${input.branchName}`,
-    compareUrl: `${repositoryUrl}/compare/${baseBranch}...${input.branchName}`,
+    planUrl: `${repositoryUrl}/blob/${encodeGitHubPath(input.branchName)}/${encodeGitHubPath(input.planPath)}`,
+    branchUrl: `${repositoryUrl}/tree/${encodeGitHubPath(input.branchName)}`,
+    compareUrl: `${repositoryUrl}/compare/${encodeGitHubPath(baseBranch)}...${encodeGitHubPath(input.branchName)}`,
   };
 }
 
@@ -118,7 +129,7 @@ function parseMetadataLine(
   label: string,
   options?: { readonly normalizeBackticks?: boolean },
 ): string | null {
-  const expression = new RegExp(`^${label}:\\s*(.+)$`, "imu");
+  const expression = new RegExp(`^${escapeRegExp(label)}:\\s*(.+)$`, "imu");
   const match = body.match(expression);
   const value = match?.[1]?.trim();
   if (!value) {
