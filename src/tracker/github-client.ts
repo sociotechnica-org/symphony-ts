@@ -7,6 +7,7 @@ import type {
   PullRequestCheckStatus,
 } from "../domain/pull-request.js";
 import type { GitHubBootstrapTrackerConfig } from "../domain/workflow.js";
+import type { Logger } from "../observability/logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -171,6 +172,12 @@ export interface PullRequestReviewState {
 }
 
 type GitHubMergeMethod = "merge" | "squash" | "rebase";
+
+const NULL_LOGGER: Logger = {
+  info() {},
+  warn() {},
+  error() {},
+};
 
 const PULL_REQUEST_REVIEW_STATE_QUERY = `
   query PullRequestReviewState(
@@ -362,13 +369,18 @@ export function toRuntimeIssue(
 
 export class GitHubClient {
   readonly #config: GitHubBootstrapTrackerConfig;
+  readonly #logger: Logger;
   readonly #tokenPromise: Promise<string>;
   readonly #repoOwner: string;
   readonly #repoName: string;
   #mergeMethodPromise: Promise<GitHubMergeMethod> | null = null;
 
-  constructor(config: GitHubBootstrapTrackerConfig) {
+  constructor(
+    config: GitHubBootstrapTrackerConfig,
+    logger: Logger = NULL_LOGGER,
+  ) {
     this.#config = config;
+    this.#logger = logger;
     this.#tokenPromise = resolveToken();
     const [repoOwner, repoName] = config.repo.split("/");
     if (!repoOwner || !repoName) {
@@ -744,7 +756,14 @@ export class GitHubClient {
   }
 
   async #getMergeMethod(): Promise<GitHubMergeMethod> {
-    this.#mergeMethodPromise ??= this.#loadMergeMethod();
+    if (this.#mergeMethodPromise === null) {
+      this.#mergeMethodPromise = this.#loadMergeMethod().catch(
+        (error: unknown) => {
+          this.#mergeMethodPromise = null;
+          throw error;
+        },
+      );
+    }
     return await this.#mergeMethodPromise;
   }
 
@@ -754,14 +773,24 @@ export class GitHubClient {
       this.#issuePath(""),
     );
 
+    const allowedMergeMethods: GitHubMergeMethod[] = [];
     if (repository.allow_merge_commit) {
-      return "merge";
+      allowedMergeMethods.push("merge");
     }
     if (repository.allow_squash_merge) {
-      return "squash";
+      allowedMergeMethods.push("squash");
     }
     if (repository.allow_rebase_merge) {
-      return "rebase";
+      allowedMergeMethods.push("rebase");
+    }
+    const mergeMethod = allowedMergeMethods[0];
+    if (mergeMethod) {
+      this.#logger.info("Auto-detected GitHub merge method", {
+        repo: this.#config.repo,
+        mergeMethod,
+        allowedMergeMethods,
+      });
+      return mergeMethod;
     }
 
     throw new TrackerError(

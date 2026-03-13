@@ -38,7 +38,7 @@ export class GitHubBootstrapTracker implements Tracker {
   constructor(config: GitHubBootstrapTrackerConfig, logger: Logger) {
     this.#config = config;
     this.#logger = logger;
-    this.#client = new GitHubClient(config);
+    this.#client = new GitHubClient(config, logger);
   }
 
   subject(): string {
