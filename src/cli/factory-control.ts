@@ -100,12 +100,6 @@ export async function resolveFactoryPaths(
   const repoRoot = await findFactoryRepoRoot(cwd(), pathExists);
   const runtimeRoot = path.join(repoRoot, FACTORY_RUNTIME_DIRECTORY);
 
-  if (!(await pathExists(runtimeRoot))) {
-    throw new Error(
-      `Factory runtime checkout not found at ${runtimeRoot}. Prepare ${FACTORY_RUNTIME_DIRECTORY} before using 'symphony factory'.`,
-    );
-  }
-
   const workflowPath = path.join(runtimeRoot, "WORKFLOW.md");
   if (!(await pathExists(workflowPath))) {
     throw new Error(

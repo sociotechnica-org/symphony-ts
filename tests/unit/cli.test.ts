@@ -191,11 +191,13 @@ describe("parseArgs", () => {
 
   it("shows factory-specific usage for missing or unknown factory actions", () => {
     expect(() => parseArgs(["node", "symphony", "factory"])).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status>",
+      "Usage: symphony factory <start|stop|restart|status> [--json]",
     );
     expect(() =>
       parseArgs(["node", "symphony", "factory", "deploy"]),
-    ).toThrowError("Usage: symphony factory <start|stop|restart|status>");
+    ).toThrowError(
+      "Usage: symphony factory <start|stop|restart|status> [--json]",
+    );
   });
 });
 
