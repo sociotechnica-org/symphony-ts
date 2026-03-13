@@ -622,16 +622,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         source,
         runSequence: attempt,
         branchName,
-        status:
-          refreshedLifecycle.kind === "rework-required"
-            ? "rework-required"
-            : refreshedLifecycle.kind === "awaiting-human-review"
-              ? "awaiting-human-review"
-              : refreshedLifecycle.kind === "awaiting-system-checks"
-                ? "awaiting-system-checks"
-                : refreshedLifecycle.kind === "awaiting-landing-command"
-                  ? "awaiting-landing-command"
-                  : "awaiting-landing",
+        status: landingResult.lifecycleKind,
         summary: refreshedLifecycle.summary,
         blockedReason: landingResult.summary,
       });

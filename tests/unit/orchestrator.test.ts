@@ -374,6 +374,20 @@ class BlockedLandingTracker extends SequencedTracker {
   }
 }
 
+class StaleApprovedHeadLandingTracker extends SequencedTracker {
+  override async executeLanding(
+    pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
+  ): Promise<LandingExecutionResult> {
+    this.landingRequests.push(pullRequest.number);
+    return {
+      kind: "blocked",
+      reason: "stale-approved-head",
+      lifecycleKind: "awaiting-landing-command",
+      summary: `Landing blocked for ${pullRequest.url} because the approved head is stale.`,
+    };
+  }
+}
+
 class StaticWorkspaceManager implements WorkspaceManager {
   readonly prepared: string[] = [];
 
@@ -1440,6 +1454,71 @@ describe("BootstrapOrchestrator", () => {
       expect(status.activeIssues[0]?.blockedReason).toMatch(
         /unresolved non-outdated review threads remain/i,
       );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps blocked landing status aligned with the landing result lifecycle kind", async () => {
+    const tempRoot = await createTempDir("symphony-stale-approved-head-test-");
+    const tracker = new StaleApprovedHeadLandingTracker({
+      running: [createIssue(76, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(76, [
+      lifecycle("awaiting-landing", "symphony/76"),
+      lifecycle("awaiting-system-checks", "symphony/76"),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    try {
+      await orchestrator.runOnce();
+
+      const summary = await readIssueArtifactSummary(tempRoot, 76);
+      expect(summary.currentOutcome).toBe("awaiting-system-checks");
+
+      const events = await readIssueArtifactEvents(tempRoot, 76);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "landing-blocked",
+          details: expect.objectContaining({
+            reason: "stale-approved-head",
+            lifecycleKind: "awaiting-landing-command",
+            success: false,
+          }),
+        }),
+      );
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.lastAction?.kind).toBe("landing-blocked");
+      expect(status.activeIssues[0]).toMatchObject({
+        issueNumber: 76,
+        status: "awaiting-landing-command",
+        branchName: "symphony/76",
+      });
+      expect(status.activeIssues[0]?.summary).toMatch(/checks/i);
+      expect(status.activeIssues[0]?.blockedReason).toMatch(/approved head is stale/i);
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
