@@ -364,6 +364,62 @@ describe("issue report generation", () => {
     expect(generated.report.summary.outcome).toBe("awaiting-human-review");
   });
 
+  it("treats landing-failed as an attempt failure in report summaries and timeline copy", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-landing-failed-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+    await fs.mkdir(artifactPaths.issueRoot, { recursive: true });
+    await fs.writeFile(
+      artifactPaths.eventsFile,
+      [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "claimed",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:00:00.000Z",
+          attemptNumber: null,
+          sessionId: null,
+          details: {},
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "landing-failed",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:10:00.000Z",
+          attemptNumber: 2,
+          sessionId: null,
+          details: {
+            summary:
+              "Landing request failed for sociotechnica-org/symphony-ts#44: Error: merge temporarily blocked",
+            branch: "symphony/44",
+            error: "Error: merge temporarily blocked",
+            success: false,
+            lifecycleKind: "attempt-failed",
+          },
+        },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:10:00.000Z",
+    });
+
+    expect(generated.report.summary.outcome).toBe("attempt-failed");
+    expect(generated.report.timeline).toContainEqual(
+      expect.objectContaining({
+        kind: "landing-failed",
+        title: "Landing failed",
+        summary:
+          "Landing request failed for sociotechnica-org/symphony-ts#44: Error: merge temporarily blocked",
+      }),
+    );
+    expect(generated.markdown).toContain("Landing failed");
+  });
+
   it.each([
     {
       fileName: "report.json",

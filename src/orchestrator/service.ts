@@ -790,24 +790,30 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     noteStatusAction(this.#state.status, {
       kind:
-        landingResult?.kind === "blocked"
+        landingError !== null
+          ? "landing-failed"
+          : landingResult?.kind === "blocked"
           ? "landing-blocked"
           : refreshedLifecycle.kind,
       summary:
-        landingResult?.kind === "blocked"
+        landingError !== null
+          ? `Landing request failed for ${issue.identifier}: ${landingError}`
+          : landingResult?.kind === "blocked"
           ? landingResult.summary
           : refreshedLifecycle.summary,
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
-    await this.#recordIssueArtifact(
-      this.#createLifecycleObservation(
-        issue,
-        attempt,
-        branchName,
-        refreshedLifecycle,
-      ),
-    );
+    if (landingError === null) {
+      await this.#recordIssueArtifact(
+        this.#createLifecycleObservation(
+          issue,
+          attempt,
+          branchName,
+          refreshedLifecycle,
+        ),
+      );
+    }
   }
 
   async #runIssue(
@@ -2131,12 +2137,17 @@ export class BootstrapOrchestrator implements Orchestrator {
     error: string | null,
   ): IssueArtifactObservation {
     const isBlocked = result?.kind === "blocked";
+    const isFailed = error !== null;
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
         observedAt,
-        outcome: isBlocked ? result.lifecycleKind : "awaiting-landing",
+        outcome: isFailed
+          ? "attempt-failed"
+          : isBlocked
+            ? result.lifecycleKind
+            : "awaiting-landing",
         summary:
-          error !== null
+          isFailed
             ? `Landing request failed for ${issue.identifier}: ${error}`
             : isBlocked
               ? result.summary
@@ -2146,7 +2157,11 @@ export class BootstrapOrchestrator implements Orchestrator {
       }),
       events: [
         this.#createIssueEvent(
-          isBlocked ? "landing-blocked" : "landing-requested",
+          isFailed
+            ? "landing-failed"
+            : isBlocked
+              ? "landing-blocked"
+              : "landing-requested",
           issue,
           {
             observedAt,
@@ -2165,9 +2180,11 @@ export class BootstrapOrchestrator implements Orchestrator {
               error,
               reason: isBlocked ? result.reason : null,
               summary: isBlocked ? result.summary : null,
-              lifecycleKind: isBlocked
-                ? result.lifecycleKind
-                : "awaiting-landing",
+              lifecycleKind: isFailed
+                ? "attempt-failed"
+                : isBlocked
+                  ? result.lifecycleKind
+                  : "awaiting-landing",
             },
           },
         ),
