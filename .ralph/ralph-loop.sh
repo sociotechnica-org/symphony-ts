@@ -5,7 +5,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INTERVAL_SECONDS="${RALPH_INTERVAL_SECONDS:-300}"
 MODEL="${RALPH_MODEL:-gpt-5.4}"
 RESUME_MODE="${RALPH_RESUME_MODE:-last}"
-SESSION_ID="${RALPH_SESSION_ID:-019cda6a-ef73-7183-89ba-32c377460c14}"
+SESSION_ID="${RALPH_SESSION_ID:-}"
 LOCK_DIR="${REPO_ROOT}/.ralph"
 LOCK_FILE="${LOCK_DIR}/ralph-loop.lock"
 LOG_DIR="${REPO_ROOT}/.ralph/logs"
@@ -14,6 +14,7 @@ STATUS_MD_FILE="${LOCK_DIR}/status.md"
 SCRATCHPAD_FILE="${LOCK_DIR}/operator-scratchpad.md"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 LOG_FILE="${LOG_DIR}/ralph-loop-${TIMESTAMP}.log"
+CYCLE_FILE=""
 
 mkdir -p "${LOG_DIR}"
 if [[ ! -f "${SCRATCHPAD_FILE}" ]]; then
@@ -51,6 +52,7 @@ fi
 echo "$$" > "${LOCK_FILE}"
 cleanup() {
   rm -f "${LOCK_FILE}"
+  rm -f "${CYCLE_FILE:-}"
 }
 trap cleanup EXIT INT TERM
 
