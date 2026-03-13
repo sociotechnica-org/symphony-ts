@@ -92,6 +92,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         format: args.includes("--json") ? "json" : "human",
       };
     }
+    throw new Error("Usage: symphony factory <start|stop|restart|status>");
   }
 
   throw new Error(

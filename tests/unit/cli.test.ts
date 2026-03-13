@@ -177,6 +177,26 @@ describe("parseArgs", () => {
       action: "restart",
     });
   });
+
+  it("parses the factory start and stop commands", () => {
+    expect(parseArgs(["node", "symphony", "factory", "start"])).toEqual({
+      command: "factory",
+      action: "start",
+    });
+    expect(parseArgs(["node", "symphony", "factory", "stop"])).toEqual({
+      command: "factory",
+      action: "stop",
+    });
+  });
+
+  it("shows factory-specific usage for missing or unknown factory actions", () => {
+    expect(() => parseArgs(["node", "symphony", "factory"])).toThrowError(
+      "Usage: symphony factory <start|stop|restart|status>",
+    );
+    expect(() =>
+      parseArgs(["node", "symphony", "factory", "deploy"]),
+    ).toThrowError("Usage: symphony factory <start|stop|restart|status>");
+  });
 });
 
 describe("runCli status", () => {
