@@ -20,9 +20,9 @@ import {
   formatSnapshotContent,
   humanizeEvent,
 } from "../../src/observability/tui.js";
+import type { TuiSnapshot } from "../../src/orchestrator/service.js";
 
 function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
@@ -30,7 +30,7 @@ const nowMs = Date.now();
 
 // ─── Scenario 1: Active agents with Codex events ─────────────────────────────
 
-const activeSnapshot = {
+const activeSnapshot: TuiSnapshot = {
   running: [
     {
       issueNumber: 9,
@@ -56,6 +56,7 @@ const activeSnapshot = {
         },
       },
       lastCodexTimestamp: new Date().toISOString(),
+      runnerVisibility: null,
     },
     {
       issueNumber: 11,
@@ -78,6 +79,30 @@ const activeSnapshot = {
         },
       },
       lastCodexTimestamp: new Date().toISOString(),
+      runnerVisibility: {
+        state: "running",
+        phase: "turn-execution",
+        session: {
+          provider: "codex",
+          model: "gpt-5.4",
+          backendSessionId: "thread-live-123-turn-1",
+          backendThreadId: "thread-live-123",
+          latestTurnId: "turn-1",
+          appServerPid: 12346,
+          latestTurnNumber: 1,
+          logPointers: [],
+        },
+        lastHeartbeatAt: new Date().toISOString(),
+        lastActionAt: new Date().toISOString(),
+        lastActionSummary: "Codex app-server stdout activity",
+        waitingReason: null,
+        stdoutSummary:
+          '{"method":"thread/started","params":{"thread":{"id":"thread-live-123"}}}',
+        stderrSummary: null,
+        errorSummary: null,
+        cancelledAt: null,
+        timedOutAt: null,
+      },
     },
     {
       issueNumber: 13,
@@ -96,6 +121,7 @@ const activeSnapshot = {
         params: { msg: { payload: { type: "session.end" } } },
       },
       lastCodexTimestamp: new Date().toISOString(),
+      runnerVisibility: null,
     },
   ],
   retrying: [
@@ -149,7 +175,7 @@ console.log(
 // ─── Scenario 2: Idle factory ─────────────────────────────────────────────────
 
 console.log("\n\n=== SCENARIO 2: Idle (no agents) ===\n");
-const idleSnapshot = {
+const idleSnapshot: TuiSnapshot = {
   running: [],
   retrying: [],
   codexTotals: {
