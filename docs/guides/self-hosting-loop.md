@@ -28,6 +28,13 @@ The checked-in `WORKFLOW.md` should point at:
 - `tracker.repo: sociotechnica-org/symphony-ts`
 - `agent.command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`
 
+If you want to self-host with Claude Code instead of Codex, change the checked-in
+worker settings before starting the factory:
+
+- set `agent.runner.kind: claude-code`
+- set `agent.command` to a valid Claude Code invocation such as
+  `claude -p --output-format json --permission-mode bypassPermissions --model sonnet`
+
 For the bootstrap GitHub flow, Symphony can derive the workspace clone URL from
 `tracker.repo`, so the checked-in workflow does not need an explicit
 `workspace.repo_url` for self-hosting.
@@ -126,5 +133,5 @@ That is the self-hosting loop:
 - Run only one local Symphony instance against this repo at a time (Phase 1.2 constraint).
 - If you want to inspect a failed run, set `workspace.cleanup_on_success: false` temporarily or inspect the workspace before the next retry.
 - Use `--once` when you want tight control over one issue at a time.
-- Prefer `symphony factory start|stop|restart|status` over ad hoc `screen` and
+- Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart|status` over ad hoc `screen` and
   process cleanup when operating the detached runtime.

@@ -70,7 +70,7 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 ## Learned Heuristics
 
 - Detached `screen` sessions have been more reliable for unattended local operation than short-lived interactive exec sessions.
-- `symphony factory status --json` is the fastest trustworthy read of detached runtime health, embedded status snapshot state, and degraded-control problems.
+- `pnpm tsx bin/symphony.ts factory status --json` is the fastest trustworthy read of detached runtime health, embedded status snapshot state, and degraded-control problems.
 - A closed issue plus an open PR usually means the factory reached the PR stage; inspect the PR before restarting anything.
 - If the factory has no `symphony:ready` issues, idle is healthy.
 
