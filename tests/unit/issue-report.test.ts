@@ -365,7 +365,9 @@ describe("issue report generation", () => {
   });
 
   it("treats landing-failed as an attempt failure in report summaries and timeline copy", async () => {
-    const tempDir = await createTempDir("symphony-issue-report-landing-failed-");
+    const tempDir = await createTempDir(
+      "symphony-issue-report-landing-failed-",
+    );
     tempRoots.push(tempDir);
     const workspaceRoot = deriveWorkspaceRoot(tempDir);
     const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);

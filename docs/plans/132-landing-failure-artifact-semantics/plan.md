@@ -89,12 +89,12 @@ Allowed transitions for this slice:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected artifact semantics |
-| --- | --- | --- | --- |
-| `executeLanding()` returns `{ kind: "requested" }` | landing attempt started, PR handle present | tracker accepted landing request | event kind `landing-requested`; issue outcome `awaiting-landing` |
-| `executeLanding()` returns `{ kind: "blocked" }` | landing attempt started, PR handle present | normalized blocked reason and lifecycle kind | event kind `landing-blocked`; issue outcome matches blocked lifecycle kind |
-| `executeLanding()` throws before returning | landing attempt started, error string captured; request dispatch not confirmed | no successful landing result exists | event kind `landing-failed`; issue outcome `attempt-failed` |
-| landing branch starts without a PR handle | orchestrator throws locally before tracker dispatch | no landing result | event kind `landing-failed`; issue outcome `attempt-failed` |
+| Observed condition                                 | Local facts available                                                          | Normalized tracker facts available           | Expected artifact semantics                                                |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------- | -------------------------------------------------------------------------- |
+| `executeLanding()` returns `{ kind: "requested" }` | landing attempt started, PR handle present                                     | tracker accepted landing request             | event kind `landing-requested`; issue outcome `awaiting-landing`           |
+| `executeLanding()` returns `{ kind: "blocked" }`   | landing attempt started, PR handle present                                     | normalized blocked reason and lifecycle kind | event kind `landing-blocked`; issue outcome matches blocked lifecycle kind |
+| `executeLanding()` throws before returning         | landing attempt started, error string captured; request dispatch not confirmed | no successful landing result exists          | event kind `landing-failed`; issue outcome `attempt-failed`                |
+| landing branch starts without a PR handle          | orchestrator throws locally before tracker dispatch                            | no landing result                            | event kind `landing-failed`; issue outcome `attempt-failed`                |
 
 ## Observability Requirements
 

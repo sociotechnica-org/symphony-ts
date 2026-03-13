@@ -793,14 +793,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         landingError !== null
           ? "landing-failed"
           : landingResult?.kind === "blocked"
-          ? "landing-blocked"
-          : refreshedLifecycle.kind,
+            ? "landing-blocked"
+            : refreshedLifecycle.kind,
       summary:
         landingError !== null
           ? `Landing request failed for ${issue.identifier}: ${landingError}`
           : landingResult?.kind === "blocked"
-          ? landingResult.summary
-          : refreshedLifecycle.summary,
+            ? landingResult.summary
+            : refreshedLifecycle.summary,
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
@@ -2146,12 +2146,11 @@ export class BootstrapOrchestrator implements Orchestrator {
           : isBlocked
             ? result.lifecycleKind
             : "awaiting-landing",
-        summary:
-          isFailed
-            ? `Landing request failed for ${issue.identifier}: ${error}`
-            : isBlocked
-              ? result.summary
-              : `Landing requested for ${issue.identifier}`,
+        summary: isFailed
+          ? `Landing request failed for ${issue.identifier}: ${error}`
+          : isBlocked
+            ? result.summary
+            : `Landing requested for ${issue.identifier}`,
         branchName,
         latestAttemptNumber: attempt,
       }),
