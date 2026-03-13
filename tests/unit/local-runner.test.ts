@@ -921,7 +921,10 @@ describe("runners", () => {
 
   it("completes a Codex turn when turn/completed omits params", async () => {
     const fakeCodex = await createFakeCodexExecutable();
-    const runner = createCodexRunnerForMode(fakeCodex, "completed-without-params");
+    const runner = createCodexRunnerForMode(
+      fakeCodex,
+      "completed-without-params",
+    );
     const liveSession = await runner.startSession(createSession());
 
     try {
@@ -959,7 +962,10 @@ describe("runners", () => {
 
   it("rejects a Codex turn when turn/failed omits params", async () => {
     const fakeCodex = await createFakeCodexExecutable();
-    const runner = createCodexRunnerForMode(fakeCodex, "turn-failed-without-params");
+    const runner = createCodexRunnerForMode(
+      fakeCodex,
+      "turn-failed-without-params",
+    );
     const liveSession = await runner.startSession(createSession());
 
     try {
@@ -976,7 +982,10 @@ describe("runners", () => {
 
   it("rejects a Codex turn when turn/failed sends null params", async () => {
     const fakeCodex = await createFakeCodexExecutable();
-    const runner = createCodexRunnerForMode(fakeCodex, "turn-failed-null-params");
+    const runner = createCodexRunnerForMode(
+      fakeCodex,
+      "turn-failed-null-params",
+    );
     const liveSession = await runner.startSession(createSession());
 
     try {
