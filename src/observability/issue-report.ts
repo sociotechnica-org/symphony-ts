@@ -1322,7 +1322,8 @@ function readLifecycleKindFromDetails(
   // `src/orchestrator/service.ts`, which records the tracker lifecycle kind for
   // lifecycle-derived events such as `pr-opened` and `review-feedback`.
   const lifecycleKind = details["lifecycleKind"];
-  return lifecycleKind === "awaiting-human-review" ||
+  return lifecycleKind === "merged" ||
+    lifecycleKind === "awaiting-human-review" ||
     lifecycleKind === "awaiting-system-checks" ||
     lifecycleKind === "rework-required" ||
     lifecycleKind === "awaiting-landing-command" ||

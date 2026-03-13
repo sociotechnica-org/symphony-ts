@@ -20,6 +20,7 @@ export interface LandingBlockedResult {
   readonly reason: LandingBlockedReason;
   readonly summary: string;
   readonly lifecycleKind:
+    | "merged"
     | "awaiting-human-review"
     | "awaiting-system-checks"
     | "awaiting-landing-command"

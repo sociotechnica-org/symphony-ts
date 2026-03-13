@@ -155,14 +155,14 @@ This issue changes semantics for one existing landing race but still touches orc
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| PR is still open and clean when guarded landing runs | landing command present | guarded landing returns `requested` | execute merge request and continue existing flow |
-| PR merges externally before guarded landing runs | landing command present, no local merge request yet | guarded landing returns blocked with `merged` lifecycle/outcome | persist semantically correct artifact, then refresh lifecycle and complete on observed merge |
-| PR is open but mergeability is unknown | landing command present | guarded landing returns blocked with `awaiting-landing` | persist waiting state and keep existing convergence behavior |
-| PR is open with pending or failing checks | landing command present | guarded landing returns blocked with `awaiting-system-checks` or `rework-required` | persist existing blocking state; no semantic change in this issue |
-| PR is open with unresolved human review threads | landing command present | guarded landing returns blocked with `awaiting-human-review` | persist existing blocking state; no semantic change in this issue |
-| Historical artifact lacks `lifecycleKind` on a landing-blocked event | only artifact JSON available | no explicit merged marker in details | preserve existing fallback inference so older artifacts do not break |
+| Observed condition                                                   | Local facts available                               | Normalized tracker facts available                                                 | Expected decision                                                                            |
+| -------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| PR is still open and clean when guarded landing runs                 | landing command present                             | guarded landing returns `requested`                                                | execute merge request and continue existing flow                                             |
+| PR merges externally before guarded landing runs                     | landing command present, no local merge request yet | guarded landing returns blocked with `merged` lifecycle/outcome                    | persist semantically correct artifact, then refresh lifecycle and complete on observed merge |
+| PR is open but mergeability is unknown                               | landing command present                             | guarded landing returns blocked with `awaiting-landing`                            | persist waiting state and keep existing convergence behavior                                 |
+| PR is open with pending or failing checks                            | landing command present                             | guarded landing returns blocked with `awaiting-system-checks` or `rework-required` | persist existing blocking state; no semantic change in this issue                            |
+| PR is open with unresolved human review threads                      | landing command present                             | guarded landing returns blocked with `awaiting-human-review`                       | persist existing blocking state; no semantic change in this issue                            |
+| Historical artifact lacks `lifecycleKind` on a landing-blocked event | only artifact JSON available                        | no explicit merged marker in details                                               | preserve existing fallback inference so older artifacts do not break                         |
 
 ## Storage / Persistence Contract
 

@@ -364,6 +364,55 @@ describe("issue report generation", () => {
     expect(generated.report.summary.outcome).toBe("awaiting-human-review");
   });
 
+  it("reports merged when the latest landing-blocked event records an already-merged lifecycle", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-merged-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+    await fs.mkdir(artifactPaths.issueRoot, { recursive: true });
+    await fs.writeFile(
+      artifactPaths.eventsFile,
+      [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "claimed",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:00:00.000Z",
+          attemptNumber: null,
+          sessionId: null,
+          details: {},
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "landing-blocked",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:10:00.000Z",
+          attemptNumber: 1,
+          sessionId: "session-1",
+          details: {
+            lifecycleKind: "merged",
+            summary:
+              "Landing blocked for https://github.com/sociotechnica-org/symphony-ts/pull/144 because it is already merged.",
+            pullRequest: {
+              number: 144,
+              url: "https://github.com/sociotechnica-org/symphony-ts/pull/144",
+              latestCommitAt: "2026-03-09T10:09:30.000Z",
+            },
+          },
+        },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:00:00.000Z",
+    });
+
+    expect(generated.report.summary.outcome).toBe("merged");
+  });
+
   it.each([
     {
       fileName: "report.json",

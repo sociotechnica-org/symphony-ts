@@ -41,7 +41,7 @@ export function evaluateGuardedLanding(
     return {
       kind: "blocked",
       reason: "pull-request-not-mergeable",
-      lifecycleKind: "awaiting-landing",
+      lifecycleKind: "merged",
       summary: `Landing blocked for ${formatPullRequest(snapshot)} because it is already merged.`,
     };
   }

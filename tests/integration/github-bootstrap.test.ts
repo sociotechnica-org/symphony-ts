@@ -724,6 +724,37 @@ describe("GitHubBootstrapTracker", () => {
     });
   });
 
+  it("reports merged when the pull request is already merged before landing executes", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    server.mergePullRequest("symphony/7", new Date().toISOString());
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "merged",
+    });
+  });
+
   it("targets the latest open pull request when the same branch is reopened", async () => {
     const tracker = createTracker(server);
 
