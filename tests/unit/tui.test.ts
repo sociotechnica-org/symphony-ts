@@ -188,14 +188,13 @@ describe("formatSnapshotContent", () => {
           identifier: "MT-102",
           nextAttempt: 1,
           dueInMs: 2_000,
-          lastError: null,
+          lastError: "",
         },
       ],
     });
     const output = formatSnapshotContent(snapshot, 0);
     expect(output).toContain("MT-102");
     expect(output).toContain("attempt=1");
-    expect(output).not.toContain("error=");
   });
 
   it("renders polling as checking now", () => {

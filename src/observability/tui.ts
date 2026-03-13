@@ -582,7 +582,7 @@ function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
   return retrying.map((entry) => {
     const dueStr = formatDueIn(entry.dueInMs);
     const errorPart =
-      entry.lastError !== null && entry.lastError.trim() !== ""
+      entry.lastError.trim() !== ""
         ? " " + colorize(`error=${sanitizeRetryError(entry.lastError)}`, DIM)
         : "";
     return (
@@ -712,7 +712,7 @@ export function tpsSparkline(
   return bucketTps
     .map((v) => {
       if (v === 0) return " ";
-      const idx = Math.min(levels - 1, Math.floor((v / maxTps) * levels));
+      const idx = Math.min(levels - 1, Math.floor((v / maxTps) * (levels - 1)));
       return SPARKLINE_CHARS[idx] ?? SPARKLINE_CHARS[levels - 1]!;
     })
     .join("");
@@ -740,6 +740,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       codexOutputTokens: e.codexOutputTokens,
       codexAppServerPid: e.codexAppServerPid,
       lastCodexEvent: e.lastCodexEvent,
+      lastCodexMessage: e.lastCodexMessage,
       lastCodexTimestamp: e.lastCodexTimestamp,
     })),
     retrying: snapshot.retrying.map((r) => ({
@@ -1318,7 +1319,7 @@ function wrapperPayloadType(payload: unknown): unknown {
 }
 
 function inlineText(text: string): string {
-  return truncate(text.replace(/\n/g, " ").replace(/\s+/g, " ").trim(), 80);
+  return truncate(sanitize(text).replace(/\s+/g, " ").trim(), 80);
 }
 
 function sanitize(value: string): string {

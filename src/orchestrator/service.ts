@@ -114,7 +114,7 @@ export interface TuiRetryEntry {
   readonly identifier: string;
   readonly nextAttempt: number;
   readonly dueInMs: number;
-  readonly lastError: string | null;
+  readonly lastError: string;
 }
 
 export interface TuiSnapshot {
@@ -326,10 +326,13 @@ export class BootstrapOrchestrator implements Orchestrator {
         summary: `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`,
         issueNumber: null,
       });
-    } finally {
+    } catch (err) {
       this.#state.polling.checkingNow = false;
       this.#notifyDashboard();
+      throw err;
     }
+    this.#state.polling.checkingNow = false;
+    this.#notifyDashboard();
     await this.#persistStatusSnapshot();
 
     if (availableSlots <= 0) {
