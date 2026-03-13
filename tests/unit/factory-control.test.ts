@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import {
   collectDescendantProcessIds,
+  createFactoryRunCommand,
+  FACTORY_RUN_GUARDRAILS_ACK_FLAG,
   inspectFactoryControl,
   parsePsOutput,
   parseScreenLsFailureOutput,
@@ -321,6 +323,16 @@ describe("inspectFactoryControl", () => {
 });
 
 describe("startFactory", () => {
+  it("builds the detached run command with the required guardrails acknowledgment", () => {
+    expect(createFactoryRunCommand()).toEqual([
+      "pnpm",
+      "tsx",
+      "bin/symphony.ts",
+      "run",
+      FACTORY_RUN_GUARDRAILS_ACK_FLAG,
+    ]);
+  });
+
   it("returns already-running when the factory is healthy", async () => {
     const workerPid = 9101;
     const result = await startFactory(
@@ -350,7 +362,11 @@ describe("startFactory", () => {
     const processesState: HostProcessSnapshot[] = [];
     const workerPid = 9101;
     let currentSnapshot: FactoryStatusSnapshot | null = null;
-    const launched: Array<{ runtimeRoot: string; sessionName: string }> = [];
+    const launched: Array<{
+      runtimeRoot: string;
+      sessionName: string;
+      command: readonly string[];
+    }> = [];
 
     const result = await startFactory({
       ...createControlDeps({
@@ -394,8 +410,42 @@ describe("startFactory", () => {
     });
 
     expect(launched).toHaveLength(1);
+    expect(launched[0]).toEqual({
+      runtimeRoot: "/repo/.tmp/factory-main",
+      sessionName: "symphony-factory",
+      command: createFactoryRunCommand(),
+    });
     expect(result.kind).toBe("started");
     expect(result.status.controlState).toBe("running");
+  });
+
+  it("times out when the detached runtime never becomes healthy after launch", async () => {
+    const launched: Array<{
+      runtimeRoot: string;
+      sessionName: string;
+      command: readonly string[];
+    }> = [];
+
+    await expect(
+      startFactory(
+        createControlDeps({
+          launchScreenSession: async (options) => {
+            launched.push(options);
+          },
+          nowValues: [0, 1_000, 8_000, 15_000, 16_000],
+        }),
+      ),
+    ).rejects.toThrow(
+      "Factory start timed out before a healthy runtime appeared under /repo/.tmp/factory-main.",
+    );
+
+    expect(launched).toEqual([
+      {
+        runtimeRoot: "/repo/.tmp/factory-main",
+        sessionName: "symphony-factory",
+        command: createFactoryRunCommand(),
+      },
+    ]);
   });
 });
 
@@ -672,6 +722,96 @@ describe("stopFactory", () => {
     expect(result.kind).toBe("stopped");
     expect(result.status.controlState).toBe("stopped");
     expect(result.status.sessions).toEqual([]);
+  });
+});
+
+describe("factory restart launch contract", () => {
+  it("reuses the same detached run command on every start after a stop", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+    const launches: Array<{
+      runtimeRoot: string;
+      sessionName: string;
+      command: readonly string[];
+    }> = [];
+    let nextSessionPid = 9001;
+    let nextWorkerPid = 9101;
+
+    const deps: FactoryControlDeps = {
+      ...createControlDeps({
+        launchScreenSession: async (options) => {
+          launches.push(options);
+          const sessionPid = nextSessionPid++;
+          const workerPid = nextWorkerPid++;
+          sessionsState.splice(0, sessionsState.length, {
+            id: `${sessionPid}.${options.sessionName}`,
+            pid: sessionPid,
+            name: options.sessionName,
+            state: "Detached",
+          });
+          processesState.splice(
+            0,
+            processesState.length,
+            {
+              pid: sessionPid,
+              ppid: 1,
+              command: "screen -dmS symphony-factory",
+            },
+            {
+              pid: sessionPid + 100,
+              ppid: sessionPid,
+              command: options.command.join(" "),
+            },
+            {
+              pid: workerPid,
+              ppid: sessionPid + 100,
+              command: `node ${options.command.slice(2).join(" ")}`,
+            },
+          );
+          currentSnapshot = createStatusSnapshot(workerPid, {
+            factoryState: "running",
+          });
+        },
+        quitScreenSession: async () => {
+          sessionsState.splice(0, sessionsState.length);
+          processesState.splice(0, processesState.length);
+          currentSnapshot = null;
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        if (currentSnapshot === null) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    };
+
+    const firstStart = await startFactory(deps);
+    const stopped = await stopFactory(deps);
+    const secondStart = await startFactory(deps);
+
+    expect(firstStart.status.controlState).toBe("running");
+    expect(stopped.status.controlState).toBe("stopped");
+    expect(secondStart.status.controlState).toBe("running");
+    expect(launches).toHaveLength(2);
+    expect(launches.map((launch) => launch.command)).toEqual([
+      createFactoryRunCommand(),
+      createFactoryRunCommand(),
+    ]);
   });
 });
 

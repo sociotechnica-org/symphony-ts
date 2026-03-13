@@ -140,12 +140,12 @@ The control seam should continue deciding health from:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Status snapshot facts available | Expected decision |
-| --- | --- | --- | --- |
-| Detached launch includes ack flag and worker stays alive | `screen` session plus `pnpm/tsx/bin/symphony.ts run` process tree | readable snapshot with live worker pid | report `running`; `factory start` succeeds |
-| Detached launch omits ack flag and worker exits after banner | session may appear briefly, then process tree disappears | no healthy snapshot appears before timeout | `factory start` fails with startup timeout; test should catch this regression |
-| `factory restart` stops prior runtime and relaunches with corrected command | old process tree gone, new session/process tree appears | new healthy snapshot appears | report `running`; restart succeeds |
-| Session exists but snapshot never becomes healthy for another reason | wrapper and maybe intermediate processes exist | missing or stale snapshot | report `degraded` and fail startup as today; this issue does not change that policy |
+| Observed condition                                                          | Local facts available                                             | Status snapshot facts available            | Expected decision                                                                   |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Detached launch includes ack flag and worker stays alive                    | `screen` session plus `pnpm/tsx/bin/symphony.ts run` process tree | readable snapshot with live worker pid     | report `running`; `factory start` succeeds                                          |
+| Detached launch omits ack flag and worker exits after banner                | session may appear briefly, then process tree disappears          | no healthy snapshot appears before timeout | `factory start` fails with startup timeout; test should catch this regression       |
+| `factory restart` stops prior runtime and relaunches with corrected command | old process tree gone, new session/process tree appears           | new healthy snapshot appears               | report `running`; restart succeeds                                                  |
+| Session exists but snapshot never becomes healthy for another reason        | wrapper and maybe intermediate processes exist                    | missing or stale snapshot                  | report `degraded` and fail startup as today; this issue does not change that policy |
 
 ## Storage / Persistence Contract
 
