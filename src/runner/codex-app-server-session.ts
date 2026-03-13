@@ -538,12 +538,15 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #handleNotification(message: Record<string, unknown>): void {
     const method =
       typeof message["method"] === "string" ? message["method"] : null;
-    const params = asRecord(message["params"]);
-    if (method === null || params === null) {
+    if (method === null) {
       return;
     }
 
     if (method === "turn/started") {
+      const params = asRecord(message["params"]);
+      if (params === null) {
+        return;
+      }
       const turnPayload = asRecord(params["turn"]);
       const turnId =
         typeof turnPayload?.["id"] === "string" ? turnPayload["id"] : null;
@@ -559,9 +562,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     if (method === "turn/failed" || method === "turn/cancelled") {
+      const params = asRecord(message["params"]);
       this.#rejectActiveTurn(
         new RunnerError(
-          `Codex app-server reported ${method}: ${JSON.stringify(params)}`,
+          `Codex app-server reported ${method}: ${JSON.stringify(params ?? {})}`,
         ),
       );
       return;

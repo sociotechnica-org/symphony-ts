@@ -104,6 +104,20 @@ function createClaudeCodeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   };
 }
 
+type FakeCodexMode =
+  | "success"
+  | "hang"
+  | "turn-failed"
+  | "turn-failed-null-params"
+  | "turn-failed-without-params"
+  | "completed-null-params"
+  | "completed-without-params"
+  | "malformed-stream"
+  | "startup-stderr-exit"
+  | "malformed-thread"
+  | "unexpected-response-id"
+  | "ignore-sigterm";
+
 async function createFakeCodexExecutable(): Promise<string> {
   const dir = await createTempDir("fake-codex-app-server-");
   const executablePath = path.join(dir, "codex");
@@ -142,8 +156,34 @@ function completeTurn(turnId) {
     });
     return;
   }
+  if (mode === "turn-failed-null-params") {
+    send({
+      method: "turn/failed",
+      params: null,
+    });
+    return;
+  }
+  if (mode === "turn-failed-without-params") {
+    send({
+      method: "turn/failed",
+    });
+    return;
+  }
   if (mode === "malformed-stream") {
     process.stdout.write("not-json\\n");
+  }
+  if (mode === "completed-null-params") {
+    send({
+      method: "turn/completed",
+      params: null,
+    });
+    return;
+  }
+  if (mode === "completed-without-params") {
+    send({
+      method: "turn/completed",
+    });
+    return;
   }
   send({
     method: "turn/completed",
@@ -231,6 +271,22 @@ rl.on("line", (line) => {
   );
   await fs.chmod(executablePath, 0o755);
   return executablePath;
+}
+
+function createCodexRunnerForMode(
+  fakeCodex: string,
+  mode: FakeCodexMode,
+  logger: Logger = new JsonLogger(),
+): CodexRunner {
+  return new CodexRunner(
+    createCodexConfig({
+      command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+      env: {
+        FAKE_CODEX_MODE: mode,
+      },
+    }),
+    logger,
+  );
 }
 
 async function readLoggedPayloads(
@@ -861,6 +917,78 @@ describe("runners", () => {
         line: "not-json",
       }),
     );
+  });
+
+  it("completes a Codex turn when turn/completed omits params", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = createCodexRunnerForMode(fakeCodex, "completed-without-params");
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close();
+    }
+  });
+
+  it("completes a Codex turn when turn/completed sends null params", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = createCodexRunnerForMode(fakeCodex, "completed-null-params");
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close();
+    }
+  });
+
+  it("rejects a Codex turn when turn/failed omits params", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = createCodexRunnerForMode(fakeCodex, "turn-failed-without-params");
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError("Codex app-server reported turn/failed: {}");
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+  });
+
+  it("rejects a Codex turn when turn/failed sends null params", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = createCodexRunnerForMode(fakeCodex, "turn-failed-null-params");
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError("Codex app-server reported turn/failed: {}");
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
   });
 
   it("times out and cleans up the Codex app-server process", async () => {
