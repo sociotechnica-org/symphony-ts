@@ -68,6 +68,7 @@ Or start the detached local factory runtime from the repo root:
 ```bash
 pnpm tsx bin/symphony.ts factory start
 pnpm tsx bin/symphony.ts factory status
+pnpm tsx bin/symphony.ts factory watch
 ```
 
 In continuous mode, Symphony will keep polling for additional ready issues. The
@@ -80,7 +81,12 @@ Symphony now has two status surfaces:
 - `pnpm tsx bin/symphony.ts factory status` inspects the detached runtime and
   embeds the latest status snapshot when available
 
-For self-hosting operations, prefer `factory status` first.
+For self-hosting operations, prefer `factory status` first, then `factory watch`
+when you want a live read-only monitor.
+
+Do not use raw `screen -r symphony-factory` as the normal watch path. That
+attach path gives your terminal direct foreground ownership of the worker, so
+an accidental `Ctrl-C` can stop the detached factory.
 
 ### 5. Watch the issue lifecycle
 
@@ -133,5 +139,5 @@ That is the self-hosting loop:
 - Run only one local Symphony instance against this repo at a time (Phase 1.2 constraint).
 - If you want to inspect a failed run, set `workspace.cleanup_on_success: false` temporarily or inspect the workspace before the next retry.
 - Use `--once` when you want tight control over one issue at a time.
-- Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart|status` over ad hoc `screen` and
+- Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart|status|watch` over ad hoc `screen` and
   process cleanup when operating the detached runtime.
