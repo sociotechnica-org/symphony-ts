@@ -378,7 +378,7 @@ describe("createPullRequestSnapshot", () => {
               id: "comment-1",
               authorAssociation: "NONE",
               author: { login: "greptile-apps" },
-              body: "<h3>Greptile Summary</h3>\n\nThis PR is safe to merge.",
+              body: '<h3 class="summary">Greptile Summary</h3>\n\nThis PR is safe to merge.',
               createdAt: "2026-03-06T01:00:00.000Z",
               url: "https://example.test/pr/24#comment-1",
             },

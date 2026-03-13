@@ -30,12 +30,18 @@ function isAfter(left: string, right: string | null): boolean {
   return Date.parse(left) > Date.parse(right);
 }
 
+const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
+  // Keep these in sync with the summary comment templates emitted by known bots.
+  cursorSummary: "<!-- CURSOR_SUMMARY -->",
+  greptileSummaryHeading: /<h3\b[^>]*>\s*Greptile Summary\s*<\/h3>/i,
+} as const;
+
 function isActionableBotReviewComment(body: string): boolean {
   const normalized = body.trim();
   return (
     normalized.length > 0 &&
-    !normalized.includes("<!-- CURSOR_SUMMARY -->") &&
-    !normalized.includes("<h3>Greptile Summary</h3>")
+    !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
+    !NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(normalized)
   );
 }
 
