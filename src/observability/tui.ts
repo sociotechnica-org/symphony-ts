@@ -504,9 +504,7 @@ function formatRunningRow(
   eventWidth: number,
   nowMs: number,
 ): string {
-  const runtimeSecs = Math.floor(
-    (nowMs - entry.startedAt.getTime()) / 1000,
-  );
+  const runtimeSecs = Math.floor((nowMs - entry.startedAt.getTime()) / 1000);
   const issue = formatCell(entry.identifier, ID_WIDTH);
   const stage = formatCell(entry.issueState, STAGE_WIDTH);
   const pid = formatCell(
