@@ -107,11 +107,7 @@ function normalizeBacktickValue(value: string): string {
   if (trimmed === "`") {
     return "";
   }
-  if (
-    trimmed.length > 1 &&
-    trimmed.startsWith("`") &&
-    trimmed.endsWith("`")
-  ) {
+  if (trimmed.length > 1 && trimmed.startsWith("`") && trimmed.endsWith("`")) {
     return trimmed.slice(1, -1);
   }
   return trimmed;
@@ -130,8 +126,8 @@ function parseMetadataLine(
   }
   const normalizedValue =
     options?.normalizeBackticks === false
-    ? value
-    : normalizeBacktickValue(value);
+      ? value
+      : normalizeBacktickValue(value);
   return normalizedValue.length > 0 ? normalizedValue : null;
 }
 
