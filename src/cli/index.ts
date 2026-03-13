@@ -39,6 +39,7 @@ export type CliArgs =
   | {
       readonly command: "factory";
       readonly action: "start" | "stop" | "restart";
+      readonly format: "human" | "json";
     }
   | {
       readonly command: "factory";
@@ -83,6 +84,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       return {
         command: "factory",
         action,
+        format: args.includes("--json") ? "json" : "human",
       };
     }
     if (action === "status") {
@@ -112,7 +114,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
           process.stdout.write(
             `Factory ${result.kind === "started" ? "started" : "already running"}.\n`,
           );
-          process.stdout.write(renderFactoryControlStatus(result.status));
+          process.stdout.write(
+            renderFactoryControlStatus(result.status, {
+              format: args.format,
+            }),
+          );
           return;
         }
 
@@ -126,7 +132,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
               `Terminated PIDs: ${result.terminatedPids.join(", ")}\n`,
             );
           }
-          process.stdout.write(renderFactoryControlStatus(result.status));
+          process.stdout.write(
+            renderFactoryControlStatus(result.status, {
+              format: args.format,
+            }),
+          );
           return;
         }
 
@@ -148,7 +158,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
               `Terminated PIDs: ${stopResult.terminatedPids.join(", ")}\n`,
             );
           }
-          process.stdout.write(renderFactoryControlStatus(startResult.status));
+          process.stdout.write(
+            renderFactoryControlStatus(startResult.status, {
+              format: args.format,
+            }),
+          );
           return;
         }
 

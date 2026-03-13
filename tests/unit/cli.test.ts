@@ -175,6 +175,7 @@ describe("parseArgs", () => {
     expect(args).toEqual({
       command: "factory",
       action: "restart",
+      format: "human",
     });
   });
 
@@ -182,10 +183,36 @@ describe("parseArgs", () => {
     expect(parseArgs(["node", "symphony", "factory", "start"])).toEqual({
       command: "factory",
       action: "start",
+      format: "human",
     });
     expect(parseArgs(["node", "symphony", "factory", "stop"])).toEqual({
       command: "factory",
       action: "stop",
+      format: "human",
+    });
+  });
+
+  it("parses --json for factory start, stop, and restart", () => {
+    expect(
+      parseArgs(["node", "symphony", "factory", "start", "--json"]),
+    ).toEqual({
+      command: "factory",
+      action: "start",
+      format: "json",
+    });
+    expect(
+      parseArgs(["node", "symphony", "factory", "stop", "--json"]),
+    ).toEqual({
+      command: "factory",
+      action: "stop",
+      format: "json",
+    });
+    expect(
+      parseArgs(["node", "symphony", "factory", "restart", "--json"]),
+    ).toEqual({
+      command: "factory",
+      action: "restart",
+      format: "json",
     });
   });
 
@@ -543,6 +570,54 @@ describe("runCli factory", () => {
     await mockedRunCli(["node", "symphony", "factory", "restart"]);
 
     expect(stdout.join("")).toContain("Factory was already running.");
+  });
+
+  it("renders factory start status as JSON when requested", async () => {
+    vi.resetModules();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn((_snapshot, options) =>
+        options?.format === "json"
+          ? '{\n  "controlState": "running"\n}\n'
+          : "Factory control: running\n",
+      ),
+      startFactory: vi.fn(async () => ({
+        kind: "started",
+        status: {
+          controlState: "running",
+          paths: {
+            repoRoot: "/repo",
+            runtimeRoot: "/repo/.tmp/factory-main",
+            workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+            statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+          },
+          sessionName: "symphony-factory",
+          sessions: [],
+          workerAlive: true,
+          statusSnapshot: null,
+          processIds: [],
+          problems: [],
+        },
+      })),
+      stopFactory: vi.fn(),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
+
+    await mockedRunCli(["node", "symphony", "factory", "start", "--json"]);
+
+    expect(stdout.join("")).toContain('{\n  "controlState": "running"\n}\n');
   });
 
   it("renders factory status and exits zero for stopped control state", async () => {
