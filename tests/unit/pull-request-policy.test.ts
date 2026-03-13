@@ -98,11 +98,11 @@ describe("pull-request-policy", () => {
       undefined,
     ).lifecycle;
 
-    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
     expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
   });
 
-  it("requires follow-up for failing checks or bot feedback", () => {
+  it("requires rework for failing checks or bot feedback", () => {
     const lifecycle = evaluatePullRequestLifecycle(
       createSnapshot({
         failingCheckNames: ["CI"],
@@ -137,7 +137,7 @@ describe("pull-request-policy", () => {
       undefined,
     ).lifecycle;
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
     expect(lifecycle.unresolvedThreadIds).toEqual(["thread-2"]);
   });

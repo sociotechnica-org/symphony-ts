@@ -155,17 +155,19 @@ export function noteLifecycleForIssue(
     runSequence,
     branchName,
     status:
-      lifecycle.kind === "actionable-follow-up"
-        ? "actionable-follow-up"
+      lifecycle.kind === "rework-required"
+        ? "rework-required"
         : lifecycle.kind === "awaiting-human-handoff"
           ? "awaiting-human-handoff"
-          : lifecycle.kind === "awaiting-system-checks"
-            ? "awaiting-system-checks"
-            : lifecycle.kind === "awaiting-landing-command"
-              ? "awaiting-landing-command"
-              : lifecycle.kind === "awaiting-landing"
-                ? "awaiting-landing"
-                : "queued",
+          : lifecycle.kind === "awaiting-human-review"
+            ? "awaiting-human-review"
+            : lifecycle.kind === "awaiting-system-checks"
+              ? "awaiting-system-checks"
+              : lifecycle.kind === "awaiting-landing-command"
+                ? "awaiting-landing-command"
+                : lifecycle.kind === "awaiting-landing"
+                  ? "awaiting-landing"
+                  : "queued",
     summary: lifecycle.summary,
     pullRequest:
       lifecycle.pullRequest === null
@@ -186,10 +188,11 @@ export function noteLifecycleForIssue(
     },
     blockedReason:
       lifecycle.kind === "awaiting-human-handoff" ||
+      lifecycle.kind === "awaiting-human-review" ||
       lifecycle.kind === "awaiting-system-checks" ||
       lifecycle.kind === "awaiting-landing-command" ||
       lifecycle.kind === "awaiting-landing" ||
-      lifecycle.kind === "actionable-follow-up"
+      lifecycle.kind === "rework-required"
         ? lifecycle.summary
         : null,
   });

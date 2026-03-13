@@ -190,7 +190,7 @@ describe("LinearTracker", () => {
     );
 
     const lifecycle = await tracker.reconcileSuccessfulRun("symphony/7", null);
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
     expect(server.countRequests("GetProjectIssue")).toBe(2);
     const handoffIssue = server.getIssue("symphony-linear", 7);
     expect(handoffIssue.stateName).toBe("Human Review");
@@ -251,13 +251,13 @@ describe("LinearTracker", () => {
     expect(server.getIssue("no-review-state", 20).stateName).toBe(
       "In Progress",
     );
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
     expect(logger.warnings).toContain(
       "Linear project has no 'Human Review' state; issue will not be moved after a successful run",
     );
   });
 
-  it("returns awaiting-human-handoff when a stale approved comment exists from a prior run", async () => {
+  it("returns awaiting-human-review when a stale approved comment exists from a prior run", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
       number: 25,
@@ -278,7 +278,7 @@ describe("LinearTracker", () => {
     expect(server.getIssue("symphony-linear", 25).stateName).toBe(
       "Human Review",
     );
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
   });
 
   it("does not move a successful run backward from Rework into Human Review", async () => {
@@ -297,7 +297,7 @@ describe("LinearTracker", () => {
     expect(server.getIssue("symphony-linear", 21).comments).not.toContain(
       "Symphony run finished and marked this issue handoff-ready.",
     );
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
   });
 
   it("does not post a duplicate handoff-ready comment when a successful run is already in Human Review", async () => {
@@ -318,7 +318,7 @@ describe("LinearTracker", () => {
     expect(server.getIssue("symphony-linear", 24).comments).not.toContain(
       "Symphony run finished and marked this issue handoff-ready.",
     );
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
   });
 
   it("does not move a successful run backward from Merging into Human Review", async () => {
@@ -469,7 +469,7 @@ describe("LinearTracker", () => {
     expect(server.countRequests("UpdateIssueDescriptionAndState")).toBe(0);
   });
 
-  it("maps Human Review to awaiting-human-handoff", async () => {
+  it("maps Human Review to awaiting-human-review", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
       number: 12,
@@ -481,10 +481,10 @@ describe("LinearTracker", () => {
     const tracker = new LinearTracker(createConfig(server), new JsonLogger());
     const lifecycle = await tracker.inspectIssueHandoff("symphony/12");
 
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
   });
 
-  it("maps Human Review with changes-requested to actionable-follow-up", async () => {
+  it("maps Human Review with changes-requested to rework-required", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
       number: 13,
@@ -501,10 +501,10 @@ describe("LinearTracker", () => {
     const tracker = new LinearTracker(createConfig(server), new JsonLogger());
     const lifecycle = await tracker.inspectIssueHandoff("symphony/13");
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
   });
 
-  it("maps Rework to actionable-follow-up", async () => {
+  it("maps Rework to rework-required", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
       number: 14,
@@ -516,7 +516,7 @@ describe("LinearTracker", () => {
     const tracker = new LinearTracker(createConfig(server), new JsonLogger());
     const lifecycle = await tracker.inspectIssueHandoff("symphony/14");
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
   });
 
   it("maps Merging to awaiting-landing-command", async () => {

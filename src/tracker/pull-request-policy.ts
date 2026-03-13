@@ -17,7 +17,7 @@ function summarizeLifecycle(
   pendingCheckNames: readonly string[],
   actionableReviewFeedback: readonly ReviewFeedback[],
 ): string {
-  const parts: string[] = [`Follow-up required for ${url}`];
+  const parts: string[] = [`Rework required for ${url}`];
   if (failingCheckNames.length > 0) {
     parts.push(`failing checks: ${failingCheckNames.join(", ")}`);
   }
@@ -79,7 +79,7 @@ export function evaluatePullRequestLifecycle(
   ) {
     return {
       lifecycle: {
-        kind: "actionable-follow-up",
+        kind: "rework-required",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,
@@ -145,7 +145,7 @@ export function evaluatePullRequestLifecycle(
   if (snapshot.actionableReviewFeedback.length > 0) {
     return {
       lifecycle: {
-        kind: "awaiting-system-checks",
+        kind: "awaiting-human-review",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,

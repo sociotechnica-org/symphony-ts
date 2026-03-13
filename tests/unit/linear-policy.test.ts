@@ -148,17 +148,17 @@ describe("createLinearHandoffLifecycle", () => {
     terminalStates: ["Done"],
   };
 
-  it("maps Human Review to awaiting-human-handoff", () => {
+  it("maps Human Review to awaiting-human-review", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("Human Review"),
       "symphony/1",
       config,
     );
 
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
   });
 
-  it("maps Human Review with changes-requested to actionable-follow-up", () => {
+  it("maps Human Review with changes-requested to rework-required", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("Human Review", {
         comments: [
@@ -171,7 +171,7 @@ describe("createLinearHandoffLifecycle", () => {
       config,
     );
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
   });
 
   it("maps handoff-ready workpad plus approved review to awaiting-landing-command", () => {
@@ -189,7 +189,7 @@ describe("createLinearHandoffLifecycle", () => {
     expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
-  it("maps handoff-ready workpad without a review signal to awaiting-human-handoff", () => {
+  it("maps handoff-ready workpad without a review signal to awaiting-human-review", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("In Progress", {
         workpadStatus: "handoff-ready",
@@ -198,7 +198,7 @@ describe("createLinearHandoffLifecycle", () => {
       config,
     );
 
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
   });
 
   it("ignores stale approved comments from a prior handoff cycle", () => {
@@ -216,17 +216,17 @@ describe("createLinearHandoffLifecycle", () => {
       config,
     );
 
-    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
   });
 
-  it("maps Rework to actionable-follow-up", () => {
+  it("maps Rework to rework-required", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("Rework"),
       "symphony/1",
       config,
     );
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
   });
 
   it("maps Merging to awaiting-landing-command", () => {
@@ -312,7 +312,7 @@ describe("createLinearHandoffLifecycle", () => {
       config,
     );
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
   });
 });
 

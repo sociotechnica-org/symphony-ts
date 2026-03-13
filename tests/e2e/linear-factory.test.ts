@@ -51,7 +51,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 2
     backoff_ms: 0
 workspace:
   root: ./.tmp/workspaces

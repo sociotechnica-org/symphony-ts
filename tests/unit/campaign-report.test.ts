@@ -141,7 +141,7 @@ describe("campaign report", () => {
           title: "Issue 44",
           summary: {
             status: "partial",
-            outcome: "awaiting-review",
+            outcome: "awaiting-system-checks",
             overallConclusion: "PR opened but local facts remained partial.",
           },
           githubActivity: {
@@ -249,7 +249,7 @@ describe("campaign report", () => {
           title: "Issue 44",
           summary: {
             status: "partial",
-            outcome: "awaiting-review",
+            outcome: "awaiting-system-checks",
             overallConclusion: "Awaiting review with partial timeline facts.",
           },
           tokenUsage: {
@@ -289,10 +289,11 @@ function buildStoredIssueReport(options: {
       | "running"
       | "attempt-failed"
       | "awaiting-plan-review"
-      | "awaiting-review"
+      | "awaiting-human-review"
+      | "awaiting-system-checks"
       | "awaiting-landing-command"
       | "awaiting-landing"
-      | "needs-follow-up"
+      | "rework-required"
       | "retry-scheduled"
       | "succeeded"
       | "failed"

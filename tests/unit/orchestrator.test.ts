@@ -96,7 +96,6 @@ const baseConfig: ResolvedConfig = {
     maxConcurrentRuns: 2,
     retry: {
       maxAttempts: 2,
-      maxFollowUpAttempts: 2,
       backoffMs: 0,
     },
   },
@@ -889,7 +888,7 @@ describe("BootstrapOrchestrator", () => {
       });
       tracker.setLifecycleSequence(33, [
         lifecycle("missing-target", "symphony/33"),
-        lifecycle("actionable-follow-up", "symphony/33"),
+        lifecycle("rework-required", "symphony/33"),
         lifecycle("handoff-ready", "symphony/33"),
       ]);
       const logger = new NullLogger();
@@ -972,7 +971,7 @@ describe("BootstrapOrchestrator", () => {
         running: [createIssue(70, "symphony:running")],
       });
       tracker.setLifecycleSequence(70, [
-        lifecycle("actionable-follow-up", "symphony/70", {
+        lifecycle("rework-required", "symphony/70", {
           failingCheckNames: ["CI"],
         }),
       ]);
@@ -1400,7 +1399,7 @@ describe("BootstrapOrchestrator", () => {
       running: [createIssue(8, "symphony:running")],
     });
     tracker.setLifecycleSequence(8, [
-      lifecycle("actionable-follow-up", "symphony/8", {
+      lifecycle("rework-required", "symphony/8", {
         failingCheckNames: ["CI"],
         unresolvedThreadIds: ["thread-1"],
         actionableReviewFeedback: [
@@ -1498,7 +1497,7 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("awaiting-system-checks", "symphony/9", {
         pendingCheckNames: ["CI"],
       }),
-      lifecycle("actionable-follow-up", "symphony/9", {
+      lifecycle("rework-required", "symphony/9", {
         failingCheckNames: ["CI"],
       }),
       lifecycle("handoff-ready", "symphony/9"),
@@ -1521,12 +1520,12 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.completed).toEqual([9]);
   });
 
-  it("marks a running issue failed after capped successful follow-up reruns", async () => {
+  it("keeps a running issue active across repeated successful rework loops", async () => {
     const tracker = new SequencedTracker({
       running: [createIssue(73, "symphony:running")],
     });
     tracker.setLifecycleSequence(73, [
-      lifecycle("actionable-follow-up", "symphony/73", {
+      lifecycle("rework-required", "symphony/73", {
         actionableReviewFeedback: [
           {
             id: "feedback-1",
@@ -1542,7 +1541,7 @@ describe("BootstrapOrchestrator", () => {
         ],
         unresolvedThreadIds: ["thread-1"],
       }),
-      lifecycle("actionable-follow-up", "symphony/73", {
+      lifecycle("rework-required", "symphony/73", {
         actionableReviewFeedback: [
           {
             id: "feedback-2",
@@ -1571,16 +1570,11 @@ describe("BootstrapOrchestrator", () => {
     await orchestrator.runOnce();
     await orchestrator.runOnce();
 
-    expect(tracker.failed).toEqual([
-      {
-        issueNumber: 73,
-        reason:
-          "Reached agent.max_turns (3) with remaining actionable-follow-up work: actionable-follow-up for symphony/73",
-      },
-    ]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([]);
   });
 
-  it("does not consume the follow-up failure budget while waiting for review", async () => {
+  it("keeps rework loops active after waiting for review and checks", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(74)],
     });
@@ -1589,7 +1583,7 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("awaiting-system-checks", "symphony/74", {
         pendingCheckNames: ["CI"],
       }),
-      lifecycle("actionable-follow-up", "symphony/74", {
+      lifecycle("rework-required", "symphony/74", {
         failingCheckNames: ["CI"],
         actionableReviewFeedback: [
           {
@@ -1606,7 +1600,7 @@ describe("BootstrapOrchestrator", () => {
         ],
         unresolvedThreadIds: ["thread-1"],
       }),
-      lifecycle("actionable-follow-up", "symphony/74", {
+      lifecycle("rework-required", "symphony/74", {
         failingCheckNames: ["CI"],
         actionableReviewFeedback: [
           {
@@ -1653,7 +1647,7 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("awaiting-system-checks", "symphony/13", {
         pendingCheckNames: ["CI"],
       }),
-      lifecycle("actionable-follow-up", "symphony/13", {
+      lifecycle("rework-required", "symphony/13", {
         failingCheckNames: ["CI"],
       }),
       lifecycle("handoff-ready", "symphony/13"),
@@ -1681,7 +1675,7 @@ describe("BootstrapOrchestrator", () => {
       JSON.stringify({
         issue: "sociotechnica-org/symphony-ts#13",
         attempt: 2,
-        pullRequest: "actionable-follow-up",
+        pullRequest: "rework-required",
       }),
     ]);
   });
@@ -1717,7 +1711,6 @@ describe("BootstrapOrchestrator", () => {
           ...baseConfig.polling,
           retry: {
             maxAttempts: 2,
-            maxFollowUpAttempts: 2,
             backoffMs: 60_000,
           },
         },
@@ -1752,7 +1745,6 @@ describe("BootstrapOrchestrator", () => {
           ...baseConfig.polling,
           retry: {
             maxAttempts: 1,
-            maxFollowUpAttempts: 1,
             backoffMs: 0,
           },
         },
@@ -1832,7 +1824,6 @@ describe("BootstrapOrchestrator", () => {
           ...baseConfig.polling,
           retry: {
             maxAttempts: 1,
-            maxFollowUpAttempts: 1,
             backoffMs: 0,
           },
         },
@@ -1881,7 +1872,7 @@ describe("BootstrapOrchestrator", () => {
     });
     tracker.setLifecycleSequence(77, [
       lifecycle("missing-target", "symphony/77"),
-      lifecycle("actionable-follow-up", "symphony/77", {
+      lifecycle("rework-required", "symphony/77", {
         failingCheckNames: ["CI"],
       }),
     ]);
@@ -1901,7 +1892,6 @@ describe("BootstrapOrchestrator", () => {
             ...baseConfig.polling,
             retry: {
               maxAttempts: 1,
-              maxFollowUpAttempts: 1,
               backoffMs: 0,
             },
           },
@@ -1961,7 +1951,6 @@ describe("BootstrapOrchestrator", () => {
             ...baseConfig.polling,
             retry: {
               maxAttempts: 1,
-              maxFollowUpAttempts: 1,
               backoffMs: 0,
             },
           },
@@ -2017,7 +2006,6 @@ describe("BootstrapOrchestrator", () => {
           ...baseConfig.polling,
           retry: {
             maxAttempts: 1,
-            maxFollowUpAttempts: 1,
             backoffMs: 0,
           },
         },
@@ -2039,7 +2027,7 @@ describe("BootstrapOrchestrator", () => {
     ]);
   });
 
-  it("keeps the raw actionable-follow-up summary when max_turns is one", async () => {
+  it("keeps the raw rework-required summary when max_turns is one", async () => {
     const tempRoot = await createTempDir("symphony-single-turn-follow-up-");
     const tracker = new SequencedTracker({
       ready: [createIssue(90)],
@@ -2047,7 +2035,7 @@ describe("BootstrapOrchestrator", () => {
     try {
       tracker.setLifecycleSequence(90, [
         lifecycle("missing-target", "symphony/90"),
-        lifecycle("actionable-follow-up", "symphony/90", {
+        lifecycle("rework-required", "symphony/90", {
           actionableReviewFeedback: [
             {
               id: "feedback-1",
@@ -2075,7 +2063,6 @@ describe("BootstrapOrchestrator", () => {
             ...baseConfig.polling,
             retry: {
               maxAttempts: 1,
-              maxFollowUpAttempts: 2,
               backoffMs: 0,
             },
           },
@@ -2099,13 +2086,13 @@ describe("BootstrapOrchestrator", () => {
       const issueStatus = status.activeIssues.find(
         (issue) => issue.issueNumber === 90,
       );
-      expect(issueStatus?.summary).toBe("actionable-follow-up for symphony/90");
+      expect(issueStatus?.summary).toBe("rework-required for symphony/90");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
   });
 
-  it("keeps actionable follow-up status summaries raw when max turns are reached but retries remain", async () => {
+  it("keeps rework-required status summaries raw when max turns are reached", async () => {
     const tempRoot = await createTempDir("symphony-max-turn-follow-up-status-");
     const tracker = new SequencedTracker({
       ready: [createIssue(91)],
@@ -2113,7 +2100,7 @@ describe("BootstrapOrchestrator", () => {
     try {
       tracker.setLifecycleSequence(91, [
         lifecycle("missing-target", "symphony/91"),
-        lifecycle("actionable-follow-up", "symphony/91", {
+        lifecycle("rework-required", "symphony/91", {
           actionableReviewFeedback: [
             {
               id: "feedback-1",
@@ -2129,7 +2116,7 @@ describe("BootstrapOrchestrator", () => {
           ],
           unresolvedThreadIds: ["thread-1"],
         }),
-        lifecycle("actionable-follow-up", "symphony/91", {
+        lifecycle("rework-required", "symphony/91", {
           actionableReviewFeedback: [
             {
               id: "feedback-2",
@@ -2158,7 +2145,6 @@ describe("BootstrapOrchestrator", () => {
             ...baseConfig.polling,
             retry: {
               maxAttempts: 1,
-              maxFollowUpAttempts: 3,
               backoffMs: 0,
             },
           },
@@ -2182,7 +2168,7 @@ describe("BootstrapOrchestrator", () => {
       const issueStatus = status.activeIssues.find(
         (issue) => issue.issueNumber === 91,
       );
-      expect(issueStatus?.summary).toBe("actionable-follow-up for symphony/91");
+      expect(issueStatus?.summary).toBe("rework-required for symphony/91");
       expect(tracker.failed).toEqual([]);
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
@@ -2204,7 +2190,6 @@ describe("BootstrapOrchestrator", () => {
           ...baseConfig.polling,
           retry: {
             maxAttempts: 2,
-            maxFollowUpAttempts: 2,
             backoffMs: 0,
           },
         },
@@ -2377,7 +2362,6 @@ describe("BootstrapOrchestrator", () => {
           ...baseConfig.polling,
           retry: {
             maxAttempts: 2,
-            maxFollowUpAttempts: 2,
             backoffMs: 0,
           },
         },

@@ -41,8 +41,7 @@ export function shouldContinueTurnLoop(
     return false;
   }
   return (
-    lifecycle.kind === "actionable-follow-up" ||
-    lifecycle.kind === "missing-target"
+    lifecycle.kind === "rework-required" || lifecycle.kind === "missing-target"
   );
 }
 
@@ -59,7 +58,7 @@ export function summarizeLifecycleTurnBudgetFailure(
   maxTurns: number,
 ): string {
   if (
-    (lifecycle.kind !== "actionable-follow-up" &&
+    (lifecycle.kind !== "rework-required" &&
       lifecycle.kind !== "missing-target") ||
     latestTurnNumber !== maxTurns
   ) {

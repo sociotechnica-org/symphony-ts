@@ -46,7 +46,6 @@ import {
   type RunSessionArtifactsState,
   summarizeMissingTargetFailure,
   shouldContinueTurnLoop,
-  summarizeLifecycleTurnBudgetFailure,
 } from "./continuation-turns.js";
 import {
   clearLandingRuntimeState,
@@ -441,6 +440,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (
       lifecycle.kind === "awaiting-system-checks" ||
       lifecycle.kind === "awaiting-human-handoff" ||
+      lifecycle.kind === "awaiting-human-review" ||
       lifecycle.kind === "awaiting-landing-command"
     ) {
       clearLandingRuntimeState(this.#state.landing, issue.number);
@@ -1007,9 +1007,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (
       lifecycle.kind === "awaiting-system-checks" ||
       lifecycle.kind === "awaiting-human-handoff" ||
+      lifecycle.kind === "awaiting-human-review" ||
       lifecycle.kind === "awaiting-landing-command" ||
       lifecycle.kind === "awaiting-landing" ||
-      lifecycle.kind === "actionable-follow-up"
+      lifecycle.kind === "rework-required"
     ) {
       if (lifecycle.kind !== "awaiting-landing") {
         clearLandingRuntimeState(this.#state.landing, issue.number);
@@ -1063,38 +1064,12 @@ export class BootstrapOrchestrator implements Orchestrator {
         ),
       );
 
-      const decision = noteLifecycleObservation(
+      noteLifecycleObservation(
         this.#state.followUp,
         issue.number,
         attempt,
         lifecycle,
-        this.#config.polling.retry.maxFollowUpAttempts,
       );
-      if (decision.kind === "exhausted") {
-        const failureSummary = summarizeLifecycleTurnBudgetFailure(
-          lifecycle,
-          session.latestTurnNumber,
-          this.#config.agent.maxTurns,
-        );
-        const failureLifecycle =
-          failureSummary === lifecycle.summary
-            ? lifecycle
-            : {
-                ...lifecycle,
-                summary: failureSummary,
-              };
-        await this.#failIssue(
-          issue,
-          this.#followUpFailureMessage(failureLifecycle),
-          {
-            attemptNumber: attempt,
-            branchName,
-            session,
-            finishedAt,
-            lifecycle: failureLifecycle,
-          },
-        );
-      }
       return;
     }
 
@@ -1828,9 +1803,10 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     if (
       lifecycle.kind !== "awaiting-landing-command" &&
+      lifecycle.kind !== "awaiting-human-review" &&
       lifecycle.kind !== "awaiting-system-checks" &&
       lifecycle.kind !== "awaiting-landing" &&
-      lifecycle.kind !== "actionable-follow-up"
+      lifecycle.kind !== "rework-required"
     ) {
       return null;
     }
@@ -1858,22 +1834,25 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): Extract<
     IssueArtifactOutcome,
     | "awaiting-plan-review"
-    | "awaiting-review"
+    | "awaiting-human-review"
+    | "awaiting-system-checks"
     | "awaiting-landing-command"
     | "awaiting-landing"
-    | "needs-follow-up"
+    | "rework-required"
   > {
     switch (lifecycle.kind) {
       case "awaiting-human-handoff":
         return "awaiting-plan-review";
+      case "awaiting-human-review":
+        return "awaiting-human-review";
       case "awaiting-system-checks":
-        return "awaiting-review";
+        return "awaiting-system-checks";
       case "awaiting-landing-command":
         return "awaiting-landing-command";
       case "awaiting-landing":
         return "awaiting-landing";
-      case "actionable-follow-up":
-        return "needs-follow-up";
+      case "rework-required":
+        return "rework-required";
       case "missing-target":
       case "handoff-ready":
         break;
@@ -2093,19 +2072,6 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   #currentRunnerPid(issueNumber: number): number | null {
     return this.#state.status.activeIssues.get(issueNumber)?.runnerPid ?? null;
-  }
-
-  #followUpFailureMessage(lifecycle: HandoffLifecycle): string {
-    if (!this.#hasHumanReviewFeedback(lifecycle)) {
-      return lifecycle.summary;
-    }
-    return `${lifecycle.summary}; human review feedback remains unresolved`;
-  }
-
-  #hasHumanReviewFeedback(lifecycle: HandoffLifecycle): boolean {
-    return lifecycle.actionableReviewFeedback.some((feedback) => {
-      return this.#tracker.isHumanReviewFeedback(feedback.authorLogin);
-    });
   }
 
   #normalizeFailure(error: Error): string {

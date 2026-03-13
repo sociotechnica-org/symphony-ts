@@ -23,10 +23,11 @@ export type IssueArtifactOutcome =
   | "running"
   | "attempt-failed"
   | "awaiting-plan-review"
-  | "awaiting-review"
+  | "awaiting-human-review"
+  | "awaiting-system-checks"
   | "awaiting-landing-command"
   | "awaiting-landing"
-  | "needs-follow-up"
+  | "rework-required"
   | "retry-scheduled"
   | "succeeded"
   | "failed";

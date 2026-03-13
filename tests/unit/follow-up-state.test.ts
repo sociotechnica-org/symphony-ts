@@ -10,7 +10,7 @@ import {
 } from "../../src/orchestrator/follow-up-state.js";
 
 describe("follow-up-state", () => {
-  it("keeps run sequence and follow-up budget separate", () => {
+  it("keeps run sequence and continuation reason separate from failure retries", () => {
     const state = createFollowUpRuntimeState();
     const issue = createIssue(16);
 
@@ -19,27 +19,23 @@ describe("follow-up-state", () => {
       issue.number,
       1,
       createLifecycle("awaiting-system-checks", "symphony/16"),
-      2,
     );
 
-    expect(first.kind).toBe("continue");
-    expect(first.followUpAttempt).toBeNull();
+    expect(first.continuationReason).toBe("waiting-system-checks");
     expect(resolveRunSequence(state, issue.number, new Map())).toBe(2);
 
     const second = noteLifecycleObservation(
       state,
       issue.number,
       2,
-      createLifecycle("actionable-follow-up", "symphony/16"),
-      2,
+      createLifecycle("rework-required", "symphony/16"),
     );
 
-    expect(second.kind).toBe("continue");
-    expect(second.followUpAttempt).toBe(1);
+    expect(second.continuationReason).toBe("rework");
     expect(resolveRunSequence(state, issue.number, new Map())).toBe(3);
   });
 
-  it("exhausts only actionable follow-up retries", () => {
+  it("keeps repeated rework loops active without exhausting a review budget", () => {
     const state = createFollowUpRuntimeState();
     const issue = createIssue(17);
 
@@ -48,27 +44,24 @@ describe("follow-up-state", () => {
       issue.number,
       1,
       createLifecycle("awaiting-system-checks", "symphony/17"),
-      2,
     );
 
     const firstFollowUp = noteLifecycleObservation(
       state,
       issue.number,
       2,
-      createLifecycle("actionable-follow-up", "symphony/17"),
-      2,
+      createLifecycle("rework-required", "symphony/17"),
     );
     const secondFollowUp = noteLifecycleObservation(
       state,
       issue.number,
       3,
-      createLifecycle("actionable-follow-up", "symphony/17"),
-      2,
+      createLifecycle("rework-required", "symphony/17"),
     );
 
-    expect(firstFollowUp.kind).toBe("continue");
-    expect(secondFollowUp.kind).toBe("exhausted");
-    expect(secondFollowUp.followUpAttempt).toBe(2);
+    expect(firstFollowUp.continuationReason).toBe("rework");
+    expect(secondFollowUp.continuationReason).toBe("rework");
+    expect(resolveRunSequence(state, issue.number, new Map())).toBe(4);
   });
 
   it("creates retry state and clears issue follow-up state", () => {
@@ -78,8 +71,7 @@ describe("follow-up-state", () => {
       state,
       issue.number,
       1,
-      createLifecycle("actionable-follow-up", "symphony/18"),
-      3,
+      createLifecycle("rework-required", "symphony/18"),
     );
 
     const retry = noteRetryScheduled(state, issue, 1, 1, 10, "boom");
@@ -95,19 +87,29 @@ describe("follow-up-state", () => {
     expect(resolveFailureRetryAttempt(state, issue.number)).toBe(1);
   });
 
-  it("persists the exhausted follow-up count for downstream handling", () => {
+  it("stores explicit waiting and rework continuation reasons", () => {
     const state = createFollowUpRuntimeState();
 
-    const decision = noteLifecycleObservation(
-      state,
-      19,
-      2,
-      createLifecycle("actionable-follow-up", "symphony/19"),
-      1,
+    expect(
+      noteLifecycleObservation(
+        state,
+        19,
+        1,
+        createLifecycle("awaiting-human-review", "symphony/19"),
+      ).continuationReason,
+    ).toBe("waiting-human-review");
+    expect(state.activeContinuationByIssueNumber.get(19)).toBe(
+      "waiting-human-review",
     );
-
-    expect(decision.kind).toBe("exhausted");
-    expect(state.followUpAttemptsByIssueNumber.get(19)).toBe(1);
+    expect(
+      noteLifecycleObservation(
+        state,
+        19,
+        2,
+        createLifecycle("rework-required", "symphony/19"),
+      ).continuationReason,
+    ).toBe("rework");
+    expect(state.activeContinuationByIssueNumber.get(19)).toBe("rework");
   });
 
   it("keeps failure retry attempts separate from run sequence", () => {
@@ -119,14 +121,12 @@ describe("follow-up-state", () => {
       issue.number,
       1,
       createLifecycle("awaiting-system-checks", "symphony/20"),
-      2,
     );
     noteLifecycleObservation(
       state,
       issue.number,
       2,
-      createLifecycle("actionable-follow-up", "symphony/20"),
-      2,
+      createLifecycle("rework-required", "symphony/20"),
     );
 
     expect(resolveRunSequence(state, issue.number, new Map())).toBe(3);

@@ -145,6 +145,10 @@ export async function executeLocalRunnerCommand(
     }
 
     const handleStdinError = (error: NodeJS.ErrnoException): void => {
+      if (aborted) {
+        stderr += `\nstdin write aborted: ${error.message}`;
+        return;
+      }
       if (
         error.code === "EPIPE" ||
         error.code === "ERR_STREAM_DESTROYED" ||

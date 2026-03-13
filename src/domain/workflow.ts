@@ -10,7 +10,6 @@ export interface WatchdogConfig {
 
 export interface RetryPolicy {
   readonly maxAttempts: number;
-  readonly maxFollowUpAttempts: number;
   readonly backoffMs: number;
 }
 

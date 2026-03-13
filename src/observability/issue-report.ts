@@ -1416,9 +1416,12 @@ function inferOutcomeFromEvents(
       case "retry-scheduled":
         return "retry-scheduled";
       case "review-feedback":
-        return "needs-follow-up";
+        return "rework-required";
       case "pr-opened":
-        return readLifecycleKindFromDetails(event.details) ?? "awaiting-review";
+        return (
+          readLifecycleKindFromDetails(event.details) ??
+          "awaiting-system-checks"
+        );
       case "landing-requested":
         return "awaiting-landing";
       case "runner-spawned":
