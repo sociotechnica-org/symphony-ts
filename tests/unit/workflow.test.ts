@@ -24,7 +24,6 @@ function buildSharedWorkflowSections(): string {
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -84,7 +83,6 @@ ${buildSharedWorkflowSections()}`,
     );
     expect(workflow.config.tracker.kind).toBe("github-bootstrap");
     expect(workflow.config.polling.retry.maxAttempts).toBe(2);
-    expect(workflow.config.polling.retry.maxFollowUpAttempts).toBe(3);
     expect(workflow.config.polling.watchdog).toBeUndefined();
     expect(workflow.config.agent.runner.kind).toBe("codex");
     expect(workflow.config.agent.maxTurns).toBe(1);
@@ -130,7 +128,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -204,7 +201,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
   watchdog:
     enabled: true
@@ -257,7 +253,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
   watchdog:
     enabled: true
@@ -305,7 +300,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
   watchdog:
     enabled: true
@@ -353,7 +347,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
   watchdog:
     enabled: false
@@ -427,7 +420,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -472,7 +464,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -515,7 +506,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -558,7 +548,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -603,7 +592,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -647,7 +635,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -681,7 +668,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -735,7 +721,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -778,7 +763,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
@@ -821,7 +805,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 3
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws

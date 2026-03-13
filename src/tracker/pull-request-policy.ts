@@ -12,12 +12,13 @@ export interface PullRequestPolicyResult {
 }
 
 function summarizeLifecycle(
+  intro: string,
   url: string,
   failingCheckNames: readonly string[],
   pendingCheckNames: readonly string[],
   actionableReviewFeedback: readonly ReviewFeedback[],
 ): string {
-  const parts: string[] = [`Follow-up required for ${url}`];
+  const parts: string[] = [`${intro} ${url}`];
   if (failingCheckNames.length > 0) {
     parts.push(`failing checks: ${failingCheckNames.join(", ")}`);
   }
@@ -79,7 +80,7 @@ export function evaluatePullRequestLifecycle(
   ) {
     return {
       lifecycle: {
-        kind: "actionable-follow-up",
+        kind: "rework-required",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,
@@ -88,6 +89,7 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: snapshot.unresolvedThreadIds,
         summary: summarizeLifecycle(
+          "Rework required for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
@@ -110,6 +112,7 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
         summary: summarizeLifecycle(
+          "Waiting on checks for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
@@ -132,6 +135,7 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
         summary: summarizeLifecycle(
+          "Waiting on checks for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
@@ -145,7 +149,7 @@ export function evaluatePullRequestLifecycle(
   if (snapshot.actionableReviewFeedback.length > 0) {
     return {
       lifecycle: {
-        kind: "awaiting-system-checks",
+        kind: "awaiting-human-review",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,

@@ -40,7 +40,6 @@ async function writeWorkflow(options: {
   runnerKind?: "codex" | "generic-command" | "claude-code";
   retryBackoffMs?: number;
   maxAttempts?: number;
-  maxFollowUpAttempts?: number;
   maxTurns?: number;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
@@ -63,7 +62,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: ${options.maxAttempts ?? 2}
-    max_follow_up_attempts: ${options.maxFollowUpAttempts ?? options.maxAttempts ?? 2}
     backoff_ms: ${options.retryBackoffMs ?? 0}
 workspace:
   root: ./.tmp/workspaces

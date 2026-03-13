@@ -1,10 +1,11 @@
 export type HandoffLifecycleKind =
   | "missing-target"
   | "awaiting-human-handoff"
+  | "awaiting-human-review"
   | "awaiting-system-checks"
   | "awaiting-landing-command"
   | "awaiting-landing"
-  | "actionable-follow-up"
+  | "rework-required"
   | "handoff-ready";
 
 export type PullRequestCheckStatus = "pending" | "success" | "failure";

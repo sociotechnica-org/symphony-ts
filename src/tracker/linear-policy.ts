@@ -144,7 +144,7 @@ export function createLinearHandoffLifecycle(
 
   if (sameLinearStateName(stateName, REWORK_STATE_NAME)) {
     return linearLifecycle(
-      "actionable-follow-up",
+      "rework-required",
       branchName,
       `Linear issue ${issue.identifier} is waiting on rework in '${stateName}'`,
     );
@@ -164,7 +164,7 @@ export function createLinearHandoffLifecycle(
   ) {
     if (reviewSignal === "changes-requested") {
       return linearLifecycle(
-        "actionable-follow-up",
+        "rework-required",
         branchName,
         `Linear issue ${issue.identifier} has requested rework`,
       );
@@ -179,7 +179,7 @@ export function createLinearHandoffLifecycle(
     }
 
     return linearLifecycle(
-      "awaiting-human-handoff",
+      "awaiting-human-review",
       branchName,
       `Linear issue ${issue.identifier} is waiting for human review`,
     );

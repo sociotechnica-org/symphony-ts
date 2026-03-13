@@ -4,20 +4,12 @@ import type { RetryState } from "../domain/retry.js";
 
 export interface FollowUpRuntimeState {
   readonly nextRunSequenceByIssueNumber: Map<number, number>;
-  readonly followUpAttemptsByIssueNumber: Map<number, number>;
   readonly nextFailureRetryAttemptByIssueNumber: Map<number, number>;
-}
-
-export interface FollowUpBudgetDecision {
-  readonly kind: "continue" | "exhausted";
-  readonly nextRunSequence: number;
-  readonly followUpAttempt: number | null;
 }
 
 export function createFollowUpRuntimeState(): FollowUpRuntimeState {
   return {
     nextRunSequenceByIssueNumber: new Map<number, number>(),
-    followUpAttemptsByIssueNumber: new Map<number, number>(),
     nextFailureRetryAttemptByIssueNumber: new Map<number, number>(),
   };
 }
@@ -39,7 +31,6 @@ export function clearFollowUpRuntimeState(
   issueNumber: number,
 ): void {
   state.nextRunSequenceByIssueNumber.delete(issueNumber);
-  state.followUpAttemptsByIssueNumber.delete(issueNumber);
   state.nextFailureRetryAttemptByIssueNumber.delete(issueNumber);
 }
 
@@ -60,7 +51,6 @@ export function noteRetryScheduled(
 ): RetryState {
   const nextAttempt = runSequence + 1;
   state.nextRunSequenceByIssueNumber.set(issue.number, nextAttempt);
-  state.followUpAttemptsByIssueNumber.delete(issue.number);
   state.nextFailureRetryAttemptByIssueNumber.set(
     issue.number,
     failureRetryAttempt + 1,
@@ -77,33 +67,8 @@ export function noteLifecycleObservation(
   state: FollowUpRuntimeState,
   issueNumber: number,
   attempt: number,
-  lifecycle: HandoffLifecycle,
-  maxFollowUpAttempts: number,
-): FollowUpBudgetDecision {
+  _lifecycle: HandoffLifecycle,
+): void {
   const nextRunSequence = attempt + 1;
   state.nextRunSequenceByIssueNumber.set(issueNumber, nextRunSequence);
-
-  if (lifecycle.kind !== "actionable-follow-up") {
-    return {
-      kind: "continue",
-      nextRunSequence,
-      followUpAttempt: null,
-    };
-  }
-
-  const nextFollowUpAttempt =
-    (state.followUpAttemptsByIssueNumber.get(issueNumber) ?? 0) + 1;
-  state.followUpAttemptsByIssueNumber.set(issueNumber, nextFollowUpAttempt);
-  if (nextFollowUpAttempt >= maxFollowUpAttempts) {
-    return {
-      kind: "exhausted",
-      nextRunSequence,
-      followUpAttempt: nextFollowUpAttempt,
-    };
-  }
-  return {
-    kind: "continue",
-    nextRunSequence,
-    followUpAttempt: nextFollowUpAttempt,
-  };
 }

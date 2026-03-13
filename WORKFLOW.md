@@ -17,7 +17,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 25
     backoff_ms: 5000
   watchdog:
     enabled: true

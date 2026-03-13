@@ -25,7 +25,6 @@ polling:
   max_concurrent_runs: 1
   retry:
     max_attempts: 2
-    max_follow_up_attempts: 2
     backoff_ms: 0
 workspace:
   root: ./.tmp/workspaces
@@ -132,7 +131,7 @@ export async function seedSuccessfulIssueArtifacts(
       title: "Generate per-issue reports from local artifacts",
       issueUrl,
       branch,
-      currentOutcome: "awaiting-review",
+      currentOutcome: "awaiting-system-checks",
       currentSummary: "PR opened and awaiting checks",
       observedAt: prOpenedAt,
       latestAttemptNumber: 1,
@@ -145,7 +144,7 @@ export async function seedSuccessfulIssueArtifacts(
       branch,
       startedAt: attemptStartedAt,
       finishedAt: prOpenedAt,
-      outcome: "awaiting-review",
+      outcome: "awaiting-system-checks",
       summary: "PR opened and awaiting checks",
       sessionId,
       latestTurnNumber: 1,

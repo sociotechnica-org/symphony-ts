@@ -541,7 +541,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
     expect(lifecycle.pullRequest?.url).toMatch(/\/pulls\/2$/);
     expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
   });
@@ -617,7 +617,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
     expect(lifecycle.unresolvedThreadIds).toEqual([threadId]);
     expect(lifecycle.actionableReviewFeedback).toHaveLength(2);
@@ -667,7 +667,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("actionable-follow-up");
+    expect(lifecycle.kind).toBe("rework-required");
     expect(lifecycle.unresolvedThreadIds).toEqual([botThreadId]);
     expect(lifecycle.actionableReviewFeedback).toHaveLength(2);
 
@@ -678,7 +678,7 @@ describe("GitHubBootstrapTracker", () => {
 
     expect(server.isReviewThreadResolved(botThreadId)).toBe(true);
     expect(server.isReviewThreadResolved(humanThreadId)).toBe(false);
-    expect(refreshed.kind).toBe("awaiting-system-checks");
+    expect(refreshed.kind).toBe("awaiting-human-review");
     expect(refreshed.actionableReviewFeedback).toHaveLength(1);
     expect(refreshed.actionableReviewFeedback[0]?.authorLogin).toBe(
       "jessmartin",
