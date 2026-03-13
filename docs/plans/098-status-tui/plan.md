@@ -1,6 +1,6 @@
 # Plan: Status TUI for the Factory (#98)
 
-Status: draft
+Status: implemented
 
 ## Summary
 
@@ -30,7 +30,6 @@ Reference: `../symphony/elixir/lib/symphony_elixir/status_dashboard.ex`
 - Web/HTTP dashboard
 - PubSub infrastructure
 - Remote runner support
-- Sparkline graph (defer to follow-up; internal use only)
 
 ## Symphony Abstraction Layer Mapping
 
@@ -40,7 +39,7 @@ Reference: `../symphony/elixir/lib/symphony_elixir/status_dashboard.ex`
 | Integration   | Add `onUpdate` hook to Runner; parse Codex stdout events |
 | Coordination  | Add `RunningEntry` map, `snapshot()`, polling flags      |
 | Execution     | No changes                                               |
-| Observability | New `StatusDashboard` (TUI renderer)                     |
+| Observability | New `StatusDashboard` (TUI renderer), file-based log redirection |
 
 ## Current Gaps
 
@@ -219,7 +218,26 @@ ANSI helpers:
 
 - Inline constants: `RED`, `GREEN`, `YELLOW`, `BLUE`, `MAGENTA`, `CYAN`, `GRAY`,
   `BOLD`, `DIM`, `RESET` using raw escape codes from spec Section 8.
+- `GRAY` uses `\x1b[2;37m` (dim white) instead of `\x1b[90m` (bright black) to
+  remain visible on dark terminal themes.
 - No external terminal library.
+
+### Log Redirection
+
+When the TUI is active, all logger output is redirected to a file to prevent
+JSON log lines from flashing between TUI frames:
+
+- `src/observability/logger.ts` exposes `setLogFile(path)` / `getLogFilePath()`
+- `StatusDashboard.start()` calls `setLogFile(<workspace_root>/symphony.log)`
+- `StatusDashboard.stop()` calls `setLogFile(null)` and prints the log file path
+- This matches the Elixir reference which removes the console log handler at
+  startup and writes exclusively to disk
+
+### Sparkline
+
+Implemented as a rolling bucket sparkline using Unicode block characters
+(`▁▂▃▄▅▆▇█`). TPS samples are bucketed into 25 time slots and rendered inline
+in the header next to the throughput value.
 
 ### Step 6 — CLI: Wire TUI startup
 
@@ -231,20 +249,37 @@ orchestrator so it can call `notifyUpdate`. Call `dashboard.stop()` on shutdown.
 
 Unit tests (`tests/unit/tui.test.ts`):
 
-- `formatSnapshot` with sample data → expected ANSI string (use `renderFn` capture)
-- `humanizeEvent` for each event type in taxonomy
+- `formatSnapshotContent` with sample data → expected content (pure function, no IO)
+- `humanizeEvent` for each event type in taxonomy including Codex JSON-RPC wrapper
+  events (`codex/event/session.start`, `session.end`, `reasoning`,
+  `exec_command_begin`, `exec_command_end`)
 - `rollingTps` edge cases (empty, single sample, window prune)
 - `throttledTps` — same-second caching
 - Snapshot fingerprinting — no re-render on identical data
 - Content deduplication — no IO on identical formatted string
 - Flush timer throttling — pending content flushed after `renderIntervalMs`
 - Offline frame renders "app_status=offline"
+- Multi-agent realistic scenario with all TUI sections exercised
 
-Integration tests (`tests/integration/tui.test.ts`):
+Unit tests (`tests/unit/running-entry.test.ts`):
 
-- TUI started with a fake orchestrator stub, ticks once, captures rendered output
-- Push refresh (`refresh()`) triggers immediate render, respects rate limit
-- TUI disabled when `dashboardEnabled: false`
+- Nested Codex JSON-RPC token extraction (`params.msg.payload.total_token_usage.*`)
+- Session ID extraction from nested JSON-RPC payload
+
+Visual QA (`tests/fixtures/tui-qa-dump.ts`):
+
+- Renders three scenarios (active agents, idle, offline) at 120 and 80 col widths
+- Strips ANSI for plain-text inspection
+- Prints event humanization table
+- Run with: `npx tsx tests/fixtures/tui-qa-dump.ts`
+
+Live smoke test (`tests/fixtures/fake-agent-codex-events.sh`):
+
+- Emits realistic Codex JSON-RPC event stream over ~20 seconds
+- Exercises session start/end, reasoning, exec commands, token usage
+- Can be used as the agent command in a real factory run
+
+See `src/observability/README.md` for the full testing approach.
 
 ## Acceptance Criteria
 
@@ -265,8 +300,5 @@ Integration tests (`tests/integration/tui.test.ts`):
 
 ## Deferred
 
-- Sparkline graph (Section 6.3) — visual nicety, not required for operator utility
 - Web dashboard / PubSub (Section 2.3 broadcast path) — separate issue
 - Remote runner TUI integration — local only for now
-- Project URL and Dashboard URL header lines — depend on tracker config shape;
-  render as "n/a" initially
