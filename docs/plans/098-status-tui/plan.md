@@ -33,12 +33,12 @@ Reference: `../symphony/elixir/lib/symphony_elixir/status_dashboard.ex`
 
 ## Symphony Abstraction Layer Mapping
 
-| Layer         | Work in this PR                                          |
-| ------------- | -------------------------------------------------------- |
-| Configuration | Add `observability` section to `ResolvedConfig`          |
-| Integration   | Add `onUpdate` hook to Runner; parse Codex stdout events |
-| Coordination  | Add `RunningEntry` map, `snapshot()`, polling flags      |
-| Execution     | No changes                                               |
+| Layer         | Work in this PR                                                  |
+| ------------- | ---------------------------------------------------------------- |
+| Configuration | Add `observability` section to `ResolvedConfig`                  |
+| Integration   | Add `onUpdate` hook to Runner; parse Codex stdout events         |
+| Coordination  | Add `RunningEntry` map, `snapshot()`, polling flags              |
+| Execution     | No changes                                                       |
 | Observability | New `StatusDashboard` (TUI renderer), file-based log redirection |
 
 ## Current Gaps
