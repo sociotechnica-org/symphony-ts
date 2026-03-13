@@ -20,7 +20,7 @@ Use this skill when acting as the operator for the local Symphony factory.
 
 1. Read `.ralph/operator-scratchpad.md` first so the latest operator context survives session loss and compaction.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
-3. Check the live Symphony worker process and determine whether it is healthy, progressing, stuck, crashed, or misconfigured.
+3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
 4. If the factory is unhealthy, fix the concrete problem and restart it.
 5. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
 6. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
@@ -34,11 +34,14 @@ Use this skill when acting as the operator for the local Symphony factory.
 
 - Do not act as a second scheduler.
 - Keep concurrency conservative.
-- Treat `symphony:running` with no live worker or no live agent child as an orphaned run and repair it.
+- Treat the factory-control surface as the primary local runtime contract; use ad hoc `screen`, `ps`, or `pkill` inspection only when the control command is unavailable or inconsistent.
+- Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
+- Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart` over manual `screen` and process cleanup.
 - Prefer detached worker sessions that survive outside the current interactive shell.
 - Use an isolated checkout when fixing PR branches so local operator-only modifications do not leak into tracked work.
 - The factory owns PR follow-up by default. If a fresh actionable review batch lands and the factory does not pick it up, debug the miss as a factory/runtime problem before taking over the branch manually.
 - Do not silently replace the worker on an active PR just because the next fix is obvious. Operator PR intervention is for stalled or broken factory behavior, not the normal path.
+- Keep runner assumptions provider-neutral. The current runtime may use `codex`, `claude-code`, or `generic-command`; do not assume every healthy run appears as a direct `codex exec` child process.
 - Treat plan review as a required operator checkpoint:
   - if the plan is sound, post `Plan review: approved`,
   - if revisions are needed, post `Plan review: changes-requested` with concrete guidance,
@@ -67,6 +70,7 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 ## Learned Heuristics
 
 - Detached `screen` sessions have been more reliable for unattended local operation than short-lived interactive exec sessions.
+- `pnpm tsx bin/symphony.ts factory status --json` is the fastest trustworthy read of detached runtime health, embedded status snapshot state, and degraded-control problems.
 - A closed issue plus an open PR usually means the factory reached the PR stage; inspect the PR before restarting anything.
 - If the factory has no `symphony:ready` issues, idle is healthy.
 
