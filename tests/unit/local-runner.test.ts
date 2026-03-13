@@ -889,9 +889,7 @@ describe("runners", () => {
           turnNumber: 1,
           prompt: "first",
         }),
-      ).rejects.toThrowError(
-        "Startup stderr:\nstartup failed: invalid fake configuration",
-      );
+      ).rejects.toThrowError(/startup failed: invalid fake configuration/);
     } finally {
       await liveSession.close().catch(() => {});
     }

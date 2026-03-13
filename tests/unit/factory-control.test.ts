@@ -441,6 +441,91 @@ describe("stopFactory", () => {
     expect(result.kind).toBe("stopped");
     expect(result.status.controlState).toBe("stopped");
   });
+
+  it("waits for one post-SIGKILL poll before timing out", async () => {
+    const workerPid = 9101;
+    const sessionsState: ScreenSessionSnapshot[] = [
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ];
+    const processesState: HostProcessSnapshot[] = [
+      { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+      { pid: workerPid, ppid: 9001, command: "node bin/symphony.ts run" },
+      {
+        pid: 9102,
+        ppid: workerPid,
+        command: "codex exec --dangerously-bypass-approvals-and-sandbox",
+      },
+    ];
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+
+    const result = await stopFactory({
+      ...createControlDeps({
+        sessions: sessionsState,
+        processes: processesState,
+        snapshot: createStatusSnapshot(workerPid),
+        quitScreenSession: async () => {
+          sessionsState.splice(0, sessionsState.length);
+          processesState.splice(
+            0,
+            processesState.length,
+            ...processesState.filter(
+              (processSnapshot) => processSnapshot.pid !== 9001,
+            ),
+          );
+        },
+        signalProcess: (pid, signal) => {
+          signals.push({ pid, signal });
+          if (signal === "SIGKILL") {
+            const index = processesState.findIndex(
+              (processSnapshot) => processSnapshot.pid === pid,
+            );
+            if (index >= 0) {
+              processesState.splice(index, 1);
+            }
+          }
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        if (
+          processesState.some(
+            (processSnapshot) => processSnapshot.pid === workerPid,
+          )
+        ) {
+          return `${JSON.stringify(createStatusSnapshot(workerPid), null, 2)}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let current = 0;
+        return () => {
+          current += 15_000;
+          return current;
+        };
+      })(),
+    });
+
+    expect(signals).toEqual(
+      expect.arrayContaining([
+        { pid: workerPid, signal: "SIGTERM" },
+        { pid: 9102, signal: "SIGTERM" },
+        { pid: workerPid, signal: "SIGKILL" },
+        { pid: 9102, signal: "SIGKILL" },
+      ]),
+    );
+    expect(result.kind).toBe("stopped");
+    expect(result.status.controlState).toBe("stopped");
+  });
 });
 
 describe("renderFactoryControlStatus", () => {

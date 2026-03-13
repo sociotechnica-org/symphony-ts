@@ -272,9 +272,7 @@ export function parseScreenLsOutput(
 ): readonly ScreenSessionSnapshot[] {
   const sessions: ScreenSessionSnapshot[] = [];
   for (const line of output.split(/\r?\n/)) {
-    const match =
-      /^\s*(\d+)\.([^\s]+)\s+\(([^)]+)\)\s*$/.exec(line) ??
-      /^\t*(\d+)\.([^\s]+)\t+\(([^)]+)\)\s*$/.exec(line);
+    const match = /^\s*(\d+)\.([^\s]+)\s+\(([^)]+)\)\s*$/.exec(line);
     if (!match) {
       continue;
     }
@@ -413,10 +411,7 @@ async function stopFactoryAtPaths(
   const now = deps.now ?? (() => Date.now());
 
   const initialStatus = await inspectFactoryControlAtPaths(paths, deps);
-  if (
-    initialStatus.controlState === "stopped" &&
-    initialStatus.processIds.length === 0
-  ) {
+  if (initialStatus.controlState === "stopped") {
     return {
       kind: "already-stopped",
       status: initialStatus,
@@ -437,6 +432,7 @@ async function stopFactoryAtPaths(
   const terminatedPids = new Set<number>();
   const deadline = now() + STOP_TIMEOUT_MS;
   let escalated = false;
+  let awaitingPostKillPoll = false;
 
   for (;;) {
     const processes = await listProcesses();
@@ -473,11 +469,17 @@ async function stopFactoryAtPaths(
 
     if (now() >= deadline) {
       if (escalated) {
-        throw new Error(
-          `Factory stop timed out; processes still running: ${remaining.join(", ")}`,
-        );
+        if (awaitingPostKillPoll) {
+          awaitingPostKillPoll = false;
+        } else {
+          throw new Error(
+            `Factory stop timed out; processes still running: ${remaining.join(", ")}`,
+          );
+        }
+      } else {
+        escalated = true;
+        awaitingPostKillPoll = true;
       }
-      escalated = true;
     }
 
     await sleep(POLL_INTERVAL_MS);
