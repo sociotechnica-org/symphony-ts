@@ -57,7 +57,7 @@ interface MockReviewThread {
 
 interface MockReviewComment {
   readonly id: string;
-  readonly authorLogin: string;
+  readonly authorLogin: string | null;
   readonly body: string;
   readonly createdAt: string;
   readonly url: string;
@@ -428,7 +428,7 @@ export class MockGitHubServer {
 
   addPullRequestReviewThread(input: {
     head: string;
-    authorLogin: string;
+    authorLogin: string | null;
     body: string;
     path?: string | null;
     line?: number | null;
@@ -459,7 +459,7 @@ export class MockGitHubServer {
   injectPullRequestReviewThreadOnReviewStateRead(input: {
     head: string;
     afterReads: number;
-    authorLogin: string;
+    authorLogin: string | null;
     body: string;
     path?: string | null;
     line?: number | null;
@@ -899,9 +899,12 @@ export class MockGitHubServer {
                       url: comment.url,
                       path: comment.path,
                       line: comment.line,
-                      author: {
-                        login: comment.authorLogin,
-                      },
+                      author:
+                        comment.authorLogin === null
+                          ? null
+                          : {
+                              login: comment.authorLogin,
+                            },
                     })),
                   },
                   latestComments: {
@@ -912,9 +915,12 @@ export class MockGitHubServer {
                       url: comment.url,
                       path: comment.path,
                       line: comment.line,
-                      author: {
-                        login: comment.authorLogin,
-                      },
+                      author:
+                        comment.authorLogin === null
+                          ? null
+                          : {
+                              login: comment.authorLogin,
+                            },
                     })),
                   },
                 })),

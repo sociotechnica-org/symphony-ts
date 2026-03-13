@@ -219,7 +219,7 @@ export class GitHubBootstrapTracker implements Tracker {
       unresolvedReviewThreadCount: snapshot.actionableReviewFeedback.filter(
         (feedback) =>
           feedback.kind === "review-thread" &&
-          this.isHumanReviewFeedback(feedback.authorLogin),
+          !this.#isBotReviewFeedback(feedback.authorLogin),
       ).length,
     };
     const decision = evaluateGuardedLanding(gateSnapshot);
@@ -288,6 +288,15 @@ export class GitHubBootstrapTracker implements Tracker {
       lifecycle,
     });
     return lifecycle;
+  }
+
+  #isBotReviewFeedback(authorLogin: string | null): boolean {
+    if (authorLogin === null) {
+      return false;
+    }
+    return this.#config.reviewBotLogins
+      .map((login) => login.toLowerCase())
+      .includes(authorLogin.toLowerCase());
   }
 
   async #isStaleMergedPullRequest(

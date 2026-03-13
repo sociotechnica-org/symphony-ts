@@ -556,6 +556,43 @@ describe("GitHubBootstrapTracker", () => {
     expect(refreshed.kind).toBe("awaiting-human-review");
   });
 
+  it("refuses landing when an unresolved review thread has no author login", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+    server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: null,
+      body: "Deleted user feedback still needs resolution",
+      path: "src/index.ts",
+      line: 10,
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "review-threads-unresolved",
+      lifecycleKind: "awaiting-human-review",
+    });
+  });
+
   it("treats bot-authored review threads as actionable bot feedback instead of human unresolved threads", async () => {
     const tracker = createTracker(server);
 
