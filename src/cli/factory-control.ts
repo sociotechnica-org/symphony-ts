@@ -347,15 +347,18 @@ async function inspectFactoryControlAtPaths(
   const matchingSessions = sessions.filter(
     (session) => session.name === FACTORY_SCREEN_SESSION_NAME,
   );
+  const liveSessions = matchingSessions.filter(
+    (session) => !/^dead$/i.test(session.state),
+  );
   const processIds = collectObservedFactoryPids(
     processes,
-    matchingSessions,
+    liveSessions,
     snapshotRead.snapshot,
     isAlive,
   );
   const problems: string[] = [];
 
-  if (matchingSessions.length > 1) {
+  if (liveSessions.length > 1) {
     problems.push(
       `multiple detached screen sessions match ${FACTORY_SCREEN_SESSION_NAME}`,
     );
@@ -370,10 +373,10 @@ async function inspectFactoryControlAtPaths(
       : isAlive(snapshotRead.snapshot.worker.pid);
 
   let controlState: FactoryControlState = "stopped";
-  if (matchingSessions.length === 0 && processIds.length === 0) {
+  if (liveSessions.length === 0 && processIds.length === 0) {
     controlState = "stopped";
   } else if (
-    matchingSessions.length === 1 &&
+    liveSessions.length === 1 &&
     snapshotRead.snapshot !== null &&
     workerAlive &&
     problems.length === 0
@@ -388,12 +391,12 @@ async function inspectFactoryControlAtPaths(
     ) {
       problems.push("worker pid from status snapshot is not alive");
     }
-    if (matchingSessions.length === 0 && processIds.length > 0) {
+    if (liveSessions.length === 0 && processIds.length > 0) {
       problems.push(
         "detached screen session is missing but factory-owned processes remain",
       );
     }
-    if (matchingSessions.length > 0 && snapshotRead.snapshot === null) {
+    if (liveSessions.length > 0 && snapshotRead.snapshot === null) {
       problems.push(
         "screen session exists but no readable runtime status snapshot was found",
       );
@@ -404,7 +407,7 @@ async function inspectFactoryControlAtPaths(
     controlState,
     paths,
     sessionName: FACTORY_SCREEN_SESSION_NAME,
-    sessions: matchingSessions,
+    sessions: liveSessions,
     workerAlive,
     statusSnapshot: snapshotRead.snapshot,
     processIds,
