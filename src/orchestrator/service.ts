@@ -49,6 +49,11 @@ import {
   summarizeLifecycleTurnBudgetFailure,
 } from "./continuation-turns.js";
 import {
+  clearLandingRuntimeState,
+  noteLandingAttempt,
+  shouldExecuteLanding,
+} from "./landing-state.js";
+import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
   noteRetryScheduled,
@@ -427,6 +432,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 
     if (lifecycle.kind === "handoff-ready") {
+      clearLandingRuntimeState(this.#state.landing, issue.number);
       await this.#completeIssue(issue);
       await this.#cleanupIssueWorkspaceIfNeeded(issue);
       return;
@@ -435,8 +441,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (
       lifecycle.kind === "awaiting-system-checks" ||
       lifecycle.kind === "awaiting-human-handoff" ||
-      lifecycle.kind === "awaiting-landing"
+      lifecycle.kind === "awaiting-landing-command"
     ) {
+      clearLandingRuntimeState(this.#state.landing, issue.number);
       noteLifecycleForIssue(
         this.#state.status,
         issue,
@@ -461,12 +468,152 @@ export class BootstrapOrchestrator implements Orchestrator {
       return;
     }
 
+    if (lifecycle.kind === "awaiting-landing") {
+      await this.#handleLandingLifecycle(
+        issue,
+        attempt,
+        issueSource,
+        branchName,
+        lifecycle,
+      );
+      return;
+    }
+
     await this.#runIssue(
       issue,
       attempt,
       lockDir,
       issueSource,
       lifecycle.kind === "missing-target" ? null : lifecycle,
+    );
+  }
+
+  async #handleLandingLifecycle(
+    issue: RuntimeIssue,
+    attempt: number,
+    source: "ready" | "running",
+    branchName: string,
+    lifecycle: HandoffLifecycle,
+  ): Promise<void> {
+    const headSha = lifecycle.pullRequest?.headSha ?? null;
+    if (shouldExecuteLanding(this.#state.landing, issue.number, headSha)) {
+      await this.#executeLanding(issue, attempt, source, branchName, lifecycle);
+      return;
+    }
+
+    noteLifecycleForIssue(
+      this.#state.status,
+      issue,
+      source,
+      attempt,
+      branchName,
+      lifecycle,
+    );
+    noteStatusAction(this.#state.status, {
+      kind: lifecycle.kind,
+      summary: lifecycle.summary,
+      issueNumber: issue.number,
+    });
+    await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
+      this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
+    );
+  }
+
+  async #executeLanding(
+    issue: RuntimeIssue,
+    attempt: number,
+    source: "ready" | "running",
+    branchName: string,
+    lifecycle: HandoffLifecycle,
+  ): Promise<void> {
+    const observedAt = new Date().toISOString();
+    noteStatusAction(this.#state.status, {
+      kind: "landing-started",
+      summary: `Executing landing for ${issue.identifier}`,
+      issueNumber: issue.number,
+    });
+    noteLifecycleForIssue(
+      this.#state.status,
+      issue,
+      source,
+      attempt,
+      branchName,
+      lifecycle,
+    );
+    await this.#persistStatusSnapshot();
+
+    let landingError: string | null = null;
+    try {
+      noteLandingAttempt(
+        this.#state.landing,
+        issue.number,
+        lifecycle.pullRequest?.headSha ?? null,
+      );
+      if (lifecycle.pullRequest === null) {
+        throw new Error("Cannot execute landing without a pull request handle");
+      }
+      await this.#tracker.executeLanding(lifecycle.pullRequest);
+    } catch (error) {
+      landingError = this.#normalizeFailure(error as Error);
+      this.#logger.warn("Landing execution failed", {
+        issueNumber: issue.number,
+        branchName,
+        pullRequestNumber: lifecycle.pullRequest?.number ?? null,
+        error: landingError,
+      });
+    }
+    await this.#recordIssueArtifact(
+      this.#createLandingObservation(
+        issue,
+        attempt,
+        branchName,
+        lifecycle,
+        observedAt,
+        landingError,
+      ),
+    );
+
+    const refreshedLifecycle = await this.#refreshLifecycle(branchName);
+    if (refreshedLifecycle.kind === "handoff-ready") {
+      clearLandingRuntimeState(this.#state.landing, issue.number);
+      await this.#completeIssue(issue, {
+        attemptNumber: attempt,
+        branchName,
+        finishedAt: new Date().toISOString(),
+      });
+      await this.#cleanupIssueWorkspaceIfNeeded(issue);
+      return;
+    }
+
+    if (refreshedLifecycle.kind !== "awaiting-landing") {
+      clearLandingRuntimeState(this.#state.landing, issue.number);
+    }
+
+    // Intentionally record the post-request lifecycle after the landing event.
+    // The landing artifact captures that the merge command was issued; this
+    // follow-up observation captures the tracker-visible state after refresh.
+    noteLifecycleForIssue(
+      this.#state.status,
+      issue,
+      source,
+      attempt,
+      branchName,
+      refreshedLifecycle,
+    );
+    noteStatusAction(this.#state.status, {
+      kind: refreshedLifecycle.kind,
+      summary: refreshedLifecycle.summary,
+      issueNumber: issue.number,
+    });
+    await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
+      this.#createLifecycleObservation(
+        issue,
+        attempt,
+        branchName,
+        refreshedLifecycle,
+      ),
     );
   }
 
@@ -860,9 +1007,13 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (
       lifecycle.kind === "awaiting-system-checks" ||
       lifecycle.kind === "awaiting-human-handoff" ||
+      lifecycle.kind === "awaiting-landing-command" ||
       lifecycle.kind === "awaiting-landing" ||
       lifecycle.kind === "actionable-follow-up"
     ) {
+      if (lifecycle.kind !== "awaiting-landing") {
+        clearLandingRuntimeState(this.#state.landing, issue.number);
+      }
       const summary = lifecycle.summary;
       this.#setIssueRunnerVisibility(
         issue.number,
@@ -976,6 +1127,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.retries.delete(issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
+    clearLandingRuntimeState(this.#state.landing, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
       running: -1,
@@ -1292,6 +1444,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.retries.delete(issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
+    clearLandingRuntimeState(this.#state.landing, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
     adjustTrackerIssueCounts(this.#state.status, {
       running: -1,
@@ -1674,6 +1827,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     if (
+      lifecycle.kind !== "awaiting-landing-command" &&
       lifecycle.kind !== "awaiting-system-checks" &&
       lifecycle.kind !== "awaiting-landing" &&
       lifecycle.kind !== "actionable-follow-up"
@@ -1705,6 +1859,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     IssueArtifactOutcome,
     | "awaiting-plan-review"
     | "awaiting-review"
+    | "awaiting-landing-command"
     | "awaiting-landing"
     | "needs-follow-up"
   > {
@@ -1713,6 +1868,8 @@ export class BootstrapOrchestrator implements Orchestrator {
         return "awaiting-plan-review";
       case "awaiting-system-checks":
         return "awaiting-review";
+      case "awaiting-landing-command":
+        return "awaiting-landing-command";
       case "awaiting-landing":
         return "awaiting-landing";
       case "actionable-follow-up":
@@ -1754,6 +1911,47 @@ export class BootstrapOrchestrator implements Orchestrator {
         actionableCount: lifecycle.actionableReviewFeedback.length,
         unresolvedThreadCount: lifecycle.unresolvedThreadIds.length,
       },
+    };
+  }
+
+  #createLandingObservation(
+    issue: RuntimeIssue,
+    attempt: number,
+    branchName: string,
+    lifecycle: HandoffLifecycle,
+    observedAt: string,
+    error: string | null,
+  ): IssueArtifactObservation {
+    return {
+      issue: this.#createIssueArtifactUpdate(issue, {
+        observedAt,
+        outcome: "awaiting-landing",
+        summary:
+          error === null
+            ? `Landing requested for ${issue.identifier}`
+            : `Landing request failed for ${issue.identifier}: ${error}`,
+        branchName,
+        latestAttemptNumber: attempt,
+      }),
+      events: [
+        this.#createIssueEvent("landing-requested", issue, {
+          observedAt,
+          attemptNumber: attempt,
+          details: {
+            branch: branchName,
+            pullRequest:
+              lifecycle.pullRequest === null
+                ? null
+                : {
+                    number: lifecycle.pullRequest.number,
+                    url: lifecycle.pullRequest.url,
+                    headSha: lifecycle.pullRequest.headSha,
+                  },
+            success: error === null,
+            error,
+          },
+        }),
+      ],
     };
   }
 

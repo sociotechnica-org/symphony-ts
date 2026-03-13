@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Logger } from "../../src/observability/logger.js";
 import { GitHubClient } from "../../src/tracker/github-client.js";
 
 describe("GitHubClient", () => {
@@ -16,6 +17,14 @@ describe("GitHubClient", () => {
       process.env.GH_TOKEN = previousToken;
     }
   });
+
+  function createLoggerSpy(): Logger {
+    return {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+  }
 
   it("does not duplicate exhausted review data while another stream paginates", async () => {
     const requests: Array<{
@@ -204,5 +213,152 @@ describe("GitHubClient", () => {
       "thread-1",
       "thread-2",
     ]);
+  });
+
+  it("sends the current head SHA when merging a pull request", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/repos/sociotechnica-org/symphony-ts")) {
+        return new Response(
+          JSON.stringify({
+            allow_merge_commit: false,
+            allow_squash_merge: true,
+            allow_rebase_merge: false,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitHubClient({
+      kind: "github-bootstrap",
+      repo: "sociotechnica-org/symphony-ts",
+      apiUrl: "https://example.invalid",
+      readyLabel: "symphony:ready",
+      runningLabel: "symphony:running",
+      failedLabel: "symphony:failed",
+      successComment: "done",
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    await client.mergePullRequest(23, "head-sha-23");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]).toBeDefined();
+    const init = (
+      fetchMock.mock.calls[1] as unknown as [unknown, RequestInit]
+    )[1];
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({
+      sha: "head-sha-23",
+      merge_method: "squash",
+    });
+  });
+
+  it("retries merge-method discovery after a transient repository lookup failure", async () => {
+    let repositoryRequests = 0;
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/repos/sociotechnica-org/symphony-ts")) {
+        repositoryRequests += 1;
+        if (repositoryRequests === 1) {
+          return new Response("temporary failure", { status: 500 });
+        }
+        return new Response(
+          JSON.stringify({
+            allow_merge_commit: false,
+            allow_squash_merge: true,
+            allow_rebase_merge: false,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitHubClient({
+      kind: "github-bootstrap",
+      repo: "sociotechnica-org/symphony-ts",
+      apiUrl: "https://example.invalid",
+      readyLabel: "symphony:ready",
+      runningLabel: "symphony:running",
+      failedLabel: "symphony:failed",
+      successComment: "done",
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    await expect(client.mergePullRequest(23, "head-sha-23")).rejects.toThrow(
+      /failed with 500/i,
+    );
+    await expect(
+      client.mergePullRequest(23, "head-sha-23"),
+    ).resolves.toBeUndefined();
+    expect(repositoryRequests).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("logs the auto-detected merge method when multiple GitHub methods are allowed", async () => {
+    const logger = createLoggerSpy();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/repos/sociotechnica-org/symphony-ts")) {
+        return new Response(
+          JSON.stringify({
+            allow_merge_commit: true,
+            allow_squash_merge: true,
+            allow_rebase_merge: true,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitHubClient(
+      {
+        kind: "github-bootstrap",
+        repo: "sociotechnica-org/symphony-ts",
+        apiUrl: "https://example.invalid",
+        readyLabel: "symphony:ready",
+        runningLabel: "symphony:running",
+        failedLabel: "symphony:failed",
+        successComment: "done",
+        reviewBotLogins: ["greptile-apps", "cursor"],
+      },
+      logger,
+    );
+
+    await client.mergePullRequest(23, "head-sha-23");
+
+    expect(logger.info).toHaveBeenCalledWith(
+      "Auto-detected GitHub merge method",
+      {
+        repo: "sociotechnica-org/symphony-ts",
+        mergeMethod: "merge",
+        allowedMergeMethods: ["merge", "squash", "rebase"],
+      },
+    );
   });
 });

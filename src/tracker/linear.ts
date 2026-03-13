@@ -1,4 +1,4 @@
-import type { HandoffLifecycle } from "../domain/handoff.js";
+import type { HandoffLifecycle, PullRequestHandle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import { TrackerError } from "../domain/errors.js";
 import type { LinearTrackerConfig } from "../domain/workflow.js";
@@ -189,6 +189,14 @@ export class LinearTracker implements Tracker {
       await this.#writer.createComment(issue.id, HANDOFF_READY_COMMENT);
     }
     return createLinearHandoffLifecycle(updatedIssue, branchName, this.#config);
+  }
+
+  executeLanding(_pullRequest: PullRequestHandle): Promise<void> {
+    return Promise.reject(
+      new TrackerError(
+        "Linear landing execution is not implemented in this tracker",
+      ),
+    );
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {

@@ -161,9 +161,11 @@ export function noteLifecycleForIssue(
           ? "awaiting-human-handoff"
           : lifecycle.kind === "awaiting-system-checks"
             ? "awaiting-system-checks"
-            : lifecycle.kind === "awaiting-landing"
-              ? "awaiting-landing"
-              : "queued",
+            : lifecycle.kind === "awaiting-landing-command"
+              ? "awaiting-landing-command"
+              : lifecycle.kind === "awaiting-landing"
+                ? "awaiting-landing"
+                : "queued",
     summary: lifecycle.summary,
     pullRequest:
       lifecycle.pullRequest === null
@@ -185,6 +187,7 @@ export function noteLifecycleForIssue(
     blockedReason:
       lifecycle.kind === "awaiting-human-handoff" ||
       lifecycle.kind === "awaiting-system-checks" ||
+      lifecycle.kind === "awaiting-landing-command" ||
       lifecycle.kind === "awaiting-landing" ||
       lifecycle.kind === "actionable-follow-up"
         ? lifecycle.summary

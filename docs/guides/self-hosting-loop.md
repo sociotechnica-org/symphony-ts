@@ -66,21 +66,23 @@ When Symphony picks up the issue, it should:
 7. Open a PR against `main`
 8. Keep polling that PR for CI and automated review state
 9. Push follow-up commits on the same branch until the PR is actually clean
+10. Wait for a human to approve landing by posting `/land` on the PR
+11. Execute the landing path and complete the issue only after merge is observed
 
-If the PR reaches a clean state, Symphony keeps the issue active until the PR is actually merged, then comments on the issue and closes it.
+If the PR reaches a clean state, Symphony moves into an explicit landing-handoff wait. The issue stays active until a human posts `/land` on the PR and Symphony then observes the merge.
 
 If the run fails, Symphony will either retry it in the running loop or mark it `symphony:failed`.
 
-### 6. Review and merge the PR
+### 6. Review and land the PR
 
 Symphony owns the local PR follow-through loop:
 
 - Wait for CI and automated review checks
 - Detect actionable review feedback
 - Push follow-up commits when the PR needs more work
-- Stop only when the PR is actually clean
+- Stop only when the PR is actually clean and waiting for landing approval
 
-Human merge remains a separate repository action once the PR is ready.
+Human approval remains explicit: once the PR is ready, post `/land` on the PR. Symphony uses that handoff to execute the landing path itself.
 
 That merged PR becomes the new version of Symphony that will work the next issue.
 

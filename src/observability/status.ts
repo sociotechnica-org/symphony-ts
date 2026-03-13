@@ -18,6 +18,7 @@ export type FactoryIssueStatus =
   | "running"
   | "awaiting-human-handoff"
   | "awaiting-system-checks"
+  | "awaiting-landing-command"
   | "awaiting-landing"
   | "actionable-follow-up";
 
@@ -468,6 +469,7 @@ function parseActiveIssue(
         "running",
         "awaiting-human-handoff",
         "awaiting-system-checks",
+        "awaiting-landing-command",
         "awaiting-landing",
         "actionable-follow-up",
       ],

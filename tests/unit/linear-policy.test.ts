@@ -174,7 +174,7 @@ describe("createLinearHandoffLifecycle", () => {
     expect(lifecycle.kind).toBe("actionable-follow-up");
   });
 
-  it("maps handoff-ready workpad plus approved review to awaiting-system-checks", () => {
+  it("maps handoff-ready workpad plus approved review to awaiting-landing-command", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("In Progress", {
         workpadStatus: "handoff-ready",
@@ -186,7 +186,7 @@ describe("createLinearHandoffLifecycle", () => {
       config,
     );
 
-    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
   it("maps handoff-ready workpad without a review signal to awaiting-human-handoff", () => {
@@ -229,17 +229,17 @@ describe("createLinearHandoffLifecycle", () => {
     expect(lifecycle.kind).toBe("actionable-follow-up");
   });
 
-  it("maps Merging to awaiting-system-checks", () => {
+  it("maps Merging to awaiting-landing-command", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("Merging"),
       "symphony/1",
       config,
     );
 
-    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
-  it("maps Human Review with waived review to awaiting-system-checks", () => {
+  it("maps Human Review with waived review to awaiting-landing-command", () => {
     const lifecycle = createLinearHandoffLifecycle(
       createIssue("Human Review", {
         comments: [createComment("Plan review: waived")],
@@ -248,7 +248,7 @@ describe("createLinearHandoffLifecycle", () => {
       config,
     );
 
-    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
   it("maps configured active states to missing-target before handoff", () => {

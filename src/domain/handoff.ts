@@ -2,6 +2,7 @@ export type HandoffLifecycleKind =
   | "missing-target"
   | "awaiting-human-handoff"
   | "awaiting-system-checks"
+  | "awaiting-landing-command"
   | "awaiting-landing"
   | "actionable-follow-up"
   | "handoff-ready";

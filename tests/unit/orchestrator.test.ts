@@ -14,6 +14,7 @@ import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import {
   deriveFactoryRuntimeRoot,
   readIssueArtifactAttempt,
+  readIssueArtifactEvents,
   readIssueArtifactSession,
   type IssueArtifactObservation,
   type IssueArtifactStore,
@@ -176,6 +177,7 @@ class SequencedTracker implements Tracker {
   readonly failedIssues = new Map<number, RuntimeIssue>();
   readonly lifecycleSequences = new Map<number, HandoffLifecycle[]>();
   readonly completed: number[] = [];
+  readonly landingRequests: number[] = [];
   readonly retried: Array<{ issueNumber: number; reason: string }> = [];
   readonly failed: Array<{ issueNumber: number; reason: string }> = [];
   readonly resolvedThreadBatches: string[][] = [];
@@ -272,6 +274,12 @@ class SequencedTracker implements Tracker {
     return await this.inspectIssueHandoff(branchName);
   }
 
+  async executeLanding(
+    pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
+  ): Promise<void> {
+    this.landingRequests.push(pullRequest.number);
+  }
+
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
     this.retried.push({ issueNumber, reason });
   }
@@ -327,6 +335,20 @@ class FailOnceMarkIssueFailedTracker extends SequencedTracker {
       throw new Error("mark failed transient");
     }
     await super.markIssueFailed(issueNumber, reason);
+  }
+}
+
+class FailOnceLandingTracker extends SequencedTracker {
+  landingFailuresRemaining = 1;
+
+  override async executeLanding(
+    pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
+  ): Promise<void> {
+    this.landingRequests.push(pullRequest.number);
+    if (this.landingFailuresRemaining > 0) {
+      this.landingFailuresRemaining -= 1;
+      throw new Error("merge temporarily blocked");
+    }
   }
 }
 
@@ -772,7 +794,7 @@ describe("BootstrapOrchestrator", () => {
         running: [createIssue(47, "symphony:running")],
       });
       tracker.setLifecycleSequence(47, [
-        lifecycle("awaiting-landing", "symphony/47"),
+        lifecycle("awaiting-landing-command", "symphony/47"),
       ]);
       let runnerCalls = 0;
       const orchestrator = new BootstrapOrchestrator(
@@ -801,17 +823,18 @@ describe("BootstrapOrchestrator", () => {
       await orchestrator.runOnce();
 
       expect(runnerCalls).toBe(0);
+      expect(tracker.landingRequests).toEqual([]);
       expect(tracker.completed).toEqual([]);
       expect(tracker.retried).toEqual([]);
 
       const snapshot = await readFactoryStatusSnapshot(
         deriveStatusFilePath(tempRoot),
       );
-      expect(snapshot.lastAction?.kind).toBe("awaiting-landing");
-      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-landing");
+      expect(snapshot.lastAction?.kind).toBe("awaiting-landing-command");
+      expect(snapshot.activeIssues[0]?.status).toBe("awaiting-landing-command");
 
       const summary = await readIssueArtifactSummary(tempRoot, 47);
-      expect(summary.currentOutcome).toBe("awaiting-landing");
+      expect(summary.currentOutcome).toBe("awaiting-landing-command");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -1174,6 +1197,7 @@ describe("BootstrapOrchestrator", () => {
     });
     tracker.setLifecycleSequence(71, [
       lifecycle("awaiting-landing", "symphony/71"),
+      lifecycle("awaiting-landing", "symphony/71"),
       lifecycle("handoff-ready", "symphony/71"),
     ]);
     const workspace = new CleanupFailingWorkspaceManager();
@@ -1201,13 +1225,174 @@ describe("BootstrapOrchestrator", () => {
     );
 
     await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
     expect(tracker.completed).toEqual([]);
 
     await orchestrator.runOnce();
 
+    expect(tracker.landingRequests).toEqual([1]);
     expect(tracker.completed).toEqual([71]);
     expect(workspace.cleaned).toEqual(["/tmp/workspaces/71"]);
     expect(logger.errors).toContain("Workspace cleanup failed");
+  });
+
+  it("does not repeat landing when the current PR head SHA is unavailable", async () => {
+    const tracker = new SequencedTracker({
+      running: [createIssue(72, "symphony:running")],
+    });
+    const awaitingLandingWithoutHead: HandoffLifecycle = {
+      ...lifecycle("awaiting-landing", "symphony/72"),
+      pullRequest: {
+        number: 1,
+        url: "https://example.test/pulls/symphony/72",
+        branchName: "symphony/72",
+        headSha: null,
+        latestCommitAt: new Date().toISOString(),
+      },
+    };
+    tracker.setLifecycleSequence(72, [
+      awaitingLandingWithoutHead,
+      awaitingLandingWithoutHead,
+      awaitingLandingWithoutHead,
+      lifecycle("handoff-ready", "symphony/72"),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([72]);
+  });
+
+  it("records a failed landing attempt when awaiting-landing has no pull request handle", async () => {
+    const tempRoot = await createTempDir("symphony-null-landing-handle-test-");
+    const tracker = new SequencedTracker({
+      running: [createIssue(74, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(74, [
+      {
+        ...lifecycle("awaiting-landing", "symphony/74"),
+        pullRequest: null,
+      },
+      {
+        ...lifecycle("awaiting-landing", "symphony/74"),
+        pullRequest: null,
+      },
+    ]);
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      logger,
+    );
+
+    try {
+      await orchestrator.runOnce();
+      await orchestrator.runOnce();
+
+      expect(tracker.landingRequests).toEqual([]);
+      expect(tracker.completed).toEqual([]);
+      expect(logger.warnings).toContainEqual({
+        message: "Landing execution failed",
+        data: expect.objectContaining({
+          issueNumber: 74,
+          pullRequestNumber: null,
+          error: "Error: Cannot execute landing without a pull request handle",
+        }),
+      });
+
+      const summary = await readIssueArtifactSummary(tempRoot, 74);
+      expect(summary.currentOutcome).toBe("awaiting-landing");
+      const events = await readIssueArtifactEvents(tempRoot, 74);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "landing-requested",
+          details: expect.objectContaining({
+            success: false,
+            error:
+              "Error: Cannot execute landing without a pull request handle",
+            pullRequest: null,
+          }),
+        }),
+      );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not retry landing on the same head after a failed merge request", async () => {
+    const tracker = new FailOnceLandingTracker({
+      running: [createIssue(73, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(73, [
+      lifecycle("awaiting-landing", "symphony/73"),
+      lifecycle("awaiting-landing", "symphony/73"),
+      lifecycle("awaiting-landing", "symphony/73"),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
   });
 
   it("reruns a running PR when CI or review feedback is actionable and resolves review threads", async () => {

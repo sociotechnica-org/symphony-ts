@@ -1,4 +1,4 @@
-import type { HandoffLifecycle } from "../domain/handoff.js";
+import type { HandoffLifecycle, PullRequestHandle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { GitHubBootstrapTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
@@ -38,7 +38,7 @@ export class GitHubBootstrapTracker implements Tracker {
   constructor(config: GitHubBootstrapTrackerConfig, logger: Logger) {
     this.#config = config;
     this.#logger = logger;
-    this.#client = new GitHubClient(config);
+    this.#client = new GitHubClient(config, logger);
   }
 
   subject(): string {
@@ -175,6 +175,13 @@ export class GitHubBootstrapTracker implements Tracker {
     }
 
     return await this.inspectIssueHandoff(branchName);
+  }
+
+  async executeLanding(pullRequest: PullRequestHandle): Promise<void> {
+    await this.#client.mergePullRequest(
+      pullRequest.number,
+      pullRequest.headSha,
+    );
   }
 
   async #inspectPlanReviewHandoff(

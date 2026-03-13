@@ -17,11 +17,25 @@ interface PullRequestRecord {
   readonly reviewThreads: MockReviewThread[];
   checkRuns: MockCheckRun[];
   statuses: MockCommitStatus[];
+  landingBehavior: MockLandingBehavior;
+}
+
+interface MockLandingBehavior {
+  mergeOnRequest: boolean;
+  failureStatus: number | null;
+  failureMessage: string | null;
+}
+
+interface MockRepositoryMergeConfig {
+  allowMergeCommit: boolean;
+  allowSquashMerge: boolean;
+  allowRebaseMerge: boolean;
 }
 
 interface MockPullRequestComment {
   readonly id: string;
   readonly authorLogin: string;
+  readonly authorAssociation: string;
   readonly body: string;
   readonly createdAt: string;
   readonly url: string;
@@ -111,6 +125,11 @@ export class MockGitHubServer {
   readonly #prs = new Map<number, PullRequestRecord>();
   readonly #requestCounts = new Map<string, number>();
   readonly #branchCommitTimes = new Map<string, string>();
+  #repositoryMergeConfig: MockRepositoryMergeConfig = {
+    allowMergeCommit: true,
+    allowSquashMerge: true,
+    allowRebaseMerge: true,
+  };
   readonly #server = http.createServer((req, res) => {
     this.#handle(req, res).catch((error: unknown) => {
       console.error("Mock GitHub server handler error:", error);
@@ -238,6 +257,13 @@ export class MockGitHubServer {
     return this.#requestCounts.get(key) ?? 0;
   }
 
+  setRepositoryMergeConfig(config: Partial<MockRepositoryMergeConfig>): void {
+    this.#repositoryMergeConfig = {
+      ...this.#repositoryMergeConfig,
+      ...config,
+    };
+  }
+
   async recordPullRequest(pr: {
     title: string;
     body: string;
@@ -269,7 +295,23 @@ export class MockGitHubServer {
       reviewThreads: [],
       checkRuns: [],
       statuses: [],
+      landingBehavior: {
+        mergeOnRequest: true,
+        failureStatus: null,
+        failureMessage: null,
+      },
     });
+  }
+
+  setPullRequestLandingBehavior(
+    head: string,
+    behavior: Partial<MockLandingBehavior>,
+  ): void {
+    const pullRequest = this.#requirePullRequestByHead(head);
+    pullRequest.landingBehavior = {
+      ...pullRequest.landingBehavior,
+      ...behavior,
+    };
   }
 
   mergePullRequest(head: string, mergedAt = new Date().toISOString()): void {
@@ -333,6 +375,7 @@ export class MockGitHubServer {
   addPullRequestComment(input: {
     head: string;
     authorLogin: string;
+    authorAssociation?: string;
     body: string;
     createdAt?: string;
   }): string {
@@ -341,6 +384,7 @@ export class MockGitHubServer {
     pullRequest.comments.push({
       id: commentId,
       authorLogin: input.authorLogin,
+      authorAssociation: input.authorAssociation ?? "MEMBER",
       body: input.body,
       createdAt: input.createdAt ?? new Date().toISOString(),
       url: `${pullRequest.html_url}#issuecomment-${commentId}`,
@@ -421,7 +465,9 @@ export class MockGitHubServer {
       return;
     }
 
-    const pathMatch = url.pathname.match(/^\/repos\/([^/]+)\/([^/]+)\/(.+)$/);
+    const pathMatch = url.pathname.match(
+      /^\/repos\/([^/]+)\/([^/]+)(?:\/(.+))?$/,
+    );
     if (!pathMatch) {
       json(response, 404, { message: "not found" });
       return;
@@ -433,6 +479,15 @@ export class MockGitHubServer {
       requestKey,
       (this.#requestCounts.get(requestKey) ?? 0) + 1,
     );
+
+    if (method === "GET" && suffix === "") {
+      json(response, 200, {
+        allow_merge_commit: this.#repositoryMergeConfig.allowMergeCommit,
+        allow_squash_merge: this.#repositoryMergeConfig.allowSquashMerge,
+        allow_rebase_merge: this.#repositoryMergeConfig.allowRebaseMerge,
+      });
+      return;
+    }
 
     if (method === "GET" && suffix === "labels") {
       json(response, 200, [...this.#labels.values()]);
@@ -524,6 +579,61 @@ export class MockGitHubServer {
     }
 
     const mergeMatch = suffix.match(/^pulls\/(\d+)\/merge$/);
+    if (mergeMatch && method === "PUT") {
+      const pullRequest = this.#prs.get(Number(mergeMatch[1]));
+      if (!pullRequest) {
+        json(response, 404, { message: "pull request not found" });
+        return;
+      }
+      const body = (await readJson(request)) as {
+        sha?: unknown;
+        merge_method?: unknown;
+      };
+      if (
+        typeof body.sha === "string" &&
+        body.sha !== pullRequest.latestCommitSha
+      ) {
+        json(response, 409, {
+          message: "head SHA does not match the current pull request head",
+        });
+        return;
+      }
+      const mergeMethod =
+        typeof body.merge_method === "string" ? body.merge_method : "merge";
+      const mergeMethodAllowed =
+        (mergeMethod === "merge" &&
+          this.#repositoryMergeConfig.allowMergeCommit) ||
+        (mergeMethod === "squash" &&
+          this.#repositoryMergeConfig.allowSquashMerge) ||
+        (mergeMethod === "rebase" &&
+          this.#repositoryMergeConfig.allowRebaseMerge);
+      if (!mergeMethodAllowed) {
+        json(response, 405, {
+          message: `merge method ${mergeMethod} is not allowed`,
+        });
+        return;
+      }
+      if (pullRequest.landingBehavior.failureStatus !== null) {
+        json(response, pullRequest.landingBehavior.failureStatus, {
+          message:
+            pullRequest.landingBehavior.failureMessage ??
+            "landing request failed",
+        });
+        return;
+      }
+      if (pullRequest.landingBehavior.mergeOnRequest) {
+        pullRequest.state = "closed";
+        pullRequest.mergedAt = new Date().toISOString();
+      }
+      json(response, 200, {
+        merged: pullRequest.mergedAt !== null,
+        message:
+          pullRequest.mergedAt === null
+            ? "landing request accepted"
+            : "pull request merged",
+      });
+      return;
+    }
     if (mergeMatch && method === "GET") {
       const pullRequest = this.#prs.get(Number(mergeMatch[1]));
       if (!pullRequest || pullRequest.mergedAt === null) {
@@ -682,6 +792,7 @@ export class MockGitHubServer {
                   body: comment.body,
                   createdAt: comment.createdAt,
                   url: comment.url,
+                  authorAssociation: comment.authorAssociation,
                   author: {
                     login: comment.authorLogin,
                   },

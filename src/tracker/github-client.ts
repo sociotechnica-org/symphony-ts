@@ -7,6 +7,7 @@ import type {
   PullRequestCheckStatus,
 } from "../domain/pull-request.js";
 import type { GitHubBootstrapTrackerConfig } from "../domain/workflow.js";
+import type { Logger } from "../observability/logger.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -54,6 +55,12 @@ interface GitHubPullRequestDetailsResponse {
   readonly merged_at: string | null;
 }
 
+interface GitHubRepositoryResponse {
+  readonly allow_merge_commit: boolean;
+  readonly allow_squash_merge: boolean;
+  readonly allow_rebase_merge: boolean;
+}
+
 interface MergedGitHubPullRequestResponse extends GitHubPullRequestListResponse {
   readonly landingState: "merged";
   readonly mergedAt: string;
@@ -87,6 +94,7 @@ interface PullRequestReviewCommentsConnection {
     readonly body: string;
     readonly createdAt: string;
     readonly url: string;
+    readonly authorAssociation: string;
     readonly author: {
       readonly login: string;
     } | null;
@@ -163,6 +171,14 @@ export interface PullRequestReviewState {
   readonly reviewThreads: PullRequestReviewThreadsConnection;
 }
 
+type GitHubMergeMethod = "merge" | "squash" | "rebase";
+
+const NULL_LOGGER: Logger = {
+  info() {},
+  warn() {},
+  error() {},
+};
+
 const PULL_REQUEST_REVIEW_STATE_QUERY = `
   query PullRequestReviewState(
     $owner: String!,
@@ -188,6 +204,7 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
             body
             createdAt
             url
+            authorAssociation
             author {
               login
             }
@@ -352,12 +369,18 @@ export function toRuntimeIssue(
 
 export class GitHubClient {
   readonly #config: GitHubBootstrapTrackerConfig;
+  readonly #logger: Logger;
   readonly #tokenPromise: Promise<string>;
   readonly #repoOwner: string;
   readonly #repoName: string;
+  #mergeMethodPromise: Promise<GitHubMergeMethod> | null = null;
 
-  constructor(config: GitHubBootstrapTrackerConfig) {
+  constructor(
+    config: GitHubBootstrapTrackerConfig,
+    logger: Logger = NULL_LOGGER,
+  ) {
     this.#config = config;
+    this.#logger = logger;
     this.#tokenPromise = resolveToken();
     const [repoOwner, repoName] = config.repo.split("/");
     if (!repoOwner || !repoName) {
@@ -433,6 +456,21 @@ export class GitHubClient {
       "POST",
       this.#issuePath(`issues/${issueNumber}/comments`),
       { body },
+    );
+  }
+
+  async mergePullRequest(
+    number: number,
+    headSha: string | null,
+  ): Promise<void> {
+    const mergeMethod = await this.#getMergeMethod();
+    await this.#request(
+      "PUT",
+      this.#issuePath(`pulls/${number.toString()}/merge`),
+      {
+        ...(headSha === null ? {} : { sha: headSha }),
+        merge_method: mergeMethod,
+      },
     );
   }
 
@@ -717,7 +755,52 @@ export class GitHubClient {
     return pullRequest.merged_at;
   }
 
+  async #getMergeMethod(): Promise<GitHubMergeMethod> {
+    if (this.#mergeMethodPromise === null) {
+      this.#mergeMethodPromise = this.#loadMergeMethod().catch(
+        (error: unknown) => {
+          this.#mergeMethodPromise = null;
+          throw error;
+        },
+      );
+    }
+    return await this.#mergeMethodPromise;
+  }
+
+  async #loadMergeMethod(): Promise<GitHubMergeMethod> {
+    const repository = await this.#request<GitHubRepositoryResponse>(
+      "GET",
+      this.#issuePath(""),
+    );
+
+    const allowedMergeMethods: GitHubMergeMethod[] = [];
+    if (repository.allow_merge_commit) {
+      allowedMergeMethods.push("merge");
+    }
+    if (repository.allow_squash_merge) {
+      allowedMergeMethods.push("squash");
+    }
+    if (repository.allow_rebase_merge) {
+      allowedMergeMethods.push("rebase");
+    }
+    const mergeMethod = allowedMergeMethods[0];
+    if (mergeMethod) {
+      this.#logger.info("Auto-detected GitHub merge method", {
+        repo: this.#config.repo,
+        mergeMethod,
+        allowedMergeMethods,
+      });
+      return mergeMethod;
+    }
+
+    throw new TrackerError(
+      `Repository ${this.#config.repo} does not allow merge, squash, or rebase merges`,
+    );
+  }
+
   #issuePath(suffix: string): string {
-    return `/repos/${this.#config.repo}/${suffix}`;
+    return suffix.length === 0
+      ? `/repos/${this.#config.repo}`
+      : `/repos/${this.#config.repo}/${suffix}`;
   }
 }
