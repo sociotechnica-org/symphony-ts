@@ -113,6 +113,9 @@ export interface IssueArtifactSessionSnapshot {
   readonly provider: string;
   readonly model: string | null;
   readonly backendSessionId: string | null;
+  readonly backendThreadId: string | null;
+  readonly latestTurnId: string | null;
+  readonly appServerPid: number | null;
   readonly latestTurnNumber: number | null;
   readonly startedAt: string | null;
   readonly finishedAt: string | null;

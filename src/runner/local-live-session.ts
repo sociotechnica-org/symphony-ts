@@ -63,6 +63,8 @@ export class LocalRunnerSession implements LiveRunnerSession {
     };
   }
 
+  async close(): Promise<void> {}
+
   async runTurn(
     turn: RunTurn,
     options?: RunnerRunOptions,

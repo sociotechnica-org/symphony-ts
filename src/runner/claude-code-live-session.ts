@@ -56,6 +56,8 @@ export class ClaudeCodeLiveSession implements LiveRunnerSession {
     return this.#description;
   }
 
+  async close(): Promise<void> {}
+
   async runTurn(
     turn: RunTurn,
     options?: RunnerRunOptions,

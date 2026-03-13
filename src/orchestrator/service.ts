@@ -573,8 +573,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       watchdogStop.signal,
     );
 
+    let liveRunnerSession: LiveRunnerSession | undefined;
     try {
-      const liveRunnerSession = await this.#runner.startSession?.(session);
+      liveRunnerSession = await this.#runner.startSession?.(session);
       this.#warnIfContinuationSessionUnavailable(
         issue,
         workspace.branchName,
@@ -670,6 +671,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         new Date().toISOString(),
       );
     } finally {
+      await liveRunnerSession?.close().catch((error) => {
+        this.#logger.warn("Failed to close live runner session cleanly", {
+          issueNumber: issue.number,
+          branchName: workspace.branchName,
+          runSessionId: session.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
       watchdogStop.abort();
       await watchdogPromise;
       shutdownSignal?.removeEventListener("abort", handleShutdown);
@@ -1727,6 +1736,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       provider: session.description.provider,
       model: session.description.model,
       backendSessionId: session.description.backendSessionId,
+      backendThreadId: session.description.backendThreadId,
+      latestTurnId: session.description.latestTurnId,
+      appServerPid: session.description.appServerPid,
       latestTurnNumber: session.latestTurnNumber,
       startedAt: session.runSession.startedAt,
       finishedAt: finishedAt ?? null,

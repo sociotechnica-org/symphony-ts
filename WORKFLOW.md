@@ -34,6 +34,8 @@ agent:
   runner:
     kind: codex
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
+  # For runner.kind: codex, Symphony derives a long-lived `codex app-server`
+  # session from this exec-style command and reuses one Codex thread per worker run.
   # Claude Code example:
   # runner:
   #   kind: claude-code

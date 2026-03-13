@@ -169,7 +169,7 @@ agent:
 | `workspace.repo_url`           | SSH or HTTPS URL of the repository cloned for each workspace                 |
 | `workspace.branch_prefix`      | Issue branch naming prefix                                                   |
 | `agent.runner.kind`            | Selects the execution backend (`codex`, `claude-code`, or `generic-command`) |
-| `agent.command`                | Subprocess command to launch the coding agent                                |
+| `agent.command`                | Runner command shape; Codex reuses its flags to launch `codex app-server`    |
 | `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path                        |
 | `agent.timeout_ms`             | Max wall-clock time per runner turn                                          |
 | `agent.max_turns`              | Max in-process continuation turns per worker run                             |
@@ -180,9 +180,9 @@ than `1`, a single worker run can consume multiple per-turn timeout windows
 before it exits.
 
 `agent.runner.kind` keeps backend selection in `WORKFLOW.md`. Use `codex` for
-the built-in Codex continuation path, `claude-code` for the first-class Claude
-Code adapter, or `generic-command` to launch another local CLI through the same
-orchestrator path:
+the built-in long-lived Codex app-server path, `claude-code` for the first-class
+Claude Code adapter, or `generic-command` to launch another local CLI through
+the same orchestrator path:
 
 ```yaml
 agent:
@@ -193,6 +193,12 @@ agent:
   timeout_ms: 1800000
   max_turns: 20
 ```
+
+For `agent.runner.kind: codex`, Symphony now starts one `codex app-server`
+subprocess per worker run and reuses a single Codex thread across continuation
+turns. Keep `agent.command` in the familiar `codex exec ...` shape; Symphony
+derives the app-server launch plus thread defaults such as model, sandbox, and
+approval policy from that command instead of shelling out with `codex exec resume`.
 
 The Claude Code adapter expects a headless JSON command shape so Symphony can
 capture `session_id` for continuation turns and status artifacts. Keep these

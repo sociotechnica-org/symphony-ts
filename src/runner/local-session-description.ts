@@ -9,6 +9,9 @@ export function describeLocalRunnerSession(
     provider: backend.provider,
     model: backend.model,
     backendSessionId: null,
+    backendThreadId: null,
+    latestTurnId: null,
+    appServerPid: null,
     latestTurnNumber: null,
     logPointers: [],
   };
