@@ -13,6 +13,7 @@ import {
 import { CodexRunner } from "../../src/runner/codex.js";
 import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
+import type { RunnerEvent } from "../../src/runner/service.js";
 import { waitForExit } from "../support/process.js";
 import { createTempDir } from "../support/git.js";
 import type { Logger } from "../../src/observability/logger.js";
@@ -963,6 +964,45 @@ describe("runners", () => {
     } finally {
       await liveSession.close();
     }
+  });
+
+  it("emits one completed visibility update per successful Codex turn", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = createCodexRunnerForMode(fakeCodex, "success");
+    const liveSession = await runner.startSession(createSession());
+    const events: RunnerEvent[] = [];
+
+    try {
+      await liveSession.runTurn(
+        {
+          turnNumber: 1,
+          prompt: "first",
+        },
+        {
+          onEvent(event) {
+            events.push(event);
+          },
+        },
+      );
+    } finally {
+      await liveSession.close();
+    }
+
+    const completedEvents = events.filter(
+      (event) =>
+        event.kind === "visibility" &&
+        event.visibility.state === "completed" &&
+        event.visibility.phase === "turn-finished",
+    );
+    expect(completedEvents).toHaveLength(1);
+    expect(completedEvents[0]).toMatchObject({
+      kind: "visibility",
+      visibility: {
+        state: "completed",
+        phase: "turn-finished",
+        lastActionSummary: "Turn 1 completed",
+      },
+    });
   });
 
   it("rejects a Codex turn when turn/failed omits params", async () => {

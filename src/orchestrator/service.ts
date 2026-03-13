@@ -625,18 +625,6 @@ export class BootstrapOrchestrator implements Orchestrator {
           description: result.session,
           latestTurnNumber: turn.turnNumber,
         };
-        this.#setIssueRunnerVisibility(
-          issue.number,
-          this.#buildRunnerVisibility(result.session, {
-            state: "completed",
-            phase: "turn-finished",
-            lastHeartbeatAt: result.finishedAt,
-            lastActionAt: result.finishedAt,
-            lastActionSummary: `Turn ${turn.turnNumber.toString()} completed`,
-            stdoutSummary: summarizeRunnerText(result.stdout),
-            stderrSummary: summarizeRunnerText(result.stderr),
-          }),
-        );
 
         if (result.exitCode !== 0) {
           this.#setIssueRunnerVisibility(
@@ -662,6 +650,19 @@ export class BootstrapOrchestrator implements Orchestrator {
           );
           return;
         }
+
+        this.#setIssueRunnerVisibility(
+          issue.number,
+          this.#buildRunnerVisibility(result.session, {
+            state: "completed",
+            phase: "turn-finished",
+            lastHeartbeatAt: result.finishedAt,
+            lastActionAt: result.finishedAt,
+            lastActionSummary: `Turn ${turn.turnNumber.toString()} completed`,
+            stdoutSummary: summarizeRunnerText(result.stdout),
+            stderrSummary: summarizeRunnerText(result.stderr),
+          }),
+        );
 
         this.#setIssueRunnerVisibility(
           issue.number,

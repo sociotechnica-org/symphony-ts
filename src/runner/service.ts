@@ -109,5 +109,5 @@ export function summarizeRunnerText(text: string): string | null {
   if (collapsed.length <= SUMMARY_LIMIT) {
     return collapsed;
   }
-  return `${collapsed.slice(0, SUMMARY_LIMIT - 1)}...`;
+  return `${collapsed.slice(0, SUMMARY_LIMIT - 3)}...`;
 }

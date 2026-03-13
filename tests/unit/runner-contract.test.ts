@@ -9,6 +9,7 @@ import type {
   RunnerTurnResult,
   RunnerVisibilitySnapshot,
 } from "../../src/runner/service.js";
+import { summarizeRunnerText } from "../../src/runner/service.js";
 
 function createSession(): RunSession {
   return {
@@ -257,5 +258,12 @@ describe("runner contract", () => {
       cancelledAt: null,
       timedOutAt: null,
     });
+  });
+
+  it("keeps summarized runner text within the shared limit", () => {
+    const summary = summarizeRunnerText("x".repeat(200));
+
+    expect(summary).toBe(`${"x".repeat(157)}...`);
+    expect(summary).toHaveLength(160);
   });
 });

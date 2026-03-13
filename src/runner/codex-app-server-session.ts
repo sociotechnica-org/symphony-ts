@@ -626,13 +626,6 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     if (method === "turn/completed") {
-      void this.#emitVisibility({
-        state: "completed",
-        phase: "turn-finished",
-        lastHeartbeatAt: new Date().toISOString(),
-        lastActionAt: new Date().toISOString(),
-        lastActionSummary: "Codex turn completed",
-      });
       this.#resolveActiveTurn();
       return;
     }
