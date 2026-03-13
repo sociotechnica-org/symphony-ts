@@ -2349,6 +2349,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       logSizeBytes: null,
       workspaceDiffHash: null,
       prHeadSha: null,
+      runnerHeartbeatAt: null,
+      runnerActionAt: null,
       hasActionableFeedback: false,
       capturedAt: now,
     });
@@ -2388,6 +2390,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           workspacePath: activeIssue?.workspacePath ?? null,
           runSessionId: activeIssue?.runSessionId ?? null,
           prHeadSha: activeIssue?.pullRequest?.headSha ?? null,
+          runnerHeartbeatAt:
+            activeIssue?.runnerVisibility?.lastHeartbeatAt ?? null,
+          runnerActionAt: activeIssue?.runnerVisibility?.lastActionAt ?? null,
           hasActionableFeedback: (activeIssue?.review.actionableCount ?? 0) > 0,
         });
         const result = checkStall(entry, snapshot, this.#watchdogConfig);

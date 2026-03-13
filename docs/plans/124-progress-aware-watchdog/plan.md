@@ -125,13 +125,13 @@ Allowed signal set for `watching-live` in this slice:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Clean workspace, no PR, runner visibility heartbeat/action timestamp advances | Active issue has running/session-start visibility updates | none required | Treat as live pre-write progress; do not abort |
-| Clean workspace, no PR, no visibility/log/diff movement within threshold | Active issue still owned locally | none required | Classify as `log-stall` or pre-write stall fallback; recover/abort using existing budget |
-| Dirty workspace diff unchanged, no visibility movement within threshold | Active issue still running | none required | Classify as `workspace-stall`; recover/abort using existing budget |
-| Actionable review feedback present, PR head unchanged, no visibility movement within threshold | Active issue has review metadata and PR head | actionable review count, PR head SHA | Classify as `pr-stall`; recover/abort using existing budget |
-| Visibility stops because runner already exited/failed before watchdog tick | Run controller/runner result path updates active issue state | none required | Watchdog stops with run completion/error path; no extra recovery |
+| Observed condition                                                                             | Local facts available                                        | Normalized tracker facts available   | Expected decision                                                                        |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Clean workspace, no PR, runner visibility heartbeat/action timestamp advances                  | Active issue has running/session-start visibility updates    | none required                        | Treat as live pre-write progress; do not abort                                           |
+| Clean workspace, no PR, no visibility/log/diff movement within threshold                       | Active issue still owned locally                             | none required                        | Classify as `log-stall` or pre-write stall fallback; recover/abort using existing budget |
+| Dirty workspace diff unchanged, no visibility movement within threshold                        | Active issue still running                                   | none required                        | Classify as `workspace-stall`; recover/abort using existing budget                       |
+| Actionable review feedback present, PR head unchanged, no visibility movement within threshold | Active issue has review metadata and PR head                 | actionable review count, PR head SHA | Classify as `pr-stall`; recover/abort using existing budget                              |
+| Visibility stops because runner already exited/failed before watchdog tick                     | Run controller/runner result path updates active issue state | none required                        | Watchdog stops with run completion/error path; no extra recovery                         |
 
 ## Observability Requirements
 

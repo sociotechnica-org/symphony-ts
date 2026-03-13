@@ -12,6 +12,8 @@ export interface LivenessProbe {
     readonly workspacePath: string | null;
     readonly runSessionId: string | null;
     readonly prHeadSha: string | null;
+    readonly runnerHeartbeatAt: string | null;
+    readonly runnerActionAt: string | null;
     readonly hasActionableFeedback: boolean;
   }): Promise<LivenessSnapshot>;
 }
@@ -35,11 +37,15 @@ export class NullLivenessProbe implements LivenessProbe {
     readonly runSessionId: string | null;
     readonly hasActionableFeedback: boolean;
     readonly prHeadSha: string | null;
+    readonly runnerHeartbeatAt: string | null;
+    readonly runnerActionAt: string | null;
   }): Promise<LivenessSnapshot> {
     return Promise.resolve({
       logSizeBytes: null,
       workspaceDiffHash: null,
       prHeadSha: options.prHeadSha,
+      runnerHeartbeatAt: options.runnerHeartbeatAt,
+      runnerActionAt: options.runnerActionAt,
       hasActionableFeedback: options.hasActionableFeedback,
       capturedAt: Date.now(),
     });
@@ -64,6 +70,8 @@ export class FsLivenessProbe implements LivenessProbe {
     readonly workspacePath: string | null;
     readonly runSessionId: string | null;
     readonly prHeadSha: string | null;
+    readonly runnerHeartbeatAt: string | null;
+    readonly runnerActionAt: string | null;
     readonly hasActionableFeedback: boolean;
   }): Promise<LivenessSnapshot> {
     const [logSize, diffHash] = await Promise.all([
@@ -75,6 +83,8 @@ export class FsLivenessProbe implements LivenessProbe {
       logSizeBytes: logSize,
       workspaceDiffHash: diffHash,
       prHeadSha: options.prHeadSha,
+      runnerHeartbeatAt: options.runnerHeartbeatAt,
+      runnerActionAt: options.runnerActionAt,
       hasActionableFeedback: options.hasActionableFeedback,
       capturedAt: Date.now(),
     };

@@ -22,6 +22,8 @@ function snapshot(overrides: Partial<LivenessSnapshot> = {}): LivenessSnapshot {
     logSizeBytes: null,
     workspaceDiffHash: null,
     prHeadSha: null,
+    runnerHeartbeatAt: null,
+    runnerActionAt: null,
     hasActionableFeedback: false,
     capturedAt: Date.now(),
     ...overrides,
@@ -79,6 +81,44 @@ describe("checkStall", () => {
     expect(result.stalled).toBe(false);
   });
 
+  it("treats the first runner heartbeat signal as progress", () => {
+    const entry = createWatchdogEntry(1, snapshot({ capturedAt: 1000 }));
+    const result = checkStall(
+      entry,
+      snapshot({
+        runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
+        capturedAt: 7000,
+      }),
+      config,
+    );
+    expect(result.stalled).toBe(false);
+    expect(result.reason).toBeNull();
+    expect(entry.lastChangeAt).toBe(7000);
+  });
+
+  it("resets idle time when runner progress timestamps advance", () => {
+    const entry = createWatchdogEntry(
+      1,
+      snapshot({
+        runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
+        runnerActionAt: "2026-03-13T08:46:00.000Z",
+        capturedAt: 1000,
+      }),
+    );
+    const result = checkStall(
+      entry,
+      snapshot({
+        runnerHeartbeatAt: "2026-03-13T08:46:03.000Z",
+        runnerActionAt: "2026-03-13T08:46:04.000Z",
+        capturedAt: 7000,
+      }),
+      config,
+    );
+    expect(result.stalled).toBe(false);
+    expect(result.reason).toBeNull();
+    expect(entry.lastChangeAt).toBe(7000);
+  });
+
   it("reports not stalled within threshold window", () => {
     const entry = createWatchdogEntry(
       1,
@@ -122,6 +162,29 @@ describe("checkStall", () => {
     const result = checkStall(
       entry,
       snapshot({ logSizeBytes: 100, capturedAt: 7000 }),
+      config,
+    );
+    expect(result.stalled).toBe(true);
+    expect(result.reason).toBe("log-stall");
+    expect(result.stalledForMs).toBe(6000);
+  });
+
+  it("stalls runner-progress-only runs after timestamps stop changing", () => {
+    const entry = createWatchdogEntry(
+      1,
+      snapshot({
+        runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
+        runnerActionAt: "2026-03-13T08:46:01.000Z",
+        capturedAt: 1000,
+      }),
+    );
+    const result = checkStall(
+      entry,
+      snapshot({
+        runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
+        runnerActionAt: "2026-03-13T08:46:01.000Z",
+        capturedAt: 7000,
+      }),
       config,
     );
     expect(result.stalled).toBe(true);
@@ -217,6 +280,11 @@ describe("hasObservableLivenessSignal", () => {
     expect(hasObservableLivenessSignal(snapshot({ logSizeBytes: 1 }))).toBe(
       true,
     );
+    expect(
+      hasObservableLivenessSignal(
+        snapshot({ runnerHeartbeatAt: "2026-03-13T08:46:00.000Z" }),
+      ),
+    ).toBe(true);
   });
 });
 

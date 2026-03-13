@@ -8,6 +8,8 @@ export interface LivenessSnapshot {
   readonly logSizeBytes: number | null;
   readonly workspaceDiffHash: string | null;
   readonly prHeadSha: string | null;
+  readonly runnerHeartbeatAt: string | null;
+  readonly runnerActionAt: string | null;
   readonly hasActionableFeedback: boolean;
   readonly capturedAt: number;
 }
@@ -50,7 +52,9 @@ export function hasObservableLivenessSignal(
   return (
     snapshot.logSizeBytes !== null ||
     snapshot.workspaceDiffHash !== null ||
-    snapshot.prHeadSha !== null
+    snapshot.prHeadSha !== null ||
+    snapshot.runnerHeartbeatAt !== null ||
+    snapshot.runnerActionAt !== null
   );
 }
 
@@ -98,6 +102,20 @@ export function checkStall(
 
   // Check PR head movement
   if (current.prHeadSha !== null && current.prHeadSha !== previous.prHeadSha) {
+    changed = true;
+  }
+
+  // Check runner heartbeat and action progress
+  if (
+    current.runnerHeartbeatAt !== null &&
+    current.runnerHeartbeatAt !== previous.runnerHeartbeatAt
+  ) {
+    changed = true;
+  }
+  if (
+    current.runnerActionAt !== null &&
+    current.runnerActionAt !== previous.runnerActionAt
+  ) {
     changed = true;
   }
 
