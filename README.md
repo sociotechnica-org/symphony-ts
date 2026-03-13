@@ -57,6 +57,10 @@ pnpm tsx bin/symphony.ts status          # terminal view
 pnpm tsx bin/symphony.ts status --json   # machine-readable
 ```
 
+The status snapshot includes normalized runner visibility for active issues,
+including worker state, current phase, session identity, heartbeat/action
+timestamps, waiting reason, and condensed output/error summaries.
+
 Generate a per-issue report from local artifacts:
 
 ```bash

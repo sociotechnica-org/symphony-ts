@@ -71,6 +71,30 @@ function createSnapshot(
         },
         blockedReason:
           "Waiting for PR checks to appear on https://example.test/pr/12",
+        runnerVisibility: {
+          state: "waiting",
+          phase: "awaiting-external",
+          session: {
+            provider: "codex",
+            model: "gpt-5.4",
+            backendSessionId: "thread-12-turn-2",
+            backendThreadId: "thread-12",
+            latestTurnId: "turn-2",
+            appServerPid: 4321,
+            latestTurnNumber: 2,
+            logPointers: [],
+          },
+          lastHeartbeatAt: "2026-03-06T12:00:00.000Z",
+          lastActionAt: "2026-03-06T12:00:00.000Z",
+          lastActionSummary: "Waiting for PR checks",
+          waitingReason:
+            "Waiting for PR checks to appear on https://example.test/pr/12",
+          stdoutSummary: "Opened PR #12",
+          stderrSummary: null,
+          errorSummary: null,
+          cancelledAt: null,
+          timedOutAt: null,
+        },
       },
     ],
     retries: [
@@ -239,6 +263,7 @@ describe("factory status helpers", () => {
             startedAt: undefined,
             pullRequest: undefined,
             blockedReason: undefined,
+            runnerVisibility: undefined,
           },
         ],
       };
@@ -255,6 +280,7 @@ describe("factory status helpers", () => {
             startedAt: null,
             pullRequest: null,
             blockedReason: null,
+            runnerVisibility: null,
           },
         ],
       });
@@ -278,6 +304,10 @@ describe("factory status helpers", () => {
       "#12 Expose factory status [awaiting-system-checks]",
     );
     expect(output).toContain("PR: #12 https://example.test/pr/12");
+    expect(output).toContain(
+      "Runner: waiting phase=awaiting-external provider=codex",
+    );
+    expect(output).toContain("Runner action: Waiting for PR checks");
     expect(output).toContain("Pending checks: CI");
     expect(output).toContain("Retries:");
     expect(output).toContain("#9 Retry a failed run attempt 2");

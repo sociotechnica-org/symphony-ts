@@ -135,6 +135,10 @@ export function upsertActiveIssue(
       update.blockedReason === undefined
         ? (existing?.blockedReason ?? null)
         : update.blockedReason,
+    runnerVisibility:
+      update.runnerVisibility === undefined
+        ? (existing?.runnerVisibility ?? null)
+        : update.runnerVisibility,
   });
 }
 

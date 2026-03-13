@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import type {
+  RunnerSessionDescription,
+  RunnerVisibilityPhase,
+  RunnerVisibilitySnapshot,
+  RunnerVisibilityState,
+} from "../runner/service.js";
 
 let snapshotWriteSequence = 0;
 
@@ -77,6 +83,7 @@ export interface FactoryActiveIssueSnapshot {
   readonly checks: FactoryCheckStatus;
   readonly review: FactoryReviewStatus;
   readonly blockedReason: string | null;
+  readonly runnerVisibility: RunnerVisibilitySnapshot | null;
 }
 
 export interface FactoryRetrySnapshot {
@@ -264,6 +271,45 @@ export function renderFactoryStatusSnapshot(
       );
       if (issue.blockedReason !== null) {
         lines.push(`    Blocked: ${issue.blockedReason}`);
+      }
+      if (issue.runnerVisibility !== null) {
+        const visibility = issue.runnerVisibility;
+        lines.push(
+          `    Runner: ${visibility.state} phase=${visibility.phase} provider=${visibility.session.provider}`,
+        );
+        if (visibility.session.model !== null) {
+          lines.push(`    Runner model: ${visibility.session.model}`);
+        }
+        if (visibility.lastActionSummary !== null) {
+          lines.push(
+            `    Runner action: ${visibility.lastActionSummary}${
+              visibility.lastActionAt === null
+                ? ""
+                : ` at ${visibility.lastActionAt}`
+            }`,
+          );
+        }
+        if (visibility.waitingReason !== null) {
+          lines.push(`    Runner waiting: ${visibility.waitingReason}`);
+        }
+        if (visibility.lastHeartbeatAt !== null) {
+          lines.push(`    Runner heartbeat: ${visibility.lastHeartbeatAt}`);
+        }
+        if (visibility.stdoutSummary !== null) {
+          lines.push(`    Runner stdout: ${visibility.stdoutSummary}`);
+        }
+        if (visibility.stderrSummary !== null) {
+          lines.push(`    Runner stderr: ${visibility.stderrSummary}`);
+        }
+        if (visibility.errorSummary !== null) {
+          lines.push(`    Runner error: ${visibility.errorSummary}`);
+        }
+        if (visibility.cancelledAt !== null) {
+          lines.push(`    Runner cancelled: ${visibility.cancelledAt}`);
+        }
+        if (visibility.timedOutAt !== null) {
+          lines.push(`    Runner timed out: ${visibility.timedOutAt}`);
+        }
       }
     }
   }
@@ -467,6 +513,169 @@ function parseActiveIssue(
       issue.blockedReason,
       filePath,
       `${field}.blockedReason`,
+    ),
+    runnerVisibility: parseRunnerVisibility(
+      issue.runnerVisibility,
+      filePath,
+      `${field}.runnerVisibility`,
+    ),
+  };
+}
+
+function parseRunnerVisibility(
+  value: unknown,
+  filePath: string,
+  field: string,
+): RunnerVisibilitySnapshot | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const visibility = expectObject(value, filePath, field);
+  return {
+    state: expectEnum<RunnerVisibilityState>(
+      visibility.state,
+      [
+        "idle",
+        "starting",
+        "running",
+        "waiting",
+        "completed",
+        "failed",
+        "cancelled",
+        "timed-out",
+      ],
+      filePath,
+      `${field}.state`,
+    ),
+    phase: expectEnum<RunnerVisibilityPhase>(
+      visibility.phase,
+      [
+        "boot",
+        "session-start",
+        "turn-execution",
+        "turn-finished",
+        "handoff-reconciliation",
+        "awaiting-external",
+        "shutdown",
+      ],
+      filePath,
+      `${field}.phase`,
+    ),
+    session: parseRunnerSessionDescription(
+      visibility.session,
+      filePath,
+      `${field}.session`,
+    ),
+    lastHeartbeatAt: expectNullableString(
+      visibility.lastHeartbeatAt,
+      filePath,
+      `${field}.lastHeartbeatAt`,
+    ),
+    lastActionAt: expectNullableString(
+      visibility.lastActionAt,
+      filePath,
+      `${field}.lastActionAt`,
+    ),
+    lastActionSummary: expectNullableString(
+      visibility.lastActionSummary,
+      filePath,
+      `${field}.lastActionSummary`,
+    ),
+    waitingReason: expectNullableString(
+      visibility.waitingReason,
+      filePath,
+      `${field}.waitingReason`,
+    ),
+    stdoutSummary: expectNullableString(
+      visibility.stdoutSummary,
+      filePath,
+      `${field}.stdoutSummary`,
+    ),
+    stderrSummary: expectNullableString(
+      visibility.stderrSummary,
+      filePath,
+      `${field}.stderrSummary`,
+    ),
+    errorSummary: expectNullableString(
+      visibility.errorSummary,
+      filePath,
+      `${field}.errorSummary`,
+    ),
+    cancelledAt: expectNullableString(
+      visibility.cancelledAt,
+      filePath,
+      `${field}.cancelledAt`,
+    ),
+    timedOutAt: expectNullableString(
+      visibility.timedOutAt,
+      filePath,
+      `${field}.timedOutAt`,
+    ),
+  };
+}
+
+function parseRunnerSessionDescription(
+  value: unknown,
+  filePath: string,
+  field: string,
+): RunnerSessionDescription {
+  const session = expectObject(value, filePath, field);
+  return {
+    provider: expectString(session.provider, filePath, `${field}.provider`),
+    model: expectNullableString(session.model, filePath, `${field}.model`),
+    backendSessionId: expectNullableString(
+      session.backendSessionId,
+      filePath,
+      `${field}.backendSessionId`,
+    ),
+    backendThreadId: expectNullableString(
+      session.backendThreadId,
+      filePath,
+      `${field}.backendThreadId`,
+    ),
+    latestTurnId: expectNullableString(
+      session.latestTurnId,
+      filePath,
+      `${field}.latestTurnId`,
+    ),
+    appServerPid: expectNullableInteger(
+      session.appServerPid,
+      filePath,
+      `${field}.appServerPid`,
+    ),
+    latestTurnNumber: expectNullableInteger(
+      session.latestTurnNumber,
+      filePath,
+      `${field}.latestTurnNumber`,
+    ),
+    logPointers: expectArray(
+      session.logPointers,
+      filePath,
+      `${field}.logPointers`,
+      (entry, index) => {
+        const pointer = expectObject(
+          entry,
+          filePath,
+          `${field}.logPointers[${index.toString()}]`,
+        );
+        return {
+          name: expectString(
+            pointer.name,
+            filePath,
+            `${field}.logPointers[${index.toString()}].name`,
+          ),
+          location: expectNullableString(
+            pointer.location,
+            filePath,
+            `${field}.logPointers[${index.toString()}].location`,
+          ),
+          archiveLocation: expectNullableString(
+            pointer.archiveLocation,
+            filePath,
+            `${field}.logPointers[${index.toString()}].archiveLocation`,
+          ),
+        };
+      },
     ),
   };
 }

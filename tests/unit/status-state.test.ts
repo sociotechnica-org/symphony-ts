@@ -66,6 +66,29 @@ describe("upsertActiveIssue", () => {
         latestCommitAt: "2026-03-06T11:02:00.000Z",
       },
       blockedReason: "Waiting on review",
+      runnerVisibility: {
+        state: "waiting",
+        phase: "awaiting-external",
+        session: {
+          provider: "codex",
+          model: "gpt-5.4",
+          backendSessionId: null,
+          backendThreadId: null,
+          latestTurnId: null,
+          appServerPid: null,
+          latestTurnNumber: 1,
+          logPointers: [],
+        },
+        lastHeartbeatAt: "2026-03-06T11:03:00.000Z",
+        lastActionAt: "2026-03-06T11:03:00.000Z",
+        lastActionSummary: "Waiting on review",
+        waitingReason: "Waiting on review",
+        stdoutSummary: null,
+        stderrSummary: null,
+        errorSummary: null,
+        cancelledAt: null,
+        timedOutAt: null,
+      },
     });
 
     upsertActiveIssue(state, issue, {
@@ -81,6 +104,7 @@ describe("upsertActiveIssue", () => {
       startedAt: null,
       pullRequest: null,
       blockedReason: null,
+      runnerVisibility: null,
     });
 
     expect(state.activeIssues.get(issue.number)).toMatchObject({
@@ -91,6 +115,7 @@ describe("upsertActiveIssue", () => {
       startedAt: null,
       pullRequest: null,
       blockedReason: null,
+      runnerVisibility: null,
     });
   });
 });

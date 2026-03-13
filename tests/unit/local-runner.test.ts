@@ -13,7 +13,6 @@ import {
 import { CodexRunner } from "../../src/runner/codex.js";
 import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
-import type { RunnerSpawnedEvent } from "../../src/runner/service.js";
 import { waitForExit } from "../support/process.js";
 import { createTempDir } from "../support/git.js";
 import type { Logger } from "../../src/observability/logger.js";
@@ -456,9 +455,10 @@ describe("runners", () => {
     const run = runner.run(session, {
       signal: abortController.signal,
       onEvent(event) {
-        expect(event.kind).toBe("spawned");
-        spawnedPid = event.pid;
-        abortController.abort();
+        if (event.kind === "spawned") {
+          spawnedPid = event.pid;
+          abortController.abort();
+        }
       },
     });
 
@@ -476,7 +476,10 @@ describe("runners", () => {
     let spawnedPid = -1;
 
     const run = runner.run(session, {
-      onEvent: async (event: RunnerSpawnedEvent) => {
+      onEvent: async (event) => {
+        if (event.kind !== "spawned") {
+          return;
+        }
         spawnedPid = event.pid;
         throw new Error("persist failed");
       },
@@ -711,7 +714,9 @@ describe("runners", () => {
         },
         {
           onEvent(event) {
-            spawnedPid = event.pid;
+            if (event.kind === "spawned") {
+              spawnedPid = event.pid;
+            }
           },
         },
       );
@@ -1023,7 +1028,9 @@ describe("runners", () => {
         },
         {
           onEvent(event) {
-            spawnedPid = event.pid;
+            if (event.kind === "spawned") {
+              spawnedPid = event.pid;
+            }
           },
         },
       ),

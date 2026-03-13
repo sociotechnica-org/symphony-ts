@@ -7,6 +7,7 @@ import type {
   RunnerExecutionResult,
   RunnerRunOptions,
   RunnerTurnResult,
+  RunnerVisibilitySnapshot,
 } from "../../src/runner/service.js";
 
 function createSession(): RunSession {
@@ -205,6 +206,56 @@ describe("runner contract", () => {
           },
         ],
       },
+    });
+  });
+
+  it("keeps the visibility shape provider-neutral", () => {
+    const visibility: RunnerVisibilitySnapshot = {
+      state: "waiting",
+      phase: "awaiting-external",
+      session: {
+        provider: "fake-provider",
+        model: null,
+        backendSessionId: null,
+        backendThreadId: null,
+        latestTurnId: null,
+        appServerPid: null,
+        latestTurnNumber: 2,
+        logPointers: [],
+      },
+      lastHeartbeatAt: "2026-03-12T10:00:02.000Z",
+      lastActionAt: "2026-03-12T10:00:02.000Z",
+      lastActionSummary: "Waiting for external review",
+      waitingReason: "Waiting for external review",
+      stdoutSummary: "completed turn 2",
+      stderrSummary: null,
+      errorSummary: null,
+      cancelledAt: null,
+      timedOutAt: null,
+    };
+
+    expect(visibility).toEqual({
+      state: "waiting",
+      phase: "awaiting-external",
+      session: {
+        provider: "fake-provider",
+        model: null,
+        backendSessionId: null,
+        backendThreadId: null,
+        latestTurnId: null,
+        appServerPid: null,
+        latestTurnNumber: 2,
+        logPointers: [],
+      },
+      lastHeartbeatAt: "2026-03-12T10:00:02.000Z",
+      lastActionAt: "2026-03-12T10:00:02.000Z",
+      lastActionSummary: "Waiting for external review",
+      waitingReason: "Waiting for external review",
+      stdoutSummary: "completed turn 2",
+      stderrSummary: null,
+      errorSummary: null,
+      cancelledAt: null,
+      timedOutAt: null,
     });
   });
 });
