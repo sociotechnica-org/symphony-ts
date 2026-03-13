@@ -62,6 +62,7 @@ Control or inspect the local detached factory runtime from the repo root:
 ```bash
 pnpm tsx bin/symphony.ts factory start
 pnpm tsx bin/symphony.ts factory status        # control/runtime view
+pnpm tsx bin/symphony.ts factory watch         # live read-only watch surface
 pnpm tsx bin/symphony.ts factory status --json
 pnpm tsx bin/symphony.ts factory restart
 pnpm tsx bin/symphony.ts factory stop
@@ -71,7 +72,11 @@ These commands target the checked-out runtime under `.tmp/factory-main`. Use
 `status` when you want the raw runtime snapshot for a specific workflow path,
 and use `factory status` when you want the detached runtime control state plus
 the embedded status snapshot. Operators should generally start with
-`factory status`.
+`factory status`, then use `factory watch` for continuous monitoring.
+
+For detached monitoring, do not use raw `screen -r symphony-factory` as the
+normal watch path. Attaching that way gives your terminal the worker's
+foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
 
 The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, session identity, heartbeat/action
@@ -374,6 +379,7 @@ What works today:
 - CI and automated review follow-up loop
 - Orphaned run recovery on restart
 - Local factory status surface and per-issue reporting
+- Safe detached factory watch surface via `symphony factory watch`
 - Self-hosting: Symphony builds itself
 
 What's planned:

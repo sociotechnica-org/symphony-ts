@@ -24,6 +24,7 @@ import {
   startFactory,
   stopFactory,
 } from "./factory-control.js";
+import { watchFactory } from "./factory-watch.js";
 
 export type CliArgs =
   | {
@@ -41,6 +42,11 @@ export type CliArgs =
       readonly command: "factory";
       readonly action: "start" | "stop" | "restart";
       readonly format: "human" | "json";
+    }
+  | {
+      readonly command: "factory";
+      readonly action: "watch";
+      readonly format: "human";
     }
   | {
       readonly command: "factory";
@@ -88,6 +94,16 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         format: args.includes("--json") ? "json" : "human",
       };
     }
+    if (action === "watch") {
+      if (args.includes("--json")) {
+        throw new Error("Usage: symphony factory watch");
+      }
+      return {
+        command: "factory",
+        action: "watch",
+        format: "human",
+      };
+    }
     if (action === "status") {
       return {
         command: "factory",
@@ -96,7 +112,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       };
     }
     throw new Error(
-      "Usage: symphony factory <start|stop|restart|status> [--json]",
+      "Usage: symphony factory <start|stop|restart|status> [--json]\n       symphony factory watch",
     );
   }
 
@@ -177,6 +193,10 @@ export async function runCli(argv: readonly string[]): Promise<void> {
           process.exitCode = snapshot.controlState === "degraded" ? 1 : 0;
           return;
         }
+
+        case "watch":
+          await watchFactory();
+          return;
       }
       return;
 

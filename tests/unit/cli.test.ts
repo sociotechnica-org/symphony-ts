@@ -179,6 +179,15 @@ describe("parseArgs", () => {
     });
   });
 
+  it("parses the factory watch command", () => {
+    const args = parseArgs(["node", "symphony", "factory", "watch"]);
+    expect(args).toEqual({
+      command: "factory",
+      action: "watch",
+      format: "human",
+    });
+  });
+
   it("parses the factory start and stop commands", () => {
     expect(parseArgs(["node", "symphony", "factory", "start"])).toEqual({
       command: "factory",
@@ -218,13 +227,19 @@ describe("parseArgs", () => {
 
   it("shows factory-specific usage for missing or unknown factory actions", () => {
     expect(() => parseArgs(["node", "symphony", "factory"])).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json]",
+      "Usage: symphony factory <start|stop|restart|status> [--json]\n       symphony factory watch",
     );
     expect(() =>
       parseArgs(["node", "symphony", "factory", "deploy"]),
     ).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json]",
+      "Usage: symphony factory <start|stop|restart|status> [--json]\n       symphony factory watch",
     );
+  });
+
+  it("rejects --json for factory watch", () => {
+    expect(() =>
+      parseArgs(["node", "symphony", "factory", "watch", "--json"]),
+    ).toThrowError("Usage: symphony factory watch");
   });
 });
 
@@ -699,5 +714,26 @@ describe("runCli factory", () => {
     await mockedRunCli(["node", "symphony", "factory", "status", "--json"]);
 
     expect(process.exitCode).toBe(1);
+  });
+
+  it("dispatches the factory watch command", async () => {
+    vi.resetModules();
+    const watchFactory = vi.fn(async () => {});
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(),
+      startFactory: vi.fn(),
+      stopFactory: vi.fn(),
+    }));
+    vi.doMock("../../src/cli/factory-watch.js", () => ({
+      watchFactory,
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "watch"]);
+
+    expect(watchFactory).toHaveBeenCalledTimes(1);
   });
 });
