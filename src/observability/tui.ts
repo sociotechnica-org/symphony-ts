@@ -22,7 +22,7 @@ const YELLOW = "\x1b[33m";
 const BLUE = "\x1b[34m";
 const MAGENTA = "\x1b[35m";
 const CYAN = "\x1b[36m";
-const GRAY = "\x1b[90m";
+const GRAY = "\x1b[2;37m"; // dim white — visible on dark terminals unlike \x1b[90m (bright black)
 
 function colorize(text: string, code: string): string {
   return `${code}${text}${RESET}`;
