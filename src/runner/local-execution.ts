@@ -209,7 +209,11 @@ export async function executeLocalRunnerCommand(
         for (const line of lines) {
           const update = tryParseStdoutEvent(line);
           if (update !== undefined) {
-            execution.options.onUpdate(update);
+            try {
+              execution.options.onUpdate(update);
+            } catch {
+              // Prevent a throwing onUpdate from crashing the stream.
+            }
           }
         }
       }
