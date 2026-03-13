@@ -10,6 +10,7 @@
 import type { ObservabilityConfig } from "../domain/workflow.js";
 import { getKey, getMapKey, mapPath } from "../domain/codex-payload.js";
 import type { TuiSnapshot } from "../orchestrator/service.js";
+import { setLogStderr } from "./logger.js";
 
 // ─── ANSI constants ────────────────────────────────────────────────────────
 
@@ -120,6 +121,8 @@ export class StatusDashboard {
   start(): void {
     if (this.#stopped || this.#state.tickTimer !== null || !this.#state.enabled)
       return;
+    // Redirect logs to stderr so the TUI has exclusive use of stdout.
+    setLogStderr(true);
     this.#scheduleTick();
   }
 
@@ -137,6 +140,8 @@ export class StatusDashboard {
     if (this.#state.enabled) {
       this.renderOfflineStatus();
     }
+    // Restore logs to stdout now that the TUI is no longer rendering.
+    setLogStderr(false);
   }
 
   refresh(): void {
