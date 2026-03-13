@@ -1028,4 +1028,80 @@ describe("StatusDashboard", () => {
     expect(rendered[0]).toContain("thread started (thread-live-123)");
     expect(rendered[1]).toContain("app_status=offline");
   });
+
+  it("ignores non-rendered runner visibility phase and session churn in the fingerprint", () => {
+    const rendered: string[] = [];
+    let snapshot = makeSnapshot({
+      running: [
+        {
+          issueNumber: 138,
+          identifier: "#138",
+          issueState: "running",
+          startedAt: new Date("2026-03-13T10:00:00.000Z"),
+          retryAttempt: 1,
+          sessionId: null,
+          turnCount: 1,
+          codexTotalTokens: 0,
+          codexInputTokens: 0,
+          codexOutputTokens: 0,
+          codexAppServerPid: 12345,
+          lastCodexEvent: null,
+          lastCodexMessage: null,
+          lastCodexTimestamp: null,
+          runnerVisibility: makeRunnerVisibility({
+            phase: "turn-execution",
+            session: {
+              ...makeRunnerVisibility().session,
+              model: "gpt-5.4",
+              appServerPid: 12345,
+              latestTurnNumber: 1,
+            },
+            stdoutSummary: JSON.stringify({
+              method: "thread/started",
+              params: { thread: { id: "thread-live-123" } },
+            }),
+          }),
+        },
+      ],
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 1,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      running: [
+        {
+          ...snapshot.running[0]!,
+          runnerVisibility: makeRunnerVisibility({
+            phase: "awaiting-external",
+            session: {
+              ...makeRunnerVisibility().session,
+              model: "gpt-5.5",
+              appServerPid: 54321,
+              latestTurnNumber: 2,
+            },
+            stdoutSummary: JSON.stringify({
+              method: "thread/started",
+              params: { thread: { id: "thread-live-123" } },
+            }),
+          }),
+        },
+      ],
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(2);
+    expect(rendered[0]).toContain("thread started (thread-live-123)");
+    expect(rendered[1]).toContain("app_status=offline");
+  });
 });

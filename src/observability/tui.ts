@@ -777,15 +777,10 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
           ? null
           : {
               state: e.runnerVisibility.state,
-              phase: e.runnerVisibility.phase,
               session: {
-                provider: e.runnerVisibility.session.provider,
-                model: e.runnerVisibility.session.model,
                 backendSessionId: e.runnerVisibility.session.backendSessionId,
                 backendThreadId: e.runnerVisibility.session.backendThreadId,
                 latestTurnId: e.runnerVisibility.session.latestTurnId,
-                appServerPid: e.runnerVisibility.session.appServerPid,
-                latestTurnNumber: e.runnerVisibility.session.latestTurnNumber,
               },
               lastActionSummary: e.runnerVisibility.lastActionSummary,
               waitingReason: e.runnerVisibility.waitingReason,
