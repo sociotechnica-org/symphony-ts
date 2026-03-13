@@ -1235,15 +1235,25 @@ describe("BootstrapOrchestrator", () => {
     expect(logger.errors).toContain("Workspace cleanup failed");
   });
 
-  it("retries landing on the same head after a failed merge request", async () => {
-    const tracker = new FailOnceLandingTracker({
-      running: [createIssue(73, "symphony:running")],
+  it("does not repeat landing when the current PR head SHA is unavailable", async () => {
+    const tracker = new SequencedTracker({
+      running: [createIssue(72, "symphony:running")],
     });
-    tracker.setLifecycleSequence(73, [
-      lifecycle("awaiting-landing", "symphony/73"),
-      lifecycle("awaiting-landing", "symphony/73"),
-      lifecycle("awaiting-landing", "symphony/73"),
-      lifecycle("handoff-ready", "symphony/73"),
+    const awaitingLandingWithoutHead: HandoffLifecycle = {
+      ...lifecycle("awaiting-landing", "symphony/72"),
+      pullRequest: {
+        number: 1,
+        url: "https://example.test/pulls/symphony/72",
+        branchName: "symphony/72",
+        headSha: null,
+        latestCommitAt: new Date().toISOString(),
+      },
+    };
+    tracker.setLifecycleSequence(72, [
+      awaitingLandingWithoutHead,
+      awaitingLandingWithoutHead,
+      awaitingLandingWithoutHead,
+      lifecycle("handoff-ready", "symphony/72"),
     ]);
     const orchestrator = new BootstrapOrchestrator(
       baseConfig,
@@ -1266,9 +1276,50 @@ describe("BootstrapOrchestrator", () => {
     expect(tracker.completed).toEqual([]);
 
     await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
 
-    expect(tracker.landingRequests).toEqual([1, 1]);
-    expect(tracker.completed).toEqual([73]);
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([72]);
+  });
+
+  it("does not retry landing on the same head after a failed merge request", async () => {
+    const tracker = new FailOnceLandingTracker({
+      running: [createIssue(73, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(73, [
+      lifecycle("awaiting-landing", "symphony/73"),
+      lifecycle("awaiting-landing", "symphony/73"),
+      lifecycle("awaiting-landing", "symphony/73"),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
+
+    await orchestrator.runOnce();
+    expect(tracker.landingRequests).toEqual([1]);
+    expect(tracker.completed).toEqual([]);
   });
 
   it("reruns a running PR when CI or review feedback is actionable and resolves review threads", async () => {

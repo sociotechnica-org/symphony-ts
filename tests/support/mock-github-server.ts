@@ -29,6 +29,7 @@ interface MockLandingBehavior {
 interface MockPullRequestComment {
   readonly id: string;
   readonly authorLogin: string;
+  readonly authorAssociation: string;
   readonly body: string;
   readonly createdAt: string;
   readonly url: string;
@@ -356,6 +357,7 @@ export class MockGitHubServer {
   addPullRequestComment(input: {
     head: string;
     authorLogin: string;
+    authorAssociation?: string;
     body: string;
     createdAt?: string;
   }): string {
@@ -364,6 +366,7 @@ export class MockGitHubServer {
     pullRequest.comments.push({
       id: commentId,
       authorLogin: input.authorLogin,
+      authorAssociation: input.authorAssociation ?? "MEMBER",
       body: input.body,
       createdAt: input.createdAt ?? new Date().toISOString(),
       url: `${pullRequest.html_url}#issuecomment-${commentId}`,
@@ -732,6 +735,7 @@ export class MockGitHubServer {
                   body: comment.body,
                   createdAt: comment.createdAt,
                   url: comment.url,
+                  authorAssociation: comment.authorAssociation,
                   author: {
                     login: comment.authorLogin,
                   },

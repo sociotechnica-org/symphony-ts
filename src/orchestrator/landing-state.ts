@@ -1,10 +1,10 @@
 export interface LandingRuntimeState {
-  readonly attemptedHeadShaByIssueNumber: Map<number, string>;
+  readonly attemptedHeadShaByIssueNumber: Map<number, string | null>;
 }
 
 export function createLandingRuntimeState(): LandingRuntimeState {
   return {
-    attemptedHeadShaByIssueNumber: new Map<number, string>(),
+    attemptedHeadShaByIssueNumber: new Map<number, string | null>(),
   };
 }
 
@@ -20,7 +20,7 @@ export function shouldExecuteLanding(
   issueNumber: number,
   headSha: string | null,
 ): boolean {
-  if (headSha === null) {
+  if (!state.attemptedHeadShaByIssueNumber.has(issueNumber)) {
     return true;
   }
   return state.attemptedHeadShaByIssueNumber.get(issueNumber) !== headSha;
@@ -31,9 +31,5 @@ export function noteLandingAttempt(
   issueNumber: number,
   headSha: string | null,
 ): void {
-  if (headSha === null) {
-    state.attemptedHeadShaByIssueNumber.delete(issueNumber);
-    return;
-  }
   state.attemptedHeadShaByIssueNumber.set(issueNumber, headSha);
 }

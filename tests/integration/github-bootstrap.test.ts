@@ -379,6 +379,31 @@ describe("GitHubBootstrapTracker", () => {
     expect(second.summary).toMatch(/awaiting a human \/land command/i);
   });
 
+  it("ignores /land comments from non-member humans", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "outside-user",
+      authorAssociation: "CONTRIBUTOR",
+      body: "/land",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
+    expect(lifecycle.summary).toMatch(/awaiting a human \/land command/i);
+  });
+
   it("reports handoff-ready after the same pull request is merged", async () => {
     const tracker = createTracker(server);
 

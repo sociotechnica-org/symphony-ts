@@ -87,6 +87,7 @@ interface PullRequestReviewCommentsConnection {
     readonly body: string;
     readonly createdAt: string;
     readonly url: string;
+    readonly authorAssociation: string;
     readonly author: {
       readonly login: string;
     } | null;
@@ -188,6 +189,7 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
             body
             createdAt
             url
+            authorAssociation
             author {
               login
             }

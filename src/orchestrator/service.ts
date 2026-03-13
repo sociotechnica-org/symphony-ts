@@ -546,12 +546,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     let landingError: string | null = null;
     try {
       if (lifecycle.pullRequest !== null) {
-        await this.#tracker.executeLanding(lifecycle.pullRequest);
         noteLandingAttempt(
           this.#state.landing,
           issue.number,
           lifecycle.pullRequest.headSha,
         );
+        await this.#tracker.executeLanding(lifecycle.pullRequest);
       }
     } catch (error) {
       landingError = this.#normalizeFailure(error as Error);

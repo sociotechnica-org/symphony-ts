@@ -32,13 +32,20 @@ function isAfter(left: string, right: string | null): boolean {
 
 function isHumanLandingApprover(
   authorLogin: string | null,
+  authorAssociation: string,
   reviewBotLogins: ReadonlySet<string>,
 ): boolean {
   if (authorLogin === null) {
     return false;
   }
   const normalized = authorLogin.toLowerCase();
-  return !reviewBotLogins.has(normalized) && !normalized.endsWith("[bot]");
+  return (
+    !reviewBotLogins.has(normalized) &&
+    !normalized.endsWith("[bot]") &&
+    (authorAssociation === "OWNER" ||
+      authorAssociation === "MEMBER" ||
+      authorAssociation === "COLLABORATOR")
+  );
 }
 
 export function createPullRequestSnapshot(input: {
@@ -106,7 +113,11 @@ export function createPullRequestSnapshot(input: {
   const hasLandingCommand = input.reviewState.comments.nodes.some((comment) => {
     const authorLogin = comment.author?.login ?? null;
     return (
-      isHumanLandingApprover(authorLogin, reviewBotLogins) &&
+      isHumanLandingApprover(
+        authorLogin,
+        comment.authorAssociation,
+        reviewBotLogins,
+      ) &&
       isAfter(comment.createdAt, latestCommitAt) &&
       parseLandingCommandSignal(comment.body)
     );
