@@ -625,6 +625,54 @@ describe("stopFactory", () => {
     expect(result.status.controlState).toBe("stopped");
     expect(result.status.sessions).toEqual([]);
   });
+
+  it("ignores already-missing screen sessions while stopping multiple sessions", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+      {
+        id: "9002.symphony-factory",
+        pid: 9002,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ];
+
+    const result = await stopFactory({
+      ...createControlDeps({
+        sessions: sessionsState,
+        processes: [],
+        snapshot: null,
+        quitScreenSession: async (sessionId) => {
+          if (sessionId === "9001.symphony-factory") {
+            sessionsState.splice(0, sessionsState.length);
+            return;
+          }
+          const error = new Error("No screen session found.") as Error & {
+            stderr: string;
+          };
+          error.stderr = "No screen session found.";
+          throw error;
+        },
+      }),
+      listProcesses: async () => [],
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: () => false,
+    });
+
+    expect(result.kind).toBe("stopped");
+    expect(result.status.controlState).toBe("stopped");
+    expect(result.status.sessions).toEqual([]);
+  });
 });
 
 describe("renderFactoryControlStatus", () => {

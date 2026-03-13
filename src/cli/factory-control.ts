@@ -438,13 +438,21 @@ async function stopFactoryAtPaths(
     };
   }
 
-  for (const session of initialStatus.sessions) {
-    await quitScreenSession(session.id).catch((error) => {
-      throw new Error(`Failed to stop detached screen session ${session.id}.`, {
-        cause: error as Error,
-      });
-    });
-  }
+  await Promise.all(
+    initialStatus.sessions.map((session) =>
+      quitScreenSession(session.id).catch((error) => {
+        if (isMissingScreenSessionError(error)) {
+          return;
+        }
+        throw new Error(
+          `Failed to stop detached screen session ${session.id}.`,
+          {
+            cause: error as Error,
+          },
+        );
+      }),
+    ),
+  );
 
   let targetPids = new Set<number>(initialStatus.processIds);
   targetPids.delete(process.pid);
@@ -653,4 +661,25 @@ async function defaultQuitScreenSession(sessionId: string): Promise<void> {
 
 async function defaultSleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isMissingScreenSessionError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "ESRCH") {
+    return true;
+  }
+
+  const stdout = String(
+    (error as { stdout?: string } | undefined)?.stdout ?? "",
+  );
+  const stderr = String(
+    (error as { stderr?: string } | undefined)?.stderr ?? "",
+  );
+  const message = error instanceof Error ? error.message : "";
+  const combined = `${stdout}\n${stderr}\n${message}`.toLowerCase();
+  return (
+    combined.includes("no screen session found") ||
+    combined.includes("no such screen session") ||
+    combined.includes("no such session")
+  );
 }
