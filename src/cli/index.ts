@@ -17,6 +17,12 @@ import { FsLivenessProbe } from "../orchestrator/liveness-probe.js";
 import { createRunner } from "../runner/factory.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
+import {
+  inspectFactoryControl,
+  renderFactoryControlStatus,
+  startFactory,
+  stopFactory,
+} from "./factory-control.js";
 
 export type CliArgs =
   | {
@@ -29,6 +35,15 @@ export type CliArgs =
       readonly format: "human" | "json";
       readonly workflowPath: string | null;
       readonly statusFilePath: string | null;
+    }
+  | {
+      readonly command: "factory";
+      readonly action: "start" | "stop" | "restart";
+    }
+  | {
+      readonly command: "factory";
+      readonly action: "status";
+      readonly format: "human" | "json";
     };
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -62,51 +77,129 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     };
   }
 
+  if (command === "factory") {
+    const action = args[1];
+    if (action === "start" || action === "stop" || action === "restart") {
+      return {
+        command: "factory",
+        action,
+      };
+    }
+    if (action === "status") {
+      return {
+        command: "factory",
+        action: "status",
+        format: args.includes("--json") ? "json" : "human",
+      };
+    }
+  }
+
   throw new Error(
-    "Usage: symphony <run|status> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+    "Usage: symphony <run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
   );
 }
 
 export async function runCli(argv: readonly string[]): Promise<void> {
   const args = parseArgs(argv);
-  if (args.command === "status") {
-    const effectiveWorkflowPath =
-      args.workflowPath ?? path.resolve(process.cwd(), "WORKFLOW.md");
-    const statusFilePath =
-      args.statusFilePath ??
-      (await resolveStatusFilePath(effectiveWorkflowPath).catch((error) => {
-        throw new Error(
-          `Could not determine status file path from workflow at ${effectiveWorkflowPath}. Use --status-file <path> to specify the snapshot location directly.`,
-          { cause: error as Error },
+  switch (args.command) {
+    case "factory":
+      switch (args.action) {
+        case "start": {
+          const result = await startFactory();
+          process.stdout.write(
+            `Factory ${result.kind === "started" ? "started" : "already running"}.\n`,
+          );
+          process.stdout.write(renderFactoryControlStatus(result.status));
+          return;
+        }
+
+        case "stop": {
+          const result = await stopFactory();
+          process.stdout.write(
+            `Factory ${result.kind === "stopped" ? "stopped" : "already stopped"}.\n`,
+          );
+          if (result.terminatedPids.length > 0) {
+            process.stdout.write(
+              `Terminated PIDs: ${result.terminatedPids.join(", ")}\n`,
+            );
+          }
+          process.stdout.write(renderFactoryControlStatus(result.status));
+          return;
+        }
+
+        case "restart": {
+          const stopResult = await stopFactory();
+          const startResult = await startFactory();
+          process.stdout.write(
+            `Factory ${stopResult.kind === "already-stopped" ? "was already stopped and is now running again" : "restarted"}.\n`,
+          );
+          if (stopResult.terminatedPids.length > 0) {
+            process.stdout.write(
+              `Terminated PIDs: ${stopResult.terminatedPids.join(", ")}\n`,
+            );
+          }
+          process.stdout.write(renderFactoryControlStatus(startResult.status));
+          return;
+        }
+
+        case "status": {
+          const snapshot = await inspectFactoryControl();
+          process.stdout.write(
+            renderFactoryControlStatus(snapshot, {
+              format: args.format,
+            }),
+          );
+          process.exitCode = snapshot.controlState === "degraded" ? 1 : 0;
+          return;
+        }
+      }
+      return;
+
+    case "status": {
+      const effectiveWorkflowPath =
+        args.workflowPath ?? path.resolve(process.cwd(), "WORKFLOW.md");
+      const statusFilePath =
+        args.statusFilePath ??
+        (await resolveStatusFilePath(effectiveWorkflowPath).catch((error) => {
+          throw new Error(
+            `Could not determine status file path from workflow at ${effectiveWorkflowPath}. Use --status-file <path> to specify the snapshot location directly.`,
+            { cause: error as Error },
+          );
+        }));
+      let snapshot;
+      let rawSnapshot = "";
+      try {
+        rawSnapshot = await fs.readFile(statusFilePath, "utf8");
+        snapshot = parseFactoryStatusSnapshotContent(
+          rawSnapshot,
+          statusFilePath,
         );
-      }));
-    let snapshot;
-    let rawSnapshot = "";
-    try {
-      rawSnapshot = await fs.readFile(statusFilePath, "utf8");
-      snapshot = parseFactoryStatusSnapshotContent(rawSnapshot, statusFilePath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT") {
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
+          throw new Error(
+            `No factory status snapshot found at ${statusFilePath}. Start Symphony with 'symphony run' first.`,
+            { cause: error as Error },
+          );
+        }
         throw new Error(
-          `No factory status snapshot found at ${statusFilePath}. Start Symphony with 'symphony run' first.`,
+          `Failed to read factory status snapshot at ${statusFilePath}. The file may be corrupt; re-running 'symphony run' will regenerate it.`,
           { cause: error as Error },
         );
       }
-      throw new Error(
-        `Failed to read factory status snapshot at ${statusFilePath}. The file may be corrupt; re-running 'symphony run' will regenerate it.`,
-        { cause: error as Error },
-      );
+      const output =
+        args.format === "json"
+          ? rawSnapshot
+          : `${renderFactoryStatusSnapshot(snapshot, {
+              workerAlive: isProcessAlive(snapshot.worker.pid),
+              statusFilePath,
+            })}\n`;
+      process.stdout.write(output);
+      return;
     }
-    const output =
-      args.format === "json"
-        ? rawSnapshot
-        : `${renderFactoryStatusSnapshot(snapshot, {
-            workerAlive: isProcessAlive(snapshot.worker.pid),
-            statusFilePath,
-          })}\n`;
-    process.stdout.write(output);
-    return;
+
+    case "run":
+      break;
   }
 
   const logger = new JsonLogger();

@@ -1,0 +1,468 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
+import {
+  collectDescendantProcessIds,
+  inspectFactoryControl,
+  parsePsOutput,
+  parseScreenLsOutput,
+  renderFactoryControlStatus,
+  resolveFactoryPaths,
+  startFactory,
+  stopFactory,
+  type FactoryControlDeps,
+  type HostProcessSnapshot,
+  type ScreenSessionSnapshot,
+} from "../../src/cli/factory-control.js";
+import { createTempDir } from "../support/git.js";
+
+function createStatusSnapshot(
+  workerPid: number,
+  overrides: Partial<FactoryStatusSnapshot> = {},
+): FactoryStatusSnapshot {
+  return {
+    version: 1,
+    generatedAt: "2026-03-13T12:00:00.000Z",
+    factoryState: "idle",
+    worker: {
+      instanceId: "worker-1",
+      pid: workerPid,
+      startedAt: "2026-03-13T11:59:00.000Z",
+      pollIntervalMs: 1000,
+      maxConcurrentRuns: 1,
+    },
+    counts: {
+      ready: 0,
+      running: 0,
+      failed: 0,
+      activeLocalRuns: 0,
+      retries: 0,
+    },
+    lastAction: null,
+    activeIssues: [],
+    retries: [],
+    ...overrides,
+  };
+}
+
+function createControlDeps(
+  options: {
+    readonly processes?: readonly HostProcessSnapshot[];
+    readonly sessions?: readonly ScreenSessionSnapshot[];
+    readonly snapshot?: FactoryStatusSnapshot | null;
+    readonly nowValues?: readonly number[];
+    readonly launchScreenSession?: FactoryControlDeps["launchScreenSession"];
+    readonly quitScreenSession?: FactoryControlDeps["quitScreenSession"];
+    readonly signalProcess?: FactoryControlDeps["signalProcess"];
+    readonly sleep?: FactoryControlDeps["sleep"];
+  } = {},
+): FactoryControlDeps {
+  const repoRoot = "/repo";
+  const runtimeRoot = path.join(repoRoot, ".tmp", "factory-main");
+  const workflowPath = path.join(runtimeRoot, "WORKFLOW.md");
+  const statusFilePath = path.join(runtimeRoot, ".tmp", "status.json");
+  const nowValues = [...(options.nowValues ?? [0])];
+
+  return {
+    cwd: () => runtimeRoot,
+    pathExists: async (targetPath) =>
+      [
+        repoRoot,
+        runtimeRoot,
+        workflowPath,
+        path.dirname(statusFilePath),
+        statusFilePath,
+      ].includes(targetPath),
+    loadWorkflowWorkspaceRoot: async () =>
+      path.join(runtimeRoot, ".tmp", "workspaces"),
+    readFile: async (filePath) => {
+      if (filePath !== statusFilePath || options.snapshot === null) {
+        const error = new Error(
+          `ENOENT: no such file or directory, open '${filePath}'`,
+        ) as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      }
+      if (options.snapshot === undefined) {
+        const error = new Error(
+          `ENOENT: no such file or directory, open '${filePath}'`,
+        ) as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      }
+      return `${JSON.stringify(options.snapshot, null, 2)}\n`;
+    },
+    listProcesses: async () => options.processes ?? [],
+    listScreenSessions: async () => options.sessions ?? [],
+    sleep: options.sleep ?? (async () => {}),
+    isProcessAlive: (pid) =>
+      (options.processes ?? []).some(
+        (processSnapshot) => processSnapshot.pid === pid,
+      ),
+    now: () => {
+      if (nowValues.length === 0) {
+        return 0;
+      }
+      return nowValues.shift() ?? 0;
+    },
+    ...(options.launchScreenSession === undefined
+      ? {}
+      : { launchScreenSession: options.launchScreenSession }),
+    ...(options.quitScreenSession === undefined
+      ? {}
+      : { quitScreenSession: options.quitScreenSession }),
+    ...(options.signalProcess === undefined
+      ? {}
+      : { signalProcess: options.signalProcess }),
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("resolveFactoryPaths", () => {
+  it("finds the outer repo root from a nested working directory", async () => {
+    const tempDir = await createTempDir("symphony-factory-paths-");
+    const runtimeRoot = path.join(tempDir, ".tmp", "factory-main");
+    const nestedCwd = path.join(runtimeRoot, "src");
+
+    await fs.mkdir(path.join(runtimeRoot, ".tmp"), { recursive: true });
+    await fs.mkdir(nestedCwd, { recursive: true });
+    await fs.writeFile(
+      path.join(runtimeRoot, "WORKFLOW.md"),
+      `---
+tracker:
+  kind: github-bootstrap
+  repo: sociotechnica-org/symphony-ts
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+workspace:
+  root: ./.tmp/workspaces
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`,
+      "utf8",
+    );
+
+    try {
+      const paths = await resolveFactoryPaths({
+        cwd: () => nestedCwd,
+      });
+      expect(paths.repoRoot).toBe(tempDir);
+      expect(paths.runtimeRoot).toBe(runtimeRoot);
+      expect(paths.workflowPath).toBe(path.join(runtimeRoot, "WORKFLOW.md"));
+      expect(paths.statusFilePath).toBe(
+        path.join(runtimeRoot, ".tmp", "status.json"),
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("process parsing helpers", () => {
+  it("parses ps output into pid, ppid, and command fields", () => {
+    expect(
+      parsePsOutput(" 123  1 node bin/symphony.ts run\n 456 123 codex exec\n"),
+    ).toEqual([
+      {
+        pid: 123,
+        ppid: 1,
+        command: "node bin/symphony.ts run",
+      },
+      {
+        pid: 456,
+        ppid: 123,
+        command: "codex exec",
+      },
+    ]);
+  });
+
+  it("parses screen -ls output", () => {
+    expect(
+      parseScreenLsOutput(
+        "There is a screen on:\n\t1234.symphony-factory\t(Detached)\n1 Socket in /tmp/screens.\n",
+      ),
+    ).toEqual([
+      {
+        id: "1234.symphony-factory",
+        pid: 1234,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ]);
+  });
+
+  it("collects descendant process ids", () => {
+    expect(
+      collectDescendantProcessIds(
+        [
+          { pid: 10, ppid: 1, command: "screen" },
+          { pid: 11, ppid: 10, command: "pnpm" },
+          { pid: 12, ppid: 11, command: "tsx" },
+          { pid: 13, ppid: 12, command: "codex exec" },
+          { pid: 20, ppid: 1, command: "other" },
+        ],
+        [10],
+      ),
+    ).toEqual([10, 11, 12, 13]);
+  });
+});
+
+describe("inspectFactoryControl", () => {
+  it("reports stopped when there is no session, process, or snapshot", async () => {
+    const snapshot = await inspectFactoryControl(createControlDeps());
+    expect(snapshot.controlState).toBe("stopped");
+    expect(snapshot.processIds).toEqual([]);
+  });
+
+  it("reports running when the session and snapshot worker are healthy", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        sessions: [
+          {
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: "symphony-factory",
+            state: "Detached",
+          },
+        ],
+        processes: [
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          { pid: 9002, ppid: 9001, command: "pnpm tsx bin/symphony.ts run" },
+          { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+        ],
+        snapshot: createStatusSnapshot(workerPid),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("running");
+    expect(snapshot.workerAlive).toBe(true);
+    expect(snapshot.problems).toEqual([]);
+  });
+
+  it("reports degraded when factory-owned processes remain without the screen session", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        processes: [
+          { pid: 9002, ppid: 1, command: "pnpm tsx bin/symphony.ts run" },
+          { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+        ],
+        snapshot: createStatusSnapshot(workerPid),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.problems).toContain(
+      "detached screen session is missing but factory-owned processes remain",
+    );
+  });
+});
+
+describe("startFactory", () => {
+  it("returns already-running when the factory is healthy", async () => {
+    const workerPid = 9101;
+    const result = await startFactory(
+      createControlDeps({
+        sessions: [
+          {
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: "symphony-factory",
+            state: "Detached",
+          },
+        ],
+        processes: [
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          { pid: workerPid, ppid: 9001, command: "node bin/symphony.ts run" },
+        ],
+        snapshot: createStatusSnapshot(workerPid),
+      }),
+    );
+
+    expect(result.kind).toBe("already-running");
+    expect(result.status.controlState).toBe("running");
+  });
+
+  it("launches the detached session and waits until the runtime becomes healthy", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    const workerPid = 9101;
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+    const launched: Array<{ runtimeRoot: string; sessionName: string }> = [];
+
+    const result = await startFactory({
+      ...createControlDeps({
+        launchScreenSession: async (options) => {
+          launched.push(options);
+          sessionsState.push({
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: options.sessionName,
+            state: "Detached",
+          });
+          processesState.push(
+            { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+            { pid: 9002, ppid: 9001, command: "pnpm tsx bin/symphony.ts run" },
+            { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+          );
+          currentSnapshot = createStatusSnapshot(workerPid, {
+            factoryState: "running",
+          });
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        if (currentSnapshot === null) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(launched).toHaveLength(1);
+    expect(result.kind).toBe("started");
+    expect(result.status.controlState).toBe("running");
+  });
+});
+
+describe("stopFactory", () => {
+  it("returns already-stopped when there is no active runtime", async () => {
+    const result = await stopFactory(createControlDeps());
+    expect(result.kind).toBe("already-stopped");
+    expect(result.terminatedPids).toEqual([]);
+  });
+
+  it("quits the screen session and terminates remaining descendants", async () => {
+    const workerPid = 9101;
+    const sessionsState: ScreenSessionSnapshot[] = [
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ];
+    const processesState: HostProcessSnapshot[] = [
+      { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+      { pid: 9002, ppid: 9001, command: "pnpm tsx bin/symphony.ts run" },
+      { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+      {
+        pid: 9102,
+        ppid: workerPid,
+        command: "codex exec --dangerously-bypass-approvals-and-sandbox",
+      },
+    ];
+    const quitCalls: string[] = [];
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+
+    const result = await stopFactory({
+      ...createControlDeps({
+        sessions: sessionsState,
+        processes: processesState,
+        snapshot: createStatusSnapshot(workerPid),
+        quitScreenSession: async (sessionId) => {
+          quitCalls.push(sessionId);
+          sessionsState.splice(0, sessionsState.length);
+          const remaining = processesState.filter(
+            (processSnapshot) => processSnapshot.pid !== 9001,
+          );
+          processesState.splice(0, processesState.length, ...remaining);
+        },
+        signalProcess: (pid, signal) => {
+          signals.push({ pid, signal });
+          const index = processesState.findIndex(
+            (processSnapshot) => processSnapshot.pid === pid,
+          );
+          if (index >= 0) {
+            processesState.splice(index, 1);
+          }
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        if (
+          processesState.some(
+            (processSnapshot) => processSnapshot.pid === workerPid,
+          )
+        ) {
+          return `${JSON.stringify(createStatusSnapshot(workerPid), null, 2)}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(quitCalls).toEqual(["9001.symphony-factory"]);
+    expect(signals).toEqual(
+      expect.arrayContaining([
+        { pid: 9002, signal: "SIGTERM" },
+        { pid: workerPid, signal: "SIGTERM" },
+        { pid: 9102, signal: "SIGTERM" },
+      ]),
+    );
+    expect(result.kind).toBe("stopped");
+    expect(result.status.controlState).toBe("stopped");
+  });
+});
+
+describe("renderFactoryControlStatus", () => {
+  it("renders the runtime path and snapshot guidance for stopped state", () => {
+    const output = renderFactoryControlStatus({
+      controlState: "stopped",
+      paths: {
+        repoRoot: "/repo",
+        runtimeRoot: "/repo/.tmp/factory-main",
+        workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+        statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+      },
+      sessionName: "symphony-factory",
+      sessions: [],
+      workerAlive: false,
+      statusSnapshot: null,
+      processIds: [],
+      problems: [],
+    });
+
+    expect(output).toContain("Factory control: stopped");
+    expect(output).toContain("Runtime root: /repo/.tmp/factory-main");
+    expect(output).toContain("Status detail: no readable runtime snapshot");
+  });
+});

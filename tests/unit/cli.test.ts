@@ -117,6 +117,7 @@ function createSnapshot(): FactoryStatusSnapshot {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  process.exitCode = undefined;
 });
 
 describe("parseArgs", () => {
@@ -131,7 +132,7 @@ describe("parseArgs", () => {
 
   it("fails when the run command is missing", () => {
     expect(() => parseArgs(["node", "symphony"])).toThrowError(
-      "Usage: symphony <run|status> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+      "Usage: symphony <run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
     );
   });
 
@@ -156,8 +157,25 @@ describe("parseArgs", () => {
     expect(() =>
       parseArgs(["node", "symphony", "deploy", "--workflow"]),
     ).toThrowError(
-      "Usage: symphony <run|status> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+      "Usage: symphony <run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
     );
+  });
+
+  it("parses the factory status command", () => {
+    const args = parseArgs(["node", "symphony", "factory", "status", "--json"]);
+    expect(args).toEqual({
+      command: "factory",
+      action: "status",
+      format: "json",
+    });
+  });
+
+  it("parses the factory restart command", () => {
+    const args = parseArgs(["node", "symphony", "factory", "restart"]);
+    expect(args).toEqual({
+      command: "factory",
+      action: "restart",
+    });
   });
 });
 
@@ -439,5 +457,80 @@ describe("runCli run", () => {
     expect(orchestratorArgs).not.toBeNull();
     expect(orchestratorArgs?.[7]).toBeDefined();
     expect(runOnce).toHaveBeenCalledOnce();
+  });
+});
+
+describe("runCli factory", () => {
+  it("renders factory status and exits zero for stopped control state", async () => {
+    vi.resetModules();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(async () => ({
+        controlState: "stopped",
+        paths: {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+        },
+        sessionName: "symphony-factory",
+        sessions: [],
+        workerAlive: false,
+        statusSnapshot: null,
+        processIds: [],
+        problems: [],
+      })),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: stopped\n"),
+      startFactory: vi.fn(),
+      stopFactory: vi.fn(),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
+
+    await mockedRunCli(["node", "symphony", "factory", "status"]);
+
+    expect(stdout.join("")).toBe("Factory control: stopped\n");
+    expect(process.exitCode).toBe(0);
+  });
+
+  it("sets a non-zero exit code for degraded factory status", async () => {
+    vi.resetModules();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(async () => ({
+        controlState: "degraded",
+        paths: {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+        },
+        sessionName: "symphony-factory",
+        sessions: [],
+        workerAlive: false,
+        statusSnapshot: null,
+        processIds: [1234],
+        problems: ["broken runtime"],
+      })),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      startFactory: vi.fn(),
+      stopFactory: vi.fn(),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "status", "--json"]);
+
+    expect(process.exitCode).toBe(1);
   });
 });

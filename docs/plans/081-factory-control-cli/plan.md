@@ -192,16 +192,16 @@ The control seam should not depend on:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Status snapshot facts available | Expected decision |
-| --- | --- | --- | --- |
-| No screen session, no `bin/symphony.ts run`, no `codex exec` child | process table only | snapshot may be absent or stale | report `stopped`; `factory status` exits zero because idle/stopped is not an operator failure |
-| Screen session present and worker process alive | wrapper pid, worker pid | readable snapshot with matching live worker | report `running`; `factory status` mirrors current runtime status |
-| Screen session gone but worker or runner still alive | orphaned child pids | snapshot may still be readable | report `degraded`; `factory stop` kills remaining descendants and exits zero on successful cleanup |
-| Screen session present but worker pid from snapshot is dead | wrapper pid, maybe intermediate `pnpm`/`tsx` pids | readable but stale snapshot | report `degraded`; `factory status` exits non-zero because the operator surface found a broken runtime |
-| `factory start` finds an already running healthy factory | wrapper and live worker already present | readable snapshot | return a no-op success and print the active runtime information |
-| `factory start` launches screen but worker never appears | wrapper pid may exist briefly | missing or unchanged snapshot | fail the command and report startup failure with next-step guidance |
-| `factory stop` terminates wrapper but `codex exec` remains alive | orphan runner pid | snapshot may still show active run | continue process-tree cleanup, escalate signal if needed, and fail only if descendants remain after timeout |
-| Multiple candidate runtime checkouts or session owners are discovered | repo-root scan results conflict | one or more snapshots may exist | fail loudly and require operator intervention rather than guessing |
+| Observed condition                                                    | Local facts available                             | Status snapshot facts available             | Expected decision                                                                                           |
+| --------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| No screen session, no `bin/symphony.ts run`, no `codex exec` child    | process table only                                | snapshot may be absent or stale             | report `stopped`; `factory status` exits zero because idle/stopped is not an operator failure               |
+| Screen session present and worker process alive                       | wrapper pid, worker pid                           | readable snapshot with matching live worker | report `running`; `factory status` mirrors current runtime status                                           |
+| Screen session gone but worker or runner still alive                  | orphaned child pids                               | snapshot may still be readable              | report `degraded`; `factory stop` kills remaining descendants and exits zero on successful cleanup          |
+| Screen session present but worker pid from snapshot is dead           | wrapper pid, maybe intermediate `pnpm`/`tsx` pids | readable but stale snapshot                 | report `degraded`; `factory status` exits non-zero because the operator surface found a broken runtime      |
+| `factory start` finds an already running healthy factory              | wrapper and live worker already present           | readable snapshot                           | return a no-op success and print the active runtime information                                             |
+| `factory start` launches screen but worker never appears              | wrapper pid may exist briefly                     | missing or unchanged snapshot               | fail the command and report startup failure with next-step guidance                                         |
+| `factory stop` terminates wrapper but `codex exec` remains alive      | orphan runner pid                                 | snapshot may still show active run          | continue process-tree cleanup, escalate signal if needed, and fail only if descendants remain after timeout |
+| Multiple candidate runtime checkouts or session owners are discovered | repo-root scan results conflict                   | one or more snapshots may exist             | fail loudly and require operator intervention rather than guessing                                          |
 
 ## Storage / Persistence Contract
 
