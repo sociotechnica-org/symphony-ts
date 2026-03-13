@@ -487,7 +487,14 @@ describe("runCli run", () => {
         return {
           runOnce,
           runLoop: vi.fn(),
+          setDashboardNotify: vi.fn(),
+          snapshot: vi.fn(() => null),
         };
+      }),
+    }));
+    vi.doMock("../../src/observability/tui.js", () => ({
+      StatusDashboard: vi.fn(function MockStatusDashboard() {
+        return { start: vi.fn(), stop: vi.fn(), refresh: vi.fn() };
       }),
     }));
 
@@ -500,6 +507,7 @@ describe("runCli run", () => {
       "--once",
       "--workflow",
       "/tmp/workflow.md",
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
     ]);
 
     expect(probeRoots).toEqual(["/tmp/factory-root"]);
