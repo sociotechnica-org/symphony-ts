@@ -30,6 +30,21 @@ function isAfter(left: string, right: string | null): boolean {
   return Date.parse(left) > Date.parse(right);
 }
 
+const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
+  // Keep these in sync with the summary comment templates emitted by known bots.
+  cursorSummary: "<!-- CURSOR_SUMMARY -->",
+  greptileSummaryHeading: /<h3\b[^>]*>\s*Greptile Summary\s*<\/h3>/i,
+} as const;
+
+function isActionableBotReviewComment(body: string): boolean {
+  const normalized = body.trim();
+  return (
+    normalized.length > 0 &&
+    !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
+    !NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(normalized)
+  );
+}
+
 function isHumanLandingApprover(
   authorLogin: string | null,
   authorAssociation: string,
@@ -97,6 +112,7 @@ export function createPullRequestSnapshot(input: {
               reviewBotLogins.has(authorLogin.toLowerCase())
             );
           })
+          .filter((comment) => isActionableBotReviewComment(comment.body))
           .filter((comment) => isAfter(comment.createdAt, latestCommitAt))
           .map<ReviewFeedback>((comment) => ({
             id: comment.id,

@@ -411,6 +411,20 @@ class StaleApprovedHeadLandingTracker extends SequencedTracker {
   }
 }
 
+class AlreadyMergedLandingTracker extends SequencedTracker {
+  override async executeLanding(
+    pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
+  ): Promise<LandingExecutionResult> {
+    this.landingRequests.push(pullRequest.number);
+    return {
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "merged",
+      summary: `Landing blocked for ${pullRequest.url} because it is already merged.`,
+    };
+  }
+}
+
 class StaticWorkspaceManager implements WorkspaceManager {
   readonly prepared: string[] = [];
 
@@ -1556,6 +1570,69 @@ describe("BootstrapOrchestrator", () => {
       );
       expect(status.activeIssues[0]?.blockedReason).toMatch(
         /approved head is stale/i,
+      );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("records already-merged landing races with merged artifact semantics before refresh completes", async () => {
+    const tempRoot = await createTempDir(
+      "symphony-already-merged-landing-test-",
+    );
+    const tracker = new AlreadyMergedLandingTracker({
+      running: [createIssue(77, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(77, [
+      lifecycle("awaiting-landing", "symphony/77"),
+      lifecycle("handoff-ready", "symphony/77"),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    try {
+      await orchestrator.runOnce();
+
+      expect(tracker.landingRequests).toEqual([1]);
+      expect(tracker.completed).toEqual([77]);
+
+      const summary = await readIssueArtifactSummary(tempRoot, 77);
+      expect(summary.currentOutcome).toBe("succeeded");
+
+      const events = await readIssueArtifactEvents(tempRoot, 77);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "landing-blocked",
+          details: expect.objectContaining({
+            reason: "pull-request-not-mergeable",
+            lifecycleKind: "merged",
+            success: false,
+          }),
+        }),
+      );
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "succeeded",
+        }),
       );
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });

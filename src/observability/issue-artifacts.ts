@@ -25,6 +25,7 @@ export type IssueArtifactOutcome =
   | "running"
   | "attempt-failed"
   | "awaiting-plan-review"
+  | "merged"
   | "awaiting-human-review"
   | "awaiting-system-checks"
   | "awaiting-landing-command"

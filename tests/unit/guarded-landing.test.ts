@@ -189,7 +189,7 @@ describe("evaluateGuardedLanding", () => {
     expect(result).toMatchObject({
       kind: "blocked",
       reason: "pull-request-not-mergeable",
-      lifecycleKind: "awaiting-landing",
+      lifecycleKind: "merged",
       summary: expect.stringContaining("already merged"),
     });
   });

@@ -17,6 +17,7 @@ export type FactoryIssueStatus =
   | "preparing"
   | "running"
   | "awaiting-human-handoff"
+  | "merged"
   | "awaiting-human-review"
   | "awaiting-system-checks"
   | "awaiting-landing-command"
@@ -469,6 +470,7 @@ function parseActiveIssue(
         "preparing",
         "running",
         "awaiting-human-handoff",
+        "merged",
         "awaiting-human-review",
         "awaiting-system-checks",
         "awaiting-landing-command",
