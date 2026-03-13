@@ -10,7 +10,7 @@
 import type { ObservabilityConfig } from "../domain/workflow.js";
 import { getKey, getMapKey, mapPath } from "../domain/codex-payload.js";
 import type { TuiSnapshot } from "../orchestrator/service.js";
-import { setLogStderr } from "./logger.js";
+import { setLogFile, getLogFilePath } from "./logger.js";
 
 // ─── ANSI constants ────────────────────────────────────────────────────────
 
@@ -74,6 +74,8 @@ export interface StatusDashboardOptions {
   readonly refreshMs?: number;
   readonly renderIntervalMs?: number;
   readonly renderFn?: (content: string) => void;
+  /** When set, logs are redirected to this file while the TUI is active. */
+  readonly logFile?: string;
 }
 
 export class StatusDashboard {
@@ -83,6 +85,7 @@ export class StatusDashboard {
   readonly #explicitEnabled: boolean | undefined;
   readonly #explicitRefreshMs: number | undefined;
   readonly #explicitRenderIntervalMs: number | undefined;
+  readonly #logFile: string | undefined;
   #stopped = false;
 
   constructor(
@@ -95,6 +98,7 @@ export class StatusDashboard {
     this.#explicitEnabled = options?.enabled;
     this.#explicitRefreshMs = options?.refreshMs;
     this.#explicitRenderIntervalMs = options?.renderIntervalMs;
+    this.#logFile = options?.logFile;
 
     const config = getConfig();
     const enabled =
@@ -121,8 +125,10 @@ export class StatusDashboard {
   start(): void {
     if (this.#stopped || this.#state.tickTimer !== null || !this.#state.enabled)
       return;
-    // Redirect logs to stderr so the TUI has exclusive use of stdout.
-    setLogStderr(true);
+    // Redirect logs to a file so the TUI has exclusive use of the terminal.
+    if (this.#logFile !== undefined) {
+      setLogFile(this.#logFile);
+    }
     this.#scheduleTick();
   }
 
@@ -140,8 +146,12 @@ export class StatusDashboard {
     if (this.#state.enabled) {
       this.renderOfflineStatus();
     }
-    // Restore logs to stdout now that the TUI is no longer rendering.
-    setLogStderr(false);
+    // Restore logs to stdout/stderr now that the TUI is no longer rendering.
+    const wasLogFile = getLogFilePath();
+    setLogFile(null);
+    if (wasLogFile !== null) {
+      process.stderr.write(`Logs written to ${wasLogFile}\n`);
+    }
   }
 
   refresh(): void {

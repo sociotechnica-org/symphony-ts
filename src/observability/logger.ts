@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import nodePath from "node:path";
+
 export interface Logger {
   info(message: string, data?: Record<string, unknown>): void;
   warn(message: string, data?: Record<string, unknown>): void;
@@ -5,13 +8,30 @@ export interface Logger {
 }
 
 /**
- * When true, info/warn logs are suppressed (the TUI owns the terminal)
- * and only errors go to stderr.  Set by the dashboard on start/stop.
+ * When set, all log output goes to this file descriptor instead of the
+ * terminal.  Opened by the TUI dashboard on start, closed on stop.
  */
-let tuiActive = false;
+let logFd: number | null = null;
+let logFilePath: string | null = null;
 
-export function setLogStderr(enabled: boolean): void {
-  tuiActive = enabled;
+export function setLogFile(filePath: string | null): void {
+  if (logFd !== null) {
+    try {
+      fs.closeSync(logFd);
+    } catch {
+      // best-effort
+    }
+    logFd = null;
+  }
+  logFilePath = filePath;
+  if (filePath !== null) {
+    fs.mkdirSync(nodePath.dirname(filePath), { recursive: true });
+    logFd = fs.openSync(filePath, "a");
+  }
+}
+
+export function getLogFilePath(): string | null {
+  return logFilePath;
 }
 
 function write(
@@ -19,19 +39,25 @@ function write(
   message: string,
   data?: Record<string, unknown>,
 ): void {
-  // While the TUI is rendering, suppress all log output — both stdout and
-  // stderr render to the same terminal and would flash between TUI frames.
-  // Error state is visible in the TUI's backoff queue.
-  if (tuiActive) return;
-
   const entry = {
     timestamp: new Date().toISOString(),
     level,
     message,
     ...(data ?? {}),
   };
+  const line = `${JSON.stringify(entry)}\n`;
+
+  if (logFd !== null) {
+    try {
+      fs.writeSync(logFd, line);
+    } catch {
+      // best-effort — don't crash if the log file is unavailable
+    }
+    return;
+  }
+
   const stream = level === "error" ? process.stderr : process.stdout;
-  stream.write(`${JSON.stringify(entry)}\n`);
+  stream.write(line);
 }
 
 export class JsonLogger implements Logger {

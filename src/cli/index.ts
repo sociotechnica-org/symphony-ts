@@ -275,9 +275,11 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     livenessProbe,
   );
 
+  const logFile = path.join(workflow.config.workspace.root, "symphony.log");
   const dashboard = new StatusDashboard(
     () => orchestrator.snapshot(),
     () => workflow.config.observability,
+    { logFile },
   );
   orchestrator.setDashboardNotify(() => dashboard.refresh());
   dashboard.start();
