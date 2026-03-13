@@ -60,6 +60,7 @@ export interface FactoryControlStartResult {
 export interface FactoryControlStopResult {
   readonly kind: "stopped" | "already-stopped";
   readonly status: FactoryControlStatusSnapshot;
+  // PIDs that were sent at least one termination signal while stopping.
   readonly terminatedPids: readonly number[];
 }
 
@@ -272,11 +273,15 @@ export function parseScreenLsOutput(
     if (!match) {
       continue;
     }
+    const state = match[3]!;
+    if (/^dead$/i.test(state)) {
+      continue;
+    }
     sessions.push({
       id: `${match[1]!}.${match[2]!}`,
       pid: Number.parseInt(match[1]!, 10),
       name: match[2]!,
-      state: match[3]!,
+      state,
     });
   }
   return sessions;
@@ -609,6 +614,13 @@ async function defaultListScreenSessions(): Promise<
     const { stdout } = await execFile("screen", ["-ls"]);
     return parseScreenLsOutput(stdout);
   } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOEXEC") {
+      throw new Error(
+        "Could not run 'screen'. Install GNU Screen before using 'symphony factory'.",
+        { cause: error as Error },
+      );
+    }
     const stdout = String((error as { stdout?: string }).stdout ?? "");
     const stderr = String((error as { stderr?: string }).stderr ?? "");
     const sessions = parseScreenLsFailureOutput(stdout, stderr);

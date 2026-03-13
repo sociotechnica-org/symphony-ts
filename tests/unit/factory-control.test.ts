@@ -221,6 +221,21 @@ describe("process parsing helpers", () => {
     ]);
   });
 
+  it("ignores dead screen sessions in screen -ls output", () => {
+    expect(
+      parseScreenLsOutput(
+        "There are screens on:\n\t1234.symphony-factory\t(Dead)\n\t1235.symphony-factory\t(Detached)\n2 Sockets in /tmp/screens.\n",
+      ),
+    ).toEqual([
+      {
+        id: "1235.symphony-factory",
+        pid: 1235,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ]);
+  });
+
   it("parses screen -ls stdout from a non-zero exit when a session list is present", () => {
     expect(
       parseScreenLsFailureOutput(
@@ -557,6 +572,58 @@ describe("stopFactory", () => {
     );
     expect(result.kind).toBe("stopped");
     expect(result.status.controlState).toBe("stopped");
+  });
+
+  it("treats dead screen sessions as stopped once all live processes are gone", async () => {
+    const workerPid = 9101;
+    const sessionsState: ScreenSessionSnapshot[] = [
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ];
+    const processesState: HostProcessSnapshot[] = [
+      { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+      { pid: workerPid, ppid: 9001, command: "node bin/symphony.ts run" },
+    ];
+
+    const result = await stopFactory({
+      ...createControlDeps({
+        sessions: sessionsState,
+        processes: processesState,
+        snapshot: createStatusSnapshot(workerPid),
+        quitScreenSession: async () => {
+          sessionsState.splice(0, sessionsState.length, {
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: "symphony-factory",
+            state: "Dead",
+          });
+          processesState.splice(0, processesState.length);
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: () => false,
+      now: (() => {
+        let current = 0;
+        return () => {
+          current += 100;
+          return current;
+        };
+      })(),
+    });
+
+    expect(result.kind).toBe("stopped");
+    expect(result.status.controlState).toBe("stopped");
+    expect(result.status.sessions).toEqual([]);
   });
 });
 
