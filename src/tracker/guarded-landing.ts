@@ -73,18 +73,6 @@ export function evaluateGuardedLanding(
   }
 
   if (
-    snapshot.mergeStateStatus !== null &&
-    !PASSING_MERGE_STATES.has(snapshot.mergeStateStatus)
-  ) {
-    return {
-      kind: "blocked",
-      reason: "pull-request-not-mergeable",
-      lifecycleKind: "awaiting-landing",
-      summary: `Landing blocked for ${formatPullRequest(snapshot)} because GitHub reports merge state '${snapshot.mergeStateStatus}'.`,
-    };
-  }
-
-  if (
     snapshot.failingCheckNames.length > 0 ||
     snapshot.pendingCheckNames.length > 0
   ) {
@@ -93,6 +81,18 @@ export function evaluateGuardedLanding(
       reason: "checks-not-green",
       lifecycleKind: "awaiting-system-checks",
       summary: `Landing blocked for ${formatPullRequest(snapshot)} because required checks are not terminal green.`,
+    };
+  }
+
+  if (
+    snapshot.mergeStateStatus !== null &&
+    !PASSING_MERGE_STATES.has(snapshot.mergeStateStatus)
+  ) {
+    return {
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "awaiting-landing",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because GitHub reports merge state '${snapshot.mergeStateStatus}'.`,
     };
   }
 

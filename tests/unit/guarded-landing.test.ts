@@ -57,6 +57,21 @@ describe("evaluateGuardedLanding", () => {
     });
   });
 
+  it("prefers checks-not-green over an unstable merge state", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        mergeStateStatus: "unstable",
+        failingCheckNames: ["CI"],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "awaiting-system-checks",
+    });
+  });
+
   it("rejects stale approved head shas", () => {
     const result = evaluateGuardedLanding(
       createSnapshot({
