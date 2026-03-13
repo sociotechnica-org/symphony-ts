@@ -307,6 +307,63 @@ describe("issue report generation", () => {
     },
   );
 
+  it("keeps awaiting-human-review when review-feedback events record a waiting lifecycle", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-human-review-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+    await fs.mkdir(artifactPaths.issueRoot, { recursive: true });
+    await fs.writeFile(
+      artifactPaths.eventsFile,
+      [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "claimed",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:00:00.000Z",
+          attemptNumber: null,
+          sessionId: null,
+          details: {},
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "review-feedback",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:10:00.000Z",
+          attemptNumber: 1,
+          sessionId: "session-1",
+          details: {
+            lifecycleKind: "awaiting-human-review",
+            summary:
+              "Waiting for human review on https://github.com/sociotechnica-org/symphony-ts/pull/144",
+            pullRequest: {
+              number: 144,
+              url: "https://github.com/sociotechnica-org/symphony-ts/pull/144",
+              latestCommitAt: "2026-03-09T10:09:30.000Z",
+            },
+            review: {
+              actionableCount: 0,
+              unresolvedThreadCount: 1,
+            },
+            checks: {
+              pendingNames: [],
+              failingNames: [],
+            },
+          },
+        },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:00:00.000Z",
+    });
+
+    expect(generated.report.summary.outcome).toBe("awaiting-human-review");
+  });
+
   it.each([
     {
       fileName: "report.json",

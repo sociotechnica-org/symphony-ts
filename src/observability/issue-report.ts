@@ -1307,12 +1307,15 @@ function readLifecycleKindFromDetails(
 ): IssueArtifactOutcome | null {
   // Keep this key in sync with `#createLifecycleEventDetails` in
   // `src/orchestrator/service.ts`, which records the tracker lifecycle kind for
-  // `pr-opened` events.
+  // lifecycle-derived events such as `pr-opened` and `review-feedback`.
   const lifecycleKind = details["lifecycleKind"];
-  return lifecycleKind === "awaiting-landing-command" ||
+  return (lifecycleKind === "awaiting-human-review" ||
+      lifecycleKind === "awaiting-system-checks" ||
+      lifecycleKind === "rework-required" ||
+      lifecycleKind === "awaiting-landing-command" ||
     lifecycleKind === "awaiting-landing"
-    ? lifecycleKind
-    : null;
+      ? lifecycleKind
+      : null);
 }
 
 function formatEventDetails(
@@ -1416,7 +1419,7 @@ function inferOutcomeFromEvents(
       case "retry-scheduled":
         return "retry-scheduled";
       case "review-feedback":
-        return "rework-required";
+        return readLifecycleKindFromDetails(event.details) ?? "rework-required";
       case "pr-opened":
         return (
           readLifecycleKindFromDetails(event.details) ??
