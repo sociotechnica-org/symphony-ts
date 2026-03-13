@@ -57,6 +57,19 @@ pnpm tsx bin/symphony.ts status          # terminal view
 pnpm tsx bin/symphony.ts status --json   # machine-readable
 ```
 
+Control the local detached factory runtime from the repo root:
+
+```bash
+pnpm tsx bin/symphony.ts factory start
+pnpm tsx bin/symphony.ts factory status
+pnpm tsx bin/symphony.ts factory restart
+pnpm tsx bin/symphony.ts factory stop
+```
+
+These commands target the checked-out runtime under `.tmp/factory-main`, so the
+operator no longer needs to `cd` into the runtime checkout or manually combine
+`screen` with `pkill` cleanup.
+
 The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, session identity, heartbeat/action
 timestamps, waiting reason, and condensed output/error summaries.
