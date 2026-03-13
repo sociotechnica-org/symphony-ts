@@ -14,6 +14,7 @@ import {
 } from "../observability/status.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
 import { FsLivenessProbe } from "../orchestrator/liveness-probe.js";
+import { StatusDashboard } from "../observability/tui.js";
 import { createRunner } from "../runner/factory.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
@@ -226,6 +227,29 @@ export async function runCli(argv: readonly string[]): Promise<void> {
       break;
   }
 
+  if (
+    !argv.includes(
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    )
+  ) {
+    const B = process.stdout.isTTY ? "\x1b[1;31m" : "";
+    const R = process.stdout.isTTY ? "\x1b[0m" : "";
+    process.stdout.write(
+      [
+        `${B}╭──────────────────────────────────────────────────────────────╮${R}`,
+        `${B}│  Symphony is about to run agents on your behalf.             │${R}`,
+        `${B}│                                                              │${R}`,
+        `${B}│  To confirm you understand and wish to proceed,              │${R}`,
+        `${B}│  re-run with the flag:                                       │${R}`,
+        `${B}│                                                              │${R}`,
+        `${B}│    --i-understand-that-this-will-be-running-                 │${R}`,
+        `${B}│    without-the-usual-guardrails                              │${R}`,
+        `${B}╰──────────────────────────────────────────────────────────────╯${R}`,
+      ].join("\n") + "\n",
+    );
+    process.exit(1);
+  }
+
   const logger = new JsonLogger();
   const workflow = await loadWorkflow(args.workflowPath);
   const promptBuilder = createPromptBuilder(workflow);
@@ -251,15 +275,47 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     livenessProbe,
   );
 
+  const logFile = path.join(workflow.config.workspace.root, "symphony.log");
+  const dashboard = new StatusDashboard(
+    () => orchestrator.snapshot(),
+    () => workflow.config.observability,
+    { logFile },
+  );
+  orchestrator.setDashboardNotify(() => dashboard.refresh());
+  dashboard.start();
+
   if (args.once) {
-    await orchestrator.runOnce();
+    const abortOnce = new AbortController();
+    const stopOnce = (): void => {
+      dashboard.stop();
+      abortOnce.abort();
+    };
+    process.on("SIGINT", stopOnce);
+    process.on("SIGTERM", stopOnce);
+    try {
+      await orchestrator.runOnce(abortOnce.signal);
+    } finally {
+      process.off("SIGINT", stopOnce);
+      process.off("SIGTERM", stopOnce);
+      dashboard.stop();
+    }
     return;
   }
 
   const abortController = new AbortController();
-  process.on("SIGINT", () => abortController.abort());
-  process.on("SIGTERM", () => abortController.abort());
-  await orchestrator.runLoop(abortController.signal);
+  const stopDashboard = (): void => {
+    dashboard.stop();
+    abortController.abort();
+  };
+  process.on("SIGINT", stopDashboard);
+  process.on("SIGTERM", stopDashboard);
+  try {
+    await orchestrator.runLoop(abortController.signal);
+  } finally {
+    process.off("SIGINT", stopDashboard);
+    process.off("SIGTERM", stopDashboard);
+    dashboard.stop();
+  }
 }
 
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {

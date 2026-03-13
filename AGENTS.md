@@ -33,7 +33,7 @@ bin/            CLI entry point
 docs/           architecture, principles, plans
 skills/         repo-local skills for operators and agents
 src/config/     WORKFLOW.md loading, parsing, config resolution
-src/observability/  structured logs and operation spans
+src/observability/  structured logs, operation spans, and TUI dashboard (see README.md)
 src/orchestrator/   poll loop, runtime state, retries, reconciliation
 src/runner/     agent runner interfaces and implementations
 src/tracker/    tracker interfaces and adapters
@@ -246,3 +246,5 @@ Where applicable, also run:
 6. end-to-end test suites
 
 For Phase 0 and major orchestration changes, also validate the end-to-end loop manually or through a realistic automated harness when available.
+
+For TUI changes, run `npx tsx tests/fixtures/tui-qa-dump.ts` to visually inspect rendered frames. See `src/observability/README.md` for the full testing approach including live smoke tests.

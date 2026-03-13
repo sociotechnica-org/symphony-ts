@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "symphony": "tsx bin/symphony.ts",
     "dev": "tsx watch bin/symphony.ts run",
     "prepare": "husky"
   },
