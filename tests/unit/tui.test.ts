@@ -902,4 +902,64 @@ describe("StatusDashboard", () => {
     // Deduplicated: should be 1 render (initial) + possibly 1 periodic rerender per second
     expect(rendered.length).toBeLessThanOrEqual(3);
   });
+
+  it("ignores runner visibility heartbeat-only timestamp churn in the fingerprint", () => {
+    const rendered: string[] = [];
+    let snapshot = makeSnapshot({
+      running: [
+        {
+          issueNumber: 138,
+          identifier: "#138",
+          issueState: "running",
+          startedAt: new Date("2026-03-13T10:00:00.000Z"),
+          retryAttempt: 1,
+          sessionId: null,
+          turnCount: 1,
+          codexTotalTokens: 0,
+          codexInputTokens: 0,
+          codexOutputTokens: 0,
+          codexAppServerPid: 12345,
+          lastCodexEvent: null,
+          lastCodexMessage: null,
+          lastCodexTimestamp: null,
+          runnerVisibility: makeRunnerVisibility({
+            lastHeartbeatAt: "2026-03-13T10:00:05.000Z",
+            lastActionAt: "2026-03-13T10:00:05.000Z",
+            lastActionSummary: "Codex app-server stdout activity",
+          }),
+        },
+      ],
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 1,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      running: [
+        {
+          ...snapshot.running[0]!,
+          runnerVisibility: makeRunnerVisibility({
+            lastHeartbeatAt: "2026-03-13T10:00:06.000Z",
+            lastActionAt: "2026-03-13T10:00:06.000Z",
+            lastActionSummary: "Codex app-server stdout activity",
+          }),
+        },
+      ],
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(2);
+    expect(rendered[0]).toContain("thread");
+    expect(rendered[1]).toContain("app_status=offline");
+  });
 });
