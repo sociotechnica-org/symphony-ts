@@ -14,6 +14,7 @@ import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import {
   deriveFactoryRuntimeRoot,
   readIssueArtifactAttempt,
+  readIssueArtifactEvents,
   readIssueArtifactSession,
   type IssueArtifactObservation,
   type IssueArtifactStore,
@@ -1282,6 +1283,78 @@ describe("BootstrapOrchestrator", () => {
     await orchestrator.runOnce();
     expect(tracker.landingRequests).toEqual([1]);
     expect(tracker.completed).toEqual([72]);
+  });
+
+  it("records a failed landing attempt when awaiting-landing has no pull request handle", async () => {
+    const tempRoot = await createTempDir("symphony-null-landing-handle-test-");
+    const tracker = new SequencedTracker({
+      running: [createIssue(74, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(74, [
+      {
+        ...lifecycle("awaiting-landing", "symphony/74"),
+        pullRequest: null,
+      },
+      {
+        ...lifecycle("awaiting-landing", "symphony/74"),
+        pullRequest: null,
+      },
+    ]);
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      logger,
+    );
+
+    try {
+      await orchestrator.runOnce();
+      await orchestrator.runOnce();
+
+      expect(tracker.landingRequests).toEqual([]);
+      expect(tracker.completed).toEqual([]);
+      expect(logger.warnings).toContainEqual({
+        message: "Landing execution failed",
+        data: expect.objectContaining({
+          issueNumber: 74,
+          pullRequestNumber: null,
+          error: "Error: Cannot execute landing without a pull request handle",
+        }),
+      });
+
+      const summary = await readIssueArtifactSummary(tempRoot, 74);
+      expect(summary.currentOutcome).toBe("awaiting-landing");
+      const events = await readIssueArtifactEvents(tempRoot, 74);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "landing-requested",
+          details: expect.objectContaining({
+            success: false,
+            error:
+              "Error: Cannot execute landing without a pull request handle",
+            pullRequest: null,
+          }),
+        }),
+      );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("does not retry landing on the same head after a failed merge request", async () => {

@@ -205,4 +205,52 @@ describe("GitHubClient", () => {
       "thread-2",
     ]);
   });
+
+  it("sends the current head SHA when merging a pull request", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      if (String(input).endsWith("/repos/sociotechnica-org/symphony-ts")) {
+        return new Response(
+          JSON.stringify({
+            allow_merge_commit: false,
+            allow_squash_merge: true,
+            allow_rebase_merge: false,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return new Response("{}", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitHubClient({
+      kind: "github-bootstrap",
+      repo: "sociotechnica-org/symphony-ts",
+      apiUrl: "https://example.invalid",
+      readyLabel: "symphony:ready",
+      runningLabel: "symphony:running",
+      failedLabel: "symphony:failed",
+      successComment: "done",
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    await client.mergePullRequest(23, "head-sha-23");
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]).toBeDefined();
+    const init = (
+      fetchMock.mock.calls[1] as unknown as [unknown, RequestInit]
+    )[1];
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(String(init.body))).toEqual({
+      sha: "head-sha-23",
+      merge_method: "squash",
+    });
+  });
 });

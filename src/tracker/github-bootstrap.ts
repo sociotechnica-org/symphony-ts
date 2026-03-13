@@ -178,7 +178,10 @@ export class GitHubBootstrapTracker implements Tracker {
   }
 
   async executeLanding(pullRequest: PullRequestHandle): Promise<void> {
-    await this.#client.mergePullRequest(pullRequest.number);
+    await this.#client.mergePullRequest(
+      pullRequest.number,
+      pullRequest.headSha,
+    );
   }
 
   async #inspectPlanReviewHandoff(

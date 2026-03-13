@@ -545,14 +545,15 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     let landingError: string | null = null;
     try {
-      if (lifecycle.pullRequest !== null) {
-        noteLandingAttempt(
-          this.#state.landing,
-          issue.number,
-          lifecycle.pullRequest.headSha,
-        );
-        await this.#tracker.executeLanding(lifecycle.pullRequest);
+      noteLandingAttempt(
+        this.#state.landing,
+        issue.number,
+        lifecycle.pullRequest?.headSha ?? null,
+      );
+      if (lifecycle.pullRequest === null) {
+        throw new Error("Cannot execute landing without a pull request handle");
       }
+      await this.#tracker.executeLanding(lifecycle.pullRequest);
     } catch (error) {
       landingError = this.#normalizeFailure(error as Error);
       this.#logger.warn("Landing execution failed", {

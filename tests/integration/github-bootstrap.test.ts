@@ -84,19 +84,16 @@ describe("GitHubBootstrapTracker", () => {
     server.addPullRequestComment({
       head: "symphony/7",
       authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
       body: "/land",
     });
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
       "awaiting-landing",
     );
 
-    await tracker.executeLanding({
-      number: 1,
-      url: `${server.baseUrl}/pulls/1`,
-      branchName: "symphony/7",
-      headSha: null,
-      latestCommitAt: null,
-    });
+    const awaitingLanding = await tracker.inspectIssueHandoff("symphony/7");
+    expect(awaitingLanding.kind).toBe("awaiting-landing");
+    await tracker.executeLanding(awaitingLanding.pullRequest!);
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
       "handoff-ready",
     );
@@ -422,6 +419,7 @@ describe("GitHubBootstrapTracker", () => {
     server.addPullRequestComment({
       head: "symphony/7",
       authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
       body: "/land",
     });
     await tracker.executeLanding({
@@ -435,6 +433,73 @@ describe("GitHubBootstrapTracker", () => {
     const mergedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
     expect(mergedLifecycle.kind).toBe("handoff-ready");
     expect(mergedLifecycle.summary).toMatch(/has merged/i);
+  });
+
+  it("lands successfully on a squash-only repository", async () => {
+    const tracker = createTracker(server);
+    server.setRepositoryMergeConfig({
+      allowMergeCommit: false,
+      allowSquashMerge: true,
+      allowRebaseMerge: false,
+    });
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(approvedLifecycle.kind).toBe("awaiting-landing");
+
+    await tracker.executeLanding(approvedLifecycle.pullRequest!);
+
+    const mergedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(mergedLifecycle.kind).toBe("handoff-ready");
+  });
+
+  it("rejects landing when the approved head SHA is stale", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(["awaiting-landing", "awaiting-landing-command"]).toContain(
+      approvedLifecycle.kind,
+    );
+
+    server.recordBranchPush("symphony/7");
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).rejects.toThrow(/head sha does not match/i);
+
+    const refreshed = await tracker.inspectIssueHandoff("symphony/7");
+    expect(refreshed.kind).toBe("awaiting-system-checks");
   });
 
   it("targets the latest open pull request when the same branch is reopened", async () => {

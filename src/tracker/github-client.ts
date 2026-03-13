@@ -54,6 +54,12 @@ interface GitHubPullRequestDetailsResponse {
   readonly merged_at: string | null;
 }
 
+interface GitHubRepositoryResponse {
+  readonly allow_merge_commit: boolean;
+  readonly allow_squash_merge: boolean;
+  readonly allow_rebase_merge: boolean;
+}
+
 interface MergedGitHubPullRequestResponse extends GitHubPullRequestListResponse {
   readonly landingState: "merged";
   readonly mergedAt: string;
@@ -163,6 +169,8 @@ export interface PullRequestReviewState {
   readonly comments: PullRequestReviewCommentsConnection;
   readonly reviewThreads: PullRequestReviewThreadsConnection;
 }
+
+type GitHubMergeMethod = "merge" | "squash" | "rebase";
 
 const PULL_REQUEST_REVIEW_STATE_QUERY = `
   query PullRequestReviewState(
@@ -357,6 +365,7 @@ export class GitHubClient {
   readonly #tokenPromise: Promise<string>;
   readonly #repoOwner: string;
   readonly #repoName: string;
+  #mergeMethodPromise: Promise<GitHubMergeMethod> | null = null;
 
   constructor(config: GitHubBootstrapTrackerConfig) {
     this.#config = config;
@@ -438,11 +447,18 @@ export class GitHubClient {
     );
   }
 
-  async mergePullRequest(number: number): Promise<void> {
+  async mergePullRequest(
+    number: number,
+    headSha: string | null,
+  ): Promise<void> {
+    const mergeMethod = await this.#getMergeMethod();
     await this.#request(
       "PUT",
       this.#issuePath(`pulls/${number.toString()}/merge`),
-      {},
+      {
+        ...(headSha === null ? {} : { sha: headSha }),
+        merge_method: mergeMethod,
+      },
     );
   }
 
@@ -727,7 +743,35 @@ export class GitHubClient {
     return pullRequest.merged_at;
   }
 
+  async #getMergeMethod(): Promise<GitHubMergeMethod> {
+    this.#mergeMethodPromise ??= this.#loadMergeMethod();
+    return await this.#mergeMethodPromise;
+  }
+
+  async #loadMergeMethod(): Promise<GitHubMergeMethod> {
+    const repository = await this.#request<GitHubRepositoryResponse>(
+      "GET",
+      this.#issuePath(""),
+    );
+
+    if (repository.allow_merge_commit) {
+      return "merge";
+    }
+    if (repository.allow_squash_merge) {
+      return "squash";
+    }
+    if (repository.allow_rebase_merge) {
+      return "rebase";
+    }
+
+    throw new TrackerError(
+      `Repository ${this.#config.repo} does not allow merge, squash, or rebase merges`,
+    );
+  }
+
   #issuePath(suffix: string): string {
-    return `/repos/${this.#config.repo}/${suffix}`;
+    return suffix.length === 0
+      ? `/repos/${this.#config.repo}`
+      : `/repos/${this.#config.repo}/${suffix}`;
   }
 }
