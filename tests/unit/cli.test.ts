@@ -483,6 +483,68 @@ describe("runCli run", () => {
 });
 
 describe("runCli factory", () => {
+  it("renders a precise restart message when the factory is already running again", async () => {
+    vi.resetModules();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
+      startFactory: vi.fn(async () => ({
+        kind: "already-running",
+        status: {
+          controlState: "running",
+          paths: {
+            repoRoot: "/repo",
+            runtimeRoot: "/repo/.tmp/factory-main",
+            workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+            statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+          },
+          sessionName: "symphony-factory",
+          sessions: [],
+          workerAlive: true,
+          statusSnapshot: null,
+          processIds: [],
+          problems: [],
+        },
+      })),
+      stopFactory: vi.fn(async () => ({
+        kind: "already-stopped",
+        status: {
+          controlState: "stopped",
+          paths: {
+            repoRoot: "/repo",
+            runtimeRoot: "/repo/.tmp/factory-main",
+            workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+            statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+          },
+          sessionName: "symphony-factory",
+          sessions: [],
+          workerAlive: false,
+          statusSnapshot: null,
+          processIds: [],
+          problems: [],
+        },
+        terminatedPids: [],
+      })),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
+
+    await mockedRunCli(["node", "symphony", "factory", "restart"]);
+
+    expect(stdout.join("")).toContain("Factory was already running.");
+  });
+
   it("renders factory status and exits zero for stopped control state", async () => {
     vi.resetModules();
 

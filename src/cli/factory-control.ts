@@ -656,7 +656,9 @@ async function defaultLaunchScreenSession(options: {
 }
 
 async function defaultQuitScreenSession(sessionId: string): Promise<void> {
-  await execFile("screen", ["-S", sessionId, "-X", "quit"]);
+  await execFile("screen", ["-S", sessionId, "-X", "quit"], {
+    timeout: 5_000,
+  });
 }
 
 async function defaultSleep(ms: number): Promise<void> {

@@ -133,9 +133,16 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         case "restart": {
           const stopResult = await stopFactory();
           const startResult = await startFactory();
-          process.stdout.write(
-            `Factory ${stopResult.kind === "already-stopped" ? "was already stopped and is now running again" : "restarted"}.\n`,
-          );
+          const verb =
+            stopResult.kind === "already-stopped" &&
+            startResult.kind === "already-running"
+              ? "was already running"
+              : stopResult.kind === "already-stopped"
+                ? "was already stopped and is now running again"
+                : startResult.kind === "already-running"
+                  ? "was stopped but is already running again"
+                  : "restarted";
+          process.stdout.write(`Factory ${verb}.\n`);
           if (stopResult.terminatedPids.length > 0) {
             process.stdout.write(
               `Terminated PIDs: ${stopResult.terminatedPids.join(", ")}\n`,
