@@ -790,7 +790,6 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
               lastActionSummary: e.runnerVisibility.lastActionSummary,
               waitingReason: e.runnerVisibility.waitingReason,
               stdoutSummary: e.runnerVisibility.stdoutSummary,
-              stderrSummary: e.runnerVisibility.stderrSummary,
               errorSummary: e.runnerVisibility.errorSummary,
               cancelledAt: e.runnerVisibility.cancelledAt,
               timedOutAt: e.runnerVisibility.timedOutAt,
