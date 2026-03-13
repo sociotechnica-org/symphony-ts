@@ -13,7 +13,6 @@ export interface GuardedLandingSnapshot {
   readonly draft: boolean;
   readonly pendingCheckNames: readonly string[];
   readonly failingCheckNames: readonly string[];
-  readonly actionableReviewFeedback: PullRequestSnapshot["actionableReviewFeedback"];
   readonly botActionableReviewFeedback: PullRequestSnapshot["botActionableReviewFeedback"];
   readonly unresolvedReviewThreadCount: number;
 }
@@ -27,6 +26,15 @@ function formatPullRequest(snapshot: GuardedLandingSnapshot): string {
 export function evaluateGuardedLanding(
   snapshot: GuardedLandingSnapshot,
 ): LandingRequestedResult | LandingBlockedResult {
+  if (snapshot.landingState === "merged") {
+    return {
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "awaiting-landing",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because it is already merged.`,
+    };
+  }
+
   if (
     snapshot.approvedHeadSha !== null &&
     snapshot.pullRequest.headSha !== null &&

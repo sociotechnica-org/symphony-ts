@@ -215,7 +215,6 @@ export class GitHubBootstrapTracker implements Tracker {
       draft: latestPullRequest.draft,
       pendingCheckNames: snapshot.pendingCheckNames,
       failingCheckNames: snapshot.failingCheckNames,
-      actionableReviewFeedback: snapshot.actionableReviewFeedback,
       botActionableReviewFeedback: snapshot.botActionableReviewFeedback,
       unresolvedReviewThreadCount: snapshot.actionableReviewFeedback.filter(
         (feedback) => feedback.kind === "review-thread",

@@ -22,7 +22,6 @@ function createSnapshot(
     draft: false,
     pendingCheckNames: [],
     failingCheckNames: [],
-    actionableReviewFeedback: [],
     botActionableReviewFeedback: [],
     unresolvedReviewThreadCount: 0,
     ...overrides,
@@ -90,6 +89,23 @@ describe("evaluateGuardedLanding", () => {
       kind: "blocked",
       reason: "mergeability-unknown",
       lifecycleKind: "awaiting-landing",
+    });
+  });
+
+  it("rejects already merged pull requests explicitly", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        landingState: "merged",
+        mergeable: null,
+        mergeStateStatus: "unknown",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "awaiting-landing",
+      summary: expect.stringContaining("already merged"),
     });
   });
 
