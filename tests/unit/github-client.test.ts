@@ -267,6 +267,25 @@ describe("GitHubClient", () => {
     });
   });
 
+  it("throws when a REST request succeeds without a JSON payload", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new GitHubClient({
+      kind: "github-bootstrap",
+      repo: "sociotechnica-org/symphony-ts",
+      apiUrl: "https://example.invalid",
+      readyLabel: "symphony:ready",
+      runningLabel: "symphony:running",
+      failedLabel: "symphony:failed",
+      successComment: "done",
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    await expect(client.getIssue(23)).rejects.toThrow(/returned no json payload/i);
+  });
+
   it("retries merge-method discovery after a transient repository lookup failure", async () => {
     let repositoryRequests = 0;
     const fetchMock = vi.fn(async (input: string | URL | Request) => {

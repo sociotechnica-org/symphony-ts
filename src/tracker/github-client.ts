@@ -783,8 +783,13 @@ export class GitHubClient {
         `GitHub API ${method} ${path} failed with ${response.status}: ${response.text}`,
       );
     }
+    if (response.payload === null) {
+      throw new TrackerError(
+        `GitHub API ${method} ${path} returned no JSON payload`,
+      );
+    }
 
-    return response.payload as T;
+    return response.payload;
   }
 
   async #requestDetailed<T>(

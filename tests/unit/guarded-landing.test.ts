@@ -92,6 +92,62 @@ describe("evaluateGuardedLanding", () => {
     });
   });
 
+  it("rejects draft pull requests", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        draft: true,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "awaiting-landing",
+      summary: expect.stringContaining("still a draft"),
+    });
+  });
+
+  it("rejects non-passing merge state statuses", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        mergeStateStatus: "blocked",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "awaiting-landing",
+      summary: expect.stringContaining("merge state 'blocked'"),
+    });
+  });
+
+  it("rejects open bot review feedback", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        botActionableReviewFeedback: [
+          {
+            kind: "issue-comment",
+            id: "bot-feedback-1",
+            threadId: null,
+            authorLogin: "greptile-apps",
+            body: "Please fix this",
+            createdAt: "2026-03-13T00:02:00.000Z",
+            url: "https://example.test/comments/1",
+            path: null,
+            line: null,
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "actionable-review-feedback",
+      lifecycleKind: "rework-required",
+    });
+  });
+
   it("rejects already merged pull requests explicitly", () => {
     const result = evaluateGuardedLanding(
       createSnapshot({
