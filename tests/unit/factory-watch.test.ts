@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control.js";
-import { renderWatchFrame, watchFactory } from "../../src/cli/factory-watch.js";
+import {
+  renderWatchError,
+  renderWatchFrame,
+  watchFactory,
+} from "../../src/cli/factory-watch.js";
 
 function createSnapshot(): FactoryControlStatusSnapshot {
   return {
@@ -34,6 +38,16 @@ describe("renderWatchFrame", () => {
     expect(output).toContain("Detached factory watch");
     expect(output).toContain("Ctrl-C stops this watch client only.");
     expect(output).toContain("Factory control: running");
+  });
+});
+
+describe("renderWatchError", () => {
+  it("renders a retrying degraded watch message", () => {
+    const output = renderWatchError(new Error("runtime missing"));
+
+    expect(output).toContain("Factory control: degraded");
+    expect(output).toContain("Watch error: runtime missing");
+    expect(output).toContain("watch will retry on the next poll");
   });
 });
 
@@ -99,5 +113,39 @@ describe("watchFactory", () => {
     expect(onSignal).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
     expect(offSignal).toHaveBeenCalledWith("SIGINT", expect.any(Function));
     expect(offSignal).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+  });
+
+  it("renders inspect failures and keeps polling until interrupted", async () => {
+    const writes: string[] = [];
+    const listeners = new Map<NodeJS.Signals, () => void>();
+    let iterations = 0;
+
+    await watchFactory({
+      inspectFactoryControl: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("runtime missing"))
+        .mockResolvedValue(createSnapshot()),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
+      writeStdout: (chunk) => {
+        writes.push(chunk);
+      },
+      isStdoutTTY: () => false,
+      onSignal: (signal, listener) => {
+        listeners.set(signal, listener);
+      },
+      offSignal: (signal) => {
+        listeners.delete(signal);
+      },
+      sleep: async () => {
+        iterations += 1;
+        if (iterations === 2) {
+          listeners.get("SIGINT")?.();
+        }
+      },
+    });
+
+    expect(writes).toHaveLength(2);
+    expect(writes[0]).toContain("Watch error: runtime missing");
+    expect(writes[1]).toContain("Factory control: running");
   });
 });

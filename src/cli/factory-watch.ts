@@ -27,7 +27,7 @@ export async function watchFactory(deps: FactoryWatchDeps = {}): Promise<void> {
   const render = deps.renderFactoryControlStatus ?? renderFactoryControlStatus;
   const writeStdout =
     deps.writeStdout ?? ((chunk: string) => process.stdout.write(chunk));
-  const isStdoutTTY = deps.isStdoutTTY ?? (() => process.stdout.isTTY);
+  const isStdoutTTY = deps.isStdoutTTY ?? (() => Boolean(process.stdout.isTTY));
   const sleep = deps.sleep ?? sleepWithAbort;
   const clearScreen = deps.clearScreen ?? defaultClearScreen;
   const onSignal =
@@ -45,12 +45,10 @@ export async function watchFactory(deps: FactoryWatchDeps = {}): Promise<void> {
 
   try {
     while (!abortController.signal.aborted) {
-      const snapshot = await inspect();
-      const frame = renderWatchFrame(
-        render(snapshot, { format: "human" }),
-        isStdoutTTY(),
-        clearScreen,
-      );
+      const body = await inspect()
+        .then((snapshot) => render(snapshot, { format: "human" }))
+        .catch((error: unknown) => renderWatchError(error));
+      const frame = renderWatchFrame(body, isStdoutTTY(), clearScreen);
       writeStdout(frame);
 
       await sleep(DEFAULT_WATCH_INTERVAL_MS, abortController.signal).catch(
@@ -81,6 +79,16 @@ export function renderWatchFrame(
   ];
   const prefix = isTTY ? clearScreen() : "";
   return `${prefix}${lines.join("\n")}\n`;
+}
+
+export function renderWatchError(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : "Unknown factory watch error.";
+  return [
+    "Factory control: degraded",
+    `Watch error: ${message}`,
+    "Status detail: watch will retry on the next poll.",
+  ].join("\n");
 }
 
 export function defaultClearScreen(): string {
@@ -115,8 +123,5 @@ function createAbortError(): Error {
 }
 
 function isAbortError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === "AbortError" || error.message === "Factory watch aborted.")
-  );
+  return error instanceof Error && error.name === "AbortError";
 }
