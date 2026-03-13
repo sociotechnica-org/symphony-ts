@@ -589,15 +589,18 @@ function statusDotColor(
         return BLUE;
       case "idle":
         return GRAY;
-      default:
-        break;
     }
+    return unreachableVisibilityState(visibility.state);
   }
   if (event === null || event === "none") return RED;
   if (event === "codex/event/token_count") return YELLOW;
   if (event === "codex/event/task_started") return GREEN;
   if (event === "turn/completed") return MAGENTA;
   return BLUE;
+}
+
+function unreachableVisibilityState(state: never): never {
+  throw new Error(`Unhandled runner visibility state: ${state as string}`);
 }
 
 // ─── Backoff queue ────────────────────────────────────────────────────────
