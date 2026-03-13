@@ -328,7 +328,11 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
     } catch (err) {
       this.#state.polling.checkingNow = false;
-      this.#notifyDashboard();
+      try {
+        this.#notifyDashboard();
+      } catch {
+        /* don't mask the original error */
+      }
       throw err;
     }
     this.#state.polling.checkingNow = false;
@@ -1163,7 +1167,11 @@ export class BootstrapOrchestrator implements Orchestrator {
           error: err instanceof Error ? err.message : String(err),
         });
       }
-      this.#notifyDashboard();
+      try {
+        this.#notifyDashboard();
+      } catch {
+        /* don't crash the runner stdout handler */
+      }
     };
     if (liveRunnerSession !== undefined) {
       return await liveRunnerSession.runTurn(turn, {
