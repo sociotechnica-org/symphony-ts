@@ -52,21 +52,6 @@ function buildMaxTurnsSummary(
   return `Reached agent.max_turns (${maxTurns.toString()}) with remaining ${lifecycle.kind} work: ${lifecycle.summary}`;
 }
 
-export function summarizeLifecycleTurnBudgetFailure(
-  lifecycle: HandoffLifecycle,
-  latestTurnNumber: number | null,
-  maxTurns: number,
-): string {
-  if (
-    (lifecycle.kind !== "rework-required" &&
-      lifecycle.kind !== "missing-target") ||
-    latestTurnNumber !== maxTurns
-  ) {
-    return lifecycle.summary;
-  }
-  return summarizeTurnBudgetExhaustion(lifecycle, maxTurns);
-}
-
 export function summarizeMissingTargetFailure(
   lifecycle: HandoffLifecycle,
   maxTurns: number,

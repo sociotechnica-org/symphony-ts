@@ -12,12 +12,13 @@ export interface PullRequestPolicyResult {
 }
 
 function summarizeLifecycle(
+  intro: string,
   url: string,
   failingCheckNames: readonly string[],
   pendingCheckNames: readonly string[],
   actionableReviewFeedback: readonly ReviewFeedback[],
 ): string {
-  const parts: string[] = [`Rework required for ${url}`];
+  const parts: string[] = [`${intro} ${url}`];
   if (failingCheckNames.length > 0) {
     parts.push(`failing checks: ${failingCheckNames.join(", ")}`);
   }
@@ -88,6 +89,7 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: snapshot.unresolvedThreadIds,
         summary: summarizeLifecycle(
+          "Rework required for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
@@ -110,6 +112,7 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
         summary: summarizeLifecycle(
+          "Waiting on checks for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
@@ -132,6 +135,7 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
         summary: summarizeLifecycle(
+          "Waiting on checks for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
