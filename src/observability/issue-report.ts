@@ -988,6 +988,19 @@ function buildTimelineEntry(
         sessionId: event.sessionId,
         details: formatEventDetails(event.details),
       };
+    case "landing-failed":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Landing failed",
+        summary: readEventSummary(
+          event.details,
+          "Symphony failed before it could dispatch the landing request.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
     case "landing-requested":
       return {
         kind: event.kind,
@@ -1403,16 +1416,18 @@ function timelineKindOrder(kind: string): number {
       return 5;
     case "landing-blocked":
       return 6;
-    case "landing-requested":
+    case "landing-failed":
       return 7;
-    case "review-feedback":
+    case "landing-requested":
       return 8;
-    case "retry-scheduled":
+    case "review-feedback":
       return 9;
+    case "retry-scheduled":
+      return 10;
     case "succeeded":
     case "failed":
     case "terminal-outcome":
-      return 10;
+      return 11;
     default:
       return 99;
   }
@@ -1444,6 +1459,8 @@ function inferOutcomeFromEvents(
         return (
           readLifecycleKindFromDetails(event.details) ?? "awaiting-landing"
         );
+      case "landing-failed":
+        return "attempt-failed";
       case "landing-requested":
         return "awaiting-landing";
       case "runner-spawned":

@@ -1384,7 +1384,6 @@ describe("BootstrapOrchestrator", () => {
 
     try {
       await orchestrator.runOnce();
-      await orchestrator.runOnce();
 
       expect(tracker.landingRequests).toEqual([]);
       expect(tracker.completed).toEqual([]);
@@ -1398,19 +1397,31 @@ describe("BootstrapOrchestrator", () => {
       });
 
       const summary = await readIssueArtifactSummary(tempRoot, 74);
-      expect(summary.currentOutcome).toBe("awaiting-landing");
+      expect(summary.currentOutcome).toBe("attempt-failed");
       const events = await readIssueArtifactEvents(tempRoot, 74);
       expect(events).toContainEqual(
         expect.objectContaining({
-          kind: "landing-requested",
+          kind: "landing-failed",
           details: expect.objectContaining({
             success: false,
             error:
               "Error: Cannot execute landing without a pull request handle",
             pullRequest: null,
+            summary:
+              "Landing request failed for sociotechnica-org/symphony-ts#74: Error: Cannot execute landing without a pull request handle",
+            lifecycleKind: "attempt-failed",
           }),
         }),
       );
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.lastAction?.kind).toBe("landing-failed");
+
+      await orchestrator.runOnce();
+      expect(tracker.landingRequests).toEqual([]);
+      expect(tracker.completed).toEqual([]);
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -1552,6 +1563,7 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("does not retry landing on the same head after a failed merge request", async () => {
+    const tempRoot = await createTempDir("symphony-failed-landing-test-");
     const tracker = new FailOnceLandingTracker({
       running: [createIssue(73, "symphony:running")],
     });
@@ -1561,7 +1573,13 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("awaiting-landing", "symphony/73"),
     ]);
     const orchestrator = new BootstrapOrchestrator(
-      baseConfig,
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -1576,17 +1594,37 @@ describe("BootstrapOrchestrator", () => {
       new NullLogger(),
     );
 
-    await orchestrator.runOnce();
-    expect(tracker.landingRequests).toEqual([1]);
-    expect(tracker.completed).toEqual([]);
+    try {
+      await orchestrator.runOnce();
+      expect(tracker.landingRequests).toEqual([1]);
+      expect(tracker.completed).toEqual([]);
 
-    await orchestrator.runOnce();
-    expect(tracker.landingRequests).toEqual([1]);
-    expect(tracker.completed).toEqual([]);
+      const summary = await readIssueArtifactSummary(tempRoot, 73);
+      expect(summary.currentOutcome).toBe("attempt-failed");
+      const events = await readIssueArtifactEvents(tempRoot, 73);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "landing-failed",
+          details: expect.objectContaining({
+            success: false,
+            error: "Error: merge temporarily blocked",
+            summary:
+              "Landing request failed for sociotechnica-org/symphony-ts#73: Error: merge temporarily blocked",
+            lifecycleKind: "attempt-failed",
+          }),
+        }),
+      );
 
-    await orchestrator.runOnce();
-    expect(tracker.landingRequests).toEqual([1]);
-    expect(tracker.completed).toEqual([]);
+      await orchestrator.runOnce();
+      expect(tracker.landingRequests).toEqual([1]);
+      expect(tracker.completed).toEqual([]);
+
+      await orchestrator.runOnce();
+      expect(tracker.landingRequests).toEqual([1]);
+      expect(tracker.completed).toEqual([]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("reruns a running PR when CI or review feedback is actionable and resolves review threads", async () => {
