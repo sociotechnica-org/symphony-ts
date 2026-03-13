@@ -5,13 +5,13 @@ export interface Logger {
 }
 
 /**
- * When true, all log levels write to stderr so the TUI has exclusive
- * use of stdout.  Set by the dashboard on start/stop.
+ * When true, info/warn logs are suppressed (the TUI owns the terminal)
+ * and only errors go to stderr.  Set by the dashboard on start/stop.
  */
-let forceStderr = false;
+let tuiActive = false;
 
 export function setLogStderr(enabled: boolean): void {
-  forceStderr = enabled;
+  tuiActive = enabled;
 }
 
 function write(
@@ -19,14 +19,17 @@ function write(
   message: string,
   data?: Record<string, unknown>,
 ): void {
+  // While the TUI is rendering, suppress non-error logs entirely — both
+  // stdout and stderr would flash on-screen between TUI frames.
+  if (tuiActive && level !== "error") return;
+
   const entry = {
     timestamp: new Date().toISOString(),
     level,
     message,
     ...(data ?? {}),
   };
-  const stream =
-    forceStderr || level === "error" ? process.stderr : process.stdout;
+  const stream = level === "error" ? process.stderr : process.stdout;
   stream.write(`${JSON.stringify(entry)}\n`);
 }
 
