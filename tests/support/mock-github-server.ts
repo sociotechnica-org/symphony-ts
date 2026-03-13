@@ -18,6 +18,13 @@ interface PullRequestRecord {
   checkRuns: MockCheckRun[];
   statuses: MockCommitStatus[];
   landingBehavior: MockLandingBehavior;
+  mergeable: boolean | null;
+  mergeableState: string | null;
+  draft: boolean;
+  reviewThreadInjection: {
+    remainingReads: number;
+    thread: MockReviewThread | null;
+  };
 }
 
 interface MockLandingBehavior {
@@ -50,7 +57,7 @@ interface MockReviewThread {
 
 interface MockReviewComment {
   readonly id: string;
-  readonly authorLogin: string;
+  readonly authorLogin: string | null;
   readonly body: string;
   readonly createdAt: string;
   readonly url: string;
@@ -300,6 +307,13 @@ export class MockGitHubServer {
         failureStatus: null,
         failureMessage: null,
       },
+      mergeable: true,
+      mergeableState: "clean",
+      draft: false,
+      reviewThreadInjection: {
+        remainingReads: -1,
+        thread: null,
+      },
     });
   }
 
@@ -312,6 +326,26 @@ export class MockGitHubServer {
       ...pullRequest.landingBehavior,
       ...behavior,
     };
+  }
+
+  setPullRequestMergeGate(
+    head: string,
+    gate: {
+      mergeable?: boolean | null;
+      mergeableState?: string | null;
+      draft?: boolean;
+    },
+  ): void {
+    const pullRequest = this.#requirePullRequestByHead(head);
+    if (gate.mergeable !== undefined) {
+      pullRequest.mergeable = gate.mergeable;
+    }
+    if (gate.mergeableState !== undefined) {
+      pullRequest.mergeableState = gate.mergeableState;
+    }
+    if (gate.draft !== undefined) {
+      pullRequest.draft = gate.draft;
+    }
   }
 
   mergePullRequest(head: string, mergedAt = new Date().toISOString()): void {
@@ -394,7 +428,7 @@ export class MockGitHubServer {
 
   addPullRequestReviewThread(input: {
     head: string;
-    authorLogin: string;
+    authorLogin: string | null;
     body: string;
     path?: string | null;
     line?: number | null;
@@ -420,6 +454,39 @@ export class MockGitHubServer {
       ],
     });
     return threadId;
+  }
+
+  injectPullRequestReviewThreadOnReviewStateRead(input: {
+    head: string;
+    afterReads: number;
+    authorLogin: string | null;
+    body: string;
+    path?: string | null;
+    line?: number | null;
+    createdAt?: string;
+  }): void {
+    const pullRequest = this.#requirePullRequestByHead(input.head);
+    const threadId = randomUUID();
+    const commentId = randomUUID();
+    pullRequest.reviewThreadInjection = {
+      remainingReads: input.afterReads,
+      thread: {
+        id: threadId,
+        isResolved: false,
+        isOutdated: false,
+        comments: [
+          {
+            id: commentId,
+            authorLogin: input.authorLogin,
+            body: input.body,
+            createdAt: input.createdAt ?? new Date().toISOString(),
+            url: `${pullRequest.html_url}#discussion_r${commentId}`,
+            path: input.path ?? null,
+            line: input.line ?? null,
+          },
+        ],
+      },
+    };
   }
 
   isReviewThreadResolved(threadId: string): boolean {
@@ -570,6 +637,9 @@ export class MockGitHubServer {
         html_url: pullRequest.html_url,
         state: pullRequest.state,
         merged_at: pullRequest.mergedAt,
+        mergeable: pullRequest.mergeable,
+        mergeable_state: pullRequest.mergeableState,
+        draft: pullRequest.draft,
         head: {
           ref: pullRequest.head,
           sha: pullRequest.latestCommitSha,
@@ -770,6 +840,20 @@ export class MockGitHubServer {
         return;
       }
 
+      if (pullRequest.reviewThreadInjection.thread !== null) {
+        if (pullRequest.reviewThreadInjection.remainingReads <= 0) {
+          pullRequest.reviewThreads.push(
+            pullRequest.reviewThreadInjection.thread,
+          );
+          pullRequest.reviewThreadInjection = {
+            remainingReads: -1,
+            thread: null,
+          };
+        } else {
+          pullRequest.reviewThreadInjection.remainingReads -= 1;
+        }
+      }
+
       json(response, 200, {
         data: {
           repository: {
@@ -815,9 +899,12 @@ export class MockGitHubServer {
                       url: comment.url,
                       path: comment.path,
                       line: comment.line,
-                      author: {
-                        login: comment.authorLogin,
-                      },
+                      author:
+                        comment.authorLogin === null
+                          ? null
+                          : {
+                              login: comment.authorLogin,
+                            },
                     })),
                   },
                   latestComments: {
@@ -828,9 +915,12 @@ export class MockGitHubServer {
                       url: comment.url,
                       path: comment.path,
                       line: comment.line,
-                      author: {
-                        login: comment.authorLogin,
-                      },
+                      author:
+                        comment.authorLogin === null
+                          ? null
+                          : {
+                              login: comment.authorLogin,
+                            },
                     })),
                   },
                 })),

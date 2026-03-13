@@ -12,6 +12,7 @@ export type IssueArtifactEventKind =
   | "waived"
   | "runner-spawned"
   | "pr-opened"
+  | "landing-blocked"
   | "landing-requested"
   | "review-feedback"
   | "retry-scheduled"

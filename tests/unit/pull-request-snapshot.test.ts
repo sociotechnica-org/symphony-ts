@@ -145,6 +145,29 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.unresolvedThreadIds).toEqual([]);
   });
 
+  it("keeps a deleted-author thread actionable and non-bot", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: createReviewState([
+        {
+          id: "comment-1",
+          authorLogin: null,
+          body: "Please adjust this logic",
+          createdAt: "2026-03-06T01:00:00.000Z",
+          url: "https://example.test/thread/1#comment-1",
+        },
+      ]),
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.actionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.actionableReviewFeedback[0]?.authorLogin).toBeNull();
+    expect(snapshot.unresolvedThreadIds).toEqual([]);
+  });
+
   it("detects a human /land command on the current PR head", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

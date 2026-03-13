@@ -26,6 +26,22 @@ describe("GitHubClient", () => {
     };
   }
 
+  function createClient(logger?: Logger): GitHubClient {
+    return new GitHubClient(
+      {
+        kind: "github-bootstrap",
+        repo: "sociotechnica-org/symphony-ts",
+        apiUrl: "https://example.invalid",
+        readyLabel: "symphony:ready",
+        runningLabel: "symphony:running",
+        failedLabel: "symphony:failed",
+        successComment: "done",
+        reviewBotLogins: ["greptile-apps", "cursor"],
+      },
+      logger,
+    );
+  }
+
   it("does not duplicate exhausted review data while another stream paginates", async () => {
     const requests: Array<{
       includeComments: boolean;
@@ -174,16 +190,7 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient({
-      kind: "github-bootstrap",
-      repo: "sociotechnica-org/symphony-ts",
-      apiUrl: "https://example.invalid",
-      readyLabel: "symphony:ready",
-      runningLabel: "symphony:running",
-      failedLabel: "symphony:failed",
-      successComment: "done",
-      reviewBotLogins: ["greptile-apps", "cursor"],
-    });
+    const client = createClient();
 
     const result = await client.getPullRequestReviewState(23);
 
@@ -238,18 +245,13 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient({
-      kind: "github-bootstrap",
-      repo: "sociotechnica-org/symphony-ts",
-      apiUrl: "https://example.invalid",
-      readyLabel: "symphony:ready",
-      runningLabel: "symphony:running",
-      failedLabel: "symphony:failed",
-      successComment: "done",
-      reviewBotLogins: ["greptile-apps", "cursor"],
-    });
+    const client = createClient();
 
-    await client.mergePullRequest(23, "head-sha-23");
+    await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
+      kind: "accepted",
+      merged: false,
+      message: "landing request accepted",
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1]).toBeDefined();
@@ -261,6 +263,36 @@ describe("GitHubClient", () => {
       sha: "head-sha-23",
       merge_method: "squash",
     });
+  });
+
+  it("throws when a REST request succeeds without a JSON payload", async () => {
+    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createClient();
+
+    await expect(client.getIssue(23)).rejects.toThrow(
+      /returned no json payload/i,
+    );
+  });
+
+  it("includes the raw response body when a 2xx REST response is non-JSON", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("<html>proxy error</html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createClient();
+
+    await expect(client.getIssue(23)).rejects.toThrow(
+      'GitHub API GET /repos/sociotechnica-org/symphony-ts/issues/23 returned no JSON payload (body: "<html>proxy error</html>")',
+    );
   });
 
   it("retries merge-method discovery after a transient repository lookup failure", async () => {
@@ -291,23 +323,16 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient({
-      kind: "github-bootstrap",
-      repo: "sociotechnica-org/symphony-ts",
-      apiUrl: "https://example.invalid",
-      readyLabel: "symphony:ready",
-      runningLabel: "symphony:running",
-      failedLabel: "symphony:failed",
-      successComment: "done",
-      reviewBotLogins: ["greptile-apps", "cursor"],
-    });
+    const client = createClient();
 
     await expect(client.mergePullRequest(23, "head-sha-23")).rejects.toThrow(
       /failed with 500/i,
     );
-    await expect(
-      client.mergePullRequest(23, "head-sha-23"),
-    ).resolves.toBeUndefined();
+    await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
+      kind: "accepted",
+      merged: false,
+      message: "landing request accepted",
+    });
     expect(repositoryRequests).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -336,21 +361,13 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient(
-      {
-        kind: "github-bootstrap",
-        repo: "sociotechnica-org/symphony-ts",
-        apiUrl: "https://example.invalid",
-        readyLabel: "symphony:ready",
-        runningLabel: "symphony:running",
-        failedLabel: "symphony:failed",
-        successComment: "done",
-        reviewBotLogins: ["greptile-apps", "cursor"],
-      },
-      logger,
-    );
+    const client = createClient(logger);
 
-    await client.mergePullRequest(23, "head-sha-23");
+    await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
+      kind: "accepted",
+      merged: false,
+      message: "landing request accepted",
+    });
 
     expect(logger.info).toHaveBeenCalledWith(
       "Auto-detected GitHub merge method",

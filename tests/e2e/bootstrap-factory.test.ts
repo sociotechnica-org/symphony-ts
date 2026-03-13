@@ -292,6 +292,86 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
   });
 
+  it("blocks landing when unresolved non-outdated review threads remain even if checks are green", async () => {
+    server.seedIssue({
+      number: 80,
+      title: "Guard merge with unresolved review threads",
+      body: "Reproduce the PR 80 merge regression",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    server.setPullRequestCheckRuns("symphony/80", [
+      { name: "CI", status: "completed", conclusion: "success" },
+      { name: "Lint", status: "completed", conclusion: "success" },
+    ]);
+
+    await orchestrator.runOnce();
+
+    server.addPullRequestComment({
+      head: "symphony/80",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
+    server.injectPullRequestReviewThreadOnReviewStateRead({
+      head: "symphony/80",
+      afterReads: 1,
+      authorLogin: "reviewer",
+      body: "This thread is still unresolved",
+      path: "src/index.ts",
+      line: 12,
+    });
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(80);
+    expect(issue.state).toBe("open");
+    expect(issue.comments).not.toContain(
+      "Symphony completed this issue successfully.",
+    );
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.lastAction?.kind).toBe("landing-blocked");
+    expect(status.activeIssues[0]).toMatchObject({
+      issueNumber: 80,
+      status: "awaiting-human-review",
+    });
+    expect(status.activeIssues[0]?.blockedReason).toMatch(
+      /unresolved non-outdated review threads remain/i,
+    );
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      80,
+    );
+    expect(artifactSummary.currentOutcome).toBe("awaiting-human-review");
+
+    const artifactEvents = await readIssueArtifactEvents(
+      path.join(tempDir, ".tmp", "workspaces"),
+      80,
+    );
+    expect(artifactEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "landing-blocked",
+        details: expect.objectContaining({
+          reason: "review-threads-unresolved",
+          lifecycleKind: "awaiting-human-review",
+        }),
+      }),
+    );
+  });
+
   it("pushes the reviewed plan branch before plan-ready and keeps the plan recoverable from the remote", async () => {
     server.seedIssue({
       number: 53,

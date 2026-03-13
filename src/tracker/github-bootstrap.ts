@@ -2,6 +2,10 @@ import type { HandoffLifecycle, PullRequestHandle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { GitHubBootstrapTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
+import {
+  evaluateGuardedLanding,
+  type GuardedLandingSnapshot,
+} from "./guarded-landing.js";
 import { GitHubClient } from "./github-client.js";
 import { evaluatePlanReviewProtocol } from "./plan-review-policy.js";
 import {
@@ -10,7 +14,7 @@ import {
   type NoCheckObservation,
 } from "./pull-request-policy.js";
 import { createPullRequestSnapshot } from "./pull-request-snapshot.js";
-import type { Tracker } from "./service.js";
+import type { LandingExecutionResult, Tracker } from "./service.js";
 
 export class GitHubBootstrapTracker implements Tracker {
   readonly #config: GitHubBootstrapTrackerConfig;
@@ -177,11 +181,69 @@ export class GitHubBootstrapTracker implements Tracker {
     return await this.inspectIssueHandoff(branchName);
   }
 
-  async executeLanding(pullRequest: PullRequestHandle): Promise<void> {
-    await this.#client.mergePullRequest(
+  async executeLanding(
+    pullRequest: PullRequestHandle,
+  ): Promise<LandingExecutionResult> {
+    const latestPullRequest = await this.#client.getPullRequest(
+      pullRequest.number,
+    );
+    const [checks, reviewState] = await Promise.all([
+      this.#client.getChecks(latestPullRequest.head.sha),
+      this.#client.getPullRequestReviewState(pullRequest.number),
+    ]);
+    const snapshot = createPullRequestSnapshot({
+      branchName: pullRequest.branchName,
+      pullRequest: {
+        number: latestPullRequest.number,
+        html_url: latestPullRequest.html_url,
+        state: latestPullRequest.state,
+        head: latestPullRequest.head,
+        landingState: latestPullRequest.merged_at === null ? "open" : "merged",
+        mergedAt: latestPullRequest.merged_at,
+      },
+      checks,
+      reviewState,
+      reviewBotLogins: this.#config.reviewBotLogins,
+    });
+    const gateSnapshot: GuardedLandingSnapshot = {
+      approvedHeadSha: pullRequest.headSha,
+      pullRequest: snapshot.pullRequest,
+      landingState: snapshot.landingState,
+      mergeable: latestPullRequest.mergeable,
+      mergeStateStatus:
+        latestPullRequest.mergeable_state?.toLowerCase() ?? null,
+      draft: latestPullRequest.draft,
+      pendingCheckNames: snapshot.pendingCheckNames,
+      failingCheckNames: snapshot.failingCheckNames,
+      botActionableReviewFeedback: snapshot.botActionableReviewFeedback,
+      unresolvedReviewThreadCount: snapshot.actionableReviewFeedback.filter(
+        (feedback) =>
+          feedback.kind === "review-thread" &&
+          !this.#isBotReviewFeedback(feedback.authorLogin),
+      ).length,
+    };
+    const decision = evaluateGuardedLanding(gateSnapshot);
+    if (decision.kind === "blocked") {
+      return decision;
+    }
+
+    const mergeResult = await this.#client.mergePullRequest(
       pullRequest.number,
       pullRequest.headSha,
     );
+    if (mergeResult.kind === "blocked") {
+      return {
+        kind: "blocked",
+        reason: "merge-request-refused",
+        lifecycleKind: "awaiting-landing",
+        summary: `Landing blocked for pull request ${snapshot.pullRequest.url}: ${mergeResult.message}`,
+      };
+    }
+
+    return {
+      kind: "requested",
+      summary: decision.summary,
+    };
   }
 
   async #inspectPlanReviewHandoff(
@@ -226,6 +288,15 @@ export class GitHubBootstrapTracker implements Tracker {
       lifecycle,
     });
     return lifecycle;
+  }
+
+  #isBotReviewFeedback(authorLogin: string | null): boolean {
+    if (authorLogin === null) {
+      return false;
+    }
+    return this.#config.reviewBotLogins
+      .map((login) => login.toLowerCase())
+      .includes(authorLogin.toLowerCase());
   }
 
   async #isStaleMergedPullRequest(

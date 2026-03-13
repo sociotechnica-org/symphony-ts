@@ -32,6 +32,7 @@ import type {
   RunnerTurnResult,
 } from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
+import type { LandingExecutionResult } from "../../src/tracker/service.js";
 import type { WorkspaceManager } from "../../src/workspace/service.js";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -275,8 +276,12 @@ class SequencedTracker implements Tracker {
 
   async executeLanding(
     pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
-  ): Promise<void> {
+  ): Promise<LandingExecutionResult> {
     this.landingRequests.push(pullRequest.number);
+    return {
+      kind: "requested",
+      summary: `Landing requested for ${pullRequest.url}.`,
+    };
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
@@ -342,12 +347,44 @@ class FailOnceLandingTracker extends SequencedTracker {
 
   override async executeLanding(
     pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
-  ): Promise<void> {
+  ): Promise<LandingExecutionResult> {
     this.landingRequests.push(pullRequest.number);
     if (this.landingFailuresRemaining > 0) {
       this.landingFailuresRemaining -= 1;
       throw new Error("merge temporarily blocked");
     }
+    return {
+      kind: "requested",
+      summary: `Landing requested for ${pullRequest.url}.`,
+    };
+  }
+}
+
+class BlockedLandingTracker extends SequencedTracker {
+  override async executeLanding(
+    pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
+  ): Promise<LandingExecutionResult> {
+    this.landingRequests.push(pullRequest.number);
+    return {
+      kind: "blocked",
+      reason: "review-threads-unresolved",
+      lifecycleKind: "awaiting-human-review",
+      summary: `Landing blocked for ${pullRequest.url} because unresolved non-outdated review threads remain.`,
+    };
+  }
+}
+
+class StaleApprovedHeadLandingTracker extends SequencedTracker {
+  override async executeLanding(
+    pullRequest: NonNullable<HandoffLifecycle["pullRequest"]>,
+  ): Promise<LandingExecutionResult> {
+    this.landingRequests.push(pullRequest.number);
+    return {
+      kind: "blocked",
+      reason: "stale-approved-head",
+      lifecycleKind: "awaiting-landing-command",
+      summary: `Landing blocked for ${pullRequest.url} because the approved head is stale.`,
+    };
   }
 }
 
@@ -1350,6 +1387,141 @@ describe("BootstrapOrchestrator", () => {
             pullRequest: null,
           }),
         }),
+      );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("records a blocked landing attempt and retries the same head on a later poll", async () => {
+    const tempRoot = await createTempDir("symphony-blocked-landing-test-");
+    const tracker = new BlockedLandingTracker({
+      running: [createIssue(75, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(75, [
+      lifecycle("awaiting-landing", "symphony/75"),
+      lifecycle("awaiting-human-review", "symphony/75"),
+      lifecycle("awaiting-landing", "symphony/75"),
+      lifecycle("awaiting-human-review", "symphony/75"),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    try {
+      await orchestrator.runOnce();
+      await orchestrator.runOnce();
+
+      expect(tracker.landingRequests).toEqual([1, 1]);
+
+      const summary = await readIssueArtifactSummary(tempRoot, 75);
+      expect(summary.currentOutcome).toBe("awaiting-human-review");
+
+      const events = await readIssueArtifactEvents(tempRoot, 75);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "landing-blocked",
+          details: expect.objectContaining({
+            reason: "review-threads-unresolved",
+            lifecycleKind: "awaiting-human-review",
+            success: false,
+          }),
+        }),
+      );
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.lastAction?.kind).toBe("landing-blocked");
+      expect(status.activeIssues[0]?.blockedReason).toMatch(
+        /unresolved non-outdated review threads remain/i,
+      );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps blocked landing status aligned with the landing result lifecycle kind", async () => {
+    const tempRoot = await createTempDir("symphony-stale-approved-head-test-");
+    const tracker = new StaleApprovedHeadLandingTracker({
+      running: [createIssue(76, "symphony:running")],
+    });
+    tracker.setLifecycleSequence(76, [
+      lifecycle("awaiting-landing", "symphony/76"),
+      lifecycle("awaiting-system-checks", "symphony/76"),
+    ]);
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          root: tempRoot,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+    );
+
+    try {
+      await orchestrator.runOnce();
+
+      const summary = await readIssueArtifactSummary(tempRoot, 76);
+      expect(summary.currentOutcome).toBe("awaiting-system-checks");
+
+      const events = await readIssueArtifactEvents(tempRoot, 76);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          kind: "landing-blocked",
+          details: expect.objectContaining({
+            reason: "stale-approved-head",
+            lifecycleKind: "awaiting-landing-command",
+            success: false,
+          }),
+        }),
+      );
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.lastAction?.kind).toBe("landing-blocked");
+      expect(status.activeIssues[0]).toMatchObject({
+        issueNumber: 76,
+        status: "awaiting-landing-command",
+        branchName: "symphony/76",
+      });
+      expect(status.activeIssues[0]?.summary).toMatch(
+        /approved head is stale/i,
+      );
+      expect(status.activeIssues[0]?.blockedReason).toMatch(
+        /approved head is stale/i,
       );
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
