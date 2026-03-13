@@ -556,6 +556,43 @@ describe("GitHubBootstrapTracker", () => {
     expect(refreshed.kind).toBe("awaiting-human-review");
   });
 
+  it("treats bot-authored review threads as actionable bot feedback instead of human unresolved threads", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+    server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: "greptile[bot]",
+      body: "Needs a follow-up commit",
+      path: "src/index.ts",
+      line: 10,
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "actionable-review-feedback",
+      lifecycleKind: "rework-required",
+    });
+  });
+
   it("refuses landing when required checks are not terminal green", async () => {
     const tracker = createTracker(server);
 

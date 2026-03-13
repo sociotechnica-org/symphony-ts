@@ -217,7 +217,9 @@ export class GitHubBootstrapTracker implements Tracker {
       failingCheckNames: snapshot.failingCheckNames,
       botActionableReviewFeedback: snapshot.botActionableReviewFeedback,
       unresolvedReviewThreadCount: snapshot.actionableReviewFeedback.filter(
-        (feedback) => feedback.kind === "review-thread",
+        (feedback) =>
+          feedback.kind === "review-thread" &&
+          this.isHumanReviewFeedback(feedback.authorLogin),
       ).length,
     };
     const decision = evaluateGuardedLanding(gateSnapshot);
