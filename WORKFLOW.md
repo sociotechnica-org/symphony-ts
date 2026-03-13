@@ -97,9 +97,14 @@ When posting the `plan-ready` handoff comment, include:
 
 - the exact first line `Plan status: plan-ready`
 - the plan path
+- the issue branch name
+- a direct GitHub link to the reviewed `plan.md` on that branch
+- the branch URL and compare URL so the review surface is easy to inspect in GitHub
 - a short summary
 - a brief note that replies must start with one of the accepted review markers
 - copy-pasteable fenced markdown templates
+
+Before posting `plan-ready`, commit the reviewed `plan.md` on the issue branch, push that branch to GitHub, and verify the linked branch/file are inspectable there. Plan review must not depend on local-only uncommitted workspace state.
 
 Accepted first-line review markers are:
 

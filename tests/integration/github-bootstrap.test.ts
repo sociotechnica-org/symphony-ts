@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
+import { formatPlanReadyComment } from "../../src/tracker/plan-review-comment.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
 
 const logger = new JsonLogger();
@@ -105,7 +106,12 @@ describe("GitHubBootstrapTracker", () => {
 
     server.addIssueComment({
       issueNumber: 7,
-      body: "Plan status: plan-ready\n\nWaiting for human review.",
+      body: formatPlanReadyComment({
+        repo: "sociotechnica-org/symphony-ts",
+        planPath: "docs/plans/007-bootstrap-task/plan.md",
+        branchName: "symphony/7",
+        summaryLines: ["Ready for human review."],
+      }),
     });
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");

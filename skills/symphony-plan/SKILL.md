@@ -237,9 +237,14 @@ The `plan-ready` issue comment should include:
 
 - the exact first line `Plan status: plan-ready`
 - the plan path
+- the issue branch name
+- a direct GitHub link to the reviewed `plan.md` on that branch
+- the branch URL and compare URL so GitHub review is one click away
 - a short summary
 - a short note that the review reply must begin with one of the accepted markers
 - copy-pasteable fenced markdown templates for `approved`, `changes-requested`, and `waived`
+
+Before posting `plan-ready`, commit the reviewed `plan.md` on the issue branch, push the branch, and verify the linked branch/file are inspectable in GitHub. The reviewed plan must be recoverable from the canonical tracker plus repo, not from local-only uncommitted workspace state.
 
 This review station is the first slice for plan-process issues because it preserves the workflow boundary and uses existing issue comments instead of inventing new runtime machinery.
 
@@ -255,10 +260,11 @@ After writing the plan:
 
 1. sanity-check that it matches the issue
 2. sanity-check that spec alignment, non-goals, boundaries, slice strategy, acceptance scenarios, and deferred work are explicit
-3. comment on the issue that the plan is `plan-ready`
-4. follow the Human Review Station above: unless plan approval is explicitly waived, stop at `plan-ready`, treat the plan as `in review`, and wait for human review before substantial implementation
-5. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
-6. once the plan is explicitly `approved`, or plan approval is explicitly `waived`, begin substantial implementation; if approval is waived, record that waiver in the issue or PR notes so the handoff remains inspectable
+3. commit the reviewed `plan.md`, push the issue branch, and verify the plan file is present on the pushed branch
+4. comment on the issue that the plan is `plan-ready` and include the branch/file GitHub links
+5. follow the Human Review Station above: unless plan approval is explicitly waived, stop at `plan-ready`, treat the plan as `in review`, and wait for human review before substantial implementation
+6. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
+7. once the plan is explicitly `approved`, or plan approval is explicitly `waived`, begin substantial implementation; if approval is waived, record that waiver in the issue or PR notes so the handoff remains inspectable
 
 Use this exact reply-template block in the `plan-ready` comment:
 

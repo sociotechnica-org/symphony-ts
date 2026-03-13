@@ -103,9 +103,14 @@ When a worker posts the `plan-ready` handoff comment, it should include:
 
 1. the exact first line `Plan status: plan-ready`,
 2. the plan path,
-3. a short summary,
-4. a short note that replies must begin with an accepted review marker,
-5. and copy-pasteable fenced markdown templates for the review reply.
+3. the issue branch name,
+4. a direct GitHub link to the reviewed `plan.md` on that branch,
+5. any other direct GitHub review links needed to inspect the branch easily, including the branch URL and compare URL when applicable,
+6. a short summary,
+7. a short note that replies must begin with an accepted review marker,
+8. and copy-pasteable fenced markdown templates for the review reply.
+
+The reviewed `plan.md` must be committed on the issue branch and that branch must be pushed before the `plan-ready` comment is posted. Plan review must not depend on local-only uncommitted workspace state.
 
 Accepted first-line review markers are:
 

@@ -58,6 +58,12 @@ describe("repo planning contract", () => {
       "waived",
       "human feedback",
       "wait for human review", // SKILL.md §Plan Output step 4 — keep this exact wording
+      "issue branch name",
+      "direct github link to the reviewed `plan.md`",
+      "branch url and compare url",
+      "commit the reviewed `plan.md`",
+      "push the issue branch",
+      "recoverable from the canonical tracker plus repo",
       "plan review: approved",
       "plan review: changes-requested",
       "plan review: waived",
@@ -119,6 +125,12 @@ describe("repo planning contract", () => {
       "plan review: changes-requested",
       "plan review: waived",
       "copy-pasteable",
+      "issue branch name",
+      "direct github link to the reviewed `plan.md`",
+      "branch url and compare url",
+      "commit the reviewed `plan.md`",
+      "push that branch to github",
+      "local-only uncommitted workspace state",
     ]);
   });
 
@@ -152,6 +164,12 @@ describe("repo planning contract", () => {
       "waives waiting", // AGENTS.md §Issue Workflow step 5 — keep this exact wording
       "human review station",
       "plan review comment protocol",
+      "issue branch name",
+      "direct github link to the reviewed `plan.md`",
+      "branch url and compare url",
+      "must be committed on the issue branch",
+      "must be pushed before the `plan-ready` comment is posted",
+      "local-only uncommitted workspace state",
       "plan review: approved",
       "plan review: changes-requested",
       "plan review: waived",
@@ -170,6 +188,9 @@ describe("repo planning contract", () => {
       "issue comments",
       "human review station",
       "plan approval is waived",
+      "pushes the issue branch",
+      "direct github links to the branch and plan file",
+      "pushed issue branch as the canonical review surface",
     ]);
   });
 });
