@@ -322,7 +322,7 @@ describe("inspectFactoryControl", () => {
   });
 });
 
-describe("startFactory", () => {
+describe("createFactoryRunCommand", () => {
   it("builds the detached run command with the required guardrails acknowledgment", () => {
     expect(createFactoryRunCommand()).toEqual([
       "pnpm",
@@ -332,7 +332,9 @@ describe("startFactory", () => {
       FACTORY_RUN_GUARDRAILS_ACK_FLAG,
     ]);
   });
+});
 
+describe("startFactory", () => {
   it("returns already-running when the factory is healthy", async () => {
     const workerPid = 9101;
     const result = await startFactory(
