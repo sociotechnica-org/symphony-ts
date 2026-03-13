@@ -936,6 +936,8 @@ function describeRunningEvent(entry: TuiSnapshot["running"][number]): string {
   if (fromVisibility !== null) {
     return fromVisibility;
   }
+  // Keep the event column on the best available text source even when
+  // runnerVisibility still only contributes state for the dot color.
   return humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent);
 }
 
