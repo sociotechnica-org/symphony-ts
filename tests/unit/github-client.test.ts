@@ -283,7 +283,9 @@ describe("GitHubClient", () => {
       reviewBotLogins: ["greptile-apps", "cursor"],
     });
 
-    await expect(client.getIssue(23)).rejects.toThrow(/returned no json payload/i);
+    await expect(client.getIssue(23)).rejects.toThrow(
+      /returned no json payload/i,
+    );
   });
 
   it("retries merge-method discovery after a transient repository lookup failure", async () => {
