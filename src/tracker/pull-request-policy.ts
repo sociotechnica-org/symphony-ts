@@ -188,7 +188,9 @@ export function evaluatePullRequestLifecycle(
 
   return {
     lifecycle: {
-      kind: "awaiting-landing",
+      kind: snapshot.hasLandingCommand
+        ? "awaiting-landing"
+        : "awaiting-landing-command",
       branchName: snapshot.branchName,
       pullRequest: snapshot.pullRequest,
       checks: snapshot.checks,
@@ -196,7 +198,9 @@ export function evaluatePullRequestLifecycle(
       failingCheckNames: [],
       actionableReviewFeedback: [],
       unresolvedThreadIds: [],
-      summary: `Pull request ${snapshot.pullRequest.url} is awaiting merge / landing`,
+      summary: snapshot.hasLandingCommand
+        ? `Pull request ${snapshot.pullRequest.url} is awaiting landing / merge observation`
+        : `Pull request ${snapshot.pullRequest.url} is awaiting a human /land command`,
     },
     nextNoCheckObservation: null,
   };

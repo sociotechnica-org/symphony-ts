@@ -4,6 +4,10 @@ import {
   type FollowUpRuntimeState,
 } from "./follow-up-state.js";
 import {
+  createLandingRuntimeState,
+  type LandingRuntimeState,
+} from "./landing-state.js";
+import {
   createRuntimeStatusState,
   type RuntimeStatusState,
 } from "./status-state.js";
@@ -17,6 +21,7 @@ export interface OrchestratorState {
   readonly runAbortControllers: Map<number, AbortController>;
   readonly retries: Map<number, RetryState>;
   readonly followUp: FollowUpRuntimeState;
+  readonly landing: LandingRuntimeState;
   readonly status: RuntimeStatusState;
   readonly artifactWriteQueues: Map<number, Promise<void>>;
   readonly watchdog: WatchdogRuntimeState;
@@ -28,6 +33,7 @@ export function createOrchestratorState(): OrchestratorState {
     runAbortControllers: new Map<number, AbortController>(),
     retries: new Map<number, RetryState>(),
     followUp: createFollowUpRuntimeState(),
+    landing: createLandingRuntimeState(),
     status: createRuntimeStatusState(),
     artifactWriteQueues: new Map<number, Promise<void>>(),
     watchdog: createWatchdogRuntimeState(),

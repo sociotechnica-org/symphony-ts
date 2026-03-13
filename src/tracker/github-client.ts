@@ -436,6 +436,14 @@ export class GitHubClient {
     );
   }
 
+  async mergePullRequest(number: number): Promise<void> {
+    await this.#request(
+      "PUT",
+      this.#issuePath(`pulls/${number.toString()}/merge`),
+      {},
+    );
+  }
+
   async getIssueComments(
     issueNumber: number,
   ): Promise<readonly GitHubIssueCommentResponse[]> {

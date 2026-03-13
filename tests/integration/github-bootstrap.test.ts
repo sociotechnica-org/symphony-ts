@@ -78,10 +78,25 @@ describe("GitHubBootstrapTracker", () => {
     ]);
 
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
+      "awaiting-landing-command",
+    );
+
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
+    expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
       "awaiting-landing",
     );
 
-    server.mergePullRequest("symphony/7");
+    await tracker.executeLanding({
+      number: 1,
+      url: `${server.baseUrl}/pulls/1`,
+      branchName: "symphony/7",
+      headSha: null,
+      latestCommitAt: null,
+    });
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
       "handoff-ready",
     );
@@ -320,7 +335,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-landing");
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
@@ -340,7 +355,7 @@ describe("GitHubBootstrapTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-landing");
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
     expect(lifecycle.failingCheckNames).toEqual([]);
   });
 
@@ -360,8 +375,8 @@ describe("GitHubBootstrapTracker", () => {
     expect(first.summary).toMatch(/waiting for pr checks to appear/i);
 
     const second = await tracker.inspectIssueHandoff("symphony/7");
-    expect(second.kind).toBe("awaiting-landing");
-    expect(second.summary).toMatch(/awaiting merge/i);
+    expect(second.kind).toBe("awaiting-landing-command");
+    expect(second.summary).toMatch(/awaiting a human \/land command/i);
   });
 
   it("reports handoff-ready after the same pull request is merged", async () => {
@@ -378,9 +393,19 @@ describe("GitHubBootstrapTracker", () => {
     ]);
 
     const openLifecycle = await tracker.inspectIssueHandoff("symphony/7");
-    expect(openLifecycle.kind).toBe("awaiting-landing");
-
-    server.mergePullRequest("symphony/7");
+    expect(openLifecycle.kind).toBe("awaiting-landing-command");
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
+    await tracker.executeLanding({
+      number: 1,
+      url: `${server.baseUrl}/pulls/1`,
+      branchName: "symphony/7",
+      headSha: openLifecycle.pullRequest?.headSha ?? null,
+      latestCommitAt: openLifecycle.pullRequest?.latestCommitAt ?? null,
+    });
 
     const mergedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
     expect(mergedLifecycle.kind).toBe("handoff-ready");
@@ -514,7 +539,7 @@ describe("GitHubBootstrapTracker", () => {
       lifecycle,
     );
     expect(server.isReviewThreadResolved(threadId)).toBe(true);
-    expect(refreshed.kind).toBe("awaiting-landing");
+    expect(refreshed.kind).toBe("awaiting-landing-command");
   });
 
   it("does not auto-resolve human review threads after a follow-up push", async () => {
@@ -594,7 +619,7 @@ describe("GitHubBootstrapTracker", () => {
     await tracker.completeIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("awaiting-landing");
+    expect(second.kind).toBe("awaiting-landing-command");
   });
 
   it("preserves no-check stabilization for other branches when another issue is claimed", async () => {
@@ -626,7 +651,7 @@ describe("GitHubBootstrapTracker", () => {
     await tracker.claimIssue(7);
 
     const second = await tracker.inspectIssueHandoff("symphony/8");
-    expect(second.kind).toBe("awaiting-landing");
+    expect(second.kind).toBe("awaiting-landing-command");
   });
 
   it("deduplicates two concurrent ensureLabels calls", async () => {

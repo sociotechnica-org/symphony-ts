@@ -1,4 +1,4 @@
-import type { HandoffLifecycle } from "../domain/handoff.js";
+import type { HandoffLifecycle, PullRequestHandle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 
 export interface Tracker {
@@ -15,6 +15,7 @@ export interface Tracker {
     branchName: string,
     lifecycle: HandoffLifecycle | null,
   ): Promise<HandoffLifecycle>;
+  executeLanding(pullRequest: PullRequestHandle): Promise<void>;
   recordRetry(issueNumber: number, reason: string): Promise<void>;
   completeIssue(issueNumber: number): Promise<void>;
   markIssueFailed(issueNumber: number, reason: string): Promise<void>;

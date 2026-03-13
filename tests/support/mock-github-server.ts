@@ -17,6 +17,13 @@ interface PullRequestRecord {
   readonly reviewThreads: MockReviewThread[];
   checkRuns: MockCheckRun[];
   statuses: MockCommitStatus[];
+  landingBehavior: MockLandingBehavior;
+}
+
+interface MockLandingBehavior {
+  mergeOnRequest: boolean;
+  failureStatus: number | null;
+  failureMessage: string | null;
 }
 
 interface MockPullRequestComment {
@@ -269,7 +276,23 @@ export class MockGitHubServer {
       reviewThreads: [],
       checkRuns: [],
       statuses: [],
+      landingBehavior: {
+        mergeOnRequest: true,
+        failureStatus: null,
+        failureMessage: null,
+      },
     });
+  }
+
+  setPullRequestLandingBehavior(
+    head: string,
+    behavior: Partial<MockLandingBehavior>,
+  ): void {
+    const pullRequest = this.#requirePullRequestByHead(head);
+    pullRequest.landingBehavior = {
+      ...pullRequest.landingBehavior,
+      ...behavior,
+    };
   }
 
   mergePullRequest(head: string, mergedAt = new Date().toISOString()): void {
@@ -524,6 +547,33 @@ export class MockGitHubServer {
     }
 
     const mergeMatch = suffix.match(/^pulls\/(\d+)\/merge$/);
+    if (mergeMatch && method === "PUT") {
+      const pullRequest = this.#prs.get(Number(mergeMatch[1]));
+      if (!pullRequest) {
+        json(response, 404, { message: "pull request not found" });
+        return;
+      }
+      if (pullRequest.landingBehavior.failureStatus !== null) {
+        json(response, pullRequest.landingBehavior.failureStatus, {
+          message:
+            pullRequest.landingBehavior.failureMessage ??
+            "landing request failed",
+        });
+        return;
+      }
+      if (pullRequest.landingBehavior.mergeOnRequest) {
+        pullRequest.state = "closed";
+        pullRequest.mergedAt = new Date().toISOString();
+      }
+      json(response, 200, {
+        merged: pullRequest.mergedAt !== null,
+        message:
+          pullRequest.mergedAt === null
+            ? "landing request accepted"
+            : "pull request merged",
+      });
+      return;
+    }
     if (mergeMatch && method === "GET") {
       const pullRequest = this.#prs.get(Number(mergeMatch[1]));
       if (!pullRequest || pullRequest.mergedAt === null) {

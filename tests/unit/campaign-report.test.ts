@@ -290,6 +290,8 @@ function buildStoredIssueReport(options: {
       | "attempt-failed"
       | "awaiting-plan-review"
       | "awaiting-review"
+      | "awaiting-landing-command"
+      | "awaiting-landing"
       | "needs-follow-up"
       | "retry-scheduled"
       | "succeeded"

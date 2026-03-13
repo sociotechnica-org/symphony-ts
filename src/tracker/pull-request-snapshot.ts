@@ -8,11 +8,13 @@ import type {
   GitHubPullRequestResponse,
   PullRequestReviewState,
 } from "./github-client.js";
+import { parseLandingCommandSignal } from "./landing-command-signal.js";
 
 export interface PullRequestSnapshot {
   readonly branchName: string;
   readonly pullRequest: PullRequestHandle;
   readonly landingState: "open" | "merged";
+  readonly hasLandingCommand: boolean;
   readonly checks: readonly PullRequestCheck[];
   readonly pendingCheckNames: readonly string[];
   readonly failingCheckNames: readonly string[];
@@ -26,6 +28,17 @@ function isAfter(left: string, right: string | null): boolean {
     return true;
   }
   return Date.parse(left) > Date.parse(right);
+}
+
+function isHumanLandingApprover(
+  authorLogin: string | null,
+  reviewBotLogins: ReadonlySet<string>,
+): boolean {
+  if (authorLogin === null) {
+    return false;
+  }
+  const normalized = authorLogin.toLowerCase();
+  return !reviewBotLogins.has(normalized) && !normalized.endsWith("[bot]");
 }
 
 export function createPullRequestSnapshot(input: {
@@ -90,6 +103,15 @@ export function createPullRequestSnapshot(input: {
             line: null,
           }));
 
+  const hasLandingCommand = input.reviewState.comments.nodes.some((comment) => {
+    const authorLogin = comment.author?.login ?? null;
+    return (
+      isHumanLandingApprover(authorLogin, reviewBotLogins) &&
+      isAfter(comment.createdAt, latestCommitAt) &&
+      parseLandingCommandSignal(comment.body)
+    );
+  });
+
   const actionableReviewFeedback = [
     ...unresolvedThreads,
     ...actionableBotComments,
@@ -125,6 +147,7 @@ export function createPullRequestSnapshot(input: {
       latestCommitAt,
     },
     landingState: input.pullRequest.landingState,
+    hasLandingCommand,
     checks: input.checks,
     pendingCheckNames,
     failingCheckNames,

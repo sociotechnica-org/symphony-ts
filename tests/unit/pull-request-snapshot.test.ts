@@ -144,4 +144,83 @@ describe("createPullRequestSnapshot", () => {
     );
     expect(snapshot.unresolvedThreadIds).toEqual([]);
   });
+
+  it("detects a human /land command on the current PR head", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              author: { login: "jessmartin" },
+              body: "/land\n\nShip it.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    expect(snapshot.hasLandingCommand).toBe(true);
+  });
+
+  it("ignores stale or bot-authored /land comments", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              author: { login: "greptile-apps" },
+              body: "/land",
+              createdAt: "2026-03-06T02:01:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+            {
+              id: "comment-2",
+              author: { login: "jessmartin" },
+              body: "/land",
+              createdAt: "2026-03-06T01:59:00.000Z",
+              url: "https://example.test/pr/24#comment-2",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    expect(snapshot.hasLandingCommand).toBe(false);
+  });
 });

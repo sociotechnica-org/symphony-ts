@@ -975,6 +975,19 @@ function buildTimelineEntry(
         sessionId: event.sessionId,
         details: formatEventDetails(event.details),
       };
+    case "landing-requested":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Landing requested",
+        summary: readEventSummary(
+          event.details,
+          "Symphony requested landing for the current pull request.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
     case "review-feedback":
       return {
         kind: event.kind,
@@ -1296,7 +1309,10 @@ function readLifecycleKindFromDetails(
   // `src/orchestrator/service.ts`, which records the tracker lifecycle kind for
   // `pr-opened` events.
   const lifecycleKind = details["lifecycleKind"];
-  return lifecycleKind === "awaiting-landing" ? "awaiting-landing" : null;
+  return lifecycleKind === "awaiting-landing-command" ||
+    lifecycleKind === "awaiting-landing"
+    ? lifecycleKind
+    : null;
 }
 
 function formatEventDetails(
@@ -1369,14 +1385,16 @@ function timelineKindOrder(kind: string): number {
       return 4;
     case "pr-opened":
       return 5;
-    case "review-feedback":
+    case "landing-requested":
       return 6;
-    case "retry-scheduled":
+    case "review-feedback":
       return 7;
+    case "retry-scheduled":
+      return 8;
     case "succeeded":
     case "failed":
     case "terminal-outcome":
-      return 8;
+      return 9;
     default:
       return 99;
   }
@@ -1401,6 +1419,8 @@ function inferOutcomeFromEvents(
         return "needs-follow-up";
       case "pr-opened":
         return readLifecycleKindFromDetails(event.details) ?? "awaiting-review";
+      case "landing-requested":
+        return "awaiting-landing";
       case "runner-spawned":
         return "running";
       case "approved":

@@ -205,14 +205,18 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       path.join(tempDir, ".tmp", "status.json"),
     );
     expect(landingStatus.factoryState).toBe("blocked");
-    expect(landingStatus.lastAction?.kind).toBe("awaiting-landing");
+    expect(landingStatus.lastAction?.kind).toBe("awaiting-landing-command");
     expect(landingStatus.activeIssues[0]).toMatchObject({
       issueNumber: 1,
-      status: "awaiting-landing",
+      status: "awaiting-landing-command",
       branchName: "symphony/1",
     });
 
-    server.mergePullRequest("symphony/1");
+    server.addPullRequestComment({
+      head: "symphony/1",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
 
     await orchestrator.runOnce();
 
@@ -228,7 +232,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(artifactSummary.currentOutcome).toBe("succeeded");
     expect(artifactSummary.branch).toBe("symphony/1");
-    expect(artifactSummary.latestAttemptNumber).toBe(1);
+    expect(artifactSummary.latestAttemptNumber).toBe(2);
     expect(artifactSummary.latestSessionId).not.toBeNull();
 
     const artifactEvents = await readIssueArtifactEvents(
@@ -244,13 +248,19 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       ]),
     );
 
-    const attempt = await readIssueArtifactAttempt(
+    const landingAttempt = await readIssueArtifactAttempt(
+      path.join(tempDir, ".tmp", "workspaces"),
+      1,
+      2,
+    );
+    expect(landingAttempt.outcome).toBe("succeeded");
+
+    const runAttempt = await readIssueArtifactAttempt(
       path.join(tempDir, ".tmp", "workspaces"),
       1,
       1,
     );
-    expect(attempt.outcome).toBe("succeeded");
-    expect(attempt.pullRequest?.number).toBe(1);
+    expect(runAttempt.pullRequest?.number).toBe(1);
 
     const session = await readIssueArtifactSession(
       path.join(tempDir, ".tmp", "workspaces"),
@@ -306,8 +316,11 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     server.setPullRequestCheckRuns("symphony/12", [
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
-    await orchestrator.runOnce();
-    server.mergePullRequest("symphony/12");
+    server.addPullRequestComment({
+      head: "symphony/12",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
     await orchestrator.runOnce();
 
     const issue = server.getIssue(12);
@@ -385,7 +398,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(activeIssue).toMatchObject({
       issueNumber: 47,
-      status: "awaiting-landing",
+      status: "awaiting-landing-command",
       branchName: "symphony/47",
     });
   });

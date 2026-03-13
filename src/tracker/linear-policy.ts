@@ -152,9 +152,9 @@ export function createLinearHandoffLifecycle(
 
   if (sameLinearStateName(stateName, MERGING_STATE_NAME)) {
     return linearLifecycle(
-      "awaiting-system-checks",
+      "awaiting-landing-command",
       branchName,
-      `Linear issue ${issue.identifier} is waiting for landing in '${stateName}'`,
+      `Linear issue ${issue.identifier} is waiting in '${stateName}' for landing to be observed`,
     );
   }
 
@@ -172,9 +172,9 @@ export function createLinearHandoffLifecycle(
 
     if (reviewSignal === "approved" || reviewSignal === "waived") {
       return linearLifecycle(
-        "awaiting-system-checks",
+        "awaiting-landing-command",
         branchName,
-        `Linear issue ${issue.identifier} was approved and is waiting for landing`,
+        `Linear issue ${issue.identifier} was approved and is waiting for a landing handoff`,
       );
     }
 

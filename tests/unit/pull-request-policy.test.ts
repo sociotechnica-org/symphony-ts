@@ -15,6 +15,7 @@ function createSnapshot(
       latestCommitAt: "2026-03-06T00:00:00.000Z",
     },
     landingState: "open",
+    hasLandingCommand: false,
     checks: [],
     pendingCheckNames: [],
     failingCheckNames: [],
@@ -36,9 +37,29 @@ describe("pull-request-policy", () => {
     );
 
     expect(first.lifecycle.kind).toBe("awaiting-system-checks");
-    expect(second.lifecycle.kind).toBe("awaiting-landing");
+    expect(second.lifecycle.kind).toBe("awaiting-landing-command");
     expect(second.lifecycle.pendingCheckNames).toEqual([]);
     expect(second.lifecycle.failingCheckNames).toEqual([]);
+  });
+
+  it("requires an explicit landing command before landing starts", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        hasLandingCommand: true,
+        checks: [
+          {
+            name: "CI",
+            status: "success",
+            conclusion: "success",
+            detailsUrl: null,
+          },
+        ],
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("awaiting-landing");
+    expect(lifecycle.summary).toMatch(/awaiting landing/i);
   });
 
   it("reports handoff-ready only after merge is observed", () => {

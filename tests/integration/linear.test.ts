@@ -205,7 +205,7 @@ describe("LinearTracker", () => {
     });
     server.updateIssueState("symphony-linear", 7, "Merging");
     expect((await tracker.inspectIssueHandoff("symphony/7")).kind).toBe(
-      "awaiting-system-checks",
+      "awaiting-landing-command",
     );
 
     server.updateIssueState("symphony-linear", 7, "Done");
@@ -337,7 +337,7 @@ describe("LinearTracker", () => {
     expect(server.getIssue("symphony-linear", 22).comments).not.toContain(
       "Symphony run finished and marked this issue handoff-ready.",
     );
-    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
   it("does not move a successful run backward from Done into Human Review", async () => {
@@ -519,7 +519,7 @@ describe("LinearTracker", () => {
     expect(lifecycle.kind).toBe("actionable-follow-up");
   });
 
-  it("maps Merging to awaiting-system-checks", async () => {
+  it("maps Merging to awaiting-landing-command", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",
       number: 15,
@@ -531,7 +531,7 @@ describe("LinearTracker", () => {
     const tracker = new LinearTracker(createConfig(server), new JsonLogger());
     const lifecycle = await tracker.inspectIssueHandoff("symphony/15");
 
-    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
   it("maps active states to missing-target before a handoff marker exists", async () => {

@@ -345,4 +345,33 @@ describe("factory status helpers", () => {
     expect(output).toContain("#12 Expose factory status [awaiting-landing]");
     expect(output).toContain("awaiting merge / landing");
   });
+
+  it("renders awaiting-landing-command issues distinctly", () => {
+    const output = renderFactoryStatusSnapshot(
+      createSnapshot({
+        lastAction: {
+          kind: "awaiting-landing-command",
+          summary:
+            "Pull request https://example.test/pr/12 is awaiting a human /land command",
+          at: "2026-03-06T12:00:00.000Z",
+          issueNumber: 12,
+        },
+        activeIssues: [
+          {
+            ...createSnapshot().activeIssues[0]!,
+            status: "awaiting-landing-command",
+            summary:
+              "Pull request https://example.test/pr/12 is awaiting a human /land command",
+            blockedReason:
+              "Pull request https://example.test/pr/12 is awaiting a human /land command",
+          },
+        ],
+      }),
+    );
+
+    expect(output).toContain(
+      "#12 Expose factory status [awaiting-landing-command]",
+    );
+    expect(output).toContain("awaiting a human /land command");
+  });
 });

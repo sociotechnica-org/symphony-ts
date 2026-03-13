@@ -127,7 +127,8 @@ from existing issue reports. They are written under:
 5. After plan approval, the agent implements the issue and opens a PR
 6. Symphony monitors CI and automated review feedback on the PR
 7. If CI fails or reviewers request changes, the agent pushes follow-up commits on the same branch
-8. When the PR is green, all feedback is resolved, and the merge is actually observed, Symphony comments on the issue and closes it
+8. When the PR is clean, Symphony waits for an explicit human landing signal such as a `/land` PR comment
+9. Symphony executes the landing path and comments on the issue and closes it only after merge is actually observed
 
 If a run fails, Symphony retries. After retries are exhausted, it marks the issue `symphony:failed`.
 
