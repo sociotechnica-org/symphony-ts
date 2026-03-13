@@ -124,12 +124,12 @@ Existing runner visibility states (`starting`, `running`, `waiting`, `completed`
 
 ## Failure-Class Matrix
 
-| Observed condition | Runtime facts available | TUI expectation |
-| --- | --- | --- |
-| Active run has no Codex event payloads and no `runnerVisibility.lastActionSummary`/`stdoutSummary` yet | running row exists, visibility is absent or silent | render `no codex message yet` |
-| Active run has `runnerVisibility.lastActionSummary` and recent heartbeat but no raw `lastCodexMessage` | normalized visibility proves live activity | render the visibility-derived event text, not the silent fallback |
-| Active run has `runnerVisibility.stdoutSummary` with Codex stdout preview such as `thread/started` | normalized visibility shows runner output preview | render the stdout/action-derived label and keep session details populated when available |
-| Active run has both raw Codex message payload and normalized visibility | both sources are present | prefer the normalized visibility fields when they carry newer or stronger live-state detail; preserve raw-message humanization as fallback |
+| Observed condition                                                                                     | Runtime facts available                            | TUI expectation                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Active run has no Codex event payloads and no `runnerVisibility.lastActionSummary`/`stdoutSummary` yet | running row exists, visibility is absent or silent | render `no codex message yet`                                                                                                              |
+| Active run has `runnerVisibility.lastActionSummary` and recent heartbeat but no raw `lastCodexMessage` | normalized visibility proves live activity         | render the visibility-derived event text, not the silent fallback                                                                          |
+| Active run has `runnerVisibility.stdoutSummary` with Codex stdout preview such as `thread/started`     | normalized visibility shows runner output preview  | render the stdout/action-derived label and keep session details populated when available                                                   |
+| Active run has both raw Codex message payload and normalized visibility                                | both sources are present                           | prefer the normalized visibility fields when they carry newer or stronger live-state detail; preserve raw-message humanization as fallback |
 
 ## Observability Requirements
 

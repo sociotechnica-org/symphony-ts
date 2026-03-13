@@ -333,10 +333,7 @@ describe("formatSnapshotContent", () => {
     const output = formatSnapshotContent(snapshot, 150.5, 120, "▁▂▃▄▅▆", nowMs);
 
     // Strip ANSI codes for easier inspection
-    const plain = output.replace(
-      /\x1b\[[0-9;]*m/g,
-      "",
-    );
+    const plain = output.replace(/\x1b\[[0-9;]*m/g, "");
     const lines = plain.split("\n");
 
     // --- Header section ---

@@ -540,12 +540,12 @@ function formatRunningRow(
     compactSessionId(resolveSessionDisplay(entry)),
     SESSION_WIDTH,
   );
-  const eventLabel = formatCell(
-    describeRunningEvent(entry),
-    eventWidth,
-  );
+  const eventLabel = formatCell(describeRunningEvent(entry), eventWidth);
 
-  const statusColor = statusDotColor(entry.lastCodexEvent, entry.runnerVisibility);
+  const statusColor = statusDotColor(
+    entry.lastCodexEvent,
+    entry.runnerVisibility,
+  );
 
   return (
     "│ " +
@@ -782,8 +782,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
                 backendThreadId: e.runnerVisibility.session.backendThreadId,
                 latestTurnId: e.runnerVisibility.session.latestTurnId,
                 appServerPid: e.runnerVisibility.session.appServerPid,
-                latestTurnNumber:
-                  e.runnerVisibility.session.latestTurnNumber,
+                latestTurnNumber: e.runnerVisibility.session.latestTurnNumber,
               },
               lastHeartbeatAt: e.runnerVisibility.lastHeartbeatAt,
               lastActionAt: e.runnerVisibility.lastActionAt,
@@ -1012,9 +1011,7 @@ function parseJsonObject(value: string): Record<string, unknown> | null {
   return null;
 }
 
-function extractEventType(
-  payload: Record<string, unknown>,
-): string | null {
+function extractEventType(payload: Record<string, unknown>): string | null {
   const method = getKey(payload, "method");
   if (typeof method === "string" && method.trim() !== "") {
     return method;
