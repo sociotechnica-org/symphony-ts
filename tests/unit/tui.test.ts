@@ -226,6 +226,143 @@ describe("formatSnapshotContent", () => {
     const output = formatSnapshotContent(null, 0);
     expect(output).toContain("Orchestrator snapshot unavailable");
   });
+
+  it("renders a realistic multi-agent frame with all TUI sections", () => {
+    const nowMs = Date.now();
+    const snapshot = makeSnapshot({
+      running: [
+        {
+          issueNumber: 9,
+          identifier: "#9",
+          issueState: "running",
+          startedAt: new Date(nowMs - 45_000), // 45s ago
+          retryAttempt: 1,
+          sessionId: "smoke-sess-001",
+          turnCount: 0,
+          codexTotalTokens: 6000,
+          codexInputTokens: 4000,
+          codexOutputTokens: 2000,
+          codexAppServerPid: 12345,
+          lastCodexEvent: "codex/event/reasoning",
+          lastCodexMessage: {
+            params: {
+              msg: {
+                payload: {
+                  type: "reasoning",
+                  text: "Analyzing the codebase step 5...",
+                },
+              },
+            },
+          },
+          lastCodexTimestamp: new Date().toISOString(),
+        },
+        {
+          issueNumber: 11,
+          identifier: "#11",
+          issueState: "running",
+          startedAt: new Date(nowMs - 30_000), // 30s ago
+          retryAttempt: 1,
+          sessionId: "smoke-sess-002",
+          turnCount: 1,
+          codexTotalTokens: 3600,
+          codexInputTokens: 2400,
+          codexOutputTokens: 1200,
+          codexAppServerPid: 12346,
+          lastCodexEvent: "codex/event/exec_command_begin",
+          lastCodexMessage: {
+            params: { msg: { payload: { type: "exec_command_begin", command: "git status" } } },
+          },
+          lastCodexTimestamp: new Date().toISOString(),
+        },
+      ],
+      retrying: [
+        {
+          issueNumber: 7,
+          identifier: "#7",
+          nextAttempt: 2,
+          dueInMs: 8_000,
+          lastError: "Runner exited with 1",
+        },
+      ],
+      codexTotals: {
+        inputTokens: 6400,
+        outputTokens: 3200,
+        totalTokens: 9600,
+        secondsRunning: 75,
+      },
+      maxConcurrentRuns: 3,
+      projectUrl: "https://github.com/sociotechnica-org/symphony-ts-test",
+    });
+
+    const output = formatSnapshotContent(snapshot, 150.5, 120, "▁▂▃▄▅▆", nowMs);
+
+    // Strip ANSI codes for easier inspection
+    const plain = output.replace(
+      // eslint-disable-next-line no-control-regex
+      /\x1b\[[0-9;]*m/g,
+      "",
+    );
+    const lines = plain.split("\n");
+
+    // --- Header section ---
+    expect(plain).toContain("SYMPHONY STATUS");
+    expect(plain).toContain("Agents:");
+    expect(plain).toMatch(/2.*\/.*3/); // 2 running / 3 max
+    expect(plain).toContain("150 tps"); // formatTps floors the value
+    expect(plain).toContain("▁▂▃▄▅▆"); // sparkline
+    expect(plain).toContain("1m 15s"); // 75s runtime
+    expect(plain).toContain("Tokens:");
+    expect(plain).toContain("6,400"); // input tokens
+    expect(plain).toContain("3,200"); // output tokens
+    expect(plain).toContain("9,600"); // total tokens
+    expect(plain).toContain("Project:");
+    expect(plain).toContain("symphony-ts-test");
+    expect(plain).toContain("Next refresh:");
+
+    // --- Running table ---
+    expect(plain).toContain("Running");
+    // Table headers
+    expect(plain).toContain("ID");
+    expect(plain).toContain("STAGE");
+    expect(plain).toContain("PID");
+    expect(plain).toContain("AGE / TURN");
+    expect(plain).toContain("TOKENS");
+    expect(plain).toContain("SESSION");
+    expect(plain).toContain("EVENT");
+
+    // Agent #9 row
+    expect(plain).toContain("#9");
+    expect(plain).toContain("12345"); // PID
+    expect(plain).toContain("6,000"); // tokens
+    expect(plain).toContain("smok...ss-001"); // compacted session ID
+
+    // Agent #11 row
+    expect(plain).toContain("#11");
+    expect(plain).toContain("12346");
+    expect(plain).toContain("3,600");
+
+    // --- Running rows show event column content ---
+    // Find the line containing #9 - it should have reasoning update
+    const agent9Line = lines.find((l) => l.includes("#9") && l.includes("12345"));
+    expect(agent9Line).toBeDefined();
+    expect(agent9Line).toContain("reasoning");
+
+    // Find the line containing #11 - it should show the command
+    const agent11Line = lines.find((l) => l.includes("#11") && l.includes("12346"));
+    expect(agent11Line).toBeDefined();
+    expect(agent11Line).toContain("git status");
+
+    // --- Backoff queue ---
+    expect(plain).toContain("Backoff queue");
+    expect(plain).toContain("#7");
+    expect(plain).toContain("attempt=2");
+    expect(plain).toContain("8s");
+    expect(plain).toContain("error=Runner exited with 1");
+
+    // --- Structure ---
+    expect(lines[0]).toContain("SYMPHONY STATUS");
+    expect(lines[lines.length - 1]).toContain("╰─");
+  });
 });
 
 // ─── humanizeEvent ────────────────────────────────────────────────────────────
