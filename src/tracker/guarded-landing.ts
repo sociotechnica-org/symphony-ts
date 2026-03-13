@@ -23,6 +23,15 @@ function formatPullRequest(snapshot: GuardedLandingSnapshot): string {
   return `pull request ${snapshot.pullRequest.url}`;
 }
 
+function checksBlockedLifecycleKind(
+  snapshot: GuardedLandingSnapshot,
+): "awaiting-system-checks" | "rework-required" {
+  return snapshot.failingCheckNames.length > 0 &&
+    snapshot.pendingCheckNames.length === 0
+    ? "rework-required"
+    : "awaiting-system-checks";
+}
+
 export function evaluateGuardedLanding(
   snapshot: GuardedLandingSnapshot,
 ): LandingRequestedResult | LandingBlockedResult {
@@ -79,7 +88,7 @@ export function evaluateGuardedLanding(
     return {
       kind: "blocked",
       reason: "checks-not-green",
-      lifecycleKind: "awaiting-system-checks",
+      lifecycleKind: checksBlockedLifecycleKind(snapshot),
       summary: `Landing blocked for ${formatPullRequest(snapshot)} because required checks are not terminal green.`,
     };
   }

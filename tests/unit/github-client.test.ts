@@ -26,6 +26,22 @@ describe("GitHubClient", () => {
     };
   }
 
+  function createClient(logger?: Logger): GitHubClient {
+    return new GitHubClient(
+      {
+        kind: "github-bootstrap",
+        repo: "sociotechnica-org/symphony-ts",
+        apiUrl: "https://example.invalid",
+        readyLabel: "symphony:ready",
+        runningLabel: "symphony:running",
+        failedLabel: "symphony:failed",
+        successComment: "done",
+        reviewBotLogins: ["greptile-apps", "cursor"],
+      },
+      logger,
+    );
+  }
+
   it("does not duplicate exhausted review data while another stream paginates", async () => {
     const requests: Array<{
       includeComments: boolean;
@@ -174,16 +190,7 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient({
-      kind: "github-bootstrap",
-      repo: "sociotechnica-org/symphony-ts",
-      apiUrl: "https://example.invalid",
-      readyLabel: "symphony:ready",
-      runningLabel: "symphony:running",
-      failedLabel: "symphony:failed",
-      successComment: "done",
-      reviewBotLogins: ["greptile-apps", "cursor"],
-    });
+    const client = createClient();
 
     const result = await client.getPullRequestReviewState(23);
 
@@ -238,16 +245,7 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient({
-      kind: "github-bootstrap",
-      repo: "sociotechnica-org/symphony-ts",
-      apiUrl: "https://example.invalid",
-      readyLabel: "symphony:ready",
-      runningLabel: "symphony:running",
-      failedLabel: "symphony:failed",
-      successComment: "done",
-      reviewBotLogins: ["greptile-apps", "cursor"],
-    });
+    const client = createClient();
 
     await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
       kind: "accepted",
@@ -272,19 +270,28 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient({
-      kind: "github-bootstrap",
-      repo: "sociotechnica-org/symphony-ts",
-      apiUrl: "https://example.invalid",
-      readyLabel: "symphony:ready",
-      runningLabel: "symphony:running",
-      failedLabel: "symphony:failed",
-      successComment: "done",
-      reviewBotLogins: ["greptile-apps", "cursor"],
-    });
+    const client = createClient();
 
     await expect(client.getIssue(23)).rejects.toThrow(
       /returned no json payload/i,
+    );
+  });
+
+  it("includes the raw response body when a 2xx REST response is non-JSON", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("<html>proxy error</html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = createClient();
+
+    await expect(client.getIssue(23)).rejects.toThrow(
+      'GitHub API GET /repos/sociotechnica-org/symphony-ts/issues/23 returned no JSON payload (body: "<html>proxy error</html>")',
     );
   });
 
@@ -316,16 +323,7 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient({
-      kind: "github-bootstrap",
-      repo: "sociotechnica-org/symphony-ts",
-      apiUrl: "https://example.invalid",
-      readyLabel: "symphony:ready",
-      runningLabel: "symphony:running",
-      failedLabel: "symphony:failed",
-      successComment: "done",
-      reviewBotLogins: ["greptile-apps", "cursor"],
-    });
+    const client = createClient();
 
     await expect(client.mergePullRequest(23, "head-sha-23")).rejects.toThrow(
       /failed with 500/i,
@@ -363,19 +361,7 @@ describe("GitHubClient", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const client = new GitHubClient(
-      {
-        kind: "github-bootstrap",
-        repo: "sociotechnica-org/symphony-ts",
-        apiUrl: "https://example.invalid",
-        readyLabel: "symphony:ready",
-        runningLabel: "symphony:running",
-        failedLabel: "symphony:failed",
-        successComment: "done",
-        reviewBotLogins: ["greptile-apps", "cursor"],
-      },
-      logger,
-    );
+    const client = createClient(logger);
 
     await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
       kind: "accepted",

@@ -785,7 +785,7 @@ export class GitHubClient {
     }
     if (response.payload === null) {
       throw new TrackerError(
-        `GitHub API ${method} ${path} returned no JSON payload`,
+        `GitHub API ${method} ${path} returned no JSON payload (body: ${JSON.stringify(response.text.slice(0, 200))})`,
       );
     }
 

@@ -660,6 +660,36 @@ describe("GitHubBootstrapTracker", () => {
     });
   });
 
+  it("treats failed required checks as rework-required during landing", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "failure" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "rework-required",
+    });
+  });
+
   it("refuses landing when the pull request is not mergeable", async () => {
     const tracker = createTracker(server);
 

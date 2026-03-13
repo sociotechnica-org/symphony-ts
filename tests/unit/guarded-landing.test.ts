@@ -68,7 +68,21 @@ describe("evaluateGuardedLanding", () => {
     expect(result).toMatchObject({
       kind: "blocked",
       reason: "checks-not-green",
-      lifecycleKind: "awaiting-system-checks",
+      lifecycleKind: "rework-required",
+    });
+  });
+
+  it("treats failed terminal checks as rework-required", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        failingCheckNames: ["CI"],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "rework-required",
     });
   });
 
