@@ -107,6 +107,7 @@ export interface TuiRunningEntry {
   readonly lastCodexEvent: string | null;
   readonly lastCodexMessage: unknown;
   readonly lastCodexTimestamp: string | null;
+  readonly runnerVisibility: RunnerVisibilitySnapshot | null;
 }
 
 export interface TuiRetryEntry {
@@ -207,6 +208,9 @@ export class BootstrapOrchestrator implements Orchestrator {
         lastCodexEvent: entry.lastCodexEvent,
         lastCodexMessage: entry.lastCodexMessage,
         lastCodexTimestamp: entry.lastCodexTimestamp,
+        runnerVisibility:
+          this.#state.status.activeIssues.get(entry.issueNumber)
+            ?.runnerVisibility ?? null,
       });
     }
     running.sort((a, b) => a.identifier.localeCompare(b.identifier));
