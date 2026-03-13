@@ -71,12 +71,10 @@ describe("watchFactory", () => {
   });
 
   it("removes its own signal handlers when interrupted", async () => {
-    const onSignal = vi.fn<
-      (signal: NodeJS.Signals, listener: () => void) => void
-    >();
-    const offSignal = vi.fn<
-      (signal: NodeJS.Signals, listener: () => void) => void
-    >();
+    const onSignal =
+      vi.fn<(signal: NodeJS.Signals, listener: () => void) => void>();
+    const offSignal =
+      vi.fn<(signal: NodeJS.Signals, listener: () => void) => void>();
     let stop: (() => void) | undefined;
 
     onSignal.mockImplementation((signal, listener) => {

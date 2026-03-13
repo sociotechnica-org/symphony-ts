@@ -152,13 +152,13 @@ Healthy waiting vs broken behavior:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Snapshot facts available | Expected decision |
-| --- | --- | --- | --- |
-| Detached runtime is healthy and watch starts normally | watch client pid only; existing `screen`/worker process tree remains untouched | readable control snapshot with `running` state | render live watch view; `Ctrl-C` stops only the watch client |
-| Detached runtime is stopped before watch starts | no session/process tree | stopped or missing snapshot | render stopped/degraded state as today; watch keeps polling until operator exits |
-| Detached runtime is degraded while watching | existing control problems from process/snapshot inspection | degraded control snapshot | render degraded state; watch exits non-zero only if the command contract chooses to on normal completion, not on interrupt |
-| Operator presses `Ctrl-C` while watching | watch client receives `SIGINT`; detached worker remains a separate process tree | last rendered snapshot unchanged until next launch of watch/status | stop the watch loop and exit cleanly without calling `stopFactory()` or signaling worker pids |
-| Watch render/read hits a transient inspection error | error from control inspection | snapshot unavailable or unreadable | render/report the current control error using the existing control semantics; keep the failure isolated to the watch client |
+| Observed condition                                    | Local facts available                                                           | Snapshot facts available                                           | Expected decision                                                                                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Detached runtime is healthy and watch starts normally | watch client pid only; existing `screen`/worker process tree remains untouched  | readable control snapshot with `running` state                     | render live watch view; `Ctrl-C` stops only the watch client                                                                |
+| Detached runtime is stopped before watch starts       | no session/process tree                                                         | stopped or missing snapshot                                        | render stopped/degraded state as today; watch keeps polling until operator exits                                            |
+| Detached runtime is degraded while watching           | existing control problems from process/snapshot inspection                      | degraded control snapshot                                          | render degraded state; watch exits non-zero only if the command contract chooses to on normal completion, not on interrupt  |
+| Operator presses `Ctrl-C` while watching              | watch client receives `SIGINT`; detached worker remains a separate process tree | last rendered snapshot unchanged until next launch of watch/status | stop the watch loop and exit cleanly without calling `stopFactory()` or signaling worker pids                               |
+| Watch render/read hits a transient inspection error   | error from control inspection                                                   | snapshot unavailable or unreadable                                 | render/report the current control error using the existing control semantics; keep the failure isolated to the watch client |
 
 ## Storage / Persistence Contract
 

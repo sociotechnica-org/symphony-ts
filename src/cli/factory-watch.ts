@@ -18,27 +18,22 @@ export interface FactoryWatchDeps {
   readonly isStdoutTTY?: () => boolean;
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly clearScreen?: () => string;
-  readonly onSignal?: (
-    signal: NodeJS.Signals,
-    listener: () => void,
-  ) => void;
-  readonly offSignal?: (
-    signal: NodeJS.Signals,
-    listener: () => void,
-  ) => void;
+  readonly onSignal?: (signal: NodeJS.Signals, listener: () => void) => void;
+  readonly offSignal?: (signal: NodeJS.Signals, listener: () => void) => void;
 }
 
-export async function watchFactory(
-  deps: FactoryWatchDeps = {},
-): Promise<void> {
+export async function watchFactory(deps: FactoryWatchDeps = {}): Promise<void> {
   const inspect = deps.inspectFactoryControl ?? inspectFactoryControl;
   const render = deps.renderFactoryControlStatus ?? renderFactoryControlStatus;
-  const writeStdout = deps.writeStdout ?? ((chunk: string) => process.stdout.write(chunk));
+  const writeStdout =
+    deps.writeStdout ?? ((chunk: string) => process.stdout.write(chunk));
   const isStdoutTTY = deps.isStdoutTTY ?? (() => process.stdout.isTTY);
   const sleep = deps.sleep ?? sleepWithAbort;
   const clearScreen = deps.clearScreen ?? defaultClearScreen;
-  const onSignal = deps.onSignal ?? ((signal, listener) => process.on(signal, listener));
-  const offSignal = deps.offSignal ?? ((signal, listener) => process.off(signal, listener));
+  const onSignal =
+    deps.onSignal ?? ((signal, listener) => process.on(signal, listener));
+  const offSignal =
+    deps.offSignal ?? ((signal, listener) => process.off(signal, listener));
 
   const abortController = new AbortController();
   const stopWatching = (): void => {
@@ -92,10 +87,7 @@ export function defaultClearScreen(): string {
   return "\x1b[2J\x1b[H";
 }
 
-async function sleepWithAbort(
-  ms: number,
-  signal: AbortSignal,
-): Promise<void> {
+async function sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) {
     throw createAbortError();
   }

@@ -96,9 +96,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     }
     if (action === "watch") {
       if (args.includes("--json")) {
-        throw new Error(
-          "Usage: symphony factory watch",
-        );
+        throw new Error("Usage: symphony factory watch");
       }
       return {
         command: "factory",
