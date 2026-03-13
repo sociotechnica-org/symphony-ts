@@ -113,7 +113,7 @@ Accepted first-line review markers are:
 
 Use this exact reply-template block in the `plan-ready` comment:
 
-````md
+
 ```md
 Plan review: approved
 
@@ -157,4 +157,3 @@ Summary
 
 - Plan review is waived; proceed to implementation.
 ```
-````
