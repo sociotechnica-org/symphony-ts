@@ -270,7 +270,11 @@ describe("formatSnapshotContent", () => {
           codexAppServerPid: 12346,
           lastCodexEvent: "codex/event/exec_command_begin",
           lastCodexMessage: {
-            params: { msg: { payload: { type: "exec_command_begin", command: "git status" } } },
+            params: {
+              msg: {
+                payload: { type: "exec_command_begin", command: "git status" },
+              },
+            },
           },
           lastCodexTimestamp: new Date().toISOString(),
         },
@@ -343,12 +347,16 @@ describe("formatSnapshotContent", () => {
 
     // --- Running rows show event column content ---
     // Find the line containing #9 - it should have reasoning update
-    const agent9Line = lines.find((l) => l.includes("#9") && l.includes("12345"));
+    const agent9Line = lines.find(
+      (l) => l.includes("#9") && l.includes("12345"),
+    );
     expect(agent9Line).toBeDefined();
     expect(agent9Line).toContain("reasoning");
 
     // Find the line containing #11 - it should show the command
-    const agent11Line = lines.find((l) => l.includes("#11") && l.includes("12346"));
+    const agent11Line = lines.find(
+      (l) => l.includes("#11") && l.includes("12346"),
+    );
     expect(agent11Line).toBeDefined();
     expect(agent11Line).toContain("git status");
 
