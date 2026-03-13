@@ -6,6 +6,7 @@ import {
   collectDescendantProcessIds,
   inspectFactoryControl,
   parsePsOutput,
+  parseScreenLsFailureOutput,
   parseScreenLsOutput,
   renderFactoryControlStatus,
   resolveFactoryPaths,
@@ -194,6 +195,37 @@ describe("process parsing helpers", () => {
     expect(
       parseScreenLsOutput(
         "There is a screen on:\n\t1234.symphony-factory\t(Detached)\n1 Socket in /tmp/screens.\n",
+      ),
+    ).toEqual([
+      {
+        id: "1234.symphony-factory",
+        pid: 1234,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ]);
+  });
+
+  it("parses date-stamped screen -ls output", () => {
+    expect(
+      parseScreenLsOutput(
+        "There is a screen on:\n\t1234.symphony-factory\t(03/13/26 12:00:00)\t(Detached)\n1 Socket in /tmp/screens.\n",
+      ),
+    ).toEqual([
+      {
+        id: "1234.symphony-factory",
+        pid: 1234,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ]);
+  });
+
+  it("parses screen -ls stdout from a non-zero exit when a session list is present", () => {
+    expect(
+      parseScreenLsFailureOutput(
+        "There is a screen on:\n\t1234.symphony-factory\t(03/13/26 12:00:00)\t(Detached)\n1 Socket in /tmp/screens.\n",
+        "",
       ),
     ).toEqual([
       {

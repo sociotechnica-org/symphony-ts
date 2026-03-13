@@ -272,7 +272,9 @@ export function parseScreenLsOutput(
 ): readonly ScreenSessionSnapshot[] {
   const sessions: ScreenSessionSnapshot[] = [];
   for (const line of output.split(/\r?\n/)) {
-    const match = /^\s*(\d+)\.([^\s]+)\s+\(([^)]+)\)\s*$/.exec(line);
+    const match = /^\s*(\d+)\.([^\s]+)(?:\s+\([^)]+\))*\s+\(([^)]+)\)\s*$/.exec(
+      line,
+    );
     if (!match) {
       continue;
     }
@@ -284,6 +286,21 @@ export function parseScreenLsOutput(
     });
   }
   return sessions;
+}
+
+export function parseScreenLsFailureOutput(
+  stdout: string,
+  stderr: string,
+): readonly ScreenSessionSnapshot[] | null {
+  if (
+    stdout.includes("No Sockets found") ||
+    stderr.includes("No Sockets found")
+  ) {
+    return [];
+  }
+
+  const sessions = parseScreenLsOutput(stdout);
+  return sessions.length > 0 ? sessions : null;
 }
 
 export function collectDescendantProcessIds(
@@ -600,11 +617,9 @@ async function defaultListScreenSessions(): Promise<
   } catch (error) {
     const stdout = String((error as { stdout?: string }).stdout ?? "");
     const stderr = String((error as { stderr?: string }).stderr ?? "");
-    if (
-      stdout.includes("No Sockets found") ||
-      stderr.includes("No Sockets found")
-    ) {
-      return [];
+    const sessions = parseScreenLsFailureOutput(stdout, stderr);
+    if (sessions !== null) {
+      return sessions;
     }
     throw error;
   }
