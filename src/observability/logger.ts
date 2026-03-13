@@ -19,9 +19,10 @@ function write(
   message: string,
   data?: Record<string, unknown>,
 ): void {
-  // While the TUI is rendering, suppress non-error logs entirely — both
-  // stdout and stderr would flash on-screen between TUI frames.
-  if (tuiActive && level !== "error") return;
+  // While the TUI is rendering, suppress all log output — both stdout and
+  // stderr render to the same terminal and would flash between TUI frames.
+  // Error state is visible in the TUI's backoff queue.
+  if (tuiActive) return;
 
   const entry = {
     timestamp: new Date().toISOString(),
