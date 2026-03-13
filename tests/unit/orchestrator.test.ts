@@ -1407,6 +1407,8 @@ describe("BootstrapOrchestrator", () => {
             error:
               "Error: Cannot execute landing without a pull request handle",
             pullRequest: null,
+            summary:
+              "Landing request failed for sociotechnica-org/symphony-ts#74: Error: Cannot execute landing without a pull request handle",
             lifecycleKind: "attempt-failed",
           }),
         }),
@@ -1606,6 +1608,8 @@ describe("BootstrapOrchestrator", () => {
           details: expect.objectContaining({
             success: false,
             error: "Error: merge temporarily blocked",
+            summary:
+              "Landing request failed for sociotechnica-org/symphony-ts#73: Error: merge temporarily blocked",
             lifecycleKind: "attempt-failed",
           }),
         }),

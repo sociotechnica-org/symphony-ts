@@ -2178,7 +2178,11 @@ export class BootstrapOrchestrator implements Orchestrator {
               success: error === null && !isBlocked,
               error,
               reason: isBlocked ? result.reason : null,
-              summary: isBlocked ? result.summary : null,
+              summary: isFailed
+                ? `Landing request failed for ${issue.identifier}: ${error}`
+                : isBlocked
+                  ? result.summary
+                  : null,
               lifecycleKind: isFailed
                 ? "attempt-failed"
                 : isBlocked

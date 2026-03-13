@@ -431,6 +431,9 @@ describe("Phase 1.2 PR lifecycle factory", () => {
         details: expect.objectContaining({
           success: false,
           lifecycleKind: "attempt-failed",
+          summary: expect.stringContaining(
+            "Landing request failed for sociotechnica-org/symphony-ts#81",
+          ),
           error: expect.stringContaining("merge temporarily blocked"),
         }),
       }),
