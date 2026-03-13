@@ -975,6 +975,19 @@ function buildTimelineEntry(
         sessionId: event.sessionId,
         details: formatEventDetails(event.details),
       };
+    case "landing-blocked":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Landing blocked",
+        summary: readEventSummary(
+          event.details,
+          "Symphony refused to land the current pull request.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
     case "landing-requested":
       return {
         kind: event.kind,
@@ -1388,16 +1401,18 @@ function timelineKindOrder(kind: string): number {
       return 4;
     case "pr-opened":
       return 5;
-    case "landing-requested":
+    case "landing-blocked":
       return 6;
-    case "review-feedback":
+    case "landing-requested":
       return 7;
-    case "retry-scheduled":
+    case "review-feedback":
       return 8;
+    case "retry-scheduled":
+      return 9;
     case "succeeded":
     case "failed":
     case "terminal-outcome":
-      return 9;
+      return 10;
     default:
       return 99;
   }
@@ -1424,6 +1439,10 @@ function inferOutcomeFromEvents(
         return (
           readLifecycleKindFromDetails(event.details) ??
           "awaiting-system-checks"
+        );
+      case "landing-blocked":
+        return (
+          readLifecycleKindFromDetails(event.details) ?? "awaiting-landing"
         );
       case "landing-requested":
         return "awaiting-landing";

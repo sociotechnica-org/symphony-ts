@@ -161,16 +161,16 @@ This issue does not introduce a new top-level handoff state. It tightens transit
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| PR head changed after `/land` approval | current head SHA from lifecycle | guarded snapshot no longer matches approved head | reject landing, re-enter normal lifecycle inspection |
-| Required checks pending | no landing attempt active | merge gate shows pending or non-terminal checks | do not merge; remain `awaiting-system-checks` |
-| Required checks failed | no landing attempt active | merge gate shows failing terminal checks | do not merge; lifecycle returns to follow-up path |
-| Unresolved non-outdated human review threads remain | no landing attempt active | merge gate unresolved thread count > 0 | do not merge; remain blocked on human review |
-| Only outdated or resolved threads remain | no landing attempt active | merge gate unresolved thread count = 0 | gate may open if other requirements pass |
-| GitHub reports PR not mergeable / merge blocked | no landing attempt active | mergeability fact is negative or unknown | do not merge; fail closed with explicit reason |
-| Merge request succeeds but PR remains open | landing request recorded | lifecycle still `awaiting-landing` | keep waiting; do not complete |
-| GitHub merge request returns conflict / branch protection / refusal | landing request attempted | merge gate or merge API returns refusal reason | record blocked landing result and stay non-terminal |
+| Observed condition                                                  | Local facts available           | Normalized tracker facts available               | Expected decision                                    |
+| ------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| PR head changed after `/land` approval                              | current head SHA from lifecycle | guarded snapshot no longer matches approved head | reject landing, re-enter normal lifecycle inspection |
+| Required checks pending                                             | no landing attempt active       | merge gate shows pending or non-terminal checks  | do not merge; remain `awaiting-system-checks`        |
+| Required checks failed                                              | no landing attempt active       | merge gate shows failing terminal checks         | do not merge; lifecycle returns to follow-up path    |
+| Unresolved non-outdated human review threads remain                 | no landing attempt active       | merge gate unresolved thread count > 0           | do not merge; remain blocked on human review         |
+| Only outdated or resolved threads remain                            | no landing attempt active       | merge gate unresolved thread count = 0           | gate may open if other requirements pass             |
+| GitHub reports PR not mergeable / merge blocked                     | no landing attempt active       | mergeability fact is negative or unknown         | do not merge; fail closed with explicit reason       |
+| Merge request succeeds but PR remains open                          | landing request recorded        | lifecycle still `awaiting-landing`               | keep waiting; do not complete                        |
+| GitHub merge request returns conflict / branch protection / refusal | landing request attempted       | merge gate or merge API returns refusal reason   | record blocked landing result and stay non-terminal  |
 
 ## Storage / Persistence Contract
 

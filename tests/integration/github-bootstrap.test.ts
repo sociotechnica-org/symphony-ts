@@ -428,13 +428,15 @@ describe("GitHubBootstrapTracker", () => {
       createdAt: new Date(Date.now() + 1_000).toISOString(),
       body: "/land",
     });
-    await tracker.executeLanding({
-      number: 1,
-      url: `${server.baseUrl}/pulls/1`,
-      branchName: "symphony/7",
-      headSha: openLifecycle.pullRequest?.headSha ?? null,
-      latestCommitAt: openLifecycle.pullRequest?.latestCommitAt ?? null,
-    });
+    await expect(
+      tracker.executeLanding({
+        number: 1,
+        url: `${server.baseUrl}/pulls/1`,
+        branchName: "symphony/7",
+        headSha: openLifecycle.pullRequest?.headSha ?? null,
+        latestCommitAt: openLifecycle.pullRequest?.latestCommitAt ?? null,
+      }),
+    ).resolves.toMatchObject({ kind: "requested" });
 
     const mergedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
     expect(mergedLifecycle.kind).toBe("handoff-ready");
@@ -468,7 +470,9 @@ describe("GitHubBootstrapTracker", () => {
     const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
     expect(approvedLifecycle.kind).toBe("awaiting-landing");
 
-    await tracker.executeLanding(approvedLifecycle.pullRequest!);
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({ kind: "requested" });
 
     const mergedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
     expect(mergedLifecycle.kind).toBe("handoff-ready");
@@ -502,10 +506,118 @@ describe("GitHubBootstrapTracker", () => {
 
     await expect(
       tracker.executeLanding(approvedLifecycle.pullRequest!),
-    ).rejects.toThrow(/head sha does not match/i);
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "stale-approved-head",
+      lifecycleKind: "awaiting-landing-command",
+    });
 
     const refreshed = await tracker.inspectIssueHandoff("symphony/7");
     expect(refreshed.kind).toBe("awaiting-system-checks");
+  });
+
+  it("refuses landing when unresolved non-outdated review threads remain", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+    server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: "reviewer",
+      body: "Please address this before merge",
+      path: "src/index.ts",
+      line: 10,
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "review-threads-unresolved",
+      lifecycleKind: "awaiting-human-review",
+    });
+
+    const refreshed = await tracker.inspectIssueHandoff("symphony/7");
+    expect(refreshed.kind).toBe("awaiting-human-review");
+  });
+
+  it("refuses landing when required checks are not terminal green", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "in_progress" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "awaiting-system-checks",
+    });
+  });
+
+  it("refuses landing when the pull request is not mergeable", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.setPullRequestMergeGate("symphony/7", {
+      mergeable: false,
+      mergeableState: "blocked",
+    });
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+
+    const approvedLifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    await expect(
+      tracker.executeLanding(approvedLifecycle.pullRequest!),
+    ).resolves.toMatchObject({
+      kind: "blocked",
+      reason: "pull-request-not-mergeable",
+      lifecycleKind: "awaiting-landing",
+    });
   });
 
   it("targets the latest open pull request when the same branch is reopened", async () => {

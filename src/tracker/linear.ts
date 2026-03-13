@@ -3,7 +3,7 @@ import type { RuntimeIssue } from "../domain/issue.js";
 import { TrackerError } from "../domain/errors.js";
 import type { LinearTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import type { Tracker } from "./service.js";
+import type { LandingExecutionResult, Tracker } from "./service.js";
 import { LinearClient } from "./linear-client.js";
 import {
   classifyLinearIssue,
@@ -191,7 +191,9 @@ export class LinearTracker implements Tracker {
     return createLinearHandoffLifecycle(updatedIssue, branchName, this.#config);
   }
 
-  executeLanding(_pullRequest: PullRequestHandle): Promise<void> {
+  executeLanding(
+    _pullRequest: PullRequestHandle,
+  ): Promise<LandingExecutionResult> {
     return Promise.reject(
       new TrackerError(
         "Linear landing execution is not implemented in this tracker",

@@ -51,8 +51,11 @@ export interface GitHubPullRequestResponse extends GitHubPullRequestListResponse
   readonly mergedAt: string | null;
 }
 
-interface GitHubPullRequestDetailsResponse {
+export interface GitHubPullRequestDetailsResponse extends GitHubPullRequestListResponse {
   readonly merged_at: string | null;
+  readonly mergeable: boolean | null;
+  readonly mergeable_state: string | null;
+  readonly draft: boolean;
 }
 
 interface GitHubRepositoryResponse {
@@ -172,6 +175,22 @@ export interface PullRequestReviewState {
 }
 
 type GitHubMergeMethod = "merge" | "squash" | "rebase";
+
+export interface GitHubMergeRequestBlockedResult {
+  readonly kind: "blocked";
+  readonly status: number;
+  readonly message: string;
+}
+
+export interface GitHubMergeRequestAcceptedResult {
+  readonly kind: "accepted";
+  readonly merged: boolean;
+  readonly message: string;
+}
+
+export type GitHubMergeRequestResult =
+  | GitHubMergeRequestBlockedResult
+  | GitHubMergeRequestAcceptedResult;
 
 const NULL_LOGGER: Logger = {
   info() {},
@@ -462,15 +481,50 @@ export class GitHubClient {
   async mergePullRequest(
     number: number,
     headSha: string | null,
-  ): Promise<void> {
+  ): Promise<GitHubMergeRequestResult> {
     const mergeMethod = await this.#getMergeMethod();
-    await this.#request(
-      "PUT",
-      this.#issuePath(`pulls/${number.toString()}/merge`),
-      {
-        ...(headSha === null ? {} : { sha: headSha }),
-        merge_method: mergeMethod,
-      },
+    const response = await this.#requestDetailed<{
+      merged?: unknown;
+      message?: unknown;
+    }>("PUT", this.#issuePath(`pulls/${number.toString()}/merge`), {
+      ...(headSha === null ? {} : { sha: headSha }),
+      merge_method: mergeMethod,
+    });
+    if (
+      response.status === 405 ||
+      response.status === 409 ||
+      response.status === 422
+    ) {
+      return {
+        kind: "blocked",
+        status: response.status,
+        message:
+          typeof response.payload?.message === "string"
+            ? response.payload.message
+            : `merge request blocked with ${response.status.toString()}`,
+      };
+    }
+    if (response.status < 200 || response.status >= 300) {
+      throw new TrackerError(
+        `GitHub API PUT ${this.#issuePath(`pulls/${number.toString()}/merge`)} failed with ${response.status}: ${response.text}`,
+      );
+    }
+    return {
+      kind: "accepted",
+      merged: response.payload?.merged === true,
+      message:
+        typeof response.payload?.message === "string"
+          ? response.payload.message
+          : "landing request accepted",
+    };
+  }
+
+  async getPullRequest(
+    number: number,
+  ): Promise<GitHubPullRequestDetailsResponse> {
+    return await this.#request<GitHubPullRequestDetailsResponse>(
+      "GET",
+      this.#issuePath(`pulls/${number.toString()}`),
     );
   }
 
@@ -722,6 +776,26 @@ export class GitHubClient {
   }
 
   async #request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const response = await this.#requestDetailed<T>(method, path, body);
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new TrackerError(
+        `GitHub API ${method} ${path} failed with ${response.status}: ${response.text}`,
+      );
+    }
+
+    return response.payload as T;
+  }
+
+  async #requestDetailed<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<{
+    readonly status: number;
+    readonly payload: T | null;
+    readonly text: string;
+  }> {
     const token = await this.#tokenPromise;
     const requestInit: RequestInit = {
       method,
@@ -736,22 +810,24 @@ export class GitHubClient {
       requestInit.body = JSON.stringify(body);
     }
     const response = await fetch(`${this.#config.apiUrl}${path}`, requestInit);
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new TrackerError(
-        `GitHub API ${method} ${path} failed with ${response.status}: ${text}`,
-      );
+    const text = await response.text();
+    let payload: T | null = null;
+    if (text.trim() !== "") {
+      try {
+        payload = (JSON.parse(text) as T) ?? null;
+      } catch {
+        payload = null;
+      }
     }
-
-    return (await response.json()) as T;
+    return {
+      status: response.status,
+      payload,
+      text,
+    };
   }
 
   async #getPullRequestMergedAt(number: number): Promise<string | null> {
-    const pullRequest = await this.#request<GitHubPullRequestDetailsResponse>(
-      "GET",
-      this.#issuePath(`pulls/${number.toString()}`),
-    );
+    const pullRequest = await this.getPullRequest(number);
     return pullRequest.merged_at;
   }
 

@@ -40,6 +40,7 @@ import type {
   RunnerTurnResult,
 } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
+import type { LandingExecutionResult } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
 import {
   createContinuationRunTurn,
@@ -544,6 +545,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#persistStatusSnapshot();
 
     let landingError: string | null = null;
+    let landingResult: LandingExecutionResult | null = null;
     try {
       noteLandingAttempt(
         this.#state.landing,
@@ -553,7 +555,17 @@ export class BootstrapOrchestrator implements Orchestrator {
       if (lifecycle.pullRequest === null) {
         throw new Error("Cannot execute landing without a pull request handle");
       }
-      await this.#tracker.executeLanding(lifecycle.pullRequest);
+      landingResult = await this.#tracker.executeLanding(lifecycle.pullRequest);
+      if (landingResult.kind === "blocked") {
+        this.#logger.info("Landing blocked by guard", {
+          issueNumber: issue.number,
+          branchName,
+          pullRequestNumber: lifecycle.pullRequest.number,
+          reason: landingResult.reason,
+          lifecycleKind: landingResult.lifecycleKind,
+          summary: landingResult.summary,
+        });
+      }
     } catch (error) {
       landingError = this.#normalizeFailure(error as Error);
       this.#logger.warn("Landing execution failed", {
@@ -570,6 +582,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName,
         lifecycle,
         observedAt,
+        landingResult,
         landingError,
       ),
     );
@@ -586,7 +599,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       return;
     }
 
-    if (refreshedLifecycle.kind !== "awaiting-landing") {
+    if (
+      landingResult?.kind === "blocked" ||
+      refreshedLifecycle.kind !== "awaiting-landing"
+    ) {
       clearLandingRuntimeState(this.#state.landing, issue.number);
     }
 
@@ -601,9 +617,39 @@ export class BootstrapOrchestrator implements Orchestrator {
       branchName,
       refreshedLifecycle,
     );
+    if (landingResult?.kind === "blocked") {
+      upsertActiveIssue(this.#state.status, issue, {
+        source,
+        runSequence: attempt,
+        branchName,
+        status:
+          refreshedLifecycle.kind === "rework-required"
+            ? "rework-required"
+            : refreshedLifecycle.kind === "awaiting-human-review"
+              ? "awaiting-human-review"
+              : refreshedLifecycle.kind === "awaiting-system-checks"
+                ? "awaiting-system-checks"
+                : refreshedLifecycle.kind === "awaiting-landing-command"
+                  ? "awaiting-landing-command"
+                  : "awaiting-landing",
+        summary: refreshedLifecycle.summary,
+        blockedReason: landingResult.summary,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "landing-blocked",
+        summary: landingResult.summary,
+        issueNumber: issue.number,
+      });
+    }
     noteStatusAction(this.#state.status, {
-      kind: refreshedLifecycle.kind,
-      summary: refreshedLifecycle.summary,
+      kind:
+        landingResult?.kind === "blocked"
+          ? "landing-blocked"
+          : refreshedLifecycle.kind,
+      summary:
+        landingResult?.kind === "blocked"
+          ? landingResult.summary
+          : refreshedLifecycle.summary,
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
@@ -1899,37 +1945,50 @@ export class BootstrapOrchestrator implements Orchestrator {
     branchName: string,
     lifecycle: HandoffLifecycle,
     observedAt: string,
+    result: LandingExecutionResult | null,
     error: string | null,
   ): IssueArtifactObservation {
+    const isBlocked = result?.kind === "blocked";
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
         observedAt,
-        outcome: "awaiting-landing",
+        outcome: isBlocked ? result.lifecycleKind : "awaiting-landing",
         summary:
-          error === null
-            ? `Landing requested for ${issue.identifier}`
-            : `Landing request failed for ${issue.identifier}: ${error}`,
+          error !== null
+            ? `Landing request failed for ${issue.identifier}: ${error}`
+            : isBlocked
+              ? result.summary
+              : `Landing requested for ${issue.identifier}`,
         branchName,
         latestAttemptNumber: attempt,
       }),
       events: [
-        this.#createIssueEvent("landing-requested", issue, {
-          observedAt,
-          attemptNumber: attempt,
-          details: {
-            branch: branchName,
-            pullRequest:
-              lifecycle.pullRequest === null
-                ? null
-                : {
-                    number: lifecycle.pullRequest.number,
-                    url: lifecycle.pullRequest.url,
-                    headSha: lifecycle.pullRequest.headSha,
-                  },
-            success: error === null,
-            error,
+        this.#createIssueEvent(
+          isBlocked ? "landing-blocked" : "landing-requested",
+          issue,
+          {
+            observedAt,
+            attemptNumber: attempt,
+            details: {
+              branch: branchName,
+              pullRequest:
+                lifecycle.pullRequest === null
+                  ? null
+                  : {
+                      number: lifecycle.pullRequest.number,
+                      url: lifecycle.pullRequest.url,
+                      headSha: lifecycle.pullRequest.headSha,
+                    },
+              success: error === null && !isBlocked,
+              error,
+              reason: isBlocked ? result.reason : null,
+              summary: isBlocked ? result.summary : null,
+              lifecycleKind: isBlocked
+                ? result.lifecycleKind
+                : "awaiting-landing",
+            },
           },
-        }),
+        ),
       ],
     };
   }

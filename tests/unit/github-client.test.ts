@@ -249,7 +249,11 @@ describe("GitHubClient", () => {
       reviewBotLogins: ["greptile-apps", "cursor"],
     });
 
-    await client.mergePullRequest(23, "head-sha-23");
+    await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
+      kind: "accepted",
+      merged: false,
+      message: "landing request accepted",
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[1]).toBeDefined();
@@ -305,9 +309,11 @@ describe("GitHubClient", () => {
     await expect(client.mergePullRequest(23, "head-sha-23")).rejects.toThrow(
       /failed with 500/i,
     );
-    await expect(
-      client.mergePullRequest(23, "head-sha-23"),
-    ).resolves.toBeUndefined();
+    await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
+      kind: "accepted",
+      merged: false,
+      message: "landing request accepted",
+    });
     expect(repositoryRequests).toBe(2);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
@@ -350,7 +356,11 @@ describe("GitHubClient", () => {
       logger,
     );
 
-    await client.mergePullRequest(23, "head-sha-23");
+    await expect(client.mergePullRequest(23, "head-sha-23")).resolves.toEqual({
+      kind: "accepted",
+      merged: false,
+      message: "landing request accepted",
+    });
 
     expect(logger.info).toHaveBeenCalledWith(
       "Auto-detected GitHub merge method",
