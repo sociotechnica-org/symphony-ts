@@ -631,7 +631,7 @@ export class BootstrapOrchestrator implements Orchestrator {
                 ? "awaiting-system-checks"
                 : refreshedLifecycle.kind === "awaiting-landing-command"
                   ? "awaiting-landing-command"
-          : "awaiting-landing",
+                  : "awaiting-landing",
         summary: refreshedLifecycle.summary,
         blockedReason: landingResult.summary,
       });
