@@ -5,7 +5,6 @@ import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import {
   collectDescendantProcessIds,
   createFactoryRunCommand,
-  FACTORY_RUN_GUARDRAILS_ACK_FLAG,
   inspectFactoryControl,
   parsePsOutput,
   parseScreenLsFailureOutput,
@@ -329,7 +328,7 @@ describe("createFactoryRunCommand", () => {
       "tsx",
       "bin/symphony.ts",
       "run",
-      FACTORY_RUN_GUARDRAILS_ACK_FLAG,
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
     ]);
   });
 });
@@ -738,7 +737,7 @@ describe("factory restart launch contract", () => {
       command: readonly string[];
     }> = [];
     let nextSessionPid = 9001;
-    let nextWorkerPid = 9101;
+    let nextWorkerPid = 9201;
 
     const deps: FactoryControlDeps = {
       ...createControlDeps({
