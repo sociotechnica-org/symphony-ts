@@ -651,6 +651,7 @@ async function defaultLaunchScreenSession(options: {
     ["-dmS", options.sessionName, "pnpm", "tsx", "bin/symphony.ts", "run"],
     {
       cwd: options.runtimeRoot,
+      timeout: 5_000,
     },
   );
 }
