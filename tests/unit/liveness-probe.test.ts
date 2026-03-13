@@ -33,11 +33,15 @@ describe("NullLivenessProbe", () => {
       workspacePath: "/tmp/workspaces/42",
       runSessionId: "session-42",
       prHeadSha: "abc123",
+      runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
+      runnerActionAt: "2026-03-13T08:46:01.000Z",
       hasActionableFeedback: true,
     });
     expect(result.logSizeBytes).toBeNull();
     expect(result.workspaceDiffHash).toBeNull();
     expect(result.prHeadSha).toBe("abc123");
+    expect(result.runnerHeartbeatAt).toBe("2026-03-13T08:46:00.000Z");
+    expect(result.runnerActionAt).toBe("2026-03-13T08:46:01.000Z");
     expect(result.hasActionableFeedback).toBe(true);
     expect(result.capturedAt).toBeGreaterThan(0);
   });
@@ -70,10 +74,14 @@ describe("FsLivenessProbe", () => {
       workspacePath: null,
       runSessionId,
       prHeadSha: null,
+      runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
+      runnerActionAt: "2026-03-13T08:46:01.000Z",
       hasActionableFeedback: false,
     });
 
     expect(result.logSizeBytes).toBe("runner-a".length);
+    expect(result.runnerHeartbeatAt).toBe("2026-03-13T08:46:00.000Z");
+    expect(result.runnerActionAt).toBe("2026-03-13T08:46:01.000Z");
   });
 
   it("falls back to an issue-specific log path when session id is missing", async () => {
@@ -96,6 +104,8 @@ describe("FsLivenessProbe", () => {
       workspacePath: null,
       runSessionId: null,
       prHeadSha: null,
+      runnerHeartbeatAt: null,
+      runnerActionAt: null,
       hasActionableFeedback: false,
     });
 

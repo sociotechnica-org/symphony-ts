@@ -73,6 +73,24 @@ function createObservableStalledProbe(): LivenessProbe {
         logSizeBytes: 1,
         workspaceDiffHash: null,
         prHeadSha: options.prHeadSha,
+        runnerHeartbeatAt: options.runnerHeartbeatAt,
+        runnerActionAt: options.runnerActionAt,
+        hasActionableFeedback: options.hasActionableFeedback,
+        capturedAt: Date.now(),
+      };
+    },
+  };
+}
+
+function createRunnerVisibilityProbe(): LivenessProbe {
+  return {
+    async capture(options) {
+      return {
+        logSizeBytes: null,
+        workspaceDiffHash: null,
+        prHeadSha: options.prHeadSha,
+        runnerHeartbeatAt: options.runnerHeartbeatAt,
+        runnerActionAt: options.runnerActionAt,
         hasActionableFeedback: options.hasActionableFeedback,
         capturedAt: Date.now(),
       };
@@ -2771,6 +2789,103 @@ describe("BootstrapOrchestrator watchdog", () => {
     await runOncePromise;
 
     expect(runAborted).toBe(true);
+  });
+
+  it("keeps a pre-write run alive while runner visibility keeps advancing", async () => {
+    const issue = createIssue(91);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(91, [
+      lifecycle("handoff-ready", "symphony/91"),
+    ]);
+
+    let runAborted = false;
+
+    const progressRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        const startedAt = new Date().toISOString();
+        for (let index = 0; index < 3; index += 1) {
+          const observedAt = new Date(Date.now() + index + 1).toISOString();
+          await options?.onEvent?.({
+            kind: "visibility",
+            visibility: {
+              state: "running",
+              phase: "turn-execution",
+              session: createRunnerSessionDescription(),
+              lastHeartbeatAt: observedAt,
+              lastActionAt: observedAt,
+              lastActionSummary: `Planning step ${(index + 1).toString()}`,
+              waitingReason: null,
+              stdoutSummary: null,
+              stderrSummary: null,
+              errorSummary: null,
+              cancelledAt: null,
+              timedOutAt: null,
+            },
+          });
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => {
+              options?.signal?.removeEventListener("abort", handleAbort);
+              resolve();
+            }, 5);
+            const handleAbort = (): void => {
+              clearTimeout(timer);
+              runAborted = true;
+              reject(new RunnerAbortedError("Aborted"));
+            };
+            if (options?.signal?.aborted) {
+              handleAbort();
+              return;
+            }
+            options?.signal?.addEventListener("abort", handleAbort, {
+              once: true,
+            });
+          });
+        }
+
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+        };
+      },
+    };
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 1,
+          stallThresholdMs: 20,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      progressRunner,
+      new NullLogger(),
+      undefined,
+      createRunnerVisibilityProbe(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runAborted).toBe(false);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([91]);
   });
 
   it("does not recover beyond maxRecoveryAttempts across retries", async () => {
