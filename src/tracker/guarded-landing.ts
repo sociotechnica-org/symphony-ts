@@ -17,6 +17,8 @@ export interface GuardedLandingSnapshot {
   readonly unresolvedReviewThreadCount: number;
 }
 
+// Fail closed: GitHub can report "unstable" when only non-required checks fail,
+// but Symphony intentionally refuses to land while any check is failing.
 const PASSING_MERGE_STATES = new Set(["clean", "has_hooks"]);
 
 function formatPullRequest(snapshot: GuardedLandingSnapshot): string {

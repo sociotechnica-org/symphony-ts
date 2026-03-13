@@ -1517,7 +1517,7 @@ describe("BootstrapOrchestrator", () => {
         status: "awaiting-landing-command",
         branchName: "symphony/76",
       });
-      expect(status.activeIssues[0]?.summary).toMatch(/checks/i);
+      expect(status.activeIssues[0]?.summary).toMatch(/approved head is stale/i);
       expect(status.activeIssues[0]?.blockedReason).toMatch(
         /approved head is stale/i,
       );

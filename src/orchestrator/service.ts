@@ -623,7 +623,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         runSequence: attempt,
         branchName,
         status: landingResult.lifecycleKind,
-        summary: refreshedLifecycle.summary,
+        summary: landingResult.summary,
         blockedReason: landingResult.summary,
       });
     }
