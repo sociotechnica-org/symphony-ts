@@ -885,6 +885,32 @@ describe("GitHubBootstrapTracker", () => {
     expect(refreshed.kind).toBe("awaiting-landing-command");
   });
 
+  it("ignores non-actionable bot summary comments when deriving PR lifecycle", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "greptile[bot]",
+      body: "<h3>Greptile Summary</h3>\n\nThis PR is safe to merge.",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
+    expect(lifecycle.actionableReviewFeedback).toHaveLength(0);
+    expect(lifecycle.summary).toMatch(/awaiting a human \/land command/i);
+  });
+
   it("does not auto-resolve human review threads after a follow-up push", async () => {
     const tracker = createTracker(server);
 

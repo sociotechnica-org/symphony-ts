@@ -30,6 +30,15 @@ function isAfter(left: string, right: string | null): boolean {
   return Date.parse(left) > Date.parse(right);
 }
 
+function isActionableBotReviewComment(body: string): boolean {
+  const normalized = body.trim();
+  return (
+    normalized.length > 0 &&
+    !normalized.includes("<!-- CURSOR_SUMMARY -->") &&
+    !normalized.includes("<h3>Greptile Summary</h3>")
+  );
+}
+
 function isHumanLandingApprover(
   authorLogin: string | null,
   authorAssociation: string,
@@ -97,6 +106,7 @@ export function createPullRequestSnapshot(input: {
               reviewBotLogins.has(authorLogin.toLowerCase())
             );
           })
+          .filter((comment) => isActionableBotReviewComment(comment.body))
           .filter((comment) => isAfter(comment.createdAt, latestCommitAt))
           .map<ReviewFeedback>((comment) => ({
             id: comment.id,

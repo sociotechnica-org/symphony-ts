@@ -318,4 +318,80 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.hasLandingCommand).toBe(false);
     expect(snapshot.pullRequest.latestCommitAt).toBeNull();
   });
+
+  it("ignores Cursor PR summary comments as actionable bot feedback", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "cursor" },
+              body: "## PR Summary\n\n<!-- CURSOR_SUMMARY -->\nAutomated summary only.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+  });
+
+  it("ignores Greptile summary comments as actionable bot feedback", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "greptile-apps" },
+              body: "<h3>Greptile Summary</h3>\n\nThis PR is safe to merge.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+  });
 });
