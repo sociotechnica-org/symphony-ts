@@ -959,6 +959,8 @@ describe("renderFactoryControlStatus", () => {
     expect(output).toContain("Factory control: stopped");
     expect(output).toContain("Runtime root: /repo/.tmp/factory-main");
     expect(output).toContain("Snapshot freshness: unavailable");
-    expect(output).toContain("Status detail: No runtime snapshot is available.");
+    expect(output).toContain(
+      "Status detail: No runtime snapshot is available.",
+    );
   });
 });

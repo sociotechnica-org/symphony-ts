@@ -169,13 +169,13 @@ The existing control states remain `stopped`, `running`, and `degraded`, but sta
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Snapshot facts available | Expected decision |
-| --- | --- | --- | --- |
-| Active detached session, current worker has already published | live session, authoritative worker pid/instance | snapshot `worker.instanceId` matches current worker and worker pid is live | report `running` with `fresh` snapshot |
-| Active detached session after restart before first publish | live session, new worker identity, prior snapshot file may still exist | inherited snapshot instance does not match current worker or snapshot was explicitly invalidated | report `degraded` with `unavailable` or `stale` detail; do not present prior worker state as current |
-| Old worker dead, no active detached session, leftover file remains | no live session or worker | readable snapshot from previous worker, dead pid | report `stopped` with explicit stale snapshot detail |
-| Snapshot file unreadable/corrupt while detached session is live | live session/process facts | parse error or invalid schema | report `degraded` with `unavailable` detail and include parse problem |
-| New worker restarts after unclean stop and reuses same status path | live session, new worker pid/instance | previous snapshot has older identity/start marker | invalidate or replace promptly, then converge to `fresh` when the new worker publishes |
+| Observed condition                                                 | Local facts available                                                  | Snapshot facts available                                                                         | Expected decision                                                                                    |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Active detached session, current worker has already published      | live session, authoritative worker pid/instance                        | snapshot `worker.instanceId` matches current worker and worker pid is live                       | report `running` with `fresh` snapshot                                                               |
+| Active detached session after restart before first publish         | live session, new worker identity, prior snapshot file may still exist | inherited snapshot instance does not match current worker or snapshot was explicitly invalidated | report `degraded` with `unavailable` or `stale` detail; do not present prior worker state as current |
+| Old worker dead, no active detached session, leftover file remains | no live session or worker                                              | readable snapshot from previous worker, dead pid                                                 | report `stopped` with explicit stale snapshot detail                                                 |
+| Snapshot file unreadable/corrupt while detached session is live    | live session/process facts                                             | parse error or invalid schema                                                                    | report `degraded` with `unavailable` detail and include parse problem                                |
+| New worker restarts after unclean stop and reuses same status path | live session, new worker pid/instance                                  | previous snapshot has older identity/start marker                                                | invalidate or replace promptly, then converge to `fresh` when the new worker publishes               |
 
 ## Storage / Persistence Contract
 

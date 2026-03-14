@@ -401,7 +401,8 @@ export function assessFactoryStatusSnapshot(
   }
 
   const publication = getFactoryStatusPublication(snapshot);
-  const workerAlive = options?.workerAlive ?? isProcessAlive(snapshot.worker.pid);
+  const workerAlive =
+    options?.workerAlive ?? isProcessAlive(snapshot.worker.pid);
   if (publication.state === "initializing") {
     return {
       freshness: workerAlive ? "unavailable" : "stale",
