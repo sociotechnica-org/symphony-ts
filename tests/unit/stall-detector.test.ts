@@ -22,6 +22,8 @@ function snapshot(overrides: Partial<LivenessSnapshot> = {}): LivenessSnapshot {
     logSizeBytes: null,
     workspaceDiffHash: null,
     prHeadSha: null,
+    runStartedAt: null,
+    runnerPhase: null,
     runnerHeartbeatAt: null,
     runnerActionAt: null,
     hasActionableFeedback: false,
@@ -35,8 +37,23 @@ describe("createWatchdogEntry", () => {
     const snap = snapshot({ capturedAt: 1000 });
     const entry = createWatchdogEntry(42, snap);
     expect(entry.issueNumber).toBe(42);
-    expect(entry.lastChangeAt).toBe(1000);
+    expect(entry.lastObservableActivityAt).toBe(1000);
+    expect(entry.lastObservableActivitySource).toBeNull();
     expect(entry.recoveryCount).toBe(0);
+  });
+
+  it("uses run start as the initial observable activity baseline", () => {
+    const entry = createWatchdogEntry(
+      42,
+      snapshot({
+        capturedAt: 7000,
+        runStartedAt: "2026-03-13T08:46:00.000Z",
+      }),
+    );
+    expect(entry.lastObservableActivityAt).toBe(
+      Date.parse("2026-03-13T08:46:00.000Z"),
+    );
+    expect(entry.lastObservableActivitySource).toBe("run-start");
   });
 });
 
@@ -93,7 +110,10 @@ describe("checkStall", () => {
     );
     expect(result.stalled).toBe(false);
     expect(result.reason).toBeNull();
-    expect(entry.lastChangeAt).toBe(7000);
+    expect(entry.lastObservableActivityAt).toBe(
+      Date.parse("2026-03-13T08:46:00.000Z"),
+    );
+    expect(entry.lastObservableActivitySource).toBe("runner-heartbeat");
   });
 
   it("resets idle time when runner progress timestamps advance", () => {
@@ -116,7 +136,10 @@ describe("checkStall", () => {
     );
     expect(result.stalled).toBe(false);
     expect(result.reason).toBeNull();
-    expect(entry.lastChangeAt).toBe(7000);
+    expect(entry.lastObservableActivityAt).toBe(
+      Date.parse("2026-03-13T08:46:04.000Z"),
+    );
+    expect(entry.lastObservableActivitySource).toBe("runner-action");
   });
 
   it("reports not stalled within threshold window", () => {
@@ -133,13 +156,26 @@ describe("checkStall", () => {
     expect(result.stalledForMs).toBe(3000);
   });
 
-  it("does not stall when all liveness signals remain unobserved", () => {
-    const entry = createWatchdogEntry(1, snapshot({ capturedAt: 1000 }));
-    const result = checkStall(entry, snapshot({ capturedAt: 7000 }), config);
-    expect(result.stalled).toBe(false);
-    expect(result.reason).toBeNull();
-    expect(result.stalledForMs).toBe(0);
-    expect(entry.lastChangeAt).toBe(7000);
+  it("uses run start as the stall baseline before later activity appears", () => {
+    const entry = createWatchdogEntry(
+      1,
+      snapshot({
+        capturedAt: 1000,
+        runStartedAt: "2026-03-13T08:46:00.000Z",
+      }),
+    );
+    const result = checkStall(
+      entry,
+      snapshot({
+        capturedAt: Date.parse("2026-03-13T08:46:06.000Z"),
+        runStartedAt: "2026-03-13T08:46:00.000Z",
+      }),
+      config,
+    );
+    expect(result.stalled).toBe(true);
+    expect(result.reason).toBe("log-stall");
+    expect(result.stalledForMs).toBe(6000);
+    expect(result.lastObservableActivitySource).toBe("run-start");
   });
 
   it("treats the first observable signal as progress", () => {
@@ -151,7 +187,35 @@ describe("checkStall", () => {
     );
     expect(result.stalled).toBe(false);
     expect(result.reason).toBeNull();
-    expect(entry.lastChangeAt).toBe(7000);
+    expect(entry.lastObservableActivityAt).toBe(7000);
+    expect(entry.lastObservableActivitySource).toBe("watchdog-log");
+  });
+
+  it("classifies startup-phase action timestamps as runner-startup activity", () => {
+    const entry = createWatchdogEntry(
+      1,
+      snapshot({
+        capturedAt: 1000,
+        runStartedAt: "2026-03-13T08:46:00.000Z",
+        runnerPhase: "boot",
+        runnerActionAt: "2026-03-13T08:46:00.000Z",
+      }),
+    );
+    const result = checkStall(
+      entry,
+      snapshot({
+        capturedAt: 7000,
+        runStartedAt: "2026-03-13T08:46:00.000Z",
+        runnerPhase: "session-start",
+        runnerActionAt: "2026-03-13T08:46:03.000Z",
+      }),
+      config,
+    );
+    expect(result.stalled).toBe(false);
+    expect(result.lastObservableActivitySource).toBe("runner-startup");
+    expect(result.lastObservableActivityAt).toBe(
+      Date.parse("2026-03-13T08:46:03.000Z"),
+    );
   });
 
   it("reports stalled after threshold with no changes", () => {
@@ -183,7 +247,7 @@ describe("checkStall", () => {
       snapshot({
         runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
         runnerActionAt: "2026-03-13T08:46:01.000Z",
-        capturedAt: 7000,
+        capturedAt: Date.parse("2026-03-13T08:46:07.000Z"),
       }),
       config,
     );
@@ -228,7 +292,7 @@ describe("checkStall", () => {
     expect(result.reason).toBe("workspace-stall");
   });
 
-  it("resets lastChangeAt when change detected", () => {
+  it("resets the authoritative last observable activity when change detected", () => {
     const entry = createWatchdogEntry(
       1,
       snapshot({ logSizeBytes: 100, capturedAt: 1000 }),
@@ -238,7 +302,8 @@ describe("checkStall", () => {
       snapshot({ logSizeBytes: 200, capturedAt: 5000 }),
       config,
     );
-    expect(entry.lastChangeAt).toBe(5000);
+    expect(entry.lastObservableActivityAt).toBe(5000);
+    expect(entry.lastObservableActivitySource).toBe("watchdog-log");
 
     // Now no change for another period but within threshold
     const result = checkStall(

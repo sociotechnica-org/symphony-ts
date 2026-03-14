@@ -9,7 +9,10 @@ import type {
   ResolvedConfig,
 } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
-import type { LivenessProbe } from "../../src/orchestrator/liveness-probe.js";
+import {
+  NullLivenessProbe,
+  type LivenessProbe,
+} from "../../src/orchestrator/liveness-probe.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import {
   deriveFactoryRuntimeRoot,
@@ -73,6 +76,8 @@ function createObservableStalledProbe(): LivenessProbe {
         logSizeBytes: 1,
         workspaceDiffHash: null,
         prHeadSha: options.prHeadSha,
+        runStartedAt: options.runStartedAt,
+        runnerPhase: options.runnerPhase,
         runnerHeartbeatAt: options.runnerHeartbeatAt,
         runnerActionAt: options.runnerActionAt,
         hasActionableFeedback: options.hasActionableFeedback,
@@ -89,6 +94,8 @@ function createRunnerVisibilityProbe(): LivenessProbe {
         logSizeBytes: null,
         workspaceDiffHash: null,
         prHeadSha: options.prHeadSha,
+        runStartedAt: options.runStartedAt,
+        runnerPhase: options.runnerPhase,
         runnerHeartbeatAt: options.runnerHeartbeatAt,
         runnerActionAt: options.runnerActionAt,
         hasActionableFeedback: options.hasActionableFeedback,
@@ -3281,6 +3288,68 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.completed).toEqual([91]);
   });
 
+  it("recovers a startup run that never advances beyond its start time", async () => {
+    const issue = createIssue(92);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(92, [
+      lifecycle("missing-target", "symphony/92"),
+    ]);
+
+    let abortCount = 0;
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        return await new Promise<RunnerExecutionResult>((_resolve, reject) => {
+          const handleAbort = (): void => {
+            abortCount += 1;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    const watchdogConfig = {
+      ...baseConfig,
+      workspace: { ...baseConfig.workspace, root: tmpDir },
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 0,
+          stallThresholdMs: 0,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      new NullLogger(),
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(abortCount).toBe(1);
+    expect(tracker.retried).toHaveLength(1);
+    expect(tracker.retried[0]?.reason).toContain("since runner-action at");
+  });
+
   it("does not recover beyond maxRecoveryAttempts across retries", async () => {
     const issue = createIssue(88);
     const tracker = new SequencedTracker({ ready: [issue] });
@@ -3355,13 +3424,14 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.failed).toEqual([
       {
         issueNumber: 88,
-        reason: "Aborted",
+        reason: expect.stringContaining("Stall detected (log-stall)"),
       },
     ]);
     const snapshot = await readFactoryStatusSnapshot(
       deriveStatusFilePath(tmpDir),
     );
     expect(snapshot.lastAction?.kind).toBe("issue-failed");
+    expect(snapshot.lastAction?.summary).toContain("since watchdog-log at");
   });
 
   it("aborts a stalled runner even when recovery is exhausted", async () => {
@@ -3466,7 +3536,7 @@ describe("BootstrapOrchestrator watchdog", () => {
         ...baseConfig.polling,
         watchdog: {
           enabled: true,
-          checkIntervalMs: 0,
+          checkIntervalMs: 50,
           stallThresholdMs: 0,
           maxRecoveryAttempts: 1,
         },

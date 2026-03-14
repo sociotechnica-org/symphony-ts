@@ -17,6 +17,7 @@ import { runReportCli } from "../../src/cli/report.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
+import { FsLivenessProbe } from "../../src/orchestrator/liveness-probe.js";
 import { createRunner } from "../../src/runner/factory.js";
 import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
 import { parsePlanReadyCommentMetadata } from "../../src/tracker/plan-review-comment.js";
@@ -42,6 +43,14 @@ async function writeWorkflow(options: {
   retryBackoffMs?: number;
   maxAttempts?: number;
   maxTurns?: number;
+  watchdog?:
+    | {
+        readonly enabled: boolean;
+        readonly checkIntervalMs: number;
+        readonly stallThresholdMs: number;
+        readonly maxRecoveryAttempts: number;
+      }
+    | undefined;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   await fs.writeFile(
@@ -64,6 +73,16 @@ polling:
   retry:
     max_attempts: ${options.maxAttempts ?? 2}
     backoff_ms: ${options.retryBackoffMs ?? 0}
+${
+  options.watchdog === undefined
+    ? ""
+    : `  watchdog:
+    enabled: ${options.watchdog.enabled ? "true" : "false"}
+    check_interval_ms: ${options.watchdog.checkIntervalMs}
+    stall_threshold_ms: ${options.watchdog.stallThresholdMs}
+    max_recovery_attempts: ${options.watchdog.maxRecoveryAttempts}
+`
+}
 workspace:
   root: ./.tmp/workspaces
   repo_url: ${options.remotePath}
@@ -118,6 +137,10 @@ async function createOrchestrator(
     workspace,
     runner,
     logger,
+    undefined,
+    workflow.config.polling.watchdog?.enabled
+      ? new FsLivenessProbe(workflow.config.workspace.root)
+      : undefined,
   );
 }
 
@@ -384,6 +407,63 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       expect.objectContaining({
         kind: "failed",
       }),
+    );
+  });
+
+  it("preserves the watchdog stall reason instead of flattening it to shutdown", async () => {
+    server.seedIssue({
+      number: 83,
+      title: "Preserve watchdog reason",
+      body: "Do not collapse genuine stalls into generic shutdown summaries.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand:
+        'node -e "process.stdin.resume(); setInterval(() => {}, 1000)"',
+      maxAttempts: 1,
+      watchdog: {
+        enabled: true,
+        checkIntervalMs: 5,
+        stallThresholdMs: 20,
+        maxRecoveryAttempts: 0,
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(83);
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:failed",
+    );
+    expect(
+      issue.comments.some((comment) =>
+        comment.includes(
+          "Symphony failed this run: Stall detected (workspace-stall)",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      issue.comments.some((comment) =>
+        comment.includes("Runner cancelled by shutdown"),
+      ),
+    ).toBe(false);
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      83,
+    );
+    expect(artifactSummary.currentOutcome).toBe("failed");
+    expect(artifactSummary.currentSummary).toContain(
+      "Stall detected (workspace-stall)",
+    );
+    expect(artifactSummary.currentSummary).not.toContain(
+      "Runner cancelled by shutdown",
     );
   });
 
