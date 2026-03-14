@@ -143,10 +143,15 @@ export interface TuiRetryEntry {
   readonly lastError: string;
 }
 
+export interface TuiCodexTotals extends CodexTotals {
+  readonly pendingRunCount: number;
+  readonly secondsRunning: number;
+}
+
 export interface TuiSnapshot {
   readonly running: readonly TuiRunningEntry[];
   readonly retrying: readonly TuiRetryEntry[];
-  readonly codexTotals: CodexTotals;
+  readonly codexTotals: TuiCodexTotals;
   readonly rateLimits: RateLimits | null;
   readonly lastAction: FactoryStatusAction | null;
   readonly polling: PollingState;

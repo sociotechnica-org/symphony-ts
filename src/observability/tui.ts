@@ -636,7 +636,9 @@ function formatHeaderTokens(codexTotals: TuiSnapshot["codexTotals"]): string {
       colorize(" | ", GRAY) +
       colorize("out pending", YELLOW) +
       colorize(" | ", GRAY) +
-      colorize("total pending", YELLOW)
+      colorize("total pending", YELLOW) +
+      colorize(" | ", GRAY) +
+      colorize(`${String(codexTotals.pendingRunCount)} pending`, YELLOW)
     );
   }
 
@@ -662,7 +664,13 @@ function formatRunningTokens(entry: TuiSnapshot["running"][number]): string {
       return "pending";
     case "observed":
       return formatCount(entry.codexTotalTokens);
+    default:
+      return unreachableCodexTokenState(entry.codexTokenState);
   }
+}
+
+function unreachableCodexTokenState(state: never): never {
+  throw new Error(`Unhandled Codex token state: ${state as string}`);
 }
 
 function unreachableVisibilityState(state: never): never {

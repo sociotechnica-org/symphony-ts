@@ -246,6 +246,7 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("in pending");
     expect(output).toContain("out pending");
     expect(output).toContain("total pending");
+    expect(output).toContain("1 pending");
     expect(output).toContain("thread started (thread-live-123)");
     expect(output).toContain("pending");
     expect(output).not.toContain(" total 0");
