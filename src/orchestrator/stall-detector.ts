@@ -86,14 +86,18 @@ export function checkStall(
   // run-start anchor because of clock skew or delayed propagation; that still
   // updates visibility, but it must not reset the watchdog deadline.
   if (activity !== null && activity.at >= entry.lastObservableActivityAt) {
+    // Clamp runner-reported timestamps to the probe wall clock so a fast
+    // runner clock cannot push the baseline into the future and disable stall
+    // detection with negative idle durations.
+    const creditedAt = Math.min(activity.at, current.capturedAt);
     entry.lastLiveness = current;
-    entry.lastObservableActivityAt = activity.at;
+    entry.lastObservableActivityAt = creditedAt;
     entry.lastObservableActivitySource = activity.source;
     return {
       issueNumber: entry.issueNumber,
       stalled: false,
       reason: null,
-      stalledForMs: current.capturedAt - activity.at,
+      stalledForMs: current.capturedAt - creditedAt,
       lastObservableActivityAt: entry.lastObservableActivityAt,
       lastObservableActivitySource: entry.lastObservableActivitySource,
     };
