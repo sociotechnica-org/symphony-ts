@@ -22,14 +22,14 @@ Use this skill when acting as the operator for the local Symphony factory.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
 4. Compare the supported live watch/TUI surface against `factory status --json` whenever practical. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
-4. If the factory is unhealthy, fix the concrete problem and restart it.
-5. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-6. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
+5. If the factory is unhealthy, fix the concrete problem and restart it.
+6. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
+7. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
    - `Plan review: approved`
    - `Plan review: changes-requested`
    - `Plan review: waived` (record why in the comment)
-7. After posting a review decision, verify the factory acknowledges it and transitions correctly.
-8. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+8. After posting a review decision, verify the factory acknowledges it and transitions correctly.
+9. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
 
