@@ -1,6 +1,8 @@
 import type { RunUpdateEvent } from "../domain/run.js";
 import { getMapKey, mapPath } from "../domain/codex-payload.js";
 
+export type CodexTokenState = "pending" | "observed" | "final";
+
 export interface RunningEntry {
   readonly issueNumber: number;
   readonly identifier: string;
@@ -9,6 +11,7 @@ export interface RunningEntry {
   readonly retryAttempt: number;
   sessionId: string | null;
   turnCount: number;
+  codexTokenState: CodexTokenState;
   codexInputTokens: number;
   codexOutputTokens: number;
   codexTotalTokens: number;
@@ -35,6 +38,7 @@ export function createRunningEntry(
     retryAttempt,
     sessionId: null,
     turnCount: 0,
+    codexTokenState: "pending",
     codexInputTokens: 0,
     codexOutputTokens: 0,
     codexTotalTokens: 0,
@@ -275,6 +279,13 @@ export function integrateCodexUpdate(
   entry.codexInputTokens += tokenDelta.inputTokens;
   entry.codexOutputTokens += tokenDelta.outputTokens;
   entry.codexTotalTokens += tokenDelta.totalTokens;
+  if (
+    tokenDelta.inputTokens > 0 ||
+    tokenDelta.outputTokens > 0 ||
+    tokenDelta.totalTokens > 0
+  ) {
+    entry.codexTokenState = "observed";
+  }
 
   if (normalizedEvent === "turn/completed") {
     entry.turnCount += 1;

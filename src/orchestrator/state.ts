@@ -21,6 +21,7 @@ export interface CodexTotals {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  pendingRunCount: number;
   // Derived in BootstrapOrchestrator.snapshot() from factory start time.
   secondsRunning: number;
 }
@@ -78,6 +79,7 @@ export function createOrchestratorState(
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
+      pendingRunCount: 0,
       secondsRunning: 0,
     },
     rateLimits: null,
