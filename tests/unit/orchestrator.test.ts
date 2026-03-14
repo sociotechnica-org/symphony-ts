@@ -2544,6 +2544,227 @@ describe("BootstrapOrchestrator", () => {
     ).toBeDefined();
   });
 
+  it("suppresses retry scheduling when merged state is observed after a failed attempt", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(82)],
+    });
+    tracker.setLifecycleSequence(82, [
+      lifecycle("handoff-ready", "symphony/82"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const runnerAttempts: number[] = [];
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(session): Promise<RunnerExecutionResult> {
+          runnerAttempts.push(session.attempt.sequence);
+          const timestamp = "2026-03-13T08:43:30.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runnerAttempts).toEqual([1]);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([82]);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "attempt-failed",
+      ),
+    ).toBe(true);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "succeeded",
+      ),
+    ).toBe(true);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "retry-scheduled",
+      ),
+    ).toBe(false);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "failed",
+      ),
+    ).toBe(false);
+  });
+
+  it("suppresses terminal failed publication when merged state is observed before exhaustion handling", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(83)],
+    });
+    tracker.setLifecycleSequence(83, [
+      lifecycle("handoff-ready", "symphony/83"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          const timestamp = "2026-03-13T08:44:00.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([83]);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 83 &&
+          observation.issue.currentOutcome === "failed",
+      ),
+    ).toBe(false);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 83 &&
+          observation.issue.currentOutcome === "succeeded",
+      ),
+    ).toBe(true);
+  });
+
+  it("drops an already-queued retry once the next poll observes merged terminal state", async () => {
+    const tempRoot = await createTempDir("symphony-post-merge-retry-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(84)],
+      });
+      tracker.setLifecycleSequence(84, [
+        lifecycle("missing-target", "symphony/84"),
+        lifecycle("handoff-ready", "symphony/84"),
+      ]);
+      const artifactStore = new RecordingIssueArtifactStore();
+      const runnerAttempts: number[] = [];
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 2,
+              backoffMs: 0,
+            },
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(session): Promise<RunnerExecutionResult> {
+            runnerAttempts.push(session.attempt.sequence);
+            const timestamp = new Date().toISOString();
+            return {
+              exitCode: 17,
+              stdout: "",
+              stderr: "simulated failure",
+              startedAt: timestamp,
+              finishedAt: timestamp,
+            };
+          },
+        },
+        new NullLogger(),
+        artifactStore,
+      );
+
+      await orchestrator.runOnce();
+      expect(tracker.retried).toEqual([
+        {
+          issueNumber: 84,
+          reason: "Runner exited with 17\nsimulated failure",
+        },
+      ]);
+
+      await orchestrator.runOnce();
+
+      expect(runnerAttempts).toEqual([1]);
+      expect(tracker.completed).toEqual([84]);
+      expect(tracker.failed).toEqual([]);
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.counts.retries).toBe(0);
+      expect(status.activeIssues).toHaveLength(0);
+      expect(
+        artifactStore.observations.some(
+          (observation) =>
+            observation.issue.issueNumber === 84 &&
+            observation.issue.currentOutcome === "succeeded",
+        ),
+      ).toBe(true);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("describes a session once per observation when writing session artifacts", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(81)],
@@ -3013,7 +3234,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     const tracker = new SequencedTracker({ ready: [issue] });
     tracker.setLifecycleSequence(88, [
       lifecycle("missing-target", "symphony/88"),
-      lifecycle("handoff-ready", "symphony/88"),
+      lifecycle("missing-target", "symphony/88"),
     ]);
 
     let abortCount = 0;

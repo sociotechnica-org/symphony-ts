@@ -158,15 +158,15 @@ This issue changes stateful orchestration behavior, so the retry/reconciliation 
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Runner fails before any PR exists | failed local attempt, no retry yet | `missing-target` or other non-terminal lifecycle | follow existing retry/fail behavior |
-| Runner fails after PR exists but before merge | failed local attempt | non-terminal lifecycle such as `awaiting-system-checks`, `rework-required`, or `awaiting-landing` | follow existing retry/fail behavior |
-| PR merges while runner is still active, then runner exits non-zero | failed local attempt, session artifacts available | refreshed lifecycle is terminal `handoff-ready` | suppress retry/fail, complete issue, landed outcome wins |
-| Runner fails, then PR merges before retry enqueue | failed local attempt, retry budget available | refreshed lifecycle is terminal `handoff-ready` | do not call `recordRetry()`, do not persist `retry-scheduled`, complete issue |
-| Retry already queued locally, PR merges before next attempt starts | retry entry exists, no active run | next poll sees terminal merged running/ready state or terminal refresh of retry target | clear retry entry, complete issue, do not start another attempt |
-| Retry budget exhausted locally, but merge is observed before `markIssueFailed()` | exhausted retry budget | refreshed lifecycle is terminal `handoff-ready` | do not mark failed; complete issue instead |
-| Factory restarts with stale retry entry after merge | retry queue/state recovered locally | tracker reports terminal merged state for issue branch | drop retry state during reconciliation and preserve landed terminal outcome |
+| Observed condition                                                               | Local facts available                             | Normalized tracker facts available                                                                | Expected decision                                                             |
+| -------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Runner fails before any PR exists                                                | failed local attempt, no retry yet                | `missing-target` or other non-terminal lifecycle                                                  | follow existing retry/fail behavior                                           |
+| Runner fails after PR exists but before merge                                    | failed local attempt                              | non-terminal lifecycle such as `awaiting-system-checks`, `rework-required`, or `awaiting-landing` | follow existing retry/fail behavior                                           |
+| PR merges while runner is still active, then runner exits non-zero               | failed local attempt, session artifacts available | refreshed lifecycle is terminal `handoff-ready`                                                   | suppress retry/fail, complete issue, landed outcome wins                      |
+| Runner fails, then PR merges before retry enqueue                                | failed local attempt, retry budget available      | refreshed lifecycle is terminal `handoff-ready`                                                   | do not call `recordRetry()`, do not persist `retry-scheduled`, complete issue |
+| Retry already queued locally, PR merges before next attempt starts               | retry entry exists, no active run                 | next poll sees terminal merged running/ready state or terminal refresh of retry target            | clear retry entry, complete issue, do not start another attempt               |
+| Retry budget exhausted locally, but merge is observed before `markIssueFailed()` | exhausted retry budget                            | refreshed lifecycle is terminal `handoff-ready`                                                   | do not mark failed; complete issue instead                                    |
+| Factory restarts with stale retry entry after merge                              | retry queue/state recovered locally               | tracker reports terminal merged state for issue branch                                            | drop retry state during reconciliation and preserve landed terminal outcome   |
 
 ## Storage / Persistence Contract
 
