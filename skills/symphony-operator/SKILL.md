@@ -21,6 +21,7 @@ Use this skill when acting as the operator for the local Symphony factory.
 1. Read `.ralph/operator-scratchpad.md` first so the latest operator context survives session loss and compaction.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
+4. Compare the supported live watch/TUI surface against `factory status --json` whenever practical. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
 4. If the factory is unhealthy, fix the concrete problem and restart it.
 5. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
 6. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
@@ -79,6 +80,7 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 - Detached `screen` sessions have been more reliable for unattended local operation than short-lived interactive exec sessions.
 - `pnpm tsx bin/symphony.ts factory status --json` is the fastest trustworthy read of detached runtime health, embedded status snapshot state, and degraded-control problems.
 - `pnpm tsx bin/symphony.ts factory watch` is the supported live watch surface for the detached factory; it should absorb operator `Ctrl-C` without stopping the worker.
+- The TUI/watch surface is an operator view, not the source of truth. On each wake-up, compare it against `factory status --json`; if issue stage, checks, review counts, session/event text, or token display drift materially, treat that as a product bug rather than hand-waving it away.
 - A closed issue plus an open PR usually means the factory reached the PR stage; inspect the PR before restarting anything.
 - If the factory has no `symphony:ready` issues, idle is healthy.
 
