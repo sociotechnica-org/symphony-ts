@@ -386,7 +386,9 @@ export function formatSnapshotContent(
   const runningToBackoffSpacer = running.length > 0 ? ["│"] : [];
   const backoffRows = formatRetryRows(retrying);
   const lastActionLine =
-    lastAction === null ? [] : [formatLastActionLine(lastAction)];
+    lastAction === null
+      ? []
+      : [formatLastActionLine(lastAction, effectiveNowMs)];
 
   const projectLine =
     projectUrl !== null
@@ -488,17 +490,19 @@ function formatRateLimitBucket(
 
 function formatLastActionLine(
   action: NonNullable<TuiSnapshot["lastAction"]>,
+  nowMs: number,
 ): string {
   const issuePart =
     action.issueNumber === null ? "" : ` #${action.issueNumber.toString()}`;
   const line =
     colorize("│ Last action: ", BOLD) +
     colorize(`${action.kind}${issuePart}`, CYAN);
+  const elapsedSuffix = formatElapsedActionSuffix(action.at, nowMs);
   const detail = action.summary.trim();
   if (detail === "") {
-    return line;
+    return line + elapsedSuffix;
   }
-  return line + colorize(" | ", GRAY) + colorize(detail, GRAY);
+  return line + colorize(" | ", GRAY) + colorize(detail, GRAY) + elapsedSuffix;
 }
 
 // ─── Running table ────────────────────────────────────────────────────────
@@ -911,6 +915,18 @@ function formatRuntimeSeconds(seconds: number): string {
   return `${String(mins)}m ${String(secs)}s`;
 }
 
+function formatElapsedActionSuffix(
+  isoTimestamp: string,
+  nowMs: number,
+): string {
+  const actionAtMs = Date.parse(isoTimestamp);
+  if (!Number.isFinite(actionAtMs)) {
+    return "";
+  }
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - actionAtMs) / 1000));
+  return colorize(` (${formatRuntimeSeconds(elapsedSeconds)} ago)`, GRAY);
+}
+
 function formatRuntimeAndTurns(
   seconds: number,
   entry: TuiSnapshot["running"][number],
@@ -1089,11 +1105,13 @@ function formatRunnerLabel(
   if (visibility === null) {
     return null;
   }
+  const provider = visibility.session.provider.trim();
+  if (provider === "") {
+    return null;
+  }
   const model =
     visibility.session.model === null ? null : visibility.session.model.trim();
-  return model === null || model === ""
-    ? visibility.session.provider
-    : `${visibility.session.provider}/${model}`;
+  return model === null || model === "" ? provider : `${provider}/${model}`;
 }
 
 function describeLifecycleContext(

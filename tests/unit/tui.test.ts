@@ -117,11 +117,15 @@ describe("formatSnapshotContent", () => {
         },
       }),
       0,
+      undefined,
+      undefined,
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
     );
 
     expect(output).toContain("Last action:");
     expect(output).toContain("watchdog-recovery #133");
     expect(output).toContain("Recovered a stalled runner");
+    expect(output).toContain("(3m 0s ago)");
   });
 
   it("omits duplicated last-action detail when summary is blank", () => {
@@ -135,11 +139,15 @@ describe("formatSnapshotContent", () => {
         },
       }),
       0,
+      undefined,
+      undefined,
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
     );
 
     expect(output).toContain("Last action:");
     expect(output).toContain("watchdog-recovery #133");
     expect(output).not.toContain("watchdog-recovery #133 | watchdog-recovery");
+    expect(output).toContain("(3m 0s ago)");
   });
 
   it("renders Running section with no active agents message", () => {
@@ -957,6 +965,46 @@ describe("humanizeEvent", () => {
 
     expect(output).toContain("Planning step 2");
     expect(output).not.toContain("no codex message yet");
+  });
+
+  it("omits runner label when the provider is blank", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 138,
+            identifier: "#138",
+            issueState: "running",
+            startedAt: new Date("2026-03-13T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: null,
+            lastCodexMessage: null,
+            lastCodexTimestamp: null,
+            runnerVisibility: makeRunnerVisibility({
+              session: {
+                ...makeRunnerVisibility().session,
+                provider: "  ",
+                model: "sonnet",
+              },
+              lastActionSummary: "Planning step 2",
+            }),
+          },
+        ],
+      }),
+      0,
+      160,
+      "",
+      new Date("2026-03-13T10:00:30.000Z").getTime(),
+    );
+
+    expect(output).toContain("Planning step 2");
+    expect(output).not.toContain("/sonnet");
   });
 });
 
