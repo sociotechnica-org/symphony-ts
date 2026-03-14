@@ -83,7 +83,7 @@ write_status() {
   "updatedAt": "$(json_escape "$updated_at")",
   "repoRoot": "$(json_escape "$REPO_ROOT")",
   "pid": $$,
-  "runOnce": $RUN_ONCE,
+  "runOnce": $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'true'; else printf 'false'; fi),
   "intervalSeconds": $INTERVAL_SECONDS,
   "command": "$(json_escape "$OPERATOR_COMMAND")",
   "promptFile": "$(json_escape "$PROMPT_FILE")",
