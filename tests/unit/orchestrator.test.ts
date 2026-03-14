@@ -72,6 +72,9 @@ function createDeferred<T>(): {
 function createObservableStalledProbe(): LivenessProbe {
   return {
     async capture(options) {
+      // Keep logSizeBytes fixed at 1 so the first watchdog poll observes a
+      // null -> 1 log transition, then all later polls stall on unchanged
+      // liveness. That exercises recovery paths without runner-side progress.
       return {
         logSizeBytes: 1,
         workspaceDiffHash: null,

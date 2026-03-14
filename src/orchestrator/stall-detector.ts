@@ -255,6 +255,10 @@ function detectObservableActivity(
         source: "runner-heartbeat",
       });
     }
+    // If the raw heartbeat string changed but is unparseable, this update
+    // cannot advance the authoritative timestamp. We still replace
+    // entry.lastLiveness below so a later valid heartbeat string is detected as
+    // a new change instead of being masked by the malformed value.
   }
 
   if (
@@ -270,6 +274,9 @@ function detectObservableActivity(
           : "runner-action",
       });
     }
+    // Same as runnerHeartbeatAt above: a malformed action timestamp is visible
+    // in lastLiveness for future comparisons, but it cannot be credited as
+    // observable activity until the runner reports a parseable timestamp.
   }
 
   return latestObservableActivity(candidates);
