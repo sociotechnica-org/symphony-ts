@@ -33,6 +33,8 @@ describe("NullLivenessProbe", () => {
       workspacePath: "/tmp/workspaces/42",
       runSessionId: "session-42",
       prHeadSha: "abc123",
+      runStartedAt: "2026-03-13T08:45:59.000Z",
+      runnerPhase: "turn-execution",
       runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
       runnerActionAt: "2026-03-13T08:46:01.000Z",
       hasActionableFeedback: true,
@@ -40,6 +42,8 @@ describe("NullLivenessProbe", () => {
     expect(result.logSizeBytes).toBeNull();
     expect(result.workspaceDiffHash).toBeNull();
     expect(result.prHeadSha).toBe("abc123");
+    expect(result.runStartedAt).toBe("2026-03-13T08:45:59.000Z");
+    expect(result.runnerPhase).toBe("turn-execution");
     expect(result.runnerHeartbeatAt).toBe("2026-03-13T08:46:00.000Z");
     expect(result.runnerActionAt).toBe("2026-03-13T08:46:01.000Z");
     expect(result.hasActionableFeedback).toBe(true);
@@ -74,12 +78,16 @@ describe("FsLivenessProbe", () => {
       workspacePath: null,
       runSessionId,
       prHeadSha: null,
+      runStartedAt: "2026-03-13T08:45:59.000Z",
+      runnerPhase: "session-start",
       runnerHeartbeatAt: "2026-03-13T08:46:00.000Z",
       runnerActionAt: "2026-03-13T08:46:01.000Z",
       hasActionableFeedback: false,
     });
 
     expect(result.logSizeBytes).toBe("runner-a".length);
+    expect(result.runStartedAt).toBe("2026-03-13T08:45:59.000Z");
+    expect(result.runnerPhase).toBe("session-start");
     expect(result.runnerHeartbeatAt).toBe("2026-03-13T08:46:00.000Z");
     expect(result.runnerActionAt).toBe("2026-03-13T08:46:01.000Z");
   });
@@ -104,6 +112,8 @@ describe("FsLivenessProbe", () => {
       workspacePath: null,
       runSessionId: null,
       prHeadSha: null,
+      runStartedAt: null,
+      runnerPhase: null,
       runnerHeartbeatAt: null,
       runnerActionAt: null,
       hasActionableFeedback: false,

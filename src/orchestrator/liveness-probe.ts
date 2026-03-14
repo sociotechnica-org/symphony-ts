@@ -1,4 +1,5 @@
 import type { LivenessSnapshot } from "./stall-detector.js";
+import type { RunnerVisibilityPhase } from "../runner/service.js";
 
 /**
  * Collects liveness signals for an active runner issue.
@@ -12,6 +13,8 @@ export interface LivenessProbe {
     readonly workspacePath: string | null;
     readonly runSessionId: string | null;
     readonly prHeadSha: string | null;
+    readonly runStartedAt: string | null;
+    readonly runnerPhase: RunnerVisibilityPhase | null;
     readonly runnerHeartbeatAt: string | null;
     readonly runnerActionAt: string | null;
     readonly hasActionableFeedback: boolean;
@@ -37,6 +40,8 @@ export class NullLivenessProbe implements LivenessProbe {
     readonly runSessionId: string | null;
     readonly hasActionableFeedback: boolean;
     readonly prHeadSha: string | null;
+    readonly runStartedAt: string | null;
+    readonly runnerPhase: RunnerVisibilityPhase | null;
     readonly runnerHeartbeatAt: string | null;
     readonly runnerActionAt: string | null;
   }): Promise<LivenessSnapshot> {
@@ -44,6 +49,8 @@ export class NullLivenessProbe implements LivenessProbe {
       logSizeBytes: null,
       workspaceDiffHash: null,
       prHeadSha: options.prHeadSha,
+      runStartedAt: options.runStartedAt,
+      runnerPhase: options.runnerPhase,
       runnerHeartbeatAt: options.runnerHeartbeatAt,
       runnerActionAt: options.runnerActionAt,
       hasActionableFeedback: options.hasActionableFeedback,
@@ -70,6 +77,8 @@ export class FsLivenessProbe implements LivenessProbe {
     readonly workspacePath: string | null;
     readonly runSessionId: string | null;
     readonly prHeadSha: string | null;
+    readonly runStartedAt: string | null;
+    readonly runnerPhase: RunnerVisibilityPhase | null;
     readonly runnerHeartbeatAt: string | null;
     readonly runnerActionAt: string | null;
     readonly hasActionableFeedback: boolean;
@@ -83,6 +92,8 @@ export class FsLivenessProbe implements LivenessProbe {
       logSizeBytes: logSize,
       workspaceDiffHash: diffHash,
       prHeadSha: options.prHeadSha,
+      runStartedAt: options.runStartedAt,
+      runnerPhase: options.runnerPhase,
       runnerHeartbeatAt: options.runnerHeartbeatAt,
       runnerActionAt: options.runnerActionAt,
       hasActionableFeedback: options.hasActionableFeedback,

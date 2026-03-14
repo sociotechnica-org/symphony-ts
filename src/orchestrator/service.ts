@@ -64,6 +64,7 @@ import { LocalIssueLeaseManager } from "./issue-lease.js";
 import type { LivenessProbe } from "./liveness-probe.js";
 import { createRunningEntry, integrateCodexUpdate } from "./running-entry.js";
 import {
+  type LivenessSource,
   type StallReason,
   checkStall,
   canRecover,
@@ -86,8 +87,11 @@ import {
 } from "./status-state.js";
 import {
   clearActiveWatchdogEntry,
+  clearWatchdogAbortReason,
   clearWatchdogIssueState,
   initWatchdogEntry,
+  noteWatchdogAbortReason,
+  readWatchdogAbortReason,
   recordWatchdogRecovery,
 } from "./watchdog-state.js";
 import { summarizeRunnerText } from "../runner/service.js";
@@ -928,6 +932,15 @@ export class BootstrapOrchestrator implements Orchestrator {
       issue.number,
       watchdogStop.signal,
     );
+    let watchdogStopped = false;
+    const stopWatchdog = async (): Promise<void> => {
+      if (watchdogStopped) {
+        return;
+      }
+      watchdogStopped = true;
+      watchdogStop.abort();
+      await watchdogPromise;
+    };
     const runEntry = createRunningEntry(
       issue.number,
       issue.identifier,
@@ -981,6 +994,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         };
 
         if (result.exitCode !== 0) {
+          await stopWatchdog();
           this.#setIssueRunnerVisibility(
             issue.number,
             this.#buildRunnerVisibility(result.session, {
@@ -1039,6 +1053,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         );
 
         if (nextLifecycle.kind === "handoff-ready") {
+          await stopWatchdog();
           await this.#completeIssue(issue, {
             attemptNumber: attempt,
             branchName: workspace.branchName,
@@ -1070,6 +1085,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           continue;
         }
 
+        await stopWatchdog();
         await this.#handleTurnLifecycleExit(
           issue,
           attempt,
@@ -1082,15 +1098,21 @@ export class BootstrapOrchestrator implements Orchestrator {
         return;
       }
     } catch (error) {
+      await stopWatchdog();
+      const normalizedFailure = this.#resolveRunFailureMessage(
+        sessionState.runSession.issue.number,
+        error as Error,
+      );
       this.#setIssueFailureVisibility(
         sessionState.runSession.issue.number,
         sessionState.description,
         error as Error,
+        normalizedFailure,
       );
       await this.#handleFailure(
         sessionState,
         attempt,
-        this.#normalizeFailure(error as Error),
+        normalizedFailure,
         new Date().toISOString(),
       );
     } finally {
@@ -1102,8 +1124,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      watchdogStop.abort();
-      await watchdogPromise;
+      await stopWatchdog();
       shutdownSignal?.removeEventListener("abort", handleShutdown);
       this.#state.runAbortControllers.delete(issue.number);
       clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
@@ -2486,9 +2507,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     issueNumber: number,
     session: RunSessionArtifactsState["description"],
     error: Error,
+    normalizedError = this.#normalizeFailure(error),
   ): void {
     const observedAt = new Date().toISOString();
-    const normalized = this.#normalizeFailure(error);
     if (error instanceof RunnerAbortedError) {
       this.#setIssueRunnerVisibility(
         issueNumber,
@@ -2498,14 +2519,14 @@ export class BootstrapOrchestrator implements Orchestrator {
           lastHeartbeatAt: observedAt,
           lastActionAt: observedAt,
           lastActionSummary: "Runner cancelled",
-          errorSummary: normalized,
+          errorSummary: normalizedError,
           cancelledAt: observedAt,
         }),
         observedAt,
       );
       return;
     }
-    const timedOut = normalized.includes("timed out");
+    const timedOut = normalizedError.includes("timed out");
     this.#setIssueRunnerVisibility(
       issueNumber,
       this.#buildRunnerVisibility(session, {
@@ -2514,11 +2535,43 @@ export class BootstrapOrchestrator implements Orchestrator {
         lastHeartbeatAt: observedAt,
         lastActionAt: observedAt,
         lastActionSummary: timedOut ? "Runner timed out" : "Runner failed",
-        errorSummary: normalized,
+        errorSummary: normalizedError,
         ...(timedOut ? { timedOutAt: observedAt } : {}),
       }),
       observedAt,
     );
+  }
+
+  #resolveRunFailureMessage(issueNumber: number, error: Error): string {
+    if (error instanceof RunnerAbortedError) {
+      const watchdogAbort = readWatchdogAbortReason(
+        this.#state.watchdog,
+        issueNumber,
+      );
+      if (watchdogAbort !== null) {
+        return watchdogAbort.summary;
+      }
+    }
+    return this.#normalizeFailure(error);
+  }
+
+  #formatWatchdogAbortSummary(
+    issueNumber: number,
+    reason: StallReason,
+    stalledForMs: number,
+    lastObservableActivityAt: number,
+    lastObservableActivitySource: LivenessSource | null,
+    recoveryExhausted: boolean,
+  ): string {
+    const lastObservedAt = new Date(lastObservableActivityAt).toISOString();
+    const source =
+      lastObservableActivitySource === null
+        ? "unknown"
+        : lastObservableActivitySource;
+    const recoveryText = recoveryExhausted
+      ? "recovery limit reached, aborting"
+      : "aborting runner for retry";
+    return `Stall detected (${reason}) for issue #${issueNumber.toString()} after ${stalledForMs.toString()}ms since ${source} at ${lastObservedAt}; ${recoveryText}`;
   }
 
   #buildRunnerVisibility(
@@ -2620,14 +2673,18 @@ export class BootstrapOrchestrator implements Orchestrator {
     ) {
       return;
     }
+    clearWatchdogAbortReason(this.#state.watchdog, issueNumber);
+    const activeIssue = this.#state.status.activeIssues.get(issueNumber);
     const now = Date.now();
     initWatchdogEntry(this.#state.watchdog, issueNumber, {
       logSizeBytes: null,
       workspaceDiffHash: null,
       prHeadSha: null,
-      runnerHeartbeatAt: null,
-      runnerActionAt: null,
-      hasActionableFeedback: false,
+      runStartedAt: activeIssue?.startedAt ?? null,
+      runnerPhase: activeIssue?.runnerVisibility?.phase ?? null,
+      runnerHeartbeatAt: activeIssue?.runnerVisibility?.lastHeartbeatAt ?? null,
+      runnerActionAt: activeIssue?.runnerVisibility?.lastActionAt ?? null,
+      hasActionableFeedback: (activeIssue?.review.actionableCount ?? 0) > 0,
       capturedAt: now,
     });
   }
@@ -2666,6 +2723,8 @@ export class BootstrapOrchestrator implements Orchestrator {
           workspacePath: activeIssue?.workspacePath ?? null,
           runSessionId: activeIssue?.runSessionId ?? null,
           prHeadSha: activeIssue?.pullRequest?.headSha ?? null,
+          runStartedAt: activeIssue?.startedAt ?? null,
+          runnerPhase: activeIssue?.runnerVisibility?.phase ?? null,
           runnerHeartbeatAt:
             activeIssue?.runnerVisibility?.lastHeartbeatAt ?? null,
           runnerActionAt: activeIssue?.runnerVisibility?.lastActionAt ?? null,
@@ -2674,18 +2733,45 @@ export class BootstrapOrchestrator implements Orchestrator {
         const result = checkStall(entry, snapshot, this.#watchdogConfig);
         if (result.stalled && result.reason !== null) {
           if (canRecover(entry, this.#watchdogConfig)) {
-            await this.#recoverStalledRunner(issueNumber, result.reason);
+            await this.#recoverStalledRunner(issueNumber, {
+              reason: result.reason,
+              stalledForMs: result.stalledForMs,
+              lastObservableActivityAt: result.lastObservableActivityAt,
+              lastObservableActivitySource: result.lastObservableActivitySource,
+            });
             break;
           }
+          const observedAt = new Date().toISOString();
+          const summary = this.#formatWatchdogAbortSummary(
+            issueNumber,
+            result.reason,
+            result.stalledForMs,
+            result.lastObservableActivityAt,
+            result.lastObservableActivitySource,
+            true,
+          );
           this.#logger.warn("Stalled runner exceeded recovery limit", {
             issueNumber,
             reason: result.reason,
             recoveryCount: entry.recoveryCount,
+            lastObservableActivityAt: new Date(
+              result.lastObservableActivityAt,
+            ).toISOString(),
+            lastObservableActivitySource: result.lastObservableActivitySource,
           });
           noteStatusAction(this.#state.status, {
             kind: "watchdog-recovery-exhausted",
-            summary: `Stall detected (${result.reason}) for issue #${issueNumber.toString()}; recovery limit reached, aborting`,
+            summary,
             issueNumber,
+            at: observedAt,
+          });
+          noteWatchdogAbortReason(this.#state.watchdog, issueNumber, {
+            reason: result.reason,
+            summary,
+            observedAt,
+            recoveryExhausted: true,
+            lastObservableActivityAt: result.lastObservableActivityAt,
+            lastObservableActivitySource: result.lastObservableActivitySource,
           });
           await this.#persistStatusSnapshot();
           const controller = this.#state.runAbortControllers.get(issueNumber);
@@ -2705,22 +2791,49 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #recoverStalledRunner(
     issueNumber: number,
-    reason: StallReason,
+    result: {
+      readonly reason: StallReason;
+      readonly stalledForMs: number;
+      readonly lastObservableActivityAt: number;
+      readonly lastObservableActivitySource: LivenessSource | null;
+    },
   ): Promise<void> {
     const entry = this.#state.watchdog.activeEntries.get(issueNumber);
     if (!entry) {
       return;
     }
     recordWatchdogRecovery(this.#state.watchdog, entry);
+    const observedAt = new Date().toISOString();
+    const summary = this.#formatWatchdogAbortSummary(
+      issueNumber,
+      result.reason,
+      result.stalledForMs,
+      result.lastObservableActivityAt,
+      result.lastObservableActivitySource,
+      false,
+    );
     this.#logger.warn("Recovering stalled runner", {
       issueNumber,
-      reason,
+      reason: result.reason,
       recoveryCount: entry.recoveryCount,
+      lastObservableActivityAt: new Date(
+        result.lastObservableActivityAt,
+      ).toISOString(),
+      lastObservableActivitySource: result.lastObservableActivitySource,
     });
     noteStatusAction(this.#state.status, {
       kind: "watchdog-recovery",
-      summary: `Stall detected (${reason}) for issue #${issueNumber.toString()}; aborting runner`,
+      summary,
       issueNumber,
+      at: observedAt,
+    });
+    noteWatchdogAbortReason(this.#state.watchdog, issueNumber, {
+      reason: result.reason,
+      summary,
+      observedAt,
+      recoveryExhausted: false,
+      lastObservableActivityAt: result.lastObservableActivityAt,
+      lastObservableActivitySource: result.lastObservableActivitySource,
     });
     await this.#persistStatusSnapshot();
     const controller = this.#state.runAbortControllers.get(issueNumber);
