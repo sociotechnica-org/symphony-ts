@@ -406,12 +406,7 @@ export function formatSnapshotContent(
       sparklineSuffix,
     colorize("│ Runtime: ", BOLD) +
       colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
-    colorize("│ Tokens: ", BOLD) +
-      colorize(`in ${formatCount(codexTotals.inputTokens)}`, YELLOW) +
-      colorize(" | ", GRAY) +
-      colorize(`out ${formatCount(codexTotals.outputTokens)}`, YELLOW) +
-      colorize(" | ", GRAY) +
-      colorize(`total ${formatCount(codexTotals.totalTokens)}`, YELLOW),
+    colorize("│ Tokens: ", BOLD) + formatHeaderTokens(codexTotals),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
     ...lastActionLine,
     ...projectLine,
@@ -565,11 +560,7 @@ function formatRunningRow(
     formatRuntimeAndTurns(runtimeSecs, entry, maxTurns),
     AGE_WIDTH,
   );
-  const tokens = formatCell(
-    formatCount(entry.codexTotalTokens),
-    TOKENS_WIDTH,
-    "right",
-  );
+  const tokens = formatCell(formatRunningTokens(entry), TOKENS_WIDTH, "right");
   const session = formatCell(
     compactSessionId(resolveSessionDisplay(entry)),
     SESSION_WIDTH,
@@ -631,6 +622,55 @@ function statusDotColor(
   if (event === "codex/event/task_started") return GREEN;
   if (event === "turn/completed") return MAGENTA;
   return BLUE;
+}
+
+function formatHeaderTokens(codexTotals: TuiSnapshot["codexTotals"]): string {
+  if (
+    codexTotals.pendingRunCount > 0 &&
+    codexTotals.inputTokens === 0 &&
+    codexTotals.outputTokens === 0 &&
+    codexTotals.totalTokens === 0
+  ) {
+    return (
+      colorize("in pending", YELLOW) +
+      colorize(" | ", GRAY) +
+      colorize("out pending", YELLOW) +
+      colorize(" | ", GRAY) +
+      colorize("total pending", YELLOW) +
+      colorize(" | ", GRAY) +
+      colorize(`${String(codexTotals.pendingRunCount)} pending`, YELLOW)
+    );
+  }
+
+  const pendingSuffix =
+    codexTotals.pendingRunCount > 0
+      ? colorize(" | ", GRAY) +
+        colorize(`${String(codexTotals.pendingRunCount)} pending`, YELLOW)
+      : "";
+
+  return (
+    colorize(`in ${formatCount(codexTotals.inputTokens)}`, YELLOW) +
+    colorize(" | ", GRAY) +
+    colorize(`out ${formatCount(codexTotals.outputTokens)}`, YELLOW) +
+    colorize(" | ", GRAY) +
+    colorize(`total ${formatCount(codexTotals.totalTokens)}`, YELLOW) +
+    pendingSuffix
+  );
+}
+
+function formatRunningTokens(entry: TuiSnapshot["running"][number]): string {
+  switch (entry.codexTokenState) {
+    case "pending":
+      return "pending";
+    case "observed":
+      return formatCount(entry.codexTotalTokens);
+    default:
+      return unreachableCodexTokenState(entry.codexTokenState);
+  }
+}
+
+function unreachableCodexTokenState(state: never): never {
+  throw new Error(`Unhandled Codex token state: ${state as string}`);
 }
 
 function unreachableVisibilityState(state: never): never {
@@ -811,6 +851,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       retryAttempt: e.retryAttempt,
       sessionId: e.sessionId,
       turnCount: e.turnCount,
+      codexTokenState: e.codexTokenState,
       codexTotalTokens: e.codexTotalTokens,
       codexInputTokens: e.codexInputTokens,
       codexOutputTokens: e.codexOutputTokens,
@@ -849,6 +890,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       inputTokens: snapshot.codexTotals.inputTokens,
       outputTokens: snapshot.codexTotals.outputTokens,
       totalTokens: snapshot.codexTotals.totalTokens,
+      pendingRunCount: snapshot.codexTotals.pendingRunCount,
     },
     rateLimits: snapshot.rateLimits,
     lastAction:

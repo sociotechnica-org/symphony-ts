@@ -69,7 +69,11 @@ import {
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
 import type { LivenessProbe } from "./liveness-probe.js";
-import { createRunningEntry, integrateCodexUpdate } from "./running-entry.js";
+import {
+  createRunningEntry,
+  integrateCodexUpdate,
+  type CodexTokenState,
+} from "./running-entry.js";
 import {
   type LivenessSource,
   type StallReason,
@@ -112,6 +116,7 @@ export interface TuiRunningEntry {
   readonly retryAttempt: number;
   readonly sessionId: string | null;
   readonly turnCount: number;
+  readonly codexTokenState: CodexTokenState;
   readonly codexTotalTokens: number;
   readonly codexInputTokens: number;
   readonly codexOutputTokens: number;
@@ -138,10 +143,15 @@ export interface TuiRetryEntry {
   readonly lastError: string;
 }
 
+export interface TuiCodexTotals extends CodexTotals {
+  readonly pendingRunCount: number;
+  readonly secondsRunning: number;
+}
+
 export interface TuiSnapshot {
   readonly running: readonly TuiRunningEntry[];
   readonly retrying: readonly TuiRetryEntry[];
-  readonly codexTotals: CodexTotals;
+  readonly codexTotals: TuiCodexTotals;
   readonly rateLimits: RateLimits | null;
   readonly lastAction: FactoryStatusAction | null;
   readonly polling: PollingState;
@@ -217,10 +227,14 @@ export class BootstrapOrchestrator implements Orchestrator {
   snapshot(): TuiSnapshot {
     const now = Date.now();
     const running: TuiRunningEntry[] = [];
+    let pendingRunCount = 0;
     for (const entry of this.#state.runningEntries.values()) {
       const activeIssue = this.#state.status.activeIssues.get(
         entry.issueNumber,
       );
+      if (entry.codexTokenState === "pending") {
+        pendingRunCount += 1;
+      }
       running.push({
         issueNumber: entry.issueNumber,
         identifier: entry.identifier,
@@ -239,6 +253,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         retryAttempt: entry.retryAttempt,
         sessionId: entry.sessionId,
         turnCount: entry.turnCount,
+        codexTokenState: entry.codexTokenState,
         codexTotalTokens: entry.codexTotalTokens,
         codexInputTokens: entry.codexInputTokens,
         codexOutputTokens: entry.codexOutputTokens,
@@ -268,6 +283,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       retrying,
       codexTotals: {
         ...this.#state.codexTotals,
+        pendingRunCount,
         secondsRunning: Math.floor((now - this.#factoryStartedAt) / 1000),
       },
       rateLimits: this.#state.rateLimits,

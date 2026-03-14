@@ -21,6 +21,7 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
+      pendingRunCount: 0,
       secondsRunning: 0,
     },
     rateLimits: null,
@@ -93,6 +94,7 @@ describe("formatSnapshotContent", () => {
         inputTokens: 1000,
         outputTokens: 500,
         totalTokens: 1500,
+        pendingRunCount: 0,
         secondsRunning: 125,
       },
     });
@@ -167,6 +169,7 @@ describe("formatSnapshotContent", () => {
           retryAttempt: 1,
           sessionId: "abcdef1234567890",
           turnCount: 3,
+          codexTokenState: "observed",
           codexTotalTokens: 4521,
           codexInputTokens: 2000,
           codexOutputTokens: 2521,
@@ -193,6 +196,172 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("12345");
     expect(output).toContain("4,521");
     expect(output).toContain("abcd...567890");
+  });
+
+  it("renders pending token semantics for live Codex activity before token-bearing events", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTokenState: "pending",
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: "thread/started",
+            lastCodexMessage: {
+              method: "thread/started",
+              params: { thread: { id: "thread-live-123" } },
+            },
+            lastCodexTimestamp: "2026-03-14T10:00:05.000Z",
+            runnerVisibility: makeRunnerVisibility({
+              stdoutSummary: JSON.stringify({
+                method: "thread/started",
+                params: { thread: { id: "thread-live-123" } },
+              }),
+            }),
+          },
+        ],
+        codexTotals: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          pendingRunCount: 1,
+          secondsRunning: 30,
+        },
+      }),
+      0,
+      220,
+      "",
+      new Date("2026-03-14T10:00:30.000Z").getTime(),
+    );
+
+    expect(output).toContain("in pending");
+    expect(output).toContain("out pending");
+    expect(output).toContain("total pending");
+    expect(output).toContain("1 pending");
+    expect(output).toContain("thread started (thread-live-123)");
+    expect(output).toContain("pending");
+    expect(output).not.toContain(" total 0");
+  });
+
+  it("renders observed totals plus pending aggregate context when another live run is still pending", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTokenState: "observed",
+            codexTotalTokens: 700,
+            codexInputTokens: 500,
+            codexOutputTokens: 200,
+            codexAppServerPid: 12345,
+            lastCodexEvent: "codex/event/token_count",
+            lastCodexMessage: {
+              params: {
+                tokenUsage: {
+                  total: {
+                    input_tokens: 500,
+                    output_tokens: 200,
+                    total_tokens: 700,
+                  },
+                },
+              },
+            },
+            lastCodexTimestamp: "2026-03-14T10:00:10.000Z",
+            runnerVisibility: null,
+          },
+          {
+            issueNumber: 134,
+            identifier: "#134",
+            issueState: "running",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTokenState: "pending",
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12346,
+            lastCodexEvent: "thread/started",
+            lastCodexMessage: {
+              method: "thread/started",
+              params: { thread: { id: "thread-live-124" } },
+            },
+            lastCodexTimestamp: "2026-03-14T10:00:05.000Z",
+            runnerVisibility: null,
+          },
+        ],
+        codexTotals: {
+          inputTokens: 500,
+          outputTokens: 200,
+          totalTokens: 700,
+          pendingRunCount: 1,
+          secondsRunning: 30,
+        },
+      }),
+      0,
+    );
+
+    expect(output).toContain("in 500");
+    expect(output).toContain("out 200");
+    expect(output).toContain("total 700");
+    expect(output).toContain("1 pending");
+  });
+
+  it("renders observed totals numerically without a pending marker", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "completed",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: "session-123",
+            turnCount: 1,
+            codexTokenState: "observed",
+            codexTotalTokens: 1500,
+            codexInputTokens: 1000,
+            codexOutputTokens: 500,
+            codexAppServerPid: null,
+            lastCodexEvent: "turn/completed",
+            lastCodexMessage: { method: "turn/completed" },
+            lastCodexTimestamp: "2026-03-14T10:00:10.000Z",
+            runnerVisibility: makeRunnerVisibility({
+              state: "completed",
+              phase: "turn-finished",
+            }),
+          },
+        ],
+        codexTotals: {
+          inputTokens: 1000,
+          outputTokens: 500,
+          totalTokens: 1500,
+          pendingRunCount: 0,
+          secondsRunning: 30,
+        },
+      }),
+      0,
+    );
+
+    expect(output).toContain("1,500");
+    expect(output).not.toContain("pending");
   });
 
   it("renders lifecycle stage from normalized active-issue status", () => {
@@ -225,6 +394,7 @@ describe("formatSnapshotContent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 1,
+            codexTokenState: "observed",
             codexTotalTokens: 2200,
             codexInputTokens: 1100,
             codexOutputTokens: 1100,
@@ -273,6 +443,7 @@ describe("formatSnapshotContent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 2,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -310,6 +481,7 @@ describe("formatSnapshotContent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 1,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -370,6 +542,7 @@ describe("formatSnapshotContent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 1,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -413,6 +586,7 @@ describe("formatSnapshotContent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 0,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -553,6 +727,7 @@ describe("formatSnapshotContent", () => {
           retryAttempt: 1,
           sessionId: "smoke-sess-001",
           turnCount: 0,
+          codexTokenState: "observed",
           codexTotalTokens: 6000,
           codexInputTokens: 4000,
           codexOutputTokens: 2000,
@@ -579,6 +754,7 @@ describe("formatSnapshotContent", () => {
           retryAttempt: 1,
           sessionId: "smoke-sess-002",
           turnCount: 1,
+          codexTokenState: "observed",
           codexTotalTokens: 3600,
           codexInputTokens: 2400,
           codexOutputTokens: 1200,
@@ -608,6 +784,7 @@ describe("formatSnapshotContent", () => {
         inputTokens: 6400,
         outputTokens: 3200,
         totalTokens: 9600,
+        pendingRunCount: 0,
         secondsRunning: 75,
       },
       maxConcurrentRuns: 3,
@@ -873,6 +1050,7 @@ describe("humanizeEvent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 1,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -905,6 +1083,7 @@ describe("humanizeEvent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 1,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -944,6 +1123,7 @@ describe("humanizeEvent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 1,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -979,6 +1159,7 @@ describe("humanizeEvent", () => {
             retryAttempt: 1,
             sessionId: null,
             turnCount: 1,
+            codexTokenState: "pending",
             codexTotalTokens: 0,
             codexInputTokens: 0,
             codexOutputTokens: 0,
@@ -1239,6 +1420,7 @@ describe("StatusDashboard", () => {
           retryAttempt: 1,
           sessionId: null,
           turnCount: 1,
+          codexTokenState: "pending",
           codexTotalTokens: 0,
           codexInputTokens: 0,
           codexOutputTokens: 0,
@@ -1340,6 +1522,7 @@ describe("StatusDashboard", () => {
           retryAttempt: 1,
           sessionId: null,
           turnCount: 1,
+          codexTokenState: "pending",
           codexTotalTokens: 0,
           codexInputTokens: 0,
           codexOutputTokens: 0,
@@ -1406,6 +1589,7 @@ describe("StatusDashboard", () => {
           retryAttempt: 1,
           sessionId: null,
           turnCount: 1,
+          codexTokenState: "pending",
           codexTotalTokens: 0,
           codexInputTokens: 0,
           codexOutputTokens: 0,
@@ -1484,6 +1668,7 @@ describe("StatusDashboard", () => {
           retryAttempt: 1,
           sessionId: null,
           turnCount: 1,
+          codexTokenState: "pending",
           codexTotalTokens: 0,
           codexInputTokens: 0,
           codexOutputTokens: 0,

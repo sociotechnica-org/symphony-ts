@@ -26,6 +26,8 @@ describe("integrateCodexUpdate", () => {
   it("increments turnCount for slash-style completed events", () => {
     const entry = createRunningEntry(99, "issue-99", "open", 1);
 
+    expect(entry.codexTokenState).toBe("pending");
+
     integrateCodexUpdate(entry, {
       event: "turn/completed",
       payload: {},
@@ -89,6 +91,7 @@ describe("integrateCodexUpdate", () => {
     expect(entry.codexInputTokens).toBe(800);
     expect(entry.codexOutputTokens).toBe(400);
     expect(entry.codexTotalTokens).toBe(1200);
+    expect(entry.codexTokenState).toBe("observed");
   });
 
   it("extracts session ID from nested Codex JSON-RPC payload", () => {
@@ -144,5 +147,42 @@ describe("integrateCodexUpdate", () => {
     });
     expect(entry.codexInputTokens).toBe(120); // 100 + (120 - 100)
     expect(entry.codexLastReportedInputTokens).toBe(120);
+  });
+
+  it("keeps pending token state across non-token events", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    integrateCodexUpdate(entry, {
+      event: "thread/started",
+      payload: {
+        method: "thread/started",
+        params: { thread: { id: "thread-live-123" } },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(entry.codexTokenState).toBe("pending");
+    expect(entry.codexTotalTokens).toBe(0);
+  });
+
+  it("does not regress from observed back to pending on later non-token events", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    integrateCodexUpdate(entry, {
+      event: "codex/event/token_count",
+      payload: { input_tokens: 100, output_tokens: 50, total_tokens: 150 },
+      timestamp: new Date().toISOString(),
+    });
+    integrateCodexUpdate(entry, {
+      event: "thread/started",
+      payload: {
+        method: "thread/started",
+        params: { thread: { id: "thread-live-123" } },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(entry.codexTokenState).toBe("observed");
+    expect(entry.codexTotalTokens).toBe(150);
   });
 });
