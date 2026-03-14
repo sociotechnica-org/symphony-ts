@@ -368,6 +368,15 @@ export function getFactoryStatusPublication(
   return snapshot.publication ?? { state: "current", detail: null };
 }
 
+/**
+ * Assesses whether a persisted factory status snapshot can be treated as
+ * current for operator-facing status surfaces.
+ *
+ * NOTE: when `options.workerAlive` is omitted, this function calls
+ * `isProcessAlive(snapshot.worker.pid)`, which performs an OS-level signal
+ * probe. Pass `workerAlive` explicitly in hot-path or test contexts to avoid
+ * that syscall.
+ */
 export function assessFactoryStatusSnapshot(
   snapshot: FactoryStatusSnapshot | null,
   options?: {
