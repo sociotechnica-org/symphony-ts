@@ -91,7 +91,9 @@ export function checkStall(
   if (activity !== null && activity.at >= entry.lastObservableActivityAt) {
     // Clamp runner-reported timestamps to the probe wall clock so a fast
     // runner clock cannot push the baseline into the future and disable stall
-    // detection with negative idle durations.
+    // detection with negative idle durations. An exact tie still updates the
+    // source to the freshest signal, but it does not advance the baseline or
+    // reset the stall timer.
     const creditedAt = Math.min(activity.at, current.capturedAt);
     entry.lastLiveness = current;
     entry.lastObservableActivityAt = creditedAt;
