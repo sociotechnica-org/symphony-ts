@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
+import type { StartupSnapshot } from "../../src/startup/service.js";
 import {
   collectDescendantProcessIds,
   createFactoryLaunchEnvironment,
@@ -52,11 +53,27 @@ function createStatusSnapshot(
   };
 }
 
+function createStartupSnapshot(
+  workerPid: number,
+  overrides: Partial<StartupSnapshot> = {},
+): StartupSnapshot {
+  return {
+    version: 1,
+    state: "preparing",
+    updatedAt: "2026-03-13T11:58:30.000Z",
+    workerPid,
+    provider: "github-bootstrap/noop",
+    summary: "Startup preparation is in progress.",
+    ...overrides,
+  };
+}
+
 function createControlDeps(
   options: {
     readonly processes?: readonly HostProcessSnapshot[];
     readonly sessions?: readonly ScreenSessionSnapshot[];
     readonly snapshot?: FactoryStatusSnapshot | null;
+    readonly startupSnapshot?: StartupSnapshot | null;
     readonly environment?: NodeJS.ProcessEnv;
     readonly availableLocales?: readonly string[];
     readonly nowValues?: readonly number[];
@@ -71,6 +88,7 @@ function createControlDeps(
   const runtimeRoot = path.join(repoRoot, ".tmp", "factory-main");
   const workflowPath = path.join(runtimeRoot, "WORKFLOW.md");
   const statusFilePath = path.join(runtimeRoot, ".tmp", "status.json");
+  const startupFilePath = path.join(runtimeRoot, ".tmp", "startup.json");
   const nowValues = [...(options.nowValues ?? [0])];
 
   return {
@@ -83,25 +101,52 @@ function createControlDeps(
         workflowPath,
         path.dirname(statusFilePath),
         statusFilePath,
+        startupFilePath,
       ].includes(targetPath),
     loadWorkflowWorkspaceRoot: async () =>
       path.join(runtimeRoot, ".tmp", "workspaces"),
     readFile: async (filePath) => {
-      if (filePath !== statusFilePath || options.snapshot === null) {
+      if (filePath === statusFilePath) {
+        if (options.snapshot === null) {
+          const error = new Error(
+            `ENOENT: no such file or directory, open '${filePath}'`,
+          ) as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (options.snapshot === undefined) {
+          const error = new Error(
+            `ENOENT: no such file or directory, open '${filePath}'`,
+          ) as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return `${JSON.stringify(options.snapshot, null, 2)}\n`;
+      }
+      if (filePath === startupFilePath) {
+        if (options.startupSnapshot === null) {
+          const error = new Error(
+            `ENOENT: no such file or directory, open '${filePath}'`,
+          ) as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (options.startupSnapshot === undefined) {
+          const error = new Error(
+            `ENOENT: no such file or directory, open '${filePath}'`,
+          ) as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return `${JSON.stringify(options.startupSnapshot, null, 2)}\n`;
+      }
+      {
         const error = new Error(
           `ENOENT: no such file or directory, open '${filePath}'`,
         ) as NodeJS.ErrnoException;
         error.code = "ENOENT";
         throw error;
       }
-      if (options.snapshot === undefined) {
-        const error = new Error(
-          `ENOENT: no such file or directory, open '${filePath}'`,
-        ) as NodeJS.ErrnoException;
-        error.code = "ENOENT";
-        throw error;
-      }
-      return `${JSON.stringify(options.snapshot, null, 2)}\n`;
     },
     listProcesses: async () => options.processes ?? [],
     listScreenSessions: async () => options.sessions ?? [],
@@ -494,6 +539,61 @@ describe("inspectFactoryControl", () => {
     expect(snapshot.snapshotFreshness.freshness).toBe("stale");
     expect(snapshot.snapshotFreshness.reason).toBe("startup-failed");
   });
+
+  it("surfaces startup preparation while the runtime has not published status yet", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        sessions: [
+          {
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: "symphony-factory",
+            state: "Detached",
+          },
+        ],
+        processes: [
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          { pid: workerPid, ppid: 9001, command: "node bin/symphony.ts run" },
+        ],
+        snapshot: null,
+        startupSnapshot: createStartupSnapshot(workerPid),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.startup).toMatchObject({
+      state: "preparing",
+      summary: "Startup preparation is in progress.",
+      stale: false,
+    });
+    expect(snapshot.problems).not.toContain(
+      "screen session exists but no readable runtime status snapshot was found",
+    );
+  });
+
+  it("reports explicit startup failures even when the worker has already exited", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        snapshot: null,
+        startupSnapshot: createStartupSnapshot(workerPid, {
+          state: "failed",
+          summary: "Mirror refresh failed.",
+        }),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.startup).toMatchObject({
+      state: "failed",
+      summary: "Mirror refresh failed.",
+      stale: true,
+    });
+    expect(snapshot.problems).toContain(
+      "startup failed: Mirror refresh failed.",
+    );
+  });
 });
 
 describe("createFactoryRunCommand", () => {
@@ -585,7 +685,12 @@ describe("startFactory", () => {
       }),
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
-      readFile: async () => {
+      readFile: async (filePath) => {
+        if (filePath.endsWith("startup.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (currentSnapshot === null) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -663,7 +768,12 @@ describe("startFactory", () => {
       }),
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
-      readFile: async () => {
+      readFile: async (filePath) => {
+        if (filePath.endsWith("startup.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (currentSnapshot === null) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -686,6 +796,57 @@ describe("startFactory", () => {
     expect(result.kind).toBe("started");
     expect(result.status.controlState).toBe("running");
     expect(result.status.snapshotFreshness.freshness).toBe("fresh");
+  });
+
+  it("returns an explicit startup-failed result when startup preparation fails quickly", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    let startupSnapshot: StartupSnapshot | null = null;
+
+    const result = await startFactory({
+      ...createControlDeps({
+        launchScreenSession: async (options) => {
+          sessionsState.push({
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: options.sessionName,
+            state: "Detached",
+          });
+          processesState.push(
+            { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+            { pid: 9101, ppid: 9001, command: "node bin/symphony.ts run" },
+          );
+          startupSnapshot = createStartupSnapshot(9101, {
+            state: "failed",
+            summary: "Mirror refresh failed.",
+          });
+          processesState.splice(0, processesState.length);
+          sessionsState.splice(0, sessionsState.length);
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async (filePath) => {
+        if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
+          return `${JSON.stringify(startupSnapshot, null, 2)}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(result.kind).toBe("startup-failed");
+    expect(result.status.startup?.summary).toBe("Mirror refresh failed.");
   });
 
   it("starts only after degraded cleanup reaches stopped", async () => {
@@ -731,7 +892,12 @@ describe("startFactory", () => {
       }),
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
-      readFile: async () => {
+      readFile: async (filePath) => {
+        if (filePath.endsWith("startup.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (currentSnapshot === null) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -1252,7 +1418,12 @@ describe("factory restart launch contract", () => {
       }),
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
-      readFile: async () => {
+      readFile: async (filePath) => {
+        if (filePath.endsWith("startup.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (currentSnapshot === null) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -1309,10 +1480,12 @@ describe("renderFactoryControlStatus", () => {
         runtimeRoot: "/repo/.tmp/factory-main",
         workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
         statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+        startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
       },
       sessionName: "symphony-factory",
       sessions: [],
       workerAlive: false,
+      startup: null,
       snapshotFreshness: {
         freshness: "unavailable",
         reason: "missing-snapshot",

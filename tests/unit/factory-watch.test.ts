@@ -14,6 +14,7 @@ function createSnapshot(): FactoryControlStatusSnapshot {
       runtimeRoot: "/repo/.tmp/factory-main",
       workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
       statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+      startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
     },
     sessionName: "symphony-factory",
     sessions: [
@@ -25,6 +26,7 @@ function createSnapshot(): FactoryControlStatusSnapshot {
       },
     ],
     workerAlive: true,
+    startup: null,
     snapshotFreshness: {
       freshness: "fresh",
       reason: "current-snapshot",

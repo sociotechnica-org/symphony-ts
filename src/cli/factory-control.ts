@@ -12,6 +12,12 @@ import {
   type FactoryStatusFreshnessAssessment,
   type FactoryStatusSnapshot,
 } from "../observability/status.js";
+import {
+  deriveStartupFilePath,
+  parseStartupSnapshotContent,
+  type StartupSnapshot,
+  type StartupState,
+} from "../startup/service.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -28,6 +34,7 @@ export interface FactoryPaths {
   readonly runtimeRoot: string;
   readonly workflowPath: string;
   readonly statusFilePath: string;
+  readonly startupFilePath: string;
 }
 
 export interface HostProcessSnapshot {
@@ -45,12 +52,23 @@ export interface ScreenSessionSnapshot {
 
 export type FactoryControlState = "stopped" | "running" | "degraded";
 
+export interface FactoryStartupAssessment {
+  readonly state: StartupState;
+  readonly provider: string;
+  readonly summary: string;
+  readonly updatedAt: string;
+  readonly workerPid: number;
+  readonly workerAlive: boolean;
+  readonly stale: boolean;
+}
+
 export interface FactoryControlStatusSnapshot {
   readonly controlState: FactoryControlState;
   readonly paths: FactoryPaths;
   readonly sessionName: string;
   readonly sessions: readonly ScreenSessionSnapshot[];
   readonly workerAlive: boolean;
+  readonly startup: FactoryStartupAssessment | null;
   readonly snapshotFreshness: FactoryStatusFreshnessAssessment;
   readonly statusSnapshot: FactoryStatusSnapshot | null;
   readonly processIds: readonly number[];
@@ -58,7 +76,11 @@ export interface FactoryControlStatusSnapshot {
 }
 
 export interface FactoryControlStartResult {
-  readonly kind: "started" | "already-running" | "blocked-degraded";
+  readonly kind:
+    | "started"
+    | "already-running"
+    | "blocked-degraded"
+    | "startup-failed";
   readonly status: FactoryControlStatusSnapshot;
 }
 
@@ -72,6 +94,11 @@ export interface FactoryControlStopResult {
 interface StatusSnapshotReadResult {
   readonly raw: string | null;
   readonly snapshot: FactoryStatusSnapshot | null;
+  readonly error: Error | null;
+}
+
+interface StartupSnapshotReadResult {
+  readonly snapshot: StartupSnapshot | null;
   readonly error: Error | null;
 }
 
@@ -135,6 +162,7 @@ export async function resolveFactoryPaths(
     runtimeRoot,
     workflowPath,
     statusFilePath: deriveStatusFilePath(workspaceRoot),
+    startupFilePath: deriveStartupFilePath(workspaceRoot),
   };
 }
 
@@ -192,6 +220,7 @@ export async function startFactory(
   );
 
   await removeFile(paths.statusFilePath);
+  await removeFile(paths.startupFilePath);
 
   await launchScreenSession({
     runtimeRoot: paths.runtimeRoot,
@@ -206,6 +235,12 @@ export async function startFactory(
     if (status.controlState === "running") {
       return {
         kind: "started",
+        status,
+      };
+    }
+    if (status.startup?.state === "failed") {
+      return {
+        kind: "startup-failed",
         status,
       };
     }
@@ -255,6 +290,16 @@ export function renderFactoryControlStatus(
 
   if (snapshot.problems.length > 0) {
     lines.push(`Problems: ${snapshot.problems.join(" | ")}`);
+  }
+
+  if (snapshot.startup !== null) {
+    lines.push(
+      `Startup: ${snapshot.startup.state} provider=${snapshot.startup.provider} pid=${snapshot.startup.workerPid.toString()}`,
+    );
+    lines.push(`Startup detail: ${snapshot.startup.summary}`);
+    if (snapshot.startup.stale) {
+      lines.push("Startup freshness: stale");
+    }
   }
 
   if (snapshot.statusSnapshot === null) {
@@ -377,10 +422,11 @@ async function inspectFactoryControlAtPaths(
     deps.listScreenSessions ?? defaultListScreenSessions;
   const isAlive = deps.isProcessAlive ?? isProcessAlive;
 
-  const [processes, sessions, snapshotRead] = await Promise.all([
+  const [processes, sessions, snapshotRead, startupRead] = await Promise.all([
     listProcesses(),
     listScreenSessions(),
     readStatusSnapshot(paths.statusFilePath, deps),
+    readStartupSnapshot(paths.startupFilePath, deps),
   ]);
 
   const matchingSessions = sessions.filter(
@@ -405,11 +451,18 @@ async function inspectFactoryControlAtPaths(
   if (snapshotRead.error !== null) {
     problems.push(snapshotRead.error.message);
   }
+  if (startupRead.error !== null) {
+    problems.push(startupRead.error.message);
+  }
 
   const workerAlive =
     snapshotRead.snapshot === null
       ? false
       : isAlive(snapshotRead.snapshot.worker.pid);
+  const startup = assessStartupSnapshot(startupRead.snapshot, {
+    hasLiveRuntime: liveSessions.length > 0 || processIds.length > 0,
+    isAlive,
+  });
   const snapshotFreshness = assessFactoryStatusSnapshot(snapshotRead.snapshot, {
     hasLiveRuntime: liveSessions.length > 0 || processIds.length > 0,
     readError: snapshotRead.error,
@@ -418,7 +471,8 @@ async function inspectFactoryControlAtPaths(
 
   let controlState: FactoryControlState = "stopped";
   if (liveSessions.length === 0 && processIds.length === 0) {
-    controlState = "stopped";
+    controlState =
+      startup !== null && startup.state === "failed" ? "degraded" : "stopped";
   } else if (
     liveSessions.length === 1 &&
     snapshotFreshness.freshness === "fresh" &&
@@ -439,11 +493,25 @@ async function inspectFactoryControlAtPaths(
         "detached screen session is missing but factory-owned processes remain",
       );
     }
-    if (liveSessions.length > 0 && snapshotRead.snapshot === null) {
+    if (
+      liveSessions.length > 0 &&
+      snapshotRead.snapshot === null &&
+      (startup === null ||
+        (startup.state !== "preparing" && startup.state !== "ready"))
+    ) {
       problems.push(
         "screen session exists but no readable runtime status snapshot was found",
       );
     }
+  }
+
+  if (startup !== null && startup.state === "failed") {
+    problems.push(`startup failed: ${startup.summary}`);
+  }
+  if (startup !== null && startup.stale) {
+    problems.push(
+      `startup snapshot is stale (${startup.state}) and belongs to an offline runtime`,
+    );
   }
 
   return {
@@ -452,6 +520,7 @@ async function inspectFactoryControlAtPaths(
     sessionName: FACTORY_SCREEN_SESSION_NAME,
     sessions: liveSessions,
     workerAlive,
+    startup,
     snapshotFreshness,
     statusSnapshot: snapshotRead.snapshot,
     processIds,
@@ -520,6 +589,7 @@ async function stopFactoryAtPaths(
 
     if (remaining.length === 0) {
       await removeFile(paths.statusFilePath);
+      await removeFile(paths.startupFilePath);
       const finalStatus = await inspectFactoryControlAtPaths(paths, deps);
       return {
         kind: "stopped",
@@ -758,6 +828,36 @@ async function readStatusSnapshot(
   }
 }
 
+async function readStartupSnapshot(
+  filePath: string,
+  deps: FactoryControlDeps,
+): Promise<StartupSnapshotReadResult> {
+  const readFile = deps.readFile ?? fs.readFile;
+  try {
+    const raw = await readFile(filePath, "utf8");
+    return {
+      snapshot: parseStartupSnapshotContent(raw, filePath),
+      error: null,
+    };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return {
+        snapshot: null,
+        error: null,
+      };
+    }
+
+    return {
+      snapshot: null,
+      error: new Error(
+        `Failed to read startup snapshot at ${filePath}. Re-run 'symphony run' inside the runtime checkout to regenerate it.`,
+        { cause: error as Error },
+      ),
+    };
+  }
+}
+
 async function defaultPathExists(targetPath: string): Promise<boolean> {
   try {
     await fs.access(targetPath);
@@ -841,6 +941,35 @@ async function defaultSleep(ms: number): Promise<void> {
 
 async function defaultRemoveFile(filePath: string): Promise<void> {
   await fs.rm(filePath, { force: true });
+}
+
+function assessStartupSnapshot(
+  snapshot: StartupSnapshot | null,
+  options: {
+    readonly hasLiveRuntime: boolean;
+    readonly isAlive: (pid: number) => boolean;
+  },
+): FactoryStartupAssessment | null {
+  if (snapshot === null) {
+    return null;
+  }
+  const workerAlive = options.isAlive(snapshot.workerPid);
+  const stale = !workerAlive || !options.hasLiveRuntime;
+  return {
+    state: snapshot.state,
+    provider: snapshot.provider,
+    summary:
+      snapshot.summary ??
+      (snapshot.state === "preparing"
+        ? "Startup preparation is in progress."
+        : snapshot.state === "ready"
+          ? "Startup preparation completed."
+          : "Startup preparation failed."),
+    updatedAt: snapshot.updatedAt,
+    workerPid: snapshot.workerPid,
+    workerAlive,
+    stale,
+  };
 }
 
 function isMissingScreenSessionError(error: unknown): boolean {
