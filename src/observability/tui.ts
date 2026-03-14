@@ -33,9 +33,9 @@ function colorize(text: string, code: string): string {
 // ─── Column widths ──────────────────────────────────────────────────────────
 
 const ID_WIDTH = 8;
-const STAGE_WIDTH = 14;
+const STAGE_WIDTH = 18;
 const PID_WIDTH = 8;
-const AGE_WIDTH = 12;
+const AGE_WIDTH = 18;
 const TOKENS_WIDTH = 10;
 const SESSION_WIDTH = 14;
 const EVENT_MIN_WIDTH = 12;
@@ -369,15 +369,26 @@ export function formatSnapshotContent(
     retrying,
     codexTotals,
     rateLimits,
+    lastAction,
     polling,
     maxConcurrentRuns,
+    maxTurns,
     projectUrl,
   } = snapshot;
   const eventWidth = runningEventWidth(terminalColumnsOverride);
   const effectiveNowMs = nowMs ?? Date.now();
-  const runningRows = formatRunningRows(running, eventWidth, effectiveNowMs);
+  const runningRows = formatRunningRows(
+    running,
+    eventWidth,
+    effectiveNowMs,
+    maxTurns,
+  );
   const runningToBackoffSpacer = running.length > 0 ? ["│"] : [];
   const backoffRows = formatRetryRows(retrying);
+  const lastActionLine =
+    lastAction === null
+      ? []
+      : [formatLastActionLine(lastAction, effectiveNowMs)];
 
   const projectLine =
     projectUrl !== null
@@ -402,6 +413,7 @@ export function formatSnapshotContent(
       colorize(" | ", GRAY) +
       colorize(`total ${formatCount(codexTotals.totalTokens)}`, YELLOW),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
+    ...lastActionLine,
     ...projectLine,
     formatRefreshLine(polling, effectiveNowMs),
     colorize("├─ Running", BOLD),
@@ -476,6 +488,23 @@ function formatRateLimitBucket(
   return `${formatCount(bucket.used)}/${formatCount(bucket.limit)} reset ${String(resetSecs)}s`;
 }
 
+function formatLastActionLine(
+  action: NonNullable<TuiSnapshot["lastAction"]>,
+  nowMs: number,
+): string {
+  const issuePart =
+    action.issueNumber === null ? "" : ` #${action.issueNumber.toString()}`;
+  const line =
+    colorize("│ Last action: ", BOLD) +
+    colorize(`${action.kind}${issuePart}`, CYAN);
+  const elapsedSuffix = formatElapsedActionSuffix(action.at, nowMs);
+  const detail = action.summary.trim();
+  if (detail === "") {
+    return line + elapsedSuffix;
+  }
+  return line + colorize(" | ", GRAY) + colorize(detail, GRAY) + elapsedSuffix;
+}
+
 // ─── Running table ────────────────────────────────────────────────────────
 
 function runningTableHeaderRow(eventWidth: number): string {
@@ -508,27 +537,32 @@ function formatRunningRows(
   running: TuiSnapshot["running"],
   eventWidth: number,
   nowMs: number,
+  maxTurns: number,
 ): string[] {
   if (running.length === 0) {
     return ["│  " + colorize("No active agents", GRAY), "│"];
   }
-  return running.map((entry) => formatRunningRow(entry, eventWidth, nowMs));
+  return running.map((entry) =>
+    formatRunningRow(entry, eventWidth, nowMs, maxTurns),
+  );
 }
 
 function formatRunningRow(
   entry: TuiSnapshot["running"][number],
   eventWidth: number,
   nowMs: number,
+  maxTurns: number,
 ): string {
   const runtimeSecs = Math.floor((nowMs - entry.startedAt.getTime()) / 1000);
   const issue = formatCell(entry.identifier, ID_WIDTH);
-  const stage = formatCell(entry.issueState, STAGE_WIDTH);
+  const stage = formatCell(resolveStageLabel(entry), STAGE_WIDTH);
   const pid = formatCell(
     entry.codexAppServerPid !== null ? String(entry.codexAppServerPid) : "n/a",
     PID_WIDTH,
   );
+  const ageColor = turnBudgetColor(entry, maxTurns);
   const age = formatCell(
-    formatRuntimeAndTurns(runtimeSecs, entry.turnCount),
+    formatRuntimeAndTurns(runtimeSecs, entry, maxTurns),
     AGE_WIDTH,
   );
   const tokens = formatCell(
@@ -557,7 +591,7 @@ function formatRunningRow(
     " " +
     colorize(pid, YELLOW) +
     " " +
-    colorize(age, MAGENTA) +
+    colorize(age, ageColor) +
     " " +
     colorize(tokens, YELLOW) +
     " " +
@@ -761,6 +795,18 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       issueNumber: e.issueNumber,
       identifier: e.identifier,
       issueState: e.issueState,
+      lifecycle:
+        e.lifecycle == null
+          ? null
+          : {
+              status: e.lifecycle.status,
+              summary: e.lifecycle.summary,
+              pullRequestNumber: e.lifecycle.pullRequest?.number ?? null,
+              pendingChecks: e.lifecycle.checks.pendingNames.length,
+              failingChecks: e.lifecycle.checks.failingNames.length,
+              actionableReview: e.lifecycle.review.actionableCount,
+              unresolvedThreads: e.lifecycle.review.unresolvedThreadCount,
+            },
       startedAt: e.startedAt,
       retryAttempt: e.retryAttempt,
       sessionId: e.sessionId,
@@ -778,9 +824,12 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
           : {
               state: e.runnerVisibility.state,
               session: {
+                provider: e.runnerVisibility.session.provider,
+                model: e.runnerVisibility.session.model,
                 backendSessionId: e.runnerVisibility.session.backendSessionId,
                 backendThreadId: e.runnerVisibility.session.backendThreadId,
                 latestTurnId: e.runnerVisibility.session.latestTurnId,
+                latestTurnNumber: e.runnerVisibility.session.latestTurnNumber,
               },
               lastActionSummary: e.runnerVisibility.lastActionSummary,
               waitingReason: e.runnerVisibility.waitingReason,
@@ -802,11 +851,21 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       totalTokens: snapshot.codexTotals.totalTokens,
     },
     rateLimits: snapshot.rateLimits,
+    lastAction:
+      snapshot.lastAction === null
+        ? null
+        : {
+            kind: snapshot.lastAction.kind,
+            issueNumber: snapshot.lastAction.issueNumber,
+            summary: snapshot.lastAction.summary,
+            at: snapshot.lastAction.at,
+          },
     polling: {
       checkingNow: snapshot.polling.checkingNow,
       intervalMs: snapshot.polling.intervalMs,
     },
     maxConcurrentRuns: snapshot.maxConcurrentRuns,
+    maxTurns: snapshot.maxTurns,
     projectUrl: snapshot.projectUrl,
   });
 }
@@ -857,11 +916,28 @@ function formatRuntimeSeconds(seconds: number): string {
   return `${String(mins)}m ${String(secs)}s`;
 }
 
-function formatRuntimeAndTurns(seconds: number, turnCount: number): string {
-  if (turnCount > 0) {
-    return `${formatRuntimeSeconds(seconds)} / ${String(turnCount)}`;
+function formatElapsedActionSuffix(
+  isoTimestamp: string,
+  nowMs: number,
+): string {
+  const actionAtMs = Date.parse(isoTimestamp);
+  if (!Number.isFinite(actionAtMs)) {
+    return "";
   }
-  return formatRuntimeSeconds(seconds);
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - actionAtMs) / 1000));
+  return colorize(` (${formatRuntimeSeconds(elapsedSeconds)} ago)`, GRAY);
+}
+
+function formatRuntimeAndTurns(
+  seconds: number,
+  entry: TuiSnapshot["running"][number],
+  maxTurns: number,
+): string {
+  const displayedTurn = resolveDisplayedTurn(entry, maxTurns);
+  if (displayedTurn === null) {
+    return formatRuntimeSeconds(seconds);
+  }
+  return `${formatRuntimeSeconds(seconds)} / turn ${displayedTurn.toString()}/${maxTurns.toString()}`;
 }
 
 function formatCell(
@@ -927,30 +1003,157 @@ export function humanizeEvent(
 }
 
 function describeRunningEvent(entry: TuiSnapshot["running"][number]): string {
+  const runnerLabel = formatRunnerLabel(entry.runnerVisibility);
+  const lifecycleContext = describeLifecycleContext(entry);
   const fromVisibility = humanizeRunnerVisibility(entry.runnerVisibility);
-  if (fromVisibility !== null) {
-    return fromVisibility;
+  const liveEvent =
+    fromVisibility ??
+    humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent);
+  const meaningfulLiveEvent =
+    liveEvent === "no codex message yet" ? null : liveEvent;
+  const segments = [runnerLabel, meaningfulLiveEvent, lifecycleContext].filter(
+    (value): value is string => value !== null && value.trim() !== "",
+  );
+  if (segments.length > 0) {
+    return segments.join(" · ");
   }
-  // Keep the event column on the best available text source even when
-  // runnerVisibility still only contributes state for the dot color.
-  return humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent);
+  return liveEvent;
 }
 
 function resolveSessionDisplay(
   entry: TuiSnapshot["running"][number],
 ): string | null {
+  const visibility = entry.runnerVisibility;
+  if (visibility !== null) {
+    // Prefer the most specific backend session identity so operators can
+    // cross-reference turn-level logs before falling back to the stable thread.
+    return (
+      visibility.session.backendSessionId ??
+      visibility.session.backendThreadId ??
+      visibility.session.latestTurnId ??
+      entry.sessionId
+    );
+  }
   if (entry.sessionId !== null) {
     return entry.sessionId;
   }
-  const visibility = entry.runnerVisibility;
+  return null;
+}
+
+function resolveStageLabel(entry: TuiSnapshot["running"][number]): string {
+  const status = entry.lifecycle?.status;
+  if (status === undefined) {
+    return entry.issueState;
+  }
+
+  switch (status) {
+    case "awaiting-human-handoff":
+      return "human-handoff";
+    case "awaiting-human-review":
+      return "human-review";
+    case "awaiting-system-checks":
+      return "system-checks";
+    case "awaiting-landing-command":
+      return "landing-command";
+    case "awaiting-landing":
+      return "awaiting-landing";
+    case "rework-required":
+      return "rework-required";
+    case "queued":
+    case "preparing":
+    case "running":
+    case "merged":
+      return status;
+  }
+}
+
+function resolveDisplayedTurn(
+  entry: TuiSnapshot["running"][number],
+  maxTurns: number,
+): number | null {
+  const runnerTurn = entry.runnerVisibility?.session.latestTurnNumber;
+  if (typeof runnerTurn === "number" && runnerTurn > 0) {
+    return Math.min(maxTurns, runnerTurn);
+  }
+  if (entry.turnCount > 0) {
+    return Math.min(maxTurns, entry.turnCount);
+  }
+  if (entry.runnerVisibility !== null) {
+    return 1;
+  }
+  return null;
+}
+
+function turnBudgetColor(
+  entry: TuiSnapshot["running"][number],
+  maxTurns: number,
+): string {
+  const displayedTurn = resolveDisplayedTurn(entry, maxTurns);
+  if (displayedTurn === null) {
+    return MAGENTA;
+  }
+  const remainingTurns = maxTurns - displayedTurn;
+  if (remainingTurns <= 0) {
+    return RED;
+  }
+  if (remainingTurns === 1) {
+    return YELLOW;
+  }
+  return MAGENTA;
+}
+
+function formatRunnerLabel(
+  visibility: RunnerVisibilitySnapshot | null,
+): string | null {
   if (visibility === null) {
     return null;
   }
-  return (
-    visibility.session.backendThreadId ??
-    visibility.session.backendSessionId ??
-    visibility.session.latestTurnId
-  );
+  const provider = visibility.session.provider.trim();
+  if (provider === "") {
+    return null;
+  }
+  const model =
+    visibility.session.model === null ? null : visibility.session.model.trim();
+  return model === null || model === "" ? provider : `${provider}/${model}`;
+}
+
+function describeLifecycleContext(
+  entry: TuiSnapshot["running"][number],
+): string | null {
+  const lifecycle = entry.lifecycle;
+  if (lifecycle == null) {
+    return null;
+  }
+
+  const segments: string[] = [];
+  if (lifecycle.pullRequest !== null) {
+    segments.push(`PR #${lifecycle.pullRequest.number.toString()}`);
+  }
+
+  const pendingChecks = lifecycle.checks.pendingNames.length;
+  const failingChecks = lifecycle.checks.failingNames.length;
+  if (pendingChecks > 0 || failingChecks > 0) {
+    segments.push(
+      `checks p${pendingChecks.toString()} f${failingChecks.toString()}`,
+    );
+  }
+
+  const actionableReview = lifecycle.review.actionableCount;
+  const unresolvedThreads = lifecycle.review.unresolvedThreadCount;
+  if (actionableReview > 0 || unresolvedThreads > 0) {
+    segments.push(
+      `review a${actionableReview.toString()} t${unresolvedThreads.toString()}`,
+    );
+  }
+
+  if (
+    segments.length === 0 &&
+    lifecycle.status !== "running" &&
+    lifecycle.summary.trim() !== ""
+  ) {
+    return lifecycle.summary;
+  }
+  return segments.length === 0 ? null : segments.join(" · ");
 }
 
 function humanizeRunnerVisibility(

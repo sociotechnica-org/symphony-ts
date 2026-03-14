@@ -36,6 +36,13 @@ const activeSnapshot: TuiSnapshot = {
       issueNumber: 9,
       identifier: "#9",
       issueState: "running",
+      lifecycle: {
+        status: "running",
+        summary: "Runner is actively working",
+        pullRequest: null,
+        checks: { pendingNames: [], failingNames: [] },
+        review: { actionableCount: 0, unresolvedThreadCount: 0 },
+      },
       startedAt: new Date(nowMs - 45_000),
       retryAttempt: 1,
       sessionId: "smoke-sess-001",
@@ -62,6 +69,18 @@ const activeSnapshot: TuiSnapshot = {
       issueNumber: 11,
       identifier: "#11",
       issueState: "running",
+      lifecycle: {
+        status: "awaiting-system-checks",
+        summary: "Waiting for required checks",
+        pullRequest: {
+          number: 412,
+          url: "https://github.com/sociotechnica-org/symphony-ts/pull/412",
+          headSha: "abcdef123456",
+          latestCommitAt: new Date().toISOString(),
+        },
+        checks: { pendingNames: ["build", "test"], failingNames: [] },
+        review: { actionableCount: 0, unresolvedThreadCount: 0 },
+      },
       startedAt: new Date(nowMs - 30_000),
       retryAttempt: 1,
       sessionId: "smoke-sess-002",
@@ -108,6 +127,18 @@ const activeSnapshot: TuiSnapshot = {
       issueNumber: 13,
       identifier: "#13",
       issueState: "awaiting-landing",
+      lifecycle: {
+        status: "awaiting-landing",
+        summary: "Waiting for a human merge",
+        pullRequest: {
+          number: 413,
+          url: "https://github.com/sociotechnica-org/symphony-ts/pull/413",
+          headSha: "fedcba654321",
+          latestCommitAt: new Date().toISOString(),
+        },
+        checks: { pendingNames: [], failingNames: [] },
+        review: { actionableCount: 1, unresolvedThreadCount: 2 },
+      },
       startedAt: new Date(nowMs - 120_000),
       retryAttempt: 1,
       sessionId: "sess-xyz-789",
@@ -145,12 +176,19 @@ const activeSnapshot: TuiSnapshot = {
     secondary: { used: 3, limit: 100, resetInMs: 60_000 },
     credits: "$4.32 / $50.00",
   },
+  lastAction: {
+    kind: "awaiting-system-checks",
+    summary: "PR #412 is waiting for required checks",
+    at: new Date().toISOString(),
+    issueNumber: 11,
+  },
   polling: {
     checkingNow: false,
     nextPollAtMs: nowMs + 12_000,
     intervalMs: 30_000,
   },
   maxConcurrentRuns: 5,
+  maxTurns: 3,
   projectUrl: "https://github.com/sociotechnica-org/symphony-ts-test",
 };
 
@@ -185,8 +223,10 @@ const idleSnapshot: TuiSnapshot = {
     secondsRunning: 0,
   },
   rateLimits: null,
+  lastAction: null,
   polling: { checkingNow: true, nextPollAtMs: nowMs, intervalMs: 30_000 },
   maxConcurrentRuns: 3,
+  maxTurns: 3,
   projectUrl: null,
 };
 console.log(stripAnsi(formatSnapshotContent(idleSnapshot, 0, 120, "", nowMs)));
