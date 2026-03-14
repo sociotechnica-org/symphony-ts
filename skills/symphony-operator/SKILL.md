@@ -67,6 +67,12 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 - Greptile and Bugbot comments count as review feedback.
 - Do not treat "all threads resolved" as sufficient by itself. Before merging, also check for top-level bot review comments or review summaries that still contain unaddressed actionable feedback.
 - Low-severity cleanup comments can be answered instead of fixed only when the tradeoff is explicit and defensible.
+- When a PR is green and review-clean, the operator may issue `/land` on the PR without waiting for separate human intervention. This is the normal way to keep the factory moving overnight.
+- `/land` is appropriate only when:
+  - required CI is green,
+  - actionable review feedback has been addressed,
+  - no unresolved merge-blocking review state remains,
+  - and no required check has been stuck in a non-terminal state long enough to count as blocked infrastructure.
 
 ## Learned Heuristics
 
