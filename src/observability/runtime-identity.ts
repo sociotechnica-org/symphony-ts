@@ -4,11 +4,15 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 
+export const FACTORY_RUNTIME_IDENTITY_SOURCES = [
+  "git",
+  "git-unavailable",
+  "not-a-git-checkout",
+  "git-error",
+] as const;
+
 export type FactoryRuntimeIdentitySource =
-  | "git"
-  | "git-unavailable"
-  | "not-a-git-checkout"
-  | "git-error";
+  (typeof FACTORY_RUNTIME_IDENTITY_SOURCES)[number];
 
 export interface FactoryRuntimeIdentity {
   readonly checkoutPath: string;
@@ -60,6 +64,8 @@ export async function collectFactoryRuntimeIdentity(
   }
 
   try {
+    // Ignore untracked files so temp artifacts under the detached runtime root
+    // do not make the runtime checkout look dirty to operators.
     const result = await execGit(
       "git",
       ["status", "--porcelain", "--untracked-files=no"],
@@ -168,7 +174,7 @@ export function parseFactoryRuntimeIdentity(
     ),
     source: expectEnum(
       identity.source,
-      ["git", "git-unavailable", "not-a-git-checkout", "git-error"],
+      FACTORY_RUNTIME_IDENTITY_SOURCES,
       filePath,
       `${field}.source`,
     ),

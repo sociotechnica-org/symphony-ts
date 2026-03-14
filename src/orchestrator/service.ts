@@ -228,6 +228,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#livenessProbe = livenessProbe ?? null;
     this.#runtimeIdentity = Promise.resolve(
       runtimeIdentity ??
+        // `workflowPath` resolves to `<runtime-checkout>/symphony.yml` in the
+        // detached factory layout, so its parent is the live runtime checkout root.
         collectFactoryRuntimeIdentity(path.dirname(config.workflowPath)),
     );
   }

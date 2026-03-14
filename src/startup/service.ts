@@ -160,6 +160,8 @@ export async function runStartupPreparation(options: {
   const preparer = options.preparer ?? createStartupPreparer(options.config);
   const workerPid = options.workerPid ?? process.pid;
   const artifactPath = deriveStartupFilePath(options.config.workspace.root);
+  // `workflowPath` resolves to `<runtime-checkout>/symphony.yml` in the
+  // detached factory layout, so its parent is the live runtime checkout root.
   const runtimeIdentity = await collectFactoryRuntimeIdentity(
     path.dirname(options.config.workflowPath),
   );
