@@ -627,16 +627,21 @@ export function selectFactoryUtf8Locale(
     installedLocales.set(locale.toLowerCase(), locale);
   }
 
-  const inheritedCandidates = [
-    inheritedEnv["LC_ALL"],
-    inheritedEnv["LC_CTYPE"],
-    inheritedEnv["LANG"],
-  ]
-    .map((value) => value?.trim() ?? "")
-    .filter(
-      (value, index, values) =>
-        value.length > 0 && values.indexOf(value) === index,
-    );
+  const lcAll = inheritedEnv["LC_ALL"]?.trim() ?? "";
+  const inheritedCandidates =
+    lcAll.length > 0
+      ? [lcAll]
+      : collectUniqueLocaleCandidates([
+          inheritedEnv["LC_CTYPE"],
+          inheritedEnv["LANG"],
+        ]);
+  const overrideFallbackCandidates =
+    lcAll.length > 0
+      ? collectUniqueLocaleCandidates([
+          inheritedEnv["LC_CTYPE"],
+          inheritedEnv["LANG"],
+        ])
+      : [];
 
   for (const candidate of inheritedCandidates) {
     if (!isUtf8Locale(candidate)) {
@@ -647,6 +652,19 @@ export function selectFactoryUtf8Locale(
       return {
         locale: installed,
         source: "inherited",
+      };
+    }
+  }
+
+  for (const candidate of overrideFallbackCandidates) {
+    if (!isUtf8Locale(candidate)) {
+      continue;
+    }
+    const installed = installedLocales.get(candidate.toLowerCase());
+    if (installed !== undefined) {
+      return {
+        locale: installed,
+        source: "fallback",
       };
     }
   }
@@ -859,4 +877,15 @@ export function createFactoryScreenLaunchCommand(
 
 function isUtf8Locale(locale: string): boolean {
   return /utf-?8/i.test(locale);
+}
+
+function collectUniqueLocaleCandidates(
+  candidates: ReadonlyArray<string | undefined>,
+): string[] {
+  return candidates
+    .map((value) => value?.trim() ?? "")
+    .filter(
+      (value, index, values) =>
+        value.length > 0 && values.indexOf(value) === index,
+    );
 }

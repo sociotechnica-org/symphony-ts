@@ -318,7 +318,7 @@ describe("UTF-8 locale selection", () => {
     });
   });
 
-  it("uses LC_CTYPE when LC_ALL is non-UTF-8 and LC_CTYPE is installed", () => {
+  it("treats LC_CTYPE as a fallback when LC_ALL overrides it", () => {
     expect(
       selectFactoryUtf8Locale(
         {
@@ -329,7 +329,7 @@ describe("UTF-8 locale selection", () => {
       ),
     ).toEqual({
       locale: "fr_FR.UTF-8",
-      source: "inherited",
+      source: "fallback",
     });
   });
 
@@ -1147,9 +1147,23 @@ describe("factory restart launch contract", () => {
     expect(stopped.status.controlState).toBe("stopped");
     expect(secondStart.status.controlState).toBe("running");
     expect(launches).toHaveLength(2);
-    expect(launches.map((launch) => launch.command)).toEqual([
-      createFactoryRunCommand(),
-      createFactoryRunCommand(),
+    expect(launches).toEqual([
+      expect.objectContaining({
+        command: createFactoryRunCommand(),
+        env: expect.objectContaining({
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          LC_CTYPE: "en_US.UTF-8",
+        }),
+      }),
+      expect.objectContaining({
+        command: createFactoryRunCommand(),
+        env: expect.objectContaining({
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          LC_CTYPE: "en_US.UTF-8",
+        }),
+      }),
     ]);
   });
 });
