@@ -93,6 +93,11 @@ foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
 The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, session identity, heartbeat/action
 timestamps, waiting reason, and condensed output/error summaries.
+Status surfaces now also publish a runtime checkout identity for the live
+factory code, including the runtime checkout path, `HEAD` commit SHA, commit
+timestamp, and dirty-state summary when git metadata is available. This
+describes the running runtime checkout (for detached control, `.tmp/factory-main`),
+not whatever commit your operator checkout currently has checked out.
 Status surfaces now also distinguish snapshot freshness explicitly:
 `fresh` for the live worker, `stale` for leftover historical snapshots, and
 `unavailable` while startup is still publishing a current snapshot or no

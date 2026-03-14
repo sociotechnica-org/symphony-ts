@@ -8,6 +8,7 @@ import type {
   FactoryStatusAction,
   FactoryStatusSnapshot,
 } from "../observability/status.js";
+import type { FactoryRuntimeIdentity } from "../observability/runtime-identity.js";
 
 export interface TrackerIssueCounts {
   readonly ready: number;
@@ -213,6 +214,7 @@ export function buildFactoryStatusSnapshot(input: {
   readonly maxConcurrentRuns: number;
   readonly activeLocalRuns: number;
   readonly retries: ReadonlyMap<number, RetryState>;
+  readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publicationState?: "current" | "initializing";
   readonly publicationDetail?: string | null;
 }): FactoryStatusSnapshot {
@@ -233,6 +235,7 @@ export function buildFactoryStatusSnapshot(input: {
   return {
     version: 1,
     generatedAt: new Date().toISOString(),
+    runtimeIdentity: input.runtimeIdentity ?? null,
     publication: {
       state: input.publicationState ?? "current",
       detail: input.publicationDetail ?? null,

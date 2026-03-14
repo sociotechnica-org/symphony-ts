@@ -31,6 +31,14 @@ function createStatusSnapshot(
   return {
     version: 1,
     generatedAt: "2026-03-13T12:00:00.000Z",
+    runtimeIdentity: {
+      checkoutPath: "/repo/.tmp/factory-main",
+      headSha: "4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26",
+      committedAt: "2026-03-13T11:57:00.000Z",
+      isDirty: false,
+      source: "git",
+      detail: null,
+    },
     factoryState: "idle",
     worker: {
       instanceId: "worker-1",
@@ -64,6 +72,14 @@ function createStartupSnapshot(
     workerPid,
     provider: "github-bootstrap/noop",
     summary: "Startup preparation is in progress.",
+    runtimeIdentity: {
+      checkoutPath: "/repo/.tmp/factory-main",
+      headSha: "4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26",
+      committedAt: "2026-03-13T11:57:00.000Z",
+      isDirty: false,
+      source: "git",
+      detail: null,
+    },
     ...overrides,
   };
 }
@@ -1653,7 +1669,23 @@ describe("renderFactoryControlStatus", () => {
       sessionName: "symphony-factory",
       sessions: [],
       workerAlive: false,
-      startup: null,
+      startup: {
+        state: "ready",
+        provider: "github-bootstrap/noop",
+        summary: "Startup preparation completed.",
+        updatedAt: "2026-03-13T11:58:30.000Z",
+        workerPid: 4321,
+        workerAlive: false,
+        stale: false,
+        runtimeIdentity: {
+          checkoutPath: "/repo/.tmp/factory-main",
+          headSha: "4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26",
+          committedAt: "2026-03-13T11:57:00.000Z",
+          isDirty: false,
+          source: "git",
+          detail: null,
+        },
+      },
       snapshotFreshness: {
         freshness: "unavailable",
         reason: "missing-snapshot",
@@ -1668,6 +1700,9 @@ describe("renderFactoryControlStatus", () => {
 
     expect(output).toContain("Factory control: stopped");
     expect(output).toContain("Runtime root: /repo/.tmp/factory-main");
+    expect(output).toContain(
+      "Runtime version: 4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26 | committed 2026-03-13T11:57:00.000Z | clean",
+    );
     expect(output).toContain("Snapshot freshness: unavailable");
     expect(output).toContain(
       "Status detail: No runtime snapshot is available.",

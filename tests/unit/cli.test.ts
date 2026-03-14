@@ -519,6 +519,14 @@ describe("runCli run", () => {
         summary: null,
         workspaceRepoUrlOverride: null,
         artifactPath: "/tmp/factory-root/.tmp/startup.json",
+        runtimeIdentity: {
+          checkoutPath: "/tmp/factory-root",
+          headSha: "4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26",
+          committedAt: "2026-03-14T12:00:00.000Z",
+          isDirty: false,
+          source: "git",
+          detail: null,
+        },
       })),
     }));
     vi.doMock("../../src/workspace/local.js", () => ({
@@ -566,6 +574,10 @@ describe("runCli run", () => {
     expect(probeRoots).toEqual(["/tmp/factory-root"]);
     expect(orchestratorArgs).not.toBeNull();
     expect(orchestratorArgs?.[7]).toBeDefined();
+    expect(orchestratorArgs?.[8]).toMatchObject({
+      checkoutPath: "/tmp/factory-root",
+      headSha: "4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26",
+    });
     expect(runOnce).toHaveBeenCalledOnce();
   });
 
@@ -595,6 +607,14 @@ describe("runCli run", () => {
         summary: "Mirror refresh failed.",
         workspaceRepoUrlOverride: null,
         artifactPath: "/tmp/factory-root/.tmp/startup.json",
+        runtimeIdentity: {
+          checkoutPath: "/tmp/factory-root",
+          headSha: "4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26",
+          committedAt: "2026-03-14T12:00:00.000Z",
+          isDirty: false,
+          source: "git",
+          detail: null,
+        },
       })),
     }));
     vi.doMock("../../src/tracker/factory.js", () => ({

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
@@ -27,6 +28,11 @@ import {
   LocalIssueArtifactStore,
 } from "../observability/issue-artifacts.js";
 import type { Logger } from "../observability/logger.js";
+import {
+  collectFactoryRuntimeIdentity,
+  factoryRuntimeIdentityLogFields,
+  type FactoryRuntimeIdentity,
+} from "../observability/runtime-identity.js";
 import {
   deriveStatusFilePath,
   writeFactoryStatusSnapshot,
@@ -186,6 +192,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #livenessProbe: LivenessProbe | null;
   readonly #watchdogConfig: WatchdogConfig;
   readonly #factoryStartedAt: number = Date.now();
+  readonly #runtimeIdentity: Promise<FactoryRuntimeIdentity>;
   #shutdownSignal: AbortSignal | undefined;
   #dashboardNotify: (() => void) | null = null;
   // Guard startup placeholder publication so a later initializing write cannot
@@ -201,6 +208,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     logger: Logger,
     issueArtifactStore?: IssueArtifactStore,
     livenessProbe?: LivenessProbe,
+    runtimeIdentity?: FactoryRuntimeIdentity,
   ) {
     this.#config = config;
     this.#promptBuilder = promptBuilder;
@@ -218,6 +226,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#statusFilePath = deriveStatusFilePath(config.workspace.root);
     this.#watchdogConfig = config.polling.watchdog ?? DEFAULT_WATCHDOG_CONFIG;
     this.#livenessProbe = livenessProbe ?? null;
+    this.#runtimeIdentity = Promise.resolve(
+      runtimeIdentity ??
+        // `workflowPath` resolves to `<runtime-checkout>/symphony.yml` in the
+        // detached factory layout, so its parent is the live runtime checkout root.
+        collectFactoryRuntimeIdentity(path.dirname(config.workflowPath)),
+    );
   }
 
   setDashboardNotify(notify: (() => void) | null): void {
@@ -2666,6 +2680,7 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #persistStatusSnapshot(): Promise<void> {
     try {
+      const runtimeIdentity = await this.#runtimeIdentity;
       await writeFactoryStatusSnapshot(
         this.#statusFilePath,
         buildFactoryStatusSnapshot({
@@ -2676,8 +2691,13 @@ export class BootstrapOrchestrator implements Orchestrator {
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
           activeLocalRuns: this.#state.runningIssueNumbers.size,
           retries: this.#state.retries,
+          runtimeIdentity,
         }),
       );
+      this.#logger.info("Published current factory status snapshot", {
+        statusFilePath: this.#statusFilePath,
+        ...factoryRuntimeIdentityLogFields(runtimeIdentity),
+      });
       // Prevent a later #publishStartupStatusSnapshot call from overwriting
       // this current snapshot with an initializing placeholder.
       this.#startupStatusPublished = true;
@@ -2705,6 +2725,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       return;
     }
     try {
+      const runtimeIdentity = await this.#runtimeIdentity;
       await writeFactoryStatusSnapshot(
         this.#statusFilePath,
         buildFactoryStatusSnapshot({
@@ -2715,11 +2736,16 @@ export class BootstrapOrchestrator implements Orchestrator {
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
           activeLocalRuns: this.#state.runningIssueNumbers.size,
           retries: this.#state.retries,
+          runtimeIdentity,
           publicationState: "initializing",
           publicationDetail:
             "Factory startup is in progress; no current runtime snapshot is available yet.",
         }),
       );
+      this.#logger.info("Published startup factory status snapshot", {
+        statusFilePath: this.#statusFilePath,
+        ...factoryRuntimeIdentityLogFields(runtimeIdentity),
+      });
       this.#startupStatusPublished = true;
     } catch (error) {
       this.#logger.warn("Failed to write startup status snapshot", {

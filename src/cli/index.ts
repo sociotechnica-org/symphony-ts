@@ -379,6 +379,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     logger,
     undefined,
     livenessProbe,
+    startup.runtimeIdentity,
   );
 
   const logFile = path.join(workflow.config.workspace.root, "symphony.log");
