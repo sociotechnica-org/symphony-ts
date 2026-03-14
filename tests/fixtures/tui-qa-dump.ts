@@ -145,7 +145,7 @@ const activeSnapshot: TuiSnapshot = {
       retryAttempt: 1,
       sessionId: "sess-xyz-789",
       turnCount: 2,
-      codexTokenState: "final",
+      codexTokenState: "observed",
       codexTotalTokens: 14400,
       codexInputTokens: 9600,
       codexOutputTokens: 4800,

@@ -22,6 +22,7 @@ export interface CodexTotals {
   outputTokens: number;
   totalTokens: number;
   pendingRunCount: number;
+  // Derived in BootstrapOrchestrator.snapshot() from current running-entry token states.
   // Derived in BootstrapOrchestrator.snapshot() from factory start time.
   secondsRunning: number;
 }

@@ -1,7 +1,7 @@
 import type { RunUpdateEvent } from "../domain/run.js";
 import { getMapKey, mapPath } from "../domain/codex-payload.js";
 
-export type CodexTokenState = "pending" | "observed" | "final";
+export type CodexTokenState = "pending" | "observed";
 
 export interface RunningEntry {
   readonly issueNumber: number;

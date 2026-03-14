@@ -660,7 +660,6 @@ function formatRunningTokens(entry: TuiSnapshot["running"][number]): string {
   switch (entry.codexTokenState) {
     case "pending":
       return "pending";
-    case "final":
     case "observed":
       return formatCount(entry.codexTotalTokens);
   }

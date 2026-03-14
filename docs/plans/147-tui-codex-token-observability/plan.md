@@ -11,13 +11,13 @@ Make live Codex token accounting in the TUI easier to trust by distinguishing "n
 ## Scope
 
 - inspect the live Codex token path from `integrateCodexUpdate` through orchestrator snapshot projection into the TUI
-- define explicit operator-facing semantics for three states:
+- define explicit operator-facing semantics for live pending vs observed token visibility, while keeping completed attempts on the already-observed numeric path:
   - active session with no token-bearing event observed yet
   - active session with token-bearing usage observed and accumulated
-  - completed/finalized run with final token totals
-- extend the running-entry and TUI snapshot contract only as needed to expose token-observability state without changing billing/accounting math
+  - completed attempt snapshots that continue to render the last observed totals numerically when surfaced
+- extend the running-entry and TUI snapshot contract only as needed to expose token-observability state for active runs without changing billing/accounting math
 - update the TUI header and running-row token rendering so long-lived live sessions no longer imply unjustified certainty with a raw `0`
-- add targeted unit coverage and TUI regression coverage for early-turn and later token-bearing updates
+- add targeted unit coverage and TUI regression coverage for early-turn pending sessions and later token-bearing updates
 
 ## Non-goals
 
@@ -45,7 +45,7 @@ Make live Codex token accounting in the TUI easier to trust by distinguishing "n
 ## Spec Alignment By Abstraction Level
 
 - Policy Layer
-  - belongs: the operator-facing rule that token displays must communicate whether totals are unknown, observed, or final
+  - belongs: the operator-facing rule that token displays must communicate whether totals are unknown/pending or observed
   - does not belong: token-billing policy changes or runner-protocol heuristics
 - Configuration Layer
   - belongs: unchanged existing observability configuration
@@ -74,12 +74,12 @@ Make live Codex token accounting in the TUI easier to trust by distinguishing "n
   - project per-run token-observability state into `TuiRunningEntry`
   - expose minimal aggregate token-state facts needed by the TUI header
 - `src/observability/tui.ts`
-  - render explicit operator-facing labels for pending vs observed vs final token states
+  - render explicit operator-facing labels for pending vs observed token states
   - keep row/header semantics aligned
 - `tests/unit/running-entry.test.ts`
   - cover state transitions from unknown to observed
 - `tests/unit/tui.test.ts`
-  - cover early-turn live rendering, later token-bearing updates, and completed/final totals
+  - cover early-turn live rendering, later token-bearing updates, and numeric rendering for already-observed totals
 
 ### Does not belong in this issue
 
@@ -137,9 +137,6 @@ It does introduce an explicit token-observability model for live Codex runs:
 2. `observed`
    - at least one token-bearing event has been integrated
    - accumulated totals are authoritative for the live run so far and should render numerically
-3. `final`
-   - the run is no longer active and the last observed totals are final for that completed attempt
-   - the UI should render the numeric totals without a pending marker
 
 Allowed transitions for a running entry in this slice:
 
@@ -147,7 +144,6 @@ Allowed transitions for a running entry in this slice:
 2. remain `pending` across non-token events such as `thread/started`
 3. move from `pending` to `observed` on the first token-bearing event
 4. remain `observed` for later token-bearing and non-token events
-5. snapshot/rendering may treat a completed observed run as `final`
 
 No backward transition from `observed` to `pending` is allowed within the same run/session.
 
@@ -158,7 +154,7 @@ No backward transition from `observed` to `pending` is allowed within the same r
 | Live run has `thread/started` or other activity but no token-bearing event yet | running entry active, token totals `0`, no token-bearing event observed                      | row token cell renders pending/unknown semantics instead of bare `0`; header indicates live token accounting is pending |
 | Live run receives first token-bearing payload                                  | running entry active, first token-bearing event integrated                                   | row and header switch to numeric observed totals                                                                        |
 | Live run receives non-token events after token-bearing payloads                | running entry active, token-bearing event previously observed                                | keep numeric totals; do not regress to pending                                                                          |
-| Completed run had token-bearing events                                         | run is no longer active, final observed totals retained in artifacts/snapshots as applicable | completed-state surfaces render numeric final totals                                                                    |
+| Completed run had token-bearing events                                         | run is no longer active, final observed totals retained in artifacts/snapshots as applicable | any completed-state surface that still shows the attempt renders the last observed numeric totals                       |
 | Completed run never emitted a token-bearing payload                            | run ended with no observed token usage event                                                 | preserve truthful zero/unknown semantics according to the surface; do not invent counts                                 |
 
 ## Observability Requirements
@@ -177,12 +173,12 @@ No backward transition from `observed` to `pending` is allowed within the same r
 4. Add TUI formatting helpers that render:
    - pending token state for live runs with no token-bearing event yet
    - numeric totals once usage is observed
-   - stable numeric final totals for completed-state scenarios already covered by the snapshot
+   - stable numeric totals for any completed-state scenarios already covered by the snapshot
 5. Update targeted unit tests in `running-entry.test.ts` for the pending -> observed transition and non-regression on later non-token events.
 6. Update `tui.test.ts` with scenarios for:
    - live session with only `thread/started`
    - later token-bearing update
-   - completed/final totals
+   - completed or otherwise non-pending rows with observed totals
 7. Run the TUI QA dump and repo-required checks.
 
 ## Tests And Acceptance Scenarios
@@ -201,7 +197,7 @@ No backward transition from `observed` to `pending` is allowed within the same r
   - live row with `thread/started` and zero totals renders pending token semantics instead of bare `0`
   - header token line reflects aggregate pending state when active runs have no observed token-bearing event yet
   - later token-bearing update renders numeric row/header totals consistently
-  - completed/final totals render numeric totals without pending labeling
+  - completed or otherwise non-pending rows with observed totals render numerically without pending labeling
 
 ### Visual QA
 
@@ -220,8 +216,8 @@ No backward transition from `observed` to `pending` is allowed within the same r
    - Expected: the row and header make it clear token usage is not yet observed rather than asserting `0` with no qualification.
 2. The same run later emits a token-bearing event.
    - Expected: row and header switch to accumulated numeric totals and remain internally consistent.
-3. A completed run has final observed token totals.
-   - Expected: the UI renders the final numeric totals without a pending marker.
+3. A surfaced row already has observed token totals and is not token-pending.
+   - Expected: the UI renders the numeric totals without a pending marker.
 
 ## Exit Criteria
 

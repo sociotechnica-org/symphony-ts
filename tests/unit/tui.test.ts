@@ -322,7 +322,7 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("1 pending");
   });
 
-  it("renders final totals numerically without a pending marker", () => {
+  it("renders observed totals numerically without a pending marker", () => {
     const output = formatSnapshotContent(
       makeSnapshot({
         running: [
@@ -334,7 +334,7 @@ describe("formatSnapshotContent", () => {
             retryAttempt: 1,
             sessionId: "session-123",
             turnCount: 1,
-            codexTokenState: "final",
+            codexTokenState: "observed",
             codexTotalTokens: 1500,
             codexInputTokens: 1000,
             codexOutputTokens: 500,
