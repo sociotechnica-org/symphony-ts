@@ -762,6 +762,15 @@ describe("runCli factory", () => {
 
   it("sets a non-zero exit code for degraded factory stop results", async () => {
     vi.resetModules();
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
@@ -778,6 +787,9 @@ describe("runCli factory", () => {
 
     await mockedRunCli(["node", "symphony", "factory", "stop"]);
 
+    expect(stdout.join("")).toContain(
+      "Factory stop left the runtime degraded.\n",
+    );
     expect(process.exitCode).toBe(1);
   });
 
@@ -806,6 +818,15 @@ describe("runCli factory", () => {
 
   it("sets a non-zero exit code when restart start is blocked after a clean stop", async () => {
     vi.resetModules();
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
@@ -825,6 +846,45 @@ describe("runCli factory", () => {
 
     await mockedRunCli(["node", "symphony", "factory", "restart"]);
 
+    expect(stdout.join("")).toContain(
+      "Factory restart blocked by degraded cleanup.\n",
+    );
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("reports blocked restart when stop was already stopped but start becomes degraded", async () => {
+    vi.resetModules();
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      startFactory: vi.fn(async () => ({
+        kind: "blocked-degraded",
+        status: createFactoryControlSnapshot("degraded"),
+      })),
+      stopFactory: vi.fn(async () => ({
+        kind: "already-stopped",
+        status: createFactoryControlSnapshot("stopped"),
+        terminatedPids: [],
+      })),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "restart"]);
+
+    expect(stdout.join("")).toContain(
+      "Factory restart blocked by degraded cleanup.\n",
+    );
     expect(process.exitCode).toBe(1);
   });
 

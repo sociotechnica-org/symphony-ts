@@ -151,7 +151,13 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         case "stop": {
           const result = await stopFactory();
           process.stdout.write(
-            `Factory ${result.kind === "stopped" ? "stopped" : "already stopped"}.\n`,
+            `Factory ${
+              result.status.controlState === "degraded"
+                ? "stop left the runtime degraded"
+                : result.kind === "stopped"
+                  ? "stopped"
+                  : "already stopped"
+            }.\n`,
           );
           if (result.terminatedPids.length > 0) {
             process.stdout.write(
@@ -189,15 +195,15 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
           const startResult = await startFactory();
           const verb =
-            stopResult.kind === "already-stopped" &&
-            startResult.kind === "already-running"
-              ? "was already running"
-              : stopResult.kind === "already-stopped"
-                ? "was already stopped and is now running again"
-                : startResult.kind === "already-running"
-                  ? "was stopped but is already running again"
-                  : startResult.kind === "blocked-degraded"
-                    ? "restart blocked by degraded cleanup"
+            startResult.kind === "blocked-degraded"
+              ? "restart blocked by degraded cleanup"
+              : stopResult.kind === "already-stopped" &&
+                  startResult.kind === "already-running"
+                ? "was already running"
+                : stopResult.kind === "already-stopped"
+                  ? "was already stopped and is now running again"
+                  : startResult.kind === "already-running"
+                    ? "was stopped but is already running again"
                     : "restarted";
           process.stdout.write(`Factory ${verb}.\n`);
           if (stopResult.terminatedPids.length > 0) {
