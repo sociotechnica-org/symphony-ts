@@ -286,10 +286,11 @@ fi
 
 warn_default_command
 ensure_runtime_paths
-write_status "acquiring-lock" "Preparing operator loop runtime paths"
-trap on_signal INT TERM
 trap 'release_lock' EXIT
 acquire_lock
+trap on_signal INT TERM
+# Only the lock owner should publish operator-loop status snapshots.
+write_status "acquiring-lock" "Operator loop lock acquired; preparing runtime status"
 
 if [ "$RUN_ONCE" -eq 1 ]; then
   if run_cycle; then
