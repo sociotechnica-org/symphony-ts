@@ -3,5 +3,7 @@ dist/
 coverage/
 .tmp/
 .var/
+# Local/generated operator state only. Durable operator tooling lives under
+# skills/symphony-operator/.
 .ralph/
 .DS_Store

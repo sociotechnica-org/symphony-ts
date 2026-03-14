@@ -7,6 +7,15 @@ description: Operate and maintain the local Symphony factory in this repository.
 
 Use this skill when acting as the operator for the local Symphony factory.
 
+Supported repo-owned entry point:
+
+- `pnpm operator` for the continuous wake-up loop
+- `pnpm operator:once` for one cycle
+
+The checked-in loop and prompt live next to this skill under
+`skills/symphony-operator/`. `.ralph/` is local/generated-only state for the
+scratchpad, status snapshots, logs, and loop lock files.
+
 ## Scope
 
 - Observe the live factory, not just the repository.
