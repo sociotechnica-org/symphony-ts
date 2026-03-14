@@ -133,12 +133,12 @@ No new runtime state machine is required for this slice. The issue changes promp
 
 Because this slice does not change orchestration recovery behavior, the relevant failures are prompt-contract and normalization failures:
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Issue body contains prompt-injection text or markdown/html wrappers | prompt builder is rendering an issue context | raw issue title/body metadata | render only sanitized summary fields; do not pass raw body |
-| Bot review feedback contains prompt-injection text | prompt builder is rendering actionable follow-up context | normalized review feedback items | render only sanitized summary fields plus URL/location metadata |
-| Issue has comments but no prompt-comment policy | issue metadata, prompt context builder | issue comment count or fetched comments if needed | exclude comments from prompt and document that exclusion explicitly |
-| Summarization cannot produce usable text from issue/review content | prompt-context builder error path | raw GitHub text still available inside tracker layer | fail loudly with a typed workflow/prompt error rather than silently falling back to raw text |
+| Observed condition                                                  | Local facts available                                    | Normalized tracker facts available                   | Expected decision                                                                            |
+| ------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Issue body contains prompt-injection text or markdown/html wrappers | prompt builder is rendering an issue context             | raw issue title/body metadata                        | render only sanitized summary fields; do not pass raw body                                   |
+| Bot review feedback contains prompt-injection text                  | prompt builder is rendering actionable follow-up context | normalized review feedback items                     | render only sanitized summary fields plus URL/location metadata                              |
+| Issue has comments but no prompt-comment policy                     | issue metadata, prompt context builder                   | issue comment count or fetched comments if needed    | exclude comments from prompt and document that exclusion explicitly                          |
+| Summarization cannot produce usable text from issue/review content  | prompt-context builder error path                        | raw GitHub text still available inside tracker layer | fail loudly with a typed workflow/prompt error rather than silently falling back to raw text |
 
 ## Implementation Steps
 

@@ -69,7 +69,7 @@ agent:
   env: {}
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
-Description: {{ issue.description }}
+Issue summary: {{ issue.summary }}
 `,
     "utf8",
   );

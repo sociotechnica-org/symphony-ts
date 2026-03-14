@@ -4,7 +4,12 @@ import fs from "node:fs/promises";
 import * as yaml from "yaml";
 import { ConfigError, WorkflowError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
+import type { PromptIssueContext } from "../domain/prompt-context.js";
 import { parseLocalRunnerCommand } from "../runner/local-command.js";
+import {
+  buildPromptIssueContext,
+  buildPromptPullRequestContext,
+} from "../tracker/prompt-context.js";
 import type {
   AgentRunnerConfig,
   GitHubBootstrapTrackerConfig,
@@ -55,11 +60,9 @@ type SupportedTrackerKind = (typeof SUPPORTED_TRACKER_KINDS)[number];
 type SupportedAgentRunnerKind = (typeof SUPPORTED_AGENT_RUNNER_KINDS)[number];
 
 interface PromptRenderInput {
-  readonly issue: {
-    readonly identifier: string;
-  };
+  readonly issue: PromptIssueContext;
   readonly attempt: number | null;
-  readonly pullRequest: HandoffLifecycle | null;
+  readonly pullRequest: ReturnType<typeof buildPromptPullRequestContext>;
   readonly config: ResolvedConfig;
 }
 
@@ -884,9 +887,9 @@ export function createPromptBuilder(
   return {
     async build(input): Promise<string> {
       return await renderPromptTemplate(definition, {
-        issue: input.issue,
+        issue: buildPromptIssueContext(input.issue, definition.config.tracker),
         attempt: input.attempt,
-        pullRequest: input.pullRequest,
+        pullRequest: buildPromptPullRequestContext(input.pullRequest),
         config: definition.config,
       });
     },

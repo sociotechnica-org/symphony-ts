@@ -131,6 +131,14 @@ describe("repo planning contract", () => {
       "commit the reviewed `plan.md`",
       "push that branch to github",
       "local-only uncommitted workspace state",
+      "github prompt trust boundary",
+      "trusted verbatim fields",
+      "summarized and sanitized fields",
+      "excluded fields",
+      "issue.summary",
+      "feedback.summary",
+      "raw issue comments",
+      "raw automated review-comment bodies",
     ]);
   });
 
@@ -191,6 +199,13 @@ describe("repo planning contract", () => {
       "pushes the issue branch",
       "direct github links to the branch and plan file",
       "pushed issue branch as the canonical review surface",
+      "trusted verbatim",
+      "summarized and sanitized",
+      "excluded",
+      "issue.summary",
+      "feedback.summary",
+      "raw github issue body markdown/html",
+      "raw issue comments",
     ]);
   });
 });
