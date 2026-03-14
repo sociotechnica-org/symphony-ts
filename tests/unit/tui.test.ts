@@ -124,6 +124,24 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("Recovered a stalled runner");
   });
 
+  it("omits duplicated last-action detail when summary is blank", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        lastAction: {
+          kind: "watchdog-recovery",
+          issueNumber: 133,
+          summary: "   ",
+          at: "2026-03-14T10:00:00.000Z",
+        },
+      }),
+      0,
+    );
+
+    expect(output).toContain("Last action:");
+    expect(output).toContain("watchdog-recovery #133");
+    expect(output).not.toContain("watchdog-recovery #133 | watchdog-recovery");
+  });
+
   it("renders Running section with no active agents message", () => {
     const output = formatSnapshotContent(makeSnapshot(), 0);
     expect(output).toContain("Running");

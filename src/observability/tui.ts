@@ -491,13 +491,14 @@ function formatLastActionLine(
 ): string {
   const issuePart =
     action.issueNumber === null ? "" : ` #${action.issueNumber.toString()}`;
-  const detail = action.summary.trim() === "" ? action.kind : action.summary;
-  return (
+  const line =
     colorize("│ Last action: ", BOLD) +
-    colorize(`${action.kind}${issuePart}`, CYAN) +
-    colorize(" | ", GRAY) +
-    colorize(detail, GRAY)
-  );
+    colorize(`${action.kind}${issuePart}`, CYAN);
+  const detail = action.summary.trim();
+  if (detail === "") {
+    return line;
+  }
+  return line + colorize(" | ", GRAY) + colorize(detail, GRAY);
 }
 
 // ─── Running table ────────────────────────────────────────────────────────
@@ -997,9 +998,6 @@ function describeRunningEvent(entry: TuiSnapshot["running"][number]): string {
   );
   if (segments.length > 0) {
     return segments.join(" · ");
-  }
-  if (fromVisibility !== null) {
-    return fromVisibility;
   }
   return liveEvent;
 }
