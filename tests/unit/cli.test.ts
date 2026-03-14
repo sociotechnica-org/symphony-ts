@@ -690,20 +690,21 @@ describe("runCli run", () => {
       JsonLogger: vi.fn(function MockLogger() {}),
     }));
 
-    const onSpy = vi
-      .spyOn(process, "on")
-      .mockImplementation(((event: NodeJS.Signals, listener: () => void) => {
-        if (event === "SIGINT" || event === "SIGTERM") {
-          signalHandlers.set(event, listener);
-        }
-        return process;
-      }) as typeof process.on);
-    const offSpy = vi
-      .spyOn(process, "off")
-      .mockImplementation(((event: NodeJS.Signals) => {
-        signalHandlers.delete(event);
-        return process;
-      }) as typeof process.off);
+    const onSpy = vi.spyOn(process, "on").mockImplementation(((
+      event: NodeJS.Signals,
+      listener: () => void,
+    ) => {
+      if (event === "SIGINT" || event === "SIGTERM") {
+        signalHandlers.set(event, listener);
+      }
+      return process;
+    }) as typeof process.on);
+    const offSpy = vi.spyOn(process, "off").mockImplementation(((
+      event: NodeJS.Signals,
+    ) => {
+      signalHandlers.delete(event);
+      return process;
+    }) as typeof process.off);
     vi.spyOn(process.stderr, "write").mockImplementation(((
       chunk: string | Uint8Array,
     ) => {
