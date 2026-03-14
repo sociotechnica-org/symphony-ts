@@ -37,7 +37,7 @@ export interface StartupPreparer {
   prepare(context: {
     readonly config: ResolvedConfig;
     readonly logger: Logger;
-    readonly signal?: AbortSignal;
+    readonly signal?: AbortSignal | undefined;
   }): Promise<StartupPreparationResult>;
 }
 
@@ -169,7 +169,7 @@ export async function runStartupPreparation(options: {
     const result = await preparer.prepare({
       config: options.config,
       logger: options.logger,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      signal: options.signal,
     });
     if (result.kind === "failed") {
       await writeStartupSnapshot(artifactPath, {
