@@ -688,6 +688,112 @@ describe("startFactory", () => {
     expect(result.status.snapshotFreshness.freshness).toBe("fresh");
   });
 
+  it("starts only after degraded cleanup reaches stopped", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ];
+    const processesState: HostProcessSnapshot[] = [];
+    const workerPid = 9101;
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+    const quitCalls: string[] = [];
+    const launched: string[] = [];
+
+    const result = await startFactory({
+      ...createControlDeps({
+        sessions: sessionsState,
+        processes: processesState,
+        snapshot: null,
+        quitScreenSession: async (sessionId) => {
+          quitCalls.push(sessionId);
+          sessionsState.splice(0, sessionsState.length);
+        },
+        launchScreenSession: async () => {
+          launched.push("launch");
+          sessionsState.push({
+            id: "9002.symphony-factory",
+            pid: 9002,
+            name: "symphony-factory",
+            state: "Detached",
+          });
+          processesState.push(
+            { pid: 9002, ppid: 1, command: "screen -dmS symphony-factory" },
+            { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+          );
+          currentSnapshot = createStatusSnapshot(workerPid, {
+            factoryState: "running",
+          });
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        if (currentSnapshot === null) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(quitCalls).toEqual(["9001.symphony-factory"]);
+    expect(launched).toEqual(["launch"]);
+    expect(result.kind).toBe("started");
+    expect(result.status.controlState).toBe("running");
+  });
+
+  it("returns a degraded result when pre-start cleanup cannot clear degraded state", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ];
+    const launchScreenSession =
+      vi.fn<NonNullable<FactoryControlDeps["launchScreenSession"]>>();
+
+    const result = await startFactory({
+      ...createControlDeps({
+        sessions: sessionsState,
+        processes: [],
+        snapshot: null,
+        quitScreenSession: async () => {},
+        launchScreenSession,
+      }),
+      listScreenSessions: async () => sessionsState,
+      listProcesses: async () => [],
+      readFile: async () => {
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: () => false,
+    });
+
+    expect(result.kind).toBe("blocked-degraded");
+    expect(result.status.controlState).toBe("degraded");
+    expect(result.status.problems).toContain(
+      "screen session exists but no readable runtime status snapshot was found",
+    );
+    expect(launchScreenSession).not.toHaveBeenCalled();
+  });
+
   it("times out when the detached runtime never becomes healthy after launch", async () => {
     const launched: Array<{
       runtimeRoot: string;
@@ -1060,6 +1166,32 @@ describe("stopFactory", () => {
     expect(result.kind).toBe("stopped");
     expect(result.status.controlState).toBe("stopped");
     expect(result.status.sessions).toEqual([]);
+  });
+
+  it("does not swallow synthetic ESRCH errors from quitScreenSession", async () => {
+    await expect(
+      stopFactory({
+        ...createControlDeps({
+          sessions: [
+            {
+              id: "9001.symphony-factory",
+              pid: 9001,
+              name: "symphony-factory",
+              state: "Detached",
+            },
+          ],
+          processes: [],
+          snapshot: null,
+          quitScreenSession: async () => {
+            const error = new Error("esrch") as NodeJS.ErrnoException;
+            error.code = "ESRCH";
+            throw error;
+          },
+        }),
+      }),
+    ).rejects.toThrow(
+      "Failed to stop detached screen session 9001.symphony-factory.",
+    );
   });
 });
 

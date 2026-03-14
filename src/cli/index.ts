@@ -20,6 +20,7 @@ import { createRunner } from "../runner/factory.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
 import {
+  type FactoryControlStatusSnapshot,
   inspectFactoryControl,
   renderFactoryControlStatus,
   startFactory,
@@ -130,20 +131,33 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         case "start": {
           const result = await startFactory();
           process.stdout.write(
-            `Factory ${result.kind === "started" ? "started" : "already running"}.\n`,
+            `Factory ${
+              result.kind === "started"
+                ? "started"
+                : result.kind === "already-running"
+                  ? "already running"
+                  : "start blocked by degraded cleanup"
+            }.\n`,
           );
           process.stdout.write(
             renderFactoryControlStatus(result.status, {
               format: args.format,
             }),
           );
+          applyFactoryControlExitCode(result.status);
           return;
         }
 
         case "stop": {
           const result = await stopFactory();
           process.stdout.write(
-            `Factory ${result.kind === "stopped" ? "stopped" : "already stopped"}.\n`,
+            `Factory ${
+              result.status.controlState === "degraded"
+                ? "stop left the runtime degraded"
+                : result.kind === "stopped"
+                  ? "stopped"
+                  : "already stopped"
+            }.\n`,
           );
           if (result.terminatedPids.length > 0) {
             process.stdout.write(
@@ -155,21 +169,42 @@ export async function runCli(argv: readonly string[]): Promise<void> {
               format: args.format,
             }),
           );
+          applyFactoryControlExitCode(result.status);
           return;
         }
 
         case "restart": {
           const stopResult = await stopFactory();
+          if (stopResult.status.controlState === "degraded") {
+            process.stdout.write(
+              "Factory restart blocked because stop left the runtime degraded.\n",
+            );
+            if (stopResult.terminatedPids.length > 0) {
+              process.stdout.write(
+                `Terminated PIDs: ${stopResult.terminatedPids.join(", ")}\n`,
+              );
+            }
+            process.stdout.write(
+              renderFactoryControlStatus(stopResult.status, {
+                format: args.format,
+              }),
+            );
+            applyFactoryControlExitCode(stopResult.status);
+            return;
+          }
+
           const startResult = await startFactory();
           const verb =
-            stopResult.kind === "already-stopped" &&
-            startResult.kind === "already-running"
-              ? "was already running"
-              : stopResult.kind === "already-stopped"
-                ? "was already stopped and is now running again"
-                : startResult.kind === "already-running"
-                  ? "was stopped but is already running again"
-                  : "restarted";
+            startResult.kind === "blocked-degraded"
+              ? "restart blocked by degraded cleanup"
+              : stopResult.kind === "already-stopped" &&
+                  startResult.kind === "already-running"
+                ? "was already running"
+                : stopResult.kind === "already-stopped"
+                  ? "was already stopped and is now running again"
+                  : startResult.kind === "already-running"
+                    ? "was stopped but is already running again"
+                    : "restarted";
           process.stdout.write(`Factory ${verb}.\n`);
           if (stopResult.terminatedPids.length > 0) {
             process.stdout.write(
@@ -181,6 +216,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
               format: args.format,
             }),
           );
+          applyFactoryControlExitCode(startResult.status);
           return;
         }
 
@@ -191,7 +227,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
               format: args.format,
             }),
           );
-          process.exitCode = snapshot.controlState === "degraded" ? 1 : 0;
+          applyFactoryControlExitCode(snapshot);
           return;
         }
 
@@ -341,6 +377,12 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     process.off("SIGTERM", stopDashboard);
     dashboard.stop();
   }
+}
+
+function applyFactoryControlExitCode(
+  snapshot: FactoryControlStatusSnapshot,
+): void {
+  process.exitCode = snapshot.controlState === "degraded" ? 1 : 0;
 }
 
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {
