@@ -133,14 +133,14 @@ This issue does not add new durable orchestrator state, but it does change comma
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Status facts available | Expected decision |
-| --- | --- | --- | --- |
-| `startFactory` sees degraded state and cleanup finishes `stopped` | session/process facts after stop | final control snapshot `stopped` | continue launch path |
-| `startFactory` sees degraded state and cleanup finishes `degraded` | lingering session/process facts remain | final control snapshot `degraded` with problems | do not silently launch; surface degraded cleanup result explicitly and treat command as non-zero |
-| `stopFactory` finishes with degraded control state | partial remnants still observed | final control snapshot `degraded` | render status and exit non-zero |
-| `restart` stop leg finishes degraded | degraded cleanup facts from stop leg | stop result status `degraded` | do not claim success; keep degraded signal and avoid masking it with a later zero exit code |
-| `screen -S ... -X quit` targets a missing session | `execFile` rejects with non-zero command result, stdout/stderr text | no extra status facts needed | treat known “no such session” text as benign missing-session race |
-| `screen -S ... -X quit` fails for another reason | `execFile` rejects without matching missing-session text | no extra status facts needed | propagate failure rather than swallowing it |
+| Observed condition                                                 | Local facts available                                               | Status facts available                          | Expected decision                                                                                |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `startFactory` sees degraded state and cleanup finishes `stopped`  | session/process facts after stop                                    | final control snapshot `stopped`                | continue launch path                                                                             |
+| `startFactory` sees degraded state and cleanup finishes `degraded` | lingering session/process facts remain                              | final control snapshot `degraded` with problems | do not silently launch; surface degraded cleanup result explicitly and treat command as non-zero |
+| `stopFactory` finishes with degraded control state                 | partial remnants still observed                                     | final control snapshot `degraded`               | render status and exit non-zero                                                                  |
+| `restart` stop leg finishes degraded                               | degraded cleanup facts from stop leg                                | stop result status `degraded`                   | do not claim success; keep degraded signal and avoid masking it with a later zero exit code      |
+| `screen -S ... -X quit` targets a missing session                  | `execFile` rejects with non-zero command result, stdout/stderr text | no extra status facts needed                    | treat known “no such session” text as benign missing-session race                                |
+| `screen -S ... -X quit` fails for another reason                   | `execFile` rejects without matching missing-session text            | no extra status facts needed                    | propagate failure rather than swallowing it                                                      |
 
 ## Storage / Persistence Contract
 

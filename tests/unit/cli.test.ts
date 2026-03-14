@@ -115,6 +115,33 @@ function createSnapshot(): FactoryStatusSnapshot {
   };
 }
 
+function createFactoryControlSnapshot(
+  controlState: "running" | "stopped" | "degraded",
+) {
+  return {
+    controlState,
+    paths: {
+      repoRoot: "/repo",
+      runtimeRoot: "/repo/.tmp/factory-main",
+      workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+      statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+    },
+    sessionName: "symphony-factory",
+    sessions: [],
+    workerAlive: false,
+    snapshotFreshness: {
+      freshness: "unavailable" as const,
+      reason: "missing-snapshot" as const,
+      summary: "No runtime snapshot is available.",
+      workerAlive: null,
+      publicationState: null,
+    },
+    statusSnapshot: null,
+    processIds: controlState === "degraded" ? [1234] : [],
+    problems: controlState === "degraded" ? ["broken runtime"] : [],
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   process.exitCode = undefined;
@@ -668,28 +695,9 @@ describe("runCli factory", () => {
     vi.resetModules();
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
-      inspectFactoryControl: vi.fn(async () => ({
-        controlState: "stopped",
-        paths: {
-          repoRoot: "/repo",
-          runtimeRoot: "/repo/.tmp/factory-main",
-          workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
-          statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
-        },
-        sessionName: "symphony-factory",
-        sessions: [],
-        workerAlive: false,
-        snapshotFreshness: {
-          freshness: "unavailable",
-          reason: "missing-snapshot",
-          summary: "No runtime snapshot is available.",
-          workerAlive: null,
-          publicationState: null,
-        },
-        statusSnapshot: null,
-        processIds: [],
-        problems: [],
-      })),
+      inspectFactoryControl: vi.fn(async () =>
+        createFactoryControlSnapshot("stopped"),
+      ),
       renderFactoryControlStatus: vi.fn(() => "Factory control: stopped\n"),
       startFactory: vi.fn(),
       stopFactory: vi.fn(),
@@ -717,28 +725,9 @@ describe("runCli factory", () => {
     vi.resetModules();
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
-      inspectFactoryControl: vi.fn(async () => ({
-        controlState: "degraded",
-        paths: {
-          repoRoot: "/repo",
-          runtimeRoot: "/repo/.tmp/factory-main",
-          workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
-          statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
-        },
-        sessionName: "symphony-factory",
-        sessions: [],
-        workerAlive: false,
-        snapshotFreshness: {
-          freshness: "unavailable",
-          reason: "missing-snapshot",
-          summary: "No runtime snapshot is available.",
-          workerAlive: null,
-          publicationState: null,
-        },
-        statusSnapshot: null,
-        processIds: [1234],
-        problems: ["broken runtime"],
-      })),
+      inspectFactoryControl: vi.fn(async () =>
+        createFactoryControlSnapshot("degraded"),
+      ),
       renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
       startFactory: vi.fn(),
       stopFactory: vi.fn(),
@@ -748,6 +737,70 @@ describe("runCli factory", () => {
 
     await mockedRunCli(["node", "symphony", "factory", "status", "--json"]);
 
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("sets a non-zero exit code for degraded factory start results", async () => {
+    vi.resetModules();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      startFactory: vi.fn(async () => ({
+        kind: "blocked-degraded",
+        status: createFactoryControlSnapshot("degraded"),
+      })),
+      stopFactory: vi.fn(),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "start"]);
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("sets a non-zero exit code for degraded factory stop results", async () => {
+    vi.resetModules();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      startFactory: vi.fn(),
+      stopFactory: vi.fn(async () => ({
+        kind: "stopped",
+        status: createFactoryControlSnapshot("degraded"),
+        terminatedPids: [1234],
+      })),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "stop"]);
+
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("sets a non-zero exit code and skips restart launch after a degraded stop", async () => {
+    vi.resetModules();
+    const startFactory = vi.fn();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      startFactory,
+      stopFactory: vi.fn(async () => ({
+        kind: "stopped",
+        status: createFactoryControlSnapshot("degraded"),
+        terminatedPids: [1234],
+      })),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "restart"]);
+
+    expect(startFactory).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
   });
 

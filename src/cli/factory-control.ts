@@ -58,7 +58,7 @@ export interface FactoryControlStatusSnapshot {
 }
 
 export interface FactoryControlStartResult {
-  readonly kind: "started" | "already-running";
+  readonly kind: "started" | "already-running" | "blocked-degraded";
   readonly status: FactoryControlStatusSnapshot;
 }
 
@@ -164,7 +164,13 @@ export async function startFactory(
   }
 
   if (current.controlState === "degraded") {
-    await stopFactoryAtPaths(paths, deps);
+    const stopResult = await stopFactoryAtPaths(paths, deps);
+    if (stopResult.status.controlState === "degraded") {
+      return {
+        kind: "blocked-degraded",
+        status: stopResult.status,
+      };
+    }
   }
 
   const launchScreenSession =
@@ -838,11 +844,6 @@ async function defaultRemoveFile(filePath: string): Promise<void> {
 }
 
 function isMissingScreenSessionError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  if (code === "ESRCH") {
-    return true;
-  }
-
   const stdout = String(
     (error as { stdout?: string } | undefined)?.stdout ?? "",
   );
