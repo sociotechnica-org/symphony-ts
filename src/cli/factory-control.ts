@@ -472,14 +472,20 @@ async function inspectFactoryControlAtPaths(
     problems.push(`startup failed: ${startup.summary}`);
   }
   if (startup !== null && startup.stale) {
-    problems.push(
-      `startup snapshot is stale (${startup.state}) and belongs to an offline runtime`,
-    );
+    const staleProblem = renderStaleStartupProblem(startup);
+    if (staleProblem !== null) {
+      problems.push(staleProblem);
+    }
   }
 
   let controlState: FactoryControlState = "stopped";
   if (liveSessions.length === 0 && processIds.length === 0) {
-    controlState = startup !== null && startup.stale ? "degraded" : "stopped";
+    controlState =
+      startup !== null &&
+      startup.stale &&
+      startup.state !== "ready"
+        ? "degraded"
+        : "stopped";
   } else if (
     liveSessions.length === 1 &&
     snapshotFreshness.freshness === "fresh" &&
@@ -968,6 +974,18 @@ function assessStartupSnapshot(
     workerAlive,
     stale,
   };
+}
+
+function renderStaleStartupProblem(
+  startup: FactoryStartupAssessment,
+): string | null {
+  if (startup.state === "failed") {
+    return null;
+  }
+  if (startup.state === "ready") {
+    return "runtime exited without cleanup after startup completed";
+  }
+  return `startup snapshot is stale (${startup.state}) and belongs to an offline runtime`;
 }
 
 function isMissingScreenSessionError(error: unknown): boolean {

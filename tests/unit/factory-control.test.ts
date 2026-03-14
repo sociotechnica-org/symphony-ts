@@ -593,6 +593,9 @@ describe("inspectFactoryControl", () => {
     expect(snapshot.problems).toContain(
       "startup failed: Mirror refresh failed.",
     );
+    expect(snapshot.problems).not.toContain(
+      "startup snapshot is stale (failed) and belongs to an offline runtime",
+    );
   });
 
   it("reports stale preparing startup artifacts as degraded when no runtime is live", async () => {
@@ -613,6 +616,28 @@ describe("inspectFactoryControl", () => {
     });
     expect(snapshot.problems).toContain(
       "startup snapshot is stale (preparing) and belongs to an offline runtime",
+    );
+  });
+
+  it("treats stale ready startup artifacts as stopped with an unclean-exit message", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        snapshot: null,
+        startupSnapshot: createStartupSnapshot(workerPid, {
+          state: "ready",
+          summary: "Startup preparation completed.",
+        }),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("stopped");
+    expect(snapshot.startup).toMatchObject({
+      state: "ready",
+      stale: true,
+    });
+    expect(snapshot.problems).toContain(
+      "runtime exited without cleanup after startup completed",
     );
   });
 
