@@ -101,12 +101,39 @@ export interface FactoryRetrySnapshot {
 export interface FactoryStatusSnapshot {
   readonly version: 1;
   readonly generatedAt: string;
+  readonly publication?: FactoryStatusPublication;
   readonly factoryState: FactoryState;
   readonly worker: FactoryWorkerSnapshot;
   readonly counts: FactoryStatusCounts;
   readonly lastAction: FactoryStatusAction | null;
   readonly activeIssues: readonly FactoryActiveIssueSnapshot[];
   readonly retries: readonly FactoryRetrySnapshot[];
+}
+
+export type FactoryStatusPublicationState = "current" | "initializing";
+
+export interface FactoryStatusPublication {
+  readonly state: FactoryStatusPublicationState;
+  readonly detail: string | null;
+}
+
+export type FactoryStatusFreshness = "fresh" | "stale" | "unavailable";
+
+export type FactoryStatusFreshnessReason =
+  | "current-snapshot"
+  | "worker-offline"
+  | "startup-in-progress"
+  | "startup-failed"
+  | "no-live-runtime"
+  | "missing-snapshot"
+  | "unreadable-snapshot";
+
+export interface FactoryStatusFreshnessAssessment {
+  readonly freshness: FactoryStatusFreshness;
+  readonly reason: FactoryStatusFreshnessReason;
+  readonly summary: string;
+  readonly workerAlive: boolean | null;
+  readonly publicationState: FactoryStatusPublicationState | null;
 }
 
 export function deriveStatusFilePath(workspaceRoot: string): string {
@@ -182,19 +209,27 @@ export function isProcessAlive(pid: number): boolean {
 export function renderFactoryStatusSnapshot(
   snapshot: FactoryStatusSnapshot,
   options?: {
-    readonly workerAlive?: boolean;
     readonly statusFilePath?: string;
+    readonly freshness?: FactoryStatusFreshnessAssessment;
   },
 ): string {
   const lines: string[] = [];
-  const workerAlive = options?.workerAlive;
+  const freshness = options?.freshness ?? assessFactoryStatusSnapshot(snapshot);
+  const workerAlive = freshness.workerAlive;
   const workerState =
-    workerAlive === undefined ? "unknown" : workerAlive ? "online" : "offline";
+    workerAlive === null ? "unknown" : workerAlive ? "online" : "offline";
 
   lines.push(`Factory: ${snapshot.factoryState}`);
+  lines.push(`Snapshot freshness: ${freshness.freshness}`);
+  lines.push(`Snapshot detail: ${freshness.summary}`);
   lines.push(
     `Worker: ${workerState} pid=${snapshot.worker.pid.toString()} instance=${snapshot.worker.instanceId}`,
   );
+  const publication = getFactoryStatusPublication(snapshot);
+  lines.push(`Snapshot state: ${publication.state}`);
+  if (publication.detail !== null) {
+    lines.push(`Snapshot state detail: ${publication.detail}`);
+  }
   lines.push(
     `Started: ${snapshot.worker.startedAt}  Snapshot: ${snapshot.generatedAt}`,
   );
@@ -217,12 +252,6 @@ export function renderFactoryStatusSnapshot(
         : ` issue #${snapshot.lastAction.issueNumber.toString()}`;
     lines.push(
       `Last action: ${snapshot.lastAction.kind}${issueSuffix} at ${snapshot.lastAction.at} - ${snapshot.lastAction.summary}`,
-    );
-  }
-
-  if (workerAlive === false) {
-    lines.push(
-      "Warning: worker PID is not running; this snapshot may be stale.",
     );
   }
 
@@ -333,6 +362,123 @@ export function renderFactoryStatusSnapshot(
   return lines.join("\n");
 }
 
+export function getFactoryStatusPublication(
+  snapshot: FactoryStatusSnapshot,
+): FactoryStatusPublication {
+  return snapshot.publication ?? { state: "current", detail: null };
+}
+
+/**
+ * Assesses whether a persisted factory status snapshot can be treated as
+ * current for operator-facing status surfaces.
+ *
+ * NOTE: when `options.workerAlive` is omitted, this function calls
+ * `isProcessAlive(snapshot.worker.pid)`, which performs an OS-level signal
+ * probe. Pass `workerAlive` explicitly in hot-path or test contexts to avoid
+ * that syscall.
+ */
+export function assessFactoryStatusSnapshot(
+  snapshot: FactoryStatusSnapshot | null,
+  options?: {
+    readonly workerAlive?: boolean;
+    /**
+     * When omitted, the no-live-runtime stale check is skipped because the
+     * caller does not have authoritative runtime/session ownership context.
+     * Pass `true` or `false` explicitly to enable that classification path.
+     */
+    readonly hasLiveRuntime?: boolean;
+    readonly readError?: Error | null;
+  },
+): FactoryStatusFreshnessAssessment {
+  if (options?.readError !== undefined && options.readError !== null) {
+    return {
+      freshness: "unavailable",
+      reason: "unreadable-snapshot",
+      summary: options.readError.message,
+      workerAlive: null,
+      publicationState: null,
+    };
+  }
+
+  if (snapshot === null) {
+    return {
+      freshness: "unavailable",
+      reason: "missing-snapshot",
+      summary:
+        options?.hasLiveRuntime === true
+          ? "No current runtime snapshot is available yet."
+          : "No runtime snapshot is available.",
+      workerAlive: null,
+      publicationState: null,
+    };
+  }
+
+  const publication = getFactoryStatusPublication(snapshot);
+  const workerAlive =
+    options?.workerAlive ?? isProcessAlive(snapshot.worker.pid);
+  if (publication.state === "initializing") {
+    if (!workerAlive) {
+      return {
+        freshness: "stale",
+        reason: "startup-failed",
+        summary:
+          "The startup placeholder belongs to an offline worker, so startup did not complete and this snapshot is historical.",
+        workerAlive,
+        publicationState: publication.state,
+      };
+    }
+    if (options?.hasLiveRuntime === false) {
+      return {
+        freshness: "stale",
+        reason: "no-live-runtime",
+        summary:
+          "No live factory runtime owns this startup snapshot anymore, so it is historical and not current.",
+        workerAlive,
+        publicationState: publication.state,
+      };
+    }
+    return {
+      freshness: "unavailable",
+      reason: "startup-in-progress",
+      summary:
+        publication.detail ??
+        "Factory startup is in progress; no current runtime snapshot is available yet.",
+      workerAlive,
+      publicationState: publication.state,
+    };
+  }
+
+  if (!workerAlive) {
+    return {
+      freshness: "stale",
+      reason: "worker-offline",
+      summary:
+        "The recorded worker PID is offline, so this snapshot is historical and not current.",
+      workerAlive,
+      publicationState: publication.state,
+    };
+  }
+
+  if (options?.hasLiveRuntime === false) {
+    return {
+      freshness: "stale",
+      reason: "no-live-runtime",
+      summary:
+        "No live factory runtime owns this snapshot anymore, so it is historical and not current.",
+      workerAlive,
+      publicationState: publication.state,
+    };
+  }
+
+  return {
+    freshness: "fresh",
+    reason: "current-snapshot",
+    summary: "The snapshot belongs to the live factory runtime.",
+    workerAlive,
+    publicationState: publication.state,
+  };
+}
+
 function parseFactoryStatusSnapshot(
   value: unknown,
   filePath: string,
@@ -348,6 +494,7 @@ function parseFactoryStatusSnapshot(
   return {
     version: 1,
     generatedAt: expectString(snapshot.generatedAt, filePath, "generatedAt"),
+    publication: parsePublication(snapshot.publication, filePath),
     factoryState: expectEnum(
       snapshot.factoryState,
       ["idle", "running", "blocked"],
@@ -370,6 +517,32 @@ function parseFactoryStatusSnapshot(
       "retries",
       (entry, index) =>
         parseRetry(entry, filePath, `retries[${index.toString()}]`),
+    ),
+  };
+}
+
+function parsePublication(
+  value: unknown,
+  filePath: string,
+): FactoryStatusPublication {
+  if (value === undefined) {
+    return {
+      state: "current",
+      detail: null,
+    };
+  }
+  const publication = expectObject(value, filePath, "publication");
+  return {
+    state: expectEnum(
+      publication.state,
+      ["current", "initializing"],
+      filePath,
+      "publication.state",
+    ),
+    detail: expectNullableString(
+      publication.detail,
+      filePath,
+      "publication.detail",
     ),
   };
 }

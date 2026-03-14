@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  assessFactoryStatusSnapshot,
   deriveStatusFilePath,
   isProcessAlive,
   readFactoryStatusSnapshot,
@@ -17,6 +18,10 @@ function createSnapshot(
   return {
     version: 1,
     generatedAt: "2026-03-06T12:00:00.000Z",
+    publication: {
+      state: "current",
+      detail: null,
+    },
     factoryState: "blocked",
     worker: {
       instanceId: "worker-123",
@@ -291,11 +296,11 @@ describe("factory status helpers", () => {
 
   it("renders a terminal-friendly view from the snapshot", () => {
     const output = renderFactoryStatusSnapshot(createSnapshot(), {
-      workerAlive: true,
       statusFilePath: "/tmp/status.json",
     });
 
     expect(output).toContain("Factory: blocked");
+    expect(output).toContain("Snapshot freshness: fresh");
     expect(output).toContain("Worker: online");
     expect(output).toContain(
       "Counts: ready=1 tracker_running=2 failed=0 local=0 retries=1",
@@ -313,10 +318,78 @@ describe("factory status helpers", () => {
     expect(output).toContain("#9 Retry a failed run attempt 2");
   });
 
-  it("renders worker state as unknown when liveness is omitted", () => {
-    const output = renderFactoryStatusSnapshot(createSnapshot());
+  it("renders freshness as stale when the worker pid is offline", () => {
+    const output = renderFactoryStatusSnapshot(
+      createSnapshot({
+        worker: {
+          ...createSnapshot().worker,
+          pid: 999_999_999,
+        },
+      }),
+    );
 
-    expect(output).toContain("Worker: unknown");
+    expect(output).toContain("Snapshot freshness: stale");
+    expect(output).toContain(
+      "The recorded worker PID is offline, so this snapshot is historical and not current.",
+    );
+  });
+
+  it("classifies startup snapshots as unavailable while the worker is live", () => {
+    expect(
+      assessFactoryStatusSnapshot(
+        createSnapshot({
+          publication: {
+            state: "initializing",
+            detail:
+              "Factory startup is in progress; no current runtime snapshot is available yet.",
+          },
+        }),
+        { workerAlive: true, hasLiveRuntime: true },
+      ),
+    ).toMatchObject({
+      freshness: "unavailable",
+      reason: "startup-in-progress",
+    });
+  });
+
+  it("classifies startup snapshots from an offline worker as stale startup failures", () => {
+    expect(
+      assessFactoryStatusSnapshot(
+        createSnapshot({
+          publication: {
+            state: "initializing",
+            detail:
+              "Factory startup is in progress; no current runtime snapshot is available yet.",
+          },
+        }),
+        { workerAlive: false, hasLiveRuntime: true },
+      ),
+    ).toMatchObject({
+      freshness: "stale",
+      reason: "startup-failed",
+      summary:
+        "The startup placeholder belongs to an offline worker, so startup did not complete and this snapshot is historical.",
+    });
+  });
+
+  it("classifies startup snapshots without a live runtime as stale", () => {
+    expect(
+      assessFactoryStatusSnapshot(
+        createSnapshot({
+          publication: {
+            state: "initializing",
+            detail:
+              "Factory startup is in progress; no current runtime snapshot is available yet.",
+          },
+        }),
+        { workerAlive: true, hasLiveRuntime: false },
+      ),
+    ).toMatchObject({
+      freshness: "stale",
+      reason: "no-live-runtime",
+      summary:
+        "No live factory runtime owns this startup snapshot anymore, so it is historical and not current.",
+    });
   });
 
   it("renders awaiting-landing issues distinctly", () => {

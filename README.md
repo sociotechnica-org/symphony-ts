@@ -81,6 +81,10 @@ foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
 The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, session identity, heartbeat/action
 timestamps, waiting reason, and condensed output/error summaries.
+Status surfaces now also distinguish snapshot freshness explicitly:
+`fresh` for the live worker, `stale` for leftover historical snapshots, and
+`unavailable` while startup is still publishing a current snapshot or no
+readable snapshot exists.
 
 Generate a per-issue report from local artifacts:
 

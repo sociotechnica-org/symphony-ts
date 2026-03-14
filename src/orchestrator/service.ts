@@ -160,6 +160,9 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #factoryStartedAt: number = Date.now();
   #shutdownSignal: AbortSignal | undefined;
   #dashboardNotify: (() => void) | null = null;
+  // Guard startup placeholder publication so a later initializing write cannot
+  // clobber a current snapshot that has already been persisted.
+  #startupStatusPublished = false;
 
   constructor(
     config: ResolvedConfig,
@@ -261,6 +264,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async runOnce(signal?: AbortSignal): Promise<void> {
+    await this.#publishStartupStatusSnapshot();
     // Allow callers (e.g. --once CLI path) to plumb a shutdown signal
     // that propagates to child agent processes via #shutdownSignal.
     const handleAbort =
@@ -370,6 +374,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {
+    await this.#publishStartupStatusSnapshot();
     this.#shutdownSignal = signal;
     const handleAbort = (): void => {
       this.#abortActiveRuns();
@@ -2626,6 +2631,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           retries: this.#state.retries,
         }),
       );
+      // Prevent a later #publishStartupStatusSnapshot call from overwriting
+      // this current snapshot with an initializing placeholder.
+      this.#startupStatusPublished = true;
     } catch (error) {
       this.#logger.warn("Failed to write status snapshot", {
         statusFilePath: this.#statusFilePath,
@@ -2642,6 +2650,35 @@ export class BootstrapOrchestrator implements Orchestrator {
         error: this.#normalizeFailure(error as Error),
       });
       return [];
+    }
+  }
+
+  async #publishStartupStatusSnapshot(): Promise<void> {
+    if (this.#startupStatusPublished) {
+      return;
+    }
+    try {
+      await writeFactoryStatusSnapshot(
+        this.#statusFilePath,
+        buildFactoryStatusSnapshot({
+          state: this.#state.status,
+          instanceId: this.#instanceId,
+          workerPid: process.pid,
+          pollIntervalMs: this.#config.polling.intervalMs,
+          maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
+          activeLocalRuns: this.#state.runningIssueNumbers.size,
+          retries: this.#state.retries,
+          publicationState: "initializing",
+          publicationDetail:
+            "Factory startup is in progress; no current runtime snapshot is available yet.",
+        }),
+      );
+      this.#startupStatusPublished = true;
+    } catch (error) {
+      this.#logger.warn("Failed to write startup status snapshot", {
+        statusFilePath: this.#statusFilePath,
+        error: this.#normalizeFailure(error as Error),
+      });
     }
   }
 

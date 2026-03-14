@@ -213,6 +213,8 @@ export function buildFactoryStatusSnapshot(input: {
   readonly maxConcurrentRuns: number;
   readonly activeLocalRuns: number;
   readonly retries: ReadonlyMap<number, RetryState>;
+  readonly publicationState?: "current" | "initializing";
+  readonly publicationDetail?: string | null;
 }): FactoryStatusSnapshot {
   const activeIssues = [...input.state.activeIssues.values()].sort(
     (left, right) => left.issueNumber - right.issueNumber,
@@ -231,6 +233,10 @@ export function buildFactoryStatusSnapshot(input: {
   return {
     version: 1,
     generatedAt: new Date().toISOString(),
+    publication: {
+      state: input.publicationState ?? "current",
+      detail: input.publicationDetail ?? null,
+    },
     factoryState: resolveFactoryState(
       activeIssues,
       input.activeLocalRuns,
