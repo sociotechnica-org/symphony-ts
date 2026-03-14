@@ -3,6 +3,7 @@ import {
   renderFactoryControlStatus,
   type FactoryControlStatusSnapshot,
 } from "./factory-control.js";
+import { isAbortError } from "../support/abort.js";
 
 const DEFAULT_WATCH_INTERVAL_MS = 1_000;
 
@@ -120,8 +121,4 @@ function createAbortError(): Error {
   const error = new Error("Factory watch aborted.");
   error.name = "AbortError";
   return error;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
 }
