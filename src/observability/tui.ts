@@ -560,11 +560,7 @@ function formatRunningRow(
     formatRuntimeAndTurns(runtimeSecs, entry, maxTurns),
     AGE_WIDTH,
   );
-  const tokens = formatCell(
-    formatRunningTokens(entry),
-    TOKENS_WIDTH,
-    "right",
-  );
+  const tokens = formatCell(formatRunningTokens(entry), TOKENS_WIDTH, "right");
   const session = formatCell(
     compactSessionId(resolveSessionDisplay(entry)),
     SESSION_WIDTH,

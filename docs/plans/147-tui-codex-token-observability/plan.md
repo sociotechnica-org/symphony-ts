@@ -153,13 +153,13 @@ No backward transition from `observed` to `pending` is allowed within the same r
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected decision / rendering |
-| --- | --- | --- |
-| Live run has `thread/started` or other activity but no token-bearing event yet | running entry active, token totals `0`, no token-bearing event observed | row token cell renders pending/unknown semantics instead of bare `0`; header indicates live token accounting is pending |
-| Live run receives first token-bearing payload | running entry active, first token-bearing event integrated | row and header switch to numeric observed totals |
-| Live run receives non-token events after token-bearing payloads | running entry active, token-bearing event previously observed | keep numeric totals; do not regress to pending |
-| Completed run had token-bearing events | run is no longer active, final observed totals retained in artifacts/snapshots as applicable | completed-state surfaces render numeric final totals |
-| Completed run never emitted a token-bearing payload | run ended with no observed token usage event | preserve truthful zero/unknown semantics according to the surface; do not invent counts |
+| Observed condition                                                             | Local facts available                                                                        | Expected decision / rendering                                                                                           |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Live run has `thread/started` or other activity but no token-bearing event yet | running entry active, token totals `0`, no token-bearing event observed                      | row token cell renders pending/unknown semantics instead of bare `0`; header indicates live token accounting is pending |
+| Live run receives first token-bearing payload                                  | running entry active, first token-bearing event integrated                                   | row and header switch to numeric observed totals                                                                        |
+| Live run receives non-token events after token-bearing payloads                | running entry active, token-bearing event previously observed                                | keep numeric totals; do not regress to pending                                                                          |
+| Completed run had token-bearing events                                         | run is no longer active, final observed totals retained in artifacts/snapshots as applicable | completed-state surfaces render numeric final totals                                                                    |
+| Completed run never emitted a token-bearing payload                            | run ended with no observed token usage event                                                 | preserve truthful zero/unknown semantics according to the surface; do not invent counts                                 |
 
 ## Observability Requirements
 
