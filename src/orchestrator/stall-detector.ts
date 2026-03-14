@@ -43,6 +43,9 @@ export interface StallCheckResult {
   readonly issueNumber: number;
   readonly stalled: boolean;
   readonly reason: StallReason | null;
+  // When stalled, this is the idle duration since the credited last observable
+  // activity. On the non-stalled activity-detected path it is only the lag
+  // between the current probe wall clock and the credited activity timestamp.
   readonly stalledForMs: number;
   readonly lastObservableActivityAt: number;
   readonly lastObservableActivitySource: LivenessSource | null;
@@ -177,7 +180,7 @@ function deriveInitialObservableActivity(
   const runStartedAt = parseTimestamp(snapshot.runStartedAt);
   if (runStartedAt !== null) {
     candidates.push({
-      at: runStartedAt,
+      at: Math.min(runStartedAt, snapshot.capturedAt),
       source: "run-start",
     });
   }
