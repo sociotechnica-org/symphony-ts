@@ -39,6 +39,7 @@ Use this skill when acting as the operator for the local Symphony factory.
 - Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring; do not use raw `screen -r symphony-factory` as the normal watch path because `Ctrl-C` there can kill the worker.
 - Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
 - Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart` over manual `screen` and process cleanup.
+- Treat detached startup locale handling as repo-owned behavior: the supported factory-control path selects an installed UTF-8 locale, launches `screen -U`, and should fail clearly rather than relying on shell-local locale folklore.
 - Prefer detached worker sessions that survive outside the current interactive shell.
 - Use an isolated checkout when fixing PR branches so local operator-only modifications do not leak into tracked work.
 - The factory owns PR follow-up by default. If a fresh actionable review batch lands and the factory does not pick it up, debug the miss as a factory/runtime problem before taking over the branch manually.

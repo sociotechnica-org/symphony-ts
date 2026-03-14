@@ -4,13 +4,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import {
   collectDescendantProcessIds,
+  createFactoryLaunchEnvironment,
   createFactoryRunCommand,
+  createFactoryScreenLaunchCommand,
   inspectFactoryControl,
   parsePsOutput,
+  parseLocaleListOutput,
   parseScreenLsFailureOutput,
   parseScreenLsOutput,
   renderFactoryControlStatus,
   resolveFactoryPaths,
+  selectFactoryUtf8Locale,
   startFactory,
   stopFactory,
   type FactoryControlDeps,
@@ -53,6 +57,8 @@ function createControlDeps(
     readonly processes?: readonly HostProcessSnapshot[];
     readonly sessions?: readonly ScreenSessionSnapshot[];
     readonly snapshot?: FactoryStatusSnapshot | null;
+    readonly environment?: NodeJS.ProcessEnv;
+    readonly availableLocales?: readonly string[];
     readonly nowValues?: readonly number[];
     readonly removeFile?: FactoryControlDeps["removeFile"];
     readonly launchScreenSession?: FactoryControlDeps["launchScreenSession"];
@@ -69,6 +75,7 @@ function createControlDeps(
 
   return {
     cwd: () => runtimeRoot,
+    environment: () => ({ ...(options.environment ?? {}) }),
     pathExists: async (targetPath) =>
       [
         repoRoot,
@@ -98,6 +105,8 @@ function createControlDeps(
     },
     listProcesses: async () => options.processes ?? [],
     listScreenSessions: async () => options.sessions ?? [],
+    listAvailableLocales: async () =>
+      options.availableLocales ?? ["en_US.UTF-8", "C", "POSIX"],
     removeFile: options.removeFile ?? (async () => {}),
     sleep: options.sleep ?? (async () => {}),
     isProcessAlive: (pid) =>
@@ -271,6 +280,76 @@ describe("process parsing helpers", () => {
   });
 });
 
+describe("UTF-8 locale selection", () => {
+  it("parses locale -a output into installed locale names", () => {
+    expect(parseLocaleListOutput("C\nen_US.UTF-8\n\nPOSIX\n")).toEqual([
+      "C",
+      "en_US.UTF-8",
+      "POSIX",
+    ]);
+  });
+
+  it("keeps a valid inherited UTF-8 locale when it is installed", () => {
+    expect(
+      selectFactoryUtf8Locale(
+        {
+          LC_ALL: "en_GB.UTF-8",
+        },
+        ["C", "en_GB.UTF-8", "en_US.UTF-8"],
+      ),
+    ).toEqual({
+      locale: "en_GB.UTF-8",
+      source: "inherited",
+    });
+  });
+
+  it("ignores an unavailable inherited UTF-8 locale and falls back to an installed one", () => {
+    expect(
+      selectFactoryUtf8Locale(
+        {
+          LC_ALL: "C.UTF-8",
+          LANG: "C",
+        },
+        ["C", "en_US.UTF-8"],
+      ),
+    ).toEqual({
+      locale: "en_US.UTF-8",
+      source: "fallback",
+    });
+  });
+
+  it("builds a launch environment with explicit UTF-8 locale overrides", () => {
+    expect(
+      createFactoryLaunchEnvironment(
+        {
+          LANG: "C",
+          LC_ALL: "C.UTF-8",
+          TERM: "screen-256color",
+        },
+        ["C", "en_US.UTF-8"],
+      ),
+    ).toMatchObject({
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+      LC_CTYPE: "en_US.UTF-8",
+      TERM: "screen-256color",
+    });
+  });
+
+  it("fails clearly when no installed UTF-8 locale exists", () => {
+    expect(() =>
+      selectFactoryUtf8Locale(
+        {
+          LC_ALL: "C.UTF-8",
+        },
+        ["C", "POSIX"],
+      ),
+    ).toThrow(
+      "Factory detached TUI requires an installed UTF-8 locale, but 'locale -a' reported none. Inherited locale candidates: C.UTF-8.",
+    );
+  });
+});
+
 describe("inspectFactoryControl", () => {
   it("reports stopped when there is no session, process, or snapshot", async () => {
     const snapshot = await inspectFactoryControl(createControlDeps());
@@ -398,6 +477,24 @@ describe("createFactoryRunCommand", () => {
       "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
     ]);
   });
+
+  it("builds the detached screen launch argv in UTF-8 mode", () => {
+    expect(
+      createFactoryScreenLaunchCommand(
+        "symphony-factory",
+        createFactoryRunCommand(),
+      ),
+    ).toEqual([
+      "-U",
+      "-dmS",
+      "symphony-factory",
+      "pnpm",
+      "tsx",
+      "bin/symphony.ts",
+      "run",
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    ]);
+  });
 });
 
 describe("startFactory", () => {
@@ -434,6 +531,7 @@ describe("startFactory", () => {
       runtimeRoot: string;
       sessionName: string;
       command: readonly string[];
+      env: NodeJS.ProcessEnv;
     }> = [];
 
     const result = await startFactory({
@@ -482,6 +580,11 @@ describe("startFactory", () => {
       runtimeRoot: "/repo/.tmp/factory-main",
       sessionName: "symphony-factory",
       command: createFactoryRunCommand(),
+      env: expect.objectContaining({
+        LANG: "en_US.UTF-8",
+        LC_ALL: "en_US.UTF-8",
+        LC_CTYPE: "en_US.UTF-8",
+      }),
     });
     expect(result.kind).toBe("started");
     expect(result.status.controlState).toBe("running");
@@ -561,6 +664,7 @@ describe("startFactory", () => {
       runtimeRoot: string;
       sessionName: string;
       command: readonly string[];
+      env: NodeJS.ProcessEnv;
     }> = [];
 
     await expect(
@@ -581,8 +685,76 @@ describe("startFactory", () => {
         runtimeRoot: "/repo/.tmp/factory-main",
         sessionName: "symphony-factory",
         command: createFactoryRunCommand(),
+        env: expect.objectContaining({
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          LC_CTYPE: "en_US.UTF-8",
+        }),
       },
     ]);
+  });
+
+  it("normalizes a bad inherited locale before launching the detached runtime", async () => {
+    const launched: Array<{
+      runtimeRoot: string;
+      sessionName: string;
+      command: readonly string[];
+      env: NodeJS.ProcessEnv;
+    }> = [];
+
+    await expect(
+      startFactory(
+        createControlDeps({
+          environment: {
+            LC_ALL: "C.UTF-8",
+            LANG: "C",
+            TERM: "screen-256color",
+          },
+          availableLocales: ["C", "en_US.UTF-8"],
+          launchScreenSession: async (options) => {
+            launched.push(options);
+          },
+          nowValues: [0, 1_000, 8_000, 15_000, 16_000],
+        }),
+      ),
+    ).rejects.toThrow(
+      "Factory start timed out before a healthy runtime appeared under /repo/.tmp/factory-main.",
+    );
+
+    expect(launched).toEqual([
+      {
+        runtimeRoot: "/repo/.tmp/factory-main",
+        sessionName: "symphony-factory",
+        command: createFactoryRunCommand(),
+        env: expect.objectContaining({
+          TERM: "screen-256color",
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          LC_CTYPE: "en_US.UTF-8",
+        }),
+      },
+    ]);
+  });
+
+  it("fails clearly before launch when no installed UTF-8 locale is available", async () => {
+    const launchScreenSession =
+      vi.fn<NonNullable<FactoryControlDeps["launchScreenSession"]>>();
+
+    await expect(
+      startFactory(
+        createControlDeps({
+          environment: {
+            LC_ALL: "C.UTF-8",
+          },
+          availableLocales: ["C", "POSIX"],
+          launchScreenSession,
+        }),
+      ),
+    ).rejects.toThrow(
+      "Factory detached TUI requires an installed UTF-8 locale, but 'locale -a' reported none. Inherited locale candidates: C.UTF-8.",
+    );
+
+    expect(launchScreenSession).not.toHaveBeenCalled();
   });
 });
 
@@ -871,6 +1043,7 @@ describe("factory restart launch contract", () => {
       runtimeRoot: string;
       sessionName: string;
       command: readonly string[];
+      env: NodeJS.ProcessEnv;
     }> = [];
     let nextSessionPid = 9001;
     let nextWorkerPid = 9201;
