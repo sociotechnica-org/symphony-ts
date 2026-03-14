@@ -126,4 +126,22 @@ describe("startup service", () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("treats empty snapshot summaries as absent", async () => {
+    expect(
+      parseStartupSnapshotContent(
+        JSON.stringify({
+          version: 1,
+          state: "failed",
+          updatedAt: "2026-03-14T12:00:00.000Z",
+          workerPid: 6543,
+          provider: "github-bootstrap/test-failure",
+          summary: "",
+        }),
+        "startup.json",
+      ),
+    ).toMatchObject({
+      summary: null,
+    });
+  });
 });

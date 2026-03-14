@@ -468,6 +468,14 @@ async function inspectFactoryControlAtPaths(
     readError: snapshotRead.error,
     ...(snapshotRead.snapshot === null ? {} : { workerAlive }),
   });
+  if (startup !== null && startup.state === "failed") {
+    problems.push(`startup failed: ${startup.summary}`);
+  }
+  if (startup !== null && startup.stale) {
+    problems.push(
+      `startup snapshot is stale (${startup.state}) and belongs to an offline runtime`,
+    );
+  }
 
   let controlState: FactoryControlState = "stopped";
   if (liveSessions.length === 0 && processIds.length === 0) {
@@ -503,15 +511,6 @@ async function inspectFactoryControlAtPaths(
         "screen session exists but no readable runtime status snapshot was found",
       );
     }
-  }
-
-  if (startup !== null && startup.state === "failed") {
-    problems.push(`startup failed: ${startup.summary}`);
-  }
-  if (startup !== null && startup.stale) {
-    problems.push(
-      `startup snapshot is stale (${startup.state}) and belongs to an offline runtime`,
-    );
   }
 
   return {

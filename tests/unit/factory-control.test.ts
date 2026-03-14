@@ -594,6 +594,36 @@ describe("inspectFactoryControl", () => {
       "startup failed: Mirror refresh failed.",
     );
   });
+
+  it("does not classify a live runtime as running when startup already failed", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        sessions: [
+          {
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: "symphony-factory",
+            state: "Detached",
+          },
+        ],
+        processes: [
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          { pid: workerPid, ppid: 9001, command: "node bin/symphony.ts run" },
+        ],
+        snapshot: createStatusSnapshot(workerPid),
+        startupSnapshot: createStartupSnapshot(workerPid, {
+          state: "failed",
+          summary: "Mirror refresh failed.",
+        }),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.problems).toContain(
+      "startup failed: Mirror refresh failed.",
+    );
+  });
 });
 
 describe("createFactoryRunCommand", () => {

@@ -40,13 +40,25 @@ export interface StartupPreparer {
   }): Promise<StartupPreparationResult>;
 }
 
-export interface StartupPreparationOutcome {
-  readonly kind: "ready" | "failed";
+export interface StartupPreparationOutcomeReady {
+  readonly kind: "ready";
   readonly provider: string;
   readonly summary: string | null;
   readonly workspaceRepoUrlOverride: string | null;
   readonly artifactPath: string;
 }
+
+export interface StartupPreparationOutcomeFailed {
+  readonly kind: "failed";
+  readonly provider: string;
+  readonly summary: string;
+  readonly workspaceRepoUrlOverride: null;
+  readonly artifactPath: string;
+}
+
+export type StartupPreparationOutcome =
+  | StartupPreparationOutcomeReady
+  | StartupPreparationOutcomeFailed;
 
 class NoOpStartupPreparer implements StartupPreparer {
   readonly id: string;
@@ -275,7 +287,7 @@ function expectOptionalString(
   filePath: string,
   field: string,
 ): string | null {
-  if (value === undefined || value === null) {
+  if (value === undefined || value === null || value === "") {
     return null;
   }
   if (typeof value !== "string") {
