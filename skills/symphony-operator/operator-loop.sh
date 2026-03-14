@@ -19,6 +19,7 @@ RECORDING_SETTLE_SECONDS=1
 
 RUN_ONCE=0
 STOPPING=0
+SLEEP_PID=""
 LAST_STATE="idle"
 LAST_MESSAGE="Not started"
 LAST_LOG_FILE=""
@@ -166,7 +167,17 @@ release_lock() {
 
 on_signal() {
   STOPPING=1
+  if [ -n "$SLEEP_PID" ] && pid_is_live "$SLEEP_PID"; then
+    kill "$SLEEP_PID" 2>/dev/null || true
+  fi
   write_status "stopping" "Signal received; stopping operator loop"
+}
+
+sleep_until_next_cycle() {
+  sleep "$INTERVAL_SECONDS" &
+  SLEEP_PID=$!
+  wait "$SLEEP_PID" 2>/dev/null || true
+  SLEEP_PID=""
 }
 
 run_cycle() {
@@ -262,6 +273,11 @@ if [ ! -f "$PROMPT_FILE" ]; then
   exit 1
 fi
 
+if ! command -v node >/dev/null 2>&1; then
+  echo "operator-loop: node not found in PATH; required for timestamp calculation" >&2
+  exit 1
+fi
+
 ensure_runtime_paths
 write_status "acquiring-lock" "Preparing operator loop runtime paths"
 trap on_signal INT TERM
@@ -275,7 +291,7 @@ if [ "$RUN_ONCE" -eq 1 ]; then
   fi
 
   write_status "idle" "Operator loop finished one cycle with a failure"
-  exit "$LAST_CYCLE_EXIT_CODE"
+  exit "${LAST_CYCLE_EXIT_CODE:-1}"
 fi
 
 write_status "sleeping" "Operator loop started"
@@ -289,7 +305,7 @@ while [ "$STOPPING" -eq 0 ]; do
     write_status "retrying" "Cycle failed; sleeping before retrying operator loop"
   fi
 
-  sleep "$INTERVAL_SECONDS" || true
+  sleep_until_next_cycle
 done
 
 write_status "idle" "Operator loop stopped"
