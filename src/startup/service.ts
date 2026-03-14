@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ResolvedConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
+import { isAbortError } from "../support/abort.js";
 
 let startupWriteSequence = 0;
 
@@ -215,6 +216,9 @@ export async function runStartupPreparation(options: {
       artifactPath,
     };
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
     const summary =
       error instanceof Error ? error.message : "Unknown startup failure";
     await writeStartupSnapshot(artifactPath, {

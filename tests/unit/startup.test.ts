@@ -10,6 +10,7 @@ import {
   type StartupPreparer,
 } from "../../src/startup/service.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import { isAbortError } from "../../src/support/abort.js";
 import { createTempDir } from "../support/git.js";
 
 afterEach(() => {
@@ -121,6 +122,41 @@ describe("startup service", () => {
         workerPid: 6543,
         provider: "github-bootstrap/test-failure",
         summary: "Mirror refresh failed.",
+      });
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rethrows AbortError without overwriting the preparing snapshot", async () => {
+    const tempDir = await createTempDir("symphony-startup-abort-");
+    const config = createConfig(tempDir);
+    const preparer: StartupPreparer = {
+      id: "github-bootstrap/test-abort",
+      async prepare() {
+        const error = new Error("Startup preparation aborted.");
+        error.name = "AbortError";
+        throw error;
+      },
+    };
+
+    try {
+      await expect(
+        runStartupPreparation({
+          config,
+          logger: new JsonLogger(),
+          preparer,
+          workerPid: 9876,
+        }),
+      ).rejects.toSatisfy((error: unknown) => isAbortError(error));
+
+      const snapshot = await readStartupSnapshot(
+        deriveStartupFilePath(config.workspace.root),
+      );
+      expect(snapshot).toMatchObject({
+        state: "preparing",
+        workerPid: 9876,
+        provider: "github-bootstrap/test-abort",
       });
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });

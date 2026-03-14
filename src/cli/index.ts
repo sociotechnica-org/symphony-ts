@@ -18,6 +18,7 @@ import { FsLivenessProbe } from "../orchestrator/liveness-probe.js";
 import { StatusDashboard } from "../observability/tui.js";
 import { createRunner } from "../runner/factory.js";
 import { runStartupPreparation } from "../startup/service.js";
+import { isAbortError } from "../support/abort.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
 import {
@@ -318,10 +319,30 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
   const logger = new JsonLogger();
   const workflow = await loadWorkflow(args.workflowPath);
-  const startup = await runStartupPreparation({
-    config: workflow.config,
-    logger,
-  });
+  const startupController = new AbortController();
+  const abortStartup = (): void => {
+    startupController.abort();
+  };
+  process.on("SIGINT", abortStartup);
+  process.on("SIGTERM", abortStartup);
+  let startup;
+  try {
+    startup = await runStartupPreparation({
+      config: workflow.config,
+      logger,
+      signal: startupController.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      process.stderr.write("Startup preparation aborted.\n");
+      process.exitCode = 130;
+      return;
+    }
+    throw error;
+  } finally {
+    process.off("SIGINT", abortStartup);
+    process.off("SIGTERM", abortStartup);
+  }
   if (startup.kind === "failed") {
     process.stderr.write(
       `Startup failed before the runtime became healthy: ${startup.summary}\n`,
