@@ -199,7 +199,9 @@ run_cycle() {
     export SYMPHONY_OPERATOR_STATUS_MD="$STATUS_MD"
     export SYMPHONY_OPERATOR_LOG_DIR="$LOG_DIR"
     export SYMPHONY_OPERATOR_PROMPT_FILE="$PROMPT_FILE"
-    bash -lc "$OPERATOR_COMMAND" <"$PROMPT_FILE"
+    # Intentionally use a login shell so PATH-managed runner installs such as
+    # codex or claude remain discoverable during unattended operator cycles.
+    bash -l -c "$OPERATOR_COMMAND" <"$PROMPT_FILE"
   ) >>"$log_file" 2>&1
   exit_code=$?
   set -e

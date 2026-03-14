@@ -137,29 +137,25 @@ States:
 2. `acquiring-lock`: startup path attempting to claim the local loop lock
 3. `sleeping`: loop is healthy and waiting for the next wake-up time
 4. `retrying`: the last cycle failed and the loop is waiting for the next retry interval
-5. `inspecting`: loop is gathering repo/factory/issue status for one cycle
-6. `acting`: loop is invoking the operator command for that cycle
-7. `recording`: loop is writing local-only status artifacts or logs
-8. `failed`: loop cannot continue because setup, locking, or command execution failed
-9. `stopping`: loop received shutdown and is releasing local state cleanly
+5. `acting`: loop is invoking the operator command for one cycle
+6. `recording`: loop is writing local-only status artifacts or logs
+7. `failed`: loop cannot continue because setup, locking, or command execution failed
+8. `stopping`: loop received shutdown and is releasing local state cleanly
 
 Allowed transitions:
 
 - `idle -> acquiring-lock`
 - `acquiring-lock -> sleeping`
 - `acquiring-lock -> failed`
-- `sleeping -> inspecting`
-- `retrying -> inspecting`
-- `inspecting -> acting`
+- `sleeping -> acting`
+- `retrying -> acting`
 - `acting -> recording`
 - `recording -> sleeping`
 - `failed -> retrying`
-- `inspecting -> failed`
 - `acting -> failed`
 - `recording -> failed`
 - `sleeping -> stopping`
 - `retrying -> stopping`
-- `inspecting -> stopping`
 - `acting -> stopping`
 - `recording -> stopping`
 - `stopping -> idle`
@@ -168,6 +164,7 @@ Notes:
 
 - the lock is local operator-loop coordination only; it must not be treated as factory ownership or tracker ownership
 - generated artifacts remain best-effort observability aids, not the system of record for runtime state
+- repo/factory/issue inspection happens inside the launched operator session; `.ralph/status.json` surfaces the loop's coarse outer cycle states rather than an internal inspection subphase
 
 ## Failure-Class Matrix
 
