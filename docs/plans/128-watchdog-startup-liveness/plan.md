@@ -135,15 +135,15 @@ Allowed last-activity sources in this slice:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Runner is still in startup, no turn number or backend session id yet, but spawned/startup activity continues advancing | run start time, spawned timestamp, startup visibility or equivalent progress fact | none required | treat as live; do not abort |
-| Runner is still in startup, no filesystem writes, no PR movement, and no startup or visibility activity has advanced past threshold | run start time only, no later activity | none required | classify as genuine startup stall and recover/abort through the normal watchdog path |
-| Runner heartbeat/action advances while workspace stays clean | updated runner visibility timestamps | none required | treat as live pre-write progress |
-| Workspace diff or PR head moved recently even if runner visibility is quiet | diff hash or PR head changed | PR head and actionable review state when present | treat as live |
-| No source has advanced past threshold after prior activity and recovery budget remains | last observable activity timestamp/source, active watchdog entry | normalized current issue snapshot | classify stalled and abort for retry |
-| No source has advanced past threshold after prior activity and recovery budget is exhausted | same as above | normalized current issue snapshot | classify stalled-terminal, abort, and preserve the true watchdog reason |
-| Runner exits on its own before watchdog threshold | runner result path settled | tracker lifecycle continues normally | watchdog stops; no stall recovery |
+| Observed condition                                                                                                                  | Local facts available                                                             | Normalized tracker facts available               | Expected decision                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Runner is still in startup, no turn number or backend session id yet, but spawned/startup activity continues advancing              | run start time, spawned timestamp, startup visibility or equivalent progress fact | none required                                    | treat as live; do not abort                                                          |
+| Runner is still in startup, no filesystem writes, no PR movement, and no startup or visibility activity has advanced past threshold | run start time only, no later activity                                            | none required                                    | classify as genuine startup stall and recover/abort through the normal watchdog path |
+| Runner heartbeat/action advances while workspace stays clean                                                                        | updated runner visibility timestamps                                              | none required                                    | treat as live pre-write progress                                                     |
+| Workspace diff or PR head moved recently even if runner visibility is quiet                                                         | diff hash or PR head changed                                                      | PR head and actionable review state when present | treat as live                                                                        |
+| No source has advanced past threshold after prior activity and recovery budget remains                                              | last observable activity timestamp/source, active watchdog entry                  | normalized current issue snapshot                | classify stalled and abort for retry                                                 |
+| No source has advanced past threshold after prior activity and recovery budget is exhausted                                         | same as above                                                                     | normalized current issue snapshot                | classify stalled-terminal, abort, and preserve the true watchdog reason              |
+| Runner exits on its own before watchdog threshold                                                                                   | runner result path settled                                                        | tracker lifecycle continues normally             | watchdog stops; no stall recovery                                                    |
 
 ## Storage And Persistence Contract
 
