@@ -13,6 +13,10 @@ import {
   type FactoryStatusSnapshot,
 } from "../observability/status.js";
 import {
+  renderFactoryRuntimeIdentity,
+  type FactoryRuntimeIdentity,
+} from "../observability/runtime-identity.js";
+import {
   deriveStartupFilePath,
   parseStartupSnapshotContent,
   type StartupSnapshot,
@@ -60,6 +64,7 @@ export interface FactoryStartupAssessment {
   readonly workerPid: number;
   readonly workerAlive: boolean;
   readonly stale: boolean;
+  readonly runtimeIdentity: FactoryRuntimeIdentity | null;
 }
 
 export interface FactoryControlStatusSnapshot {
@@ -307,6 +312,13 @@ export function renderFactoryControlStatus(
       `Startup: ${snapshot.startup.state} provider=${snapshot.startup.provider} pid=${snapshot.startup.workerPid.toString()}`,
     );
     lines.push(`Startup detail: ${snapshot.startup.summary}`);
+    if (snapshot.statusSnapshot === null) {
+      lines.push(
+        `Runtime version: ${renderFactoryRuntimeIdentity(
+          snapshot.startup.runtimeIdentity,
+        )}`,
+      );
+    }
     if (snapshot.startup.stale) {
       lines.push("Startup freshness: stale");
     }
@@ -981,6 +993,7 @@ function assessStartupSnapshot(
     workerPid: snapshot.workerPid,
     workerAlive,
     stale,
+    runtimeIdentity: snapshot.runtimeIdentity ?? null,
   };
 }
 

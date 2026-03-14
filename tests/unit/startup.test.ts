@@ -85,6 +85,9 @@ describe("startup service", () => {
         state: "ready",
         workerPid: 3210,
         provider: "github-bootstrap/noop",
+        runtimeIdentity: {
+          checkoutPath: tempDir,
+        },
       });
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -122,6 +125,9 @@ describe("startup service", () => {
         workerPid: 6543,
         provider: "github-bootstrap/test-failure",
         summary: "Mirror refresh failed.",
+        runtimeIdentity: {
+          checkoutPath: tempDir,
+        },
       });
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -157,6 +163,9 @@ describe("startup service", () => {
         state: "preparing",
         workerPid: 9876,
         provider: "github-bootstrap/test-abort",
+        runtimeIdentity: {
+          checkoutPath: tempDir,
+        },
       });
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });

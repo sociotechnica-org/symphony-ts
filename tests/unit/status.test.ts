@@ -18,6 +18,14 @@ function createSnapshot(
   return {
     version: 1,
     generatedAt: "2026-03-06T12:00:00.000Z",
+    runtimeIdentity: {
+      checkoutPath: "/tmp/repo/.tmp/factory-main",
+      headSha: "4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26",
+      committedAt: "2026-03-06T11:57:00.000Z",
+      isDirty: false,
+      source: "git",
+      detail: null,
+    },
     publication: {
       state: "current",
       detail: null,
@@ -305,6 +313,10 @@ describe("factory status helpers", () => {
     expect(output).toContain(
       "Counts: ready=1 tracker_running=2 failed=0 local=0 retries=1",
     );
+    expect(output).toContain("Runtime checkout: /tmp/repo/.tmp/factory-main");
+    expect(output).toContain(
+      "Runtime version: 4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26 | committed 2026-03-06T11:57:00.000Z | clean",
+    );
     expect(output).toContain(
       "#12 Expose factory status [awaiting-system-checks]",
     );
@@ -331,6 +343,27 @@ describe("factory status helpers", () => {
     expect(output).toContain("Snapshot freshness: stale");
     expect(output).toContain(
       "The recorded worker PID is offline, so this snapshot is historical and not current.",
+    );
+  });
+
+  it("renders unavailable runtime identity cleanly", () => {
+    const output = renderFactoryStatusSnapshot(
+      createSnapshot({
+        runtimeIdentity: {
+          checkoutPath: "/tmp/repo/.tmp/factory-main",
+          headSha: null,
+          committedAt: null,
+          isDirty: null,
+          source: "not-a-git-checkout",
+          detail: "fatal: not a git repository",
+        },
+        activeIssues: [],
+        retries: [],
+      }),
+    );
+
+    expect(output).toContain(
+      "Runtime version: unavailable (not-a-git-checkout: fatal: not a git repository)",
     );
   });
 

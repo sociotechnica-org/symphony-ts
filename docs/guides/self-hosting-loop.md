@@ -98,6 +98,11 @@ Symphony now has two status surfaces:
 - `pnpm tsx bin/symphony.ts factory status` inspects the detached runtime and
   embeds the latest status snapshot when available
 
+Both surfaces now include the runtime checkout identity for the live factory
+code. Use that `HEAD` SHA and checkout path to answer "what version is running
+right now?"; for detached control it refers to `.tmp/factory-main`, not the
+operator checkout you are typing in.
+
 For self-hosting operations, prefer `factory status` first, then `factory watch`
 when you want a live read-only monitor.
 

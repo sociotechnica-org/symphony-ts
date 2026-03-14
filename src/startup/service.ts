@@ -2,6 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ResolvedConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
+import {
+  collectFactoryRuntimeIdentity,
+  factoryRuntimeIdentityLogFields,
+  parseFactoryRuntimeIdentity,
+  type FactoryRuntimeIdentity,
+} from "../observability/runtime-identity.js";
 import { isAbortError } from "../support/abort.js";
 
 let startupWriteSequence = 0;
@@ -15,6 +21,7 @@ export interface StartupSnapshot {
   readonly workerPid: number;
   readonly provider: string;
   readonly summary: string | null;
+  readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
 }
 
 export interface StartupPreparationSuccess {
@@ -47,6 +54,7 @@ export interface StartupPreparationOutcomeReady {
   readonly summary: string | null;
   readonly workspaceRepoUrlOverride: string | null;
   readonly artifactPath: string;
+  readonly runtimeIdentity: FactoryRuntimeIdentity;
 }
 
 export interface StartupPreparationOutcomeFailed {
@@ -55,6 +63,7 @@ export interface StartupPreparationOutcomeFailed {
   readonly summary: string;
   readonly workspaceRepoUrlOverride: null;
   readonly artifactPath: string;
+  readonly runtimeIdentity: FactoryRuntimeIdentity;
 }
 
 export type StartupPreparationOutcome =
@@ -151,10 +160,14 @@ export async function runStartupPreparation(options: {
   const preparer = options.preparer ?? createStartupPreparer(options.config);
   const workerPid = options.workerPid ?? process.pid;
   const artifactPath = deriveStartupFilePath(options.config.workspace.root);
+  const runtimeIdentity = await collectFactoryRuntimeIdentity(
+    path.dirname(options.config.workflowPath),
+  );
 
   options.logger.info("Startup preparation started", {
     provider: preparer.id,
     startupFilePath: artifactPath,
+    ...factoryRuntimeIdentityLogFields(runtimeIdentity),
   });
   await writeStartupSnapshot(artifactPath, {
     version: 1,
@@ -163,6 +176,7 @@ export async function runStartupPreparation(options: {
     workerPid,
     provider: preparer.id,
     summary: "Startup preparation is in progress.",
+    runtimeIdentity,
   });
 
   try {
@@ -179,11 +193,13 @@ export async function runStartupPreparation(options: {
         workerPid,
         provider: preparer.id,
         summary: result.summary,
+        runtimeIdentity,
       });
       options.logger.error("Startup preparation failed", {
         provider: preparer.id,
         startupFilePath: artifactPath,
         summary: result.summary,
+        ...factoryRuntimeIdentityLogFields(runtimeIdentity),
       });
       return {
         kind: "failed",
@@ -191,6 +207,7 @@ export async function runStartupPreparation(options: {
         summary: result.summary,
         workspaceRepoUrlOverride: null,
         artifactPath,
+        runtimeIdentity,
       };
     }
 
@@ -201,12 +218,14 @@ export async function runStartupPreparation(options: {
       workerPid,
       provider: preparer.id,
       summary: result.summary ?? "Startup preparation completed.",
+      runtimeIdentity,
     });
     options.logger.info("Startup preparation completed", {
       provider: preparer.id,
       startupFilePath: artifactPath,
       summary: result.summary ?? null,
       workspaceRepoUrlOverride: result.workspaceRepoUrlOverride ?? null,
+      ...factoryRuntimeIdentityLogFields(runtimeIdentity),
     });
     return {
       kind: "ready",
@@ -214,6 +233,7 @@ export async function runStartupPreparation(options: {
       summary: result.summary ?? null,
       workspaceRepoUrlOverride: result.workspaceRepoUrlOverride ?? null,
       artifactPath,
+      runtimeIdentity,
     };
   } catch (error) {
     if (isAbortError(error)) {
@@ -228,11 +248,13 @@ export async function runStartupPreparation(options: {
       workerPid,
       provider: preparer.id,
       summary,
+      runtimeIdentity,
     });
     options.logger.error("Startup preparation failed", {
       provider: preparer.id,
       startupFilePath: artifactPath,
       summary,
+      ...factoryRuntimeIdentityLogFields(runtimeIdentity),
     });
     return {
       kind: "failed",
@@ -240,6 +262,7 @@ export async function runStartupPreparation(options: {
       summary,
       workspaceRepoUrlOverride: null,
       artifactPath,
+      runtimeIdentity,
     };
   }
 }
@@ -264,6 +287,11 @@ function parseStartupSnapshot(
     workerPid: expectInteger(snapshot["workerPid"], filePath, "workerPid"),
     provider: expectString(snapshot["provider"], filePath, "provider"),
     summary: expectOptionalString(snapshot["summary"], filePath, "summary"),
+    runtimeIdentity: parseFactoryRuntimeIdentity(
+      snapshot["runtimeIdentity"],
+      filePath,
+      "runtimeIdentity",
+    ),
   };
 }
 

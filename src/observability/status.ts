@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import {
+  parseFactoryRuntimeIdentity,
+  renderFactoryRuntimeIdentity,
+  type FactoryRuntimeIdentity,
+} from "./runtime-identity.js";
 import type {
   RunnerSessionDescription,
   RunnerVisibilityPhase,
@@ -101,6 +106,7 @@ export interface FactoryRetrySnapshot {
 export interface FactoryStatusSnapshot {
   readonly version: 1;
   readonly generatedAt: string;
+  readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publication?: FactoryStatusPublication;
   readonly factoryState: FactoryState;
   readonly worker: FactoryWorkerSnapshot;
@@ -238,6 +244,12 @@ export function renderFactoryStatusSnapshot(
   );
   lines.push(
     `Polling: every ${snapshot.worker.pollIntervalMs.toString()}ms, max concurrency ${snapshot.worker.maxConcurrentRuns.toString()}`,
+  );
+  lines.push(
+    `Runtime checkout: ${snapshot.runtimeIdentity?.checkoutPath ?? "unavailable"}`,
+  );
+  lines.push(
+    `Runtime version: ${renderFactoryRuntimeIdentity(snapshot.runtimeIdentity)}`,
   );
   if (options?.statusFilePath) {
     lines.push(`Snapshot file: ${options.statusFilePath}`);
@@ -494,6 +506,11 @@ function parseFactoryStatusSnapshot(
   return {
     version: 1,
     generatedAt: expectString(snapshot.generatedAt, filePath, "generatedAt"),
+    runtimeIdentity: parseFactoryRuntimeIdentity(
+      snapshot.runtimeIdentity,
+      filePath,
+      "runtimeIdentity",
+    ),
     publication: parsePublication(snapshot.publication, filePath),
     factoryState: expectEnum(
       snapshot.factoryState,
