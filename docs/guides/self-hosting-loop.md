@@ -75,6 +75,23 @@ In continuous mode, Symphony will keep polling for additional ready issues. The
 factory-control commands are the normal operator surface for the detached
 runtime under `.tmp/factory-main`.
 
+To run the higher-level repo-owned operator wake-up loop from a clean clone,
+use the versioned entry point under `skills/symphony-operator/` through the
+package scripts:
+
+```bash
+pnpm operator
+pnpm operator:once
+```
+
+`pnpm operator` runs the continuous wake-up loop. `pnpm operator:once` runs one
+operator cycle and exits. The loop writes only local/generated artifacts under
+`.ralph/` such as `operator-scratchpad.md`, `status.json`, `status.md`,
+`logs/`, and lock files; the durable tooling and prompt live in
+`skills/symphony-operator/`.
+This entry point currently expects a Unix-like shell environment such as macOS,
+Linux, or WSL/Git Bash on Windows.
+
 Symphony now has two status surfaces:
 
 - `pnpm tsx bin/symphony.ts status` reads the workflow-derived status snapshot
@@ -92,6 +109,10 @@ usable UTF-8 locale.
 Do not use raw `screen -r symphony-factory` as the normal watch path. That
 attach path gives your terminal direct foreground ownership of the worker, so
 an accidental `Ctrl-C` can stop the detached factory.
+
+The operator loop sits above those factory-control commands; it should inspect
+and supervise the detached runtime through `factory status` / `factory watch`
+rather than reimplementing scheduler or runner logic.
 
 ### 5. Watch the issue lifecycle
 
@@ -146,3 +167,5 @@ That is the self-hosting loop:
 - Use `--once` when you want tight control over one issue at a time.
 - Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart|status|watch` over ad hoc `screen` and
   process cleanup when operating the detached runtime.
+- Prefer `pnpm operator` / `pnpm operator:once` over any ad hoc local `.ralph/`
+  script; `.ralph/` is reserved for generated operator state only.

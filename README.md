@@ -91,6 +91,19 @@ Status surfaces now also distinguish snapshot freshness explicitly:
 `unavailable` while startup is still publishing a current snapshot or no
 readable snapshot exists.
 
+For the repo's operator-assisted self-hosting loop, use the versioned operator
+entry point instead of any local `.ralph/` script:
+
+```bash
+pnpm operator        # continuous wake-up loop
+pnpm operator:once   # single operator wake-up cycle
+```
+
+The checked-in loop lives under `skills/symphony-operator/`. `.ralph/` remains
+local/generated-only for scratch notes, loop status, logs, and lock files.
+The current entry point requires a Unix-like shell environment such as macOS,
+Linux, or WSL/Git Bash on Windows.
+
 Generate a per-issue report from local artifacts:
 
 ```bash
