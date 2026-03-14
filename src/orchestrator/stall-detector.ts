@@ -63,19 +63,6 @@ export function createWatchdogEntry(
   };
 }
 
-export function hasObservableLivenessSignal(
-  snapshot: LivenessSnapshot,
-): boolean {
-  return (
-    snapshot.logSizeBytes !== null ||
-    snapshot.workspaceDiffHash !== null ||
-    snapshot.prHeadSha !== null ||
-    snapshot.runStartedAt !== null ||
-    snapshot.runnerHeartbeatAt !== null ||
-    snapshot.runnerActionAt !== null
-  );
-}
-
 /**
  * Check whether an issue's runner has stalled based on liveness signals.
  *
