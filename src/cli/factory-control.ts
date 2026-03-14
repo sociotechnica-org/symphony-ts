@@ -479,8 +479,7 @@ async function inspectFactoryControlAtPaths(
 
   let controlState: FactoryControlState = "stopped";
   if (liveSessions.length === 0 && processIds.length === 0) {
-    controlState =
-      startup !== null && startup.state === "failed" ? "degraded" : "stopped";
+    controlState = startup !== null && startup.stale ? "degraded" : "stopped";
   } else if (
     liveSessions.length === 1 &&
     snapshotFreshness.freshness === "fresh" &&

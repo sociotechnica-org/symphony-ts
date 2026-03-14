@@ -595,6 +595,27 @@ describe("inspectFactoryControl", () => {
     );
   });
 
+  it("reports stale preparing startup artifacts as degraded when no runtime is live", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        snapshot: null,
+        startupSnapshot: createStartupSnapshot(workerPid, {
+          state: "preparing",
+        }),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.startup).toMatchObject({
+      state: "preparing",
+      stale: true,
+    });
+    expect(snapshot.problems).toContain(
+      "startup snapshot is stale (preparing) and belongs to an offline runtime",
+    );
+  });
+
   it("does not classify a live runtime as running when startup already failed", async () => {
     const workerPid = 9101;
     const snapshot = await inspectFactoryControl(
