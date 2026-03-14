@@ -14,7 +14,8 @@ STATUS_MD="$RALPH_DIR/status.md"
 SCRATCHPAD="$RALPH_DIR/operator-scratchpad.md"
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
-OPERATOR_COMMAND="${SYMPHONY_OPERATOR_COMMAND:-codex exec --dangerously-bypass-approvals-and-sandbox -C . -}"
+DEFAULT_OPERATOR_COMMAND="codex exec --dangerously-bypass-approvals-and-sandbox -C . -"
+OPERATOR_COMMAND="${SYMPHONY_OPERATOR_COMMAND:-$DEFAULT_OPERATOR_COMMAND}"
 RECORDING_SETTLE_SECONDS=1
 
 RUN_ONCE=0
@@ -35,6 +36,7 @@ Usage: operator-loop.sh [--once] [--interval-seconds <seconds>] [--help]
 Environment:
   SYMPHONY_OPERATOR_COMMAND           Command that reads the operator prompt from stdin.
                                       Default: codex exec --dangerously-bypass-approvals-and-sandbox -C . -
+                                      Warning: the default bypasses Codex approvals and sandboxing.
   SYMPHONY_OPERATOR_INTERVAL_SECONDS  Sleep interval for continuous mode. Default: 300
 
 Examples:
@@ -48,6 +50,8 @@ json_escape() {
   local value="$1"
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
+  value="${value//$'\b'/\\b}"
+  value="${value//$'\f'/\\f}"
   value="${value//$'\n'/\\n}"
   value="${value//$'\r'/\\r}"
   value="${value//$'\t'/\\t}"
@@ -180,6 +184,12 @@ sleep_until_next_cycle() {
   SLEEP_PID=""
 }
 
+warn_default_command() {
+  if [ "$OPERATOR_COMMAND" = "$DEFAULT_OPERATOR_COMMAND" ]; then
+    echo "operator-loop: using the default Codex command with approvals and sandbox bypass enabled" >&2
+  fi
+}
+
 run_cycle() {
   local timestamp log_file exit_code cycle_message
   timestamp="$(date -u +"%Y%m%dT%H%M%SZ")"
@@ -278,6 +288,7 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+warn_default_command
 ensure_runtime_paths
 write_status "acquiring-lock" "Preparing operator loop runtime paths"
 trap on_signal INT TERM
