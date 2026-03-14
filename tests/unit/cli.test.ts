@@ -729,12 +729,11 @@ describe("runCli factory", () => {
         sessions: [],
         workerAlive: false,
         snapshotFreshness: {
-          freshness: "stale",
-          reason: "worker-offline",
-          summary:
-            "The recorded worker PID is offline, so this snapshot is historical and not current.",
-          workerAlive: false,
-          publicationState: "current",
+          freshness: "unavailable",
+          reason: "missing-snapshot",
+          summary: "No runtime snapshot is available.",
+          workerAlive: null,
+          publicationState: null,
         },
         statusSnapshot: null,
         processIds: [1234],
