@@ -3431,7 +3431,9 @@ describe("BootstrapOrchestrator watchdog", () => {
       deriveStatusFilePath(tmpDir),
     );
     expect(snapshot.lastAction?.kind).toBe("issue-failed");
-    expect(snapshot.lastAction?.summary).toContain("Stall detected (log-stall)");
+    expect(snapshot.lastAction?.summary).toContain(
+      "Stall detected (log-stall)",
+    );
     expect(snapshot.lastAction?.summary).toContain("since ");
   });
 
