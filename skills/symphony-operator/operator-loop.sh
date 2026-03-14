@@ -309,9 +309,15 @@ write_status "sleeping" "Operator loop started"
 
 while [ "$STOPPING" -eq 0 ]; do
   if run_cycle; then
+    if [ "$STOPPING" -eq 1 ]; then
+      break
+    fi
     NEXT_WAKE_AT="$(future_utc "$INTERVAL_SECONDS")"
     write_status "sleeping" "Sleeping until next operator wake-up cycle"
   else
+    if [ "$STOPPING" -eq 1 ]; then
+      break
+    fi
     NEXT_WAKE_AT="$(future_utc "$INTERVAL_SECONDS")"
     write_status "retrying" "Cycle failed; sleeping before retrying operator loop"
   fi
