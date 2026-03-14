@@ -467,6 +467,25 @@ class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
   }
 }
 
+class TrackingWorkspaceManager extends StaticWorkspaceManager {
+  readonly cleaned: string[] = [];
+
+  override async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
+    this.cleaned.push(workspace.path);
+  }
+}
+
+class PrepareFailingWorkspaceManager extends TrackingWorkspaceManager {
+  override async prepareWorkspace({
+    issue,
+  }: {
+    readonly issue: RuntimeIssue;
+  }): Promise<PreparedWorkspace> {
+    this.prepared.push(`/tmp/workspaces/${issue.number}`);
+    throw new Error("workspace prepare crashed");
+  }
+}
+
 class ConcurrencyRunner implements Runner {
   readonly #startBarrier = createDeferred<void>();
   readonly #finishBarrier = createDeferred<void>();
@@ -2621,6 +2640,37 @@ describe("BootstrapOrchestrator", () => {
           observation.issue.currentOutcome === "failed",
       ),
     ).toBe(false);
+  });
+
+  it("cleans up the issue workspace when merged reconciliation wins after an unexpected failure without a session", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(85)],
+    });
+    tracker.setLifecycleSequence(85, [
+      lifecycle("handoff-ready", "symphony/85"),
+    ]);
+    const workspace = new PrepareFailingWorkspaceManager();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          cleanupOnSuccess: true,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      new RecordingRunner(),
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.completed).toEqual([85]);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(workspace.cleaned).toEqual(["/tmp/workspaces/85"]);
   });
 
   it("suppresses terminal failed publication when merged state is observed before exhaustion handling", async () => {

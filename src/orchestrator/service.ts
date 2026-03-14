@@ -1688,7 +1688,9 @@ export class BootstrapOrchestrator implements Orchestrator {
         options.session.runSession.workspace,
         issue.number,
       );
+      return true;
     }
+    await this.#cleanupIssueWorkspaceIfNeeded(issue);
     return true;
   }
 
