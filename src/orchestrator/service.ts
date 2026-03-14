@@ -1675,6 +1675,9 @@ export class BootstrapOrchestrator implements Orchestrator {
         originalFailure: message,
       },
     );
+    // The attempt-failed observation recorded earlier preserves the original
+    // failure detail. The issue-level terminal outcome must converge to the
+    // merged success story, so do not forward that failure message here.
     await this.#completeIssue(issue, {
       attemptNumber: runSequence,
       branchName,

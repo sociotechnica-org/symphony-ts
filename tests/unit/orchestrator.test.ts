@@ -3108,11 +3108,10 @@ describe("BootstrapOrchestrator watchdog", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("aborts a stalled runner when watchdog detects no progress", async () => {
+  it("completes the issue when a watchdog-aborted run races with a merged PR", async () => {
     const issue = createIssue(99);
     const tracker = new SequencedTracker({ ready: [issue] });
     tracker.setLifecycleSequence(99, [
-      lifecycle("missing-target", "symphony/99"),
       lifecycle("handoff-ready", "symphony/99"),
     ]);
 
@@ -3180,6 +3179,9 @@ describe("BootstrapOrchestrator watchdog", () => {
     await runOncePromise;
 
     expect(runAborted).toBe(true);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([99]);
   });
 
   it("keeps a pre-write run alive while runner visibility keeps advancing", async () => {
@@ -3283,6 +3285,10 @@ describe("BootstrapOrchestrator watchdog", () => {
     const issue = createIssue(88);
     const tracker = new SequencedTracker({ ready: [issue] });
     tracker.setLifecycleSequence(88, [
+      // Keep this sequence on missing-target so the watchdog retry-budget test
+      // stays focused on the terminal abort path. A handoff-ready entry here
+      // would now be consumed by merged-during-failure reconciliation instead
+      // of exercising retry exhaustion; that merged race is covered above.
       lifecycle("missing-target", "symphony/88"),
       lifecycle("missing-target", "symphony/88"),
     ]);
