@@ -58,6 +58,30 @@ describe("createWatchdogEntry", () => {
     expect(entry.lastObservableActivityAt).toBe(Date.parse(HEARTBEAT_AT));
     expect(entry.lastObservableActivitySource).toBe("run-start");
   });
+
+  it("clamps future-dated initial runner heartbeat activity to capturedAt", () => {
+    const capturedAt = Date.parse(CAPTURED_AT);
+    const entry = createWatchdogEntry(
+      42,
+      snapshot({
+        capturedAt,
+        runnerHeartbeatAt: "2026-03-13T08:46:30.000Z",
+      }),
+    );
+    expect(entry.lastObservableActivityAt).toBe(capturedAt);
+    expect(entry.lastObservableActivitySource).toBe("runner-heartbeat");
+
+    const result = checkStall(
+      entry,
+      snapshot({
+        capturedAt: capturedAt + config.stallThresholdMs + 1,
+        runnerHeartbeatAt: "2026-03-13T08:46:30.000Z",
+      }),
+      config,
+    );
+    expect(result.stalled).toBe(true);
+    expect(result.reason).toBe("log-stall");
+  });
 });
 
 describe("checkStall", () => {
@@ -276,7 +300,7 @@ describe("checkStall", () => {
       snapshot({
         runnerHeartbeatAt: HEARTBEAT_AT,
         runnerActionAt: ACTION_AT,
-        capturedAt: 1000,
+        capturedAt: Date.parse(ACTION_AT),
       }),
     );
     const result = checkStall(

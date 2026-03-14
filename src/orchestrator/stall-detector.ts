@@ -185,7 +185,7 @@ function deriveInitialObservableActivity(
   const runnerHeartbeatAt = parseTimestamp(snapshot.runnerHeartbeatAt);
   if (runnerHeartbeatAt !== null) {
     candidates.push({
-      at: runnerHeartbeatAt,
+      at: Math.min(runnerHeartbeatAt, snapshot.capturedAt),
       source: "runner-heartbeat",
     });
   }
@@ -193,7 +193,7 @@ function deriveInitialObservableActivity(
   const runnerActionAt = parseTimestamp(snapshot.runnerActionAt);
   if (runnerActionAt !== null) {
     candidates.push({
-      at: runnerActionAt,
+      at: Math.min(runnerActionAt, snapshot.capturedAt),
       source: isStartupPhase(snapshot.runnerPhase)
         ? "runner-startup"
         : "runner-action",
