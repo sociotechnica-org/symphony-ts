@@ -15,6 +15,7 @@ SCRATCHPAD="$RALPH_DIR/operator-scratchpad.md"
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
 OPERATOR_COMMAND="${SYMPHONY_OPERATOR_COMMAND:-codex exec --dangerously-bypass-approvals-and-sandbox -C . -}"
+RECORDING_SETTLE_SECONDS=1
 
 RUN_ONCE=0
 STOPPING=0
@@ -149,6 +150,7 @@ EOF
 
     echo "operator-loop: clearing stale lock for pid ${existing_pid:-unknown}" >&2
     rm -rf "$LOCK_DIR"
+    sleep 0.1
   done
 }
 
@@ -208,6 +210,9 @@ run_cycle() {
   if [ "$exit_code" -eq 0 ]; then
     cycle_message="Operator cycle completed successfully"
     write_status "recording" "$cycle_message"
+    # Leave the post-cycle recording state visible briefly before callers
+    # transition to the next wait state.
+    sleep "$RECORDING_SETTLE_SECONDS"
   else
     cycle_message="Operator cycle failed with exit code $exit_code"
     write_status "failed" "$cycle_message"
