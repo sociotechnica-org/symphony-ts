@@ -274,6 +274,7 @@ describe("inspectFactoryControl", () => {
     const snapshot = await inspectFactoryControl(createControlDeps());
     expect(snapshot.controlState).toBe("stopped");
     expect(snapshot.processIds).toEqual([]);
+    expect(snapshot.snapshotFreshness.freshness).toBe("unavailable");
   });
 
   it("reports running when the session and snapshot worker are healthy", async () => {
@@ -299,6 +300,7 @@ describe("inspectFactoryControl", () => {
 
     expect(snapshot.controlState).toBe("running");
     expect(snapshot.workerAlive).toBe(true);
+    expect(snapshot.snapshotFreshness.freshness).toBe("fresh");
     expect(snapshot.problems).toEqual([]);
   });
 
@@ -318,6 +320,50 @@ describe("inspectFactoryControl", () => {
     expect(snapshot.problems).toContain(
       "detached screen session is missing but factory-owned processes remain",
     );
+  });
+
+  it("reports a leftover offline snapshot as stale when no live runtime remains", async () => {
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        snapshot: createStatusSnapshot(999_999_999),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("stopped");
+    expect(snapshot.snapshotFreshness.freshness).toBe("stale");
+    expect(snapshot.snapshotFreshness.reason).toBe("worker-offline");
+  });
+
+  it("reports startup snapshots as unavailable until a current snapshot is published", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        sessions: [
+          {
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: "symphony-factory",
+            state: "Detached",
+          },
+        ],
+        processes: [
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          { pid: 9002, ppid: 9001, command: "pnpm tsx bin/symphony.ts run" },
+          { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+        ],
+        snapshot: createStatusSnapshot(workerPid, {
+          publication: {
+            state: "initializing",
+            detail:
+              "Factory startup is in progress; no current runtime snapshot is available yet.",
+          },
+        }),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.snapshotFreshness.freshness).toBe("unavailable");
+    expect(snapshot.snapshotFreshness.reason).toBe("startup-in-progress");
   });
 });
 
@@ -418,6 +464,75 @@ describe("startFactory", () => {
     });
     expect(result.kind).toBe("started");
     expect(result.status.controlState).toBe("running");
+  });
+
+  it("keeps waiting while the restarted runtime only has an initializing snapshot", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    const workerPid = 9101;
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+    let sleepCount = 0;
+
+    const result = await startFactory({
+      ...createControlDeps({
+        launchScreenSession: async (options) => {
+          sessionsState.push({
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: options.sessionName,
+            state: "Detached",
+          });
+          processesState.push(
+            { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+            { pid: 9002, ppid: 9001, command: "pnpm tsx bin/symphony.ts run" },
+            { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+          );
+          currentSnapshot = createStatusSnapshot(workerPid, {
+            publication: {
+              state: "initializing",
+              detail:
+                "Factory startup is in progress; no current runtime snapshot is available yet.",
+            },
+          });
+        },
+        sleep: async () => {
+          sleepCount += 1;
+          if (sleepCount === 1 && currentSnapshot !== null) {
+            currentSnapshot = {
+              ...currentSnapshot,
+              publication: {
+                state: "current",
+                detail: null,
+              },
+            };
+          }
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        if (currentSnapshot === null) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(sleepCount).toBeGreaterThan(0);
+    expect(result.kind).toBe("started");
+    expect(result.status.controlState).toBe("running");
+    expect(result.status.snapshotFreshness.freshness).toBe("fresh");
   });
 
   it("times out when the detached runtime never becomes healthy after launch", async () => {
@@ -829,6 +944,13 @@ describe("renderFactoryControlStatus", () => {
       sessionName: "symphony-factory",
       sessions: [],
       workerAlive: false,
+      snapshotFreshness: {
+        freshness: "unavailable",
+        reason: "missing-snapshot",
+        summary: "No runtime snapshot is available.",
+        workerAlive: null,
+        publicationState: null,
+      },
       statusSnapshot: null,
       processIds: [],
       problems: [],
@@ -836,6 +958,7 @@ describe("renderFactoryControlStatus", () => {
 
     expect(output).toContain("Factory control: stopped");
     expect(output).toContain("Runtime root: /repo/.tmp/factory-main");
-    expect(output).toContain("Status detail: no readable runtime snapshot");
+    expect(output).toContain("Snapshot freshness: unavailable");
+    expect(output).toContain("Status detail: No runtime snapshot is available.");
   });
 });

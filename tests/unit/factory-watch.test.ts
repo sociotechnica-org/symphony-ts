@@ -25,6 +25,13 @@ function createSnapshot(): FactoryControlStatusSnapshot {
       },
     ],
     workerAlive: true,
+    snapshotFreshness: {
+      freshness: "fresh",
+      reason: "current-snapshot",
+      summary: "The snapshot belongs to the live factory runtime.",
+      workerAlive: true,
+      publicationState: "current",
+    },
     statusSnapshot: null,
     processIds: [1001, 1002],
     problems: [],

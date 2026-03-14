@@ -4,10 +4,12 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { loadWorkflowWorkspaceRoot } from "../config/workflow.js";
 import {
+  assessFactoryStatusSnapshot,
   deriveStatusFilePath,
   isProcessAlive,
   parseFactoryStatusSnapshotContent,
   renderFactoryStatusSnapshot,
+  type FactoryStatusFreshnessAssessment,
   type FactoryStatusSnapshot,
 } from "../observability/status.js";
 
@@ -49,6 +51,7 @@ export interface FactoryControlStatusSnapshot {
   readonly sessionName: string;
   readonly sessions: readonly ScreenSessionSnapshot[];
   readonly workerAlive: boolean;
+  readonly snapshotFreshness: FactoryStatusFreshnessAssessment;
   readonly statusSnapshot: FactoryStatusSnapshot | null;
   readonly processIds: readonly number[];
   readonly problems: readonly string[];
@@ -88,6 +91,7 @@ export interface FactoryControlDeps {
   }) => Promise<void>;
   readonly quitScreenSession?: (sessionId: string) => Promise<void>;
   readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
+  readonly removeFile?: (filePath: string) => Promise<void>;
   readonly isProcessAlive?: (pid: number) => boolean;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly now?: () => number;
@@ -157,8 +161,11 @@ export async function startFactory(
 
   const launchScreenSession =
     deps.launchScreenSession ?? defaultLaunchScreenSession;
+  const removeFile = deps.removeFile ?? defaultRemoveFile;
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? (() => Date.now());
+
+  await removeFile(paths.statusFilePath);
 
   await launchScreenSession({
     runtimeRoot: paths.runtimeRoot,
@@ -225,13 +232,15 @@ export function renderFactoryControlStatus(
 
   if (snapshot.statusSnapshot === null) {
     lines.push(`Status snapshot: ${snapshot.paths.statusFilePath}`);
-    lines.push("Status detail: no readable runtime snapshot");
+    lines.push(`Snapshot freshness: ${snapshot.snapshotFreshness.freshness}`);
+    lines.push(`Status detail: ${snapshot.snapshotFreshness.summary}`);
   } else {
     lines.push("");
     lines.push(
       renderFactoryStatusSnapshot(snapshot.statusSnapshot, {
         workerAlive: snapshot.workerAlive,
         statusFilePath: snapshot.paths.statusFilePath,
+        freshness: snapshot.snapshotFreshness,
       }),
     );
   }
@@ -375,14 +384,18 @@ async function inspectFactoryControlAtPaths(
     snapshotRead.snapshot === null
       ? false
       : isAlive(snapshotRead.snapshot.worker.pid);
+  const snapshotFreshness = assessFactoryStatusSnapshot(snapshotRead.snapshot, {
+    hasLiveRuntime: liveSessions.length > 0 || processIds.length > 0,
+    readError: snapshotRead.error,
+    ...(snapshotRead.snapshot === null ? {} : { workerAlive }),
+  });
 
   let controlState: FactoryControlState = "stopped";
   if (liveSessions.length === 0 && processIds.length === 0) {
     controlState = "stopped";
   } else if (
     liveSessions.length === 1 &&
-    snapshotRead.snapshot !== null &&
-    workerAlive &&
+    snapshotFreshness.freshness === "fresh" &&
     problems.length === 0
   ) {
     controlState = "running";
@@ -413,6 +426,7 @@ async function inspectFactoryControlAtPaths(
     sessionName: FACTORY_SCREEN_SESSION_NAME,
     sessions: liveSessions,
     workerAlive,
+    snapshotFreshness,
     statusSnapshot: snapshotRead.snapshot,
     processIds,
     problems,
@@ -431,6 +445,7 @@ async function stopFactoryAtPaths(
       process.kill(pid, signal);
     });
   const sleep = deps.sleep ?? defaultSleep;
+  const removeFile = deps.removeFile ?? defaultRemoveFile;
   const now = deps.now ?? (() => Date.now());
 
   const initialStatus = await inspectFactoryControlAtPaths(paths, deps);
@@ -478,6 +493,7 @@ async function stopFactoryAtPaths(
     const remaining = [...targetPids].filter((pid) => liveProcessIds.has(pid));
 
     if (remaining.length === 0) {
+      await removeFile(paths.statusFilePath);
       const finalStatus = await inspectFactoryControlAtPaths(paths, deps);
       return {
         kind: "stopped",
@@ -665,6 +681,10 @@ async function defaultQuitScreenSession(sessionId: string): Promise<void> {
 
 async function defaultSleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function defaultRemoveFile(filePath: string): Promise<void> {
+  await fs.rm(filePath, { force: true });
 }
 
 function isMissingScreenSessionError(error: unknown): boolean {

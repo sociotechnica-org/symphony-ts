@@ -7,6 +7,7 @@ import {
 } from "../config/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
 import {
+  assessFactoryStatusSnapshot,
   deriveStatusFilePath,
   isProcessAlive,
   parseFactoryStatusSnapshotContent,
@@ -238,6 +239,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
           : `${renderFactoryStatusSnapshot(snapshot, {
               workerAlive: isProcessAlive(snapshot.worker.pid),
               statusFilePath,
+              freshness: assessFactoryStatusSnapshot(snapshot, {
+                workerAlive: isProcessAlive(snapshot.worker.pid),
+              }),
             })}\n`;
       process.stdout.write(output);
       return;
