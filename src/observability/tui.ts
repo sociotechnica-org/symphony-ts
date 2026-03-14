@@ -1059,11 +1059,7 @@ function resolveDisplayedTurn(
   if (entry.turnCount > 0) {
     return Math.min(maxTurns, entry.turnCount);
   }
-  if (
-    entry.runnerVisibility !== null ||
-    entry.lastCodexEvent !== null ||
-    entry.codexAppServerPid !== null
-  ) {
+  if (entry.runnerVisibility !== null) {
     return 1;
   }
   return null;
@@ -1129,7 +1125,11 @@ function describeLifecycleContext(
     );
   }
 
-  if (segments.length === 0 && lifecycle.summary.trim() !== "") {
+  if (
+    segments.length === 0 &&
+    lifecycle.status !== "running" &&
+    lifecycle.summary.trim() !== ""
+  ) {
     return lifecycle.summary;
   }
   return segments.length === 0 ? null : segments.join(" · ");

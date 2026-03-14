@@ -337,6 +337,94 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("thread started (thread-live-123)");
   });
 
+  it("does not append running lifecycle summary to live runner activity", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            lifecycle: {
+              status: "running",
+              summary: "Runner is actively working",
+              pullRequest: null,
+              checks: {
+                pendingNames: [],
+                failingNames: [],
+              },
+              review: {
+                actionableCount: 0,
+                unresolvedThreadCount: 0,
+              },
+            },
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: null,
+            lastCodexMessage: null,
+            lastCodexTimestamp: null,
+            runnerVisibility: makeRunnerVisibility({
+              lastActionSummary: "Executing turn 2",
+              session: {
+                ...makeRunnerVisibility().session,
+                provider: "codex",
+                model: "sonnet",
+                latestTurnNumber: 2,
+              },
+            }),
+          },
+        ],
+      }),
+      0,
+      220,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    expect(output).toContain("codex/sonnet");
+    expect(output).toContain("Executing turn 2");
+    expect(output).not.toContain("Runner is actively working");
+  });
+
+  it("omits heuristic turn display when only pid or legacy event exists", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        maxTurns: 2,
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 0,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: "thread/started",
+            lastCodexMessage: { method: "thread/started" },
+            lastCodexTimestamp: "2026-03-14T10:00:01.000Z",
+            runnerVisibility: null,
+          },
+        ],
+      }),
+      0,
+      220,
+      "",
+      new Date("2026-03-14T10:00:02.000Z").getTime(),
+    );
+
+    expect(output).not.toContain("turn 1/2");
+  });
+
   it("renders agents count with max", () => {
     const snapshot = makeSnapshot({ maxConcurrentRuns: 5 });
     const output = formatSnapshotContent(snapshot, 0);
