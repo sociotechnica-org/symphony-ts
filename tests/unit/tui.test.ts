@@ -1292,4 +1292,72 @@ describe("StatusDashboard", () => {
     expect(rendered[0]).toContain("thread sta");
     expect(rendered[1]).toContain("app_status=offline");
   });
+
+  it("re-renders when latestTurnNumber changes even before turnCount catches up", () => {
+    const rendered: string[] = [];
+    const startedAt = new Date(Date.now() - 1_000);
+    let snapshot = makeSnapshot({
+      maxTurns: 3,
+      running: [
+        {
+          issueNumber: 138,
+          identifier: "#138",
+          issueState: "running",
+          startedAt,
+          retryAttempt: 1,
+          sessionId: null,
+          turnCount: 1,
+          codexTotalTokens: 0,
+          codexInputTokens: 0,
+          codexOutputTokens: 0,
+          codexAppServerPid: 12345,
+          lastCodexEvent: null,
+          lastCodexMessage: null,
+          lastCodexTimestamp: null,
+          runnerVisibility: makeRunnerVisibility({
+            session: {
+              ...makeRunnerVisibility().session,
+              latestTurnNumber: 1,
+            },
+          }),
+        },
+      ],
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 0,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      maxTurns: 3,
+      running: [
+        {
+          ...snapshot.running[0]!,
+          startedAt,
+          turnCount: 1,
+          runnerVisibility: makeRunnerVisibility({
+            session: {
+              ...makeRunnerVisibility().session,
+              latestTurnNumber: 2,
+            },
+          }),
+        },
+      ],
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(3);
+    expect(rendered[0]).toContain("turn 1/3");
+    expect(rendered[1]).toContain("turn 2/3");
+    expect(rendered[2]).toContain("app_status=offline");
+  });
 });

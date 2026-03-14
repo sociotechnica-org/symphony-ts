@@ -825,6 +825,8 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
                 backendSessionId: e.runnerVisibility.session.backendSessionId,
                 backendThreadId: e.runnerVisibility.session.backendThreadId,
                 latestTurnId: e.runnerVisibility.session.latestTurnId,
+                latestTurnNumber:
+                  e.runnerVisibility.session.latestTurnNumber,
               },
               lastActionSummary: e.runnerVisibility.lastActionSummary,
               waitingReason: e.runnerVisibility.waitingReason,
