@@ -233,15 +233,16 @@ export async function runCli(argv: readonly string[]): Promise<void> {
           { cause: error as Error },
         );
       }
+      const workerAlive = isProcessAlive(snapshot.worker.pid);
+      const freshness = assessFactoryStatusSnapshot(snapshot, {
+        workerAlive,
+      });
       const output =
         args.format === "json"
           ? rawSnapshot
           : `${renderFactoryStatusSnapshot(snapshot, {
-              workerAlive: isProcessAlive(snapshot.worker.pid),
               statusFilePath,
-              freshness: assessFactoryStatusSnapshot(snapshot, {
-                workerAlive: isProcessAlive(snapshot.worker.pid),
-              }),
+              freshness,
             })}\n`;
       process.stdout.write(output);
       return;

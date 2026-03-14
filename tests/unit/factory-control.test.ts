@@ -365,6 +365,25 @@ describe("inspectFactoryControl", () => {
     expect(snapshot.snapshotFreshness.freshness).toBe("unavailable");
     expect(snapshot.snapshotFreshness.reason).toBe("startup-in-progress");
   });
+
+  it("reports offline startup snapshots as stale startup failures", async () => {
+    const workerPid = 9101;
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        snapshot: createStatusSnapshot(workerPid, {
+          publication: {
+            state: "initializing",
+            detail:
+              "Factory startup is in progress; no current runtime snapshot is available yet.",
+          },
+        }),
+      }),
+    );
+
+    expect(snapshot.controlState).toBe("stopped");
+    expect(snapshot.snapshotFreshness.freshness).toBe("stale");
+    expect(snapshot.snapshotFreshness.reason).toBe("startup-failed");
+  });
 });
 
 describe("createFactoryRunCommand", () => {

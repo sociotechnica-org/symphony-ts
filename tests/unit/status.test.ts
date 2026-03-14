@@ -296,7 +296,6 @@ describe("factory status helpers", () => {
 
   it("renders a terminal-friendly view from the snapshot", () => {
     const output = renderFactoryStatusSnapshot(createSnapshot(), {
-      workerAlive: true,
       statusFilePath: "/tmp/status.json",
     });
 
@@ -350,6 +349,26 @@ describe("factory status helpers", () => {
     ).toMatchObject({
       freshness: "unavailable",
       reason: "startup-in-progress",
+    });
+  });
+
+  it("classifies startup snapshots from an offline worker as stale startup failures", () => {
+    expect(
+      assessFactoryStatusSnapshot(
+        createSnapshot({
+          publication: {
+            state: "initializing",
+            detail:
+              "Factory startup is in progress; no current runtime snapshot is available yet.",
+          },
+        }),
+        { workerAlive: false, hasLiveRuntime: true },
+      ),
+    ).toMatchObject({
+      freshness: "stale",
+      reason: "startup-failed",
+      summary:
+        "The startup placeholder belongs to an offline worker, so startup did not complete and this snapshot is historical.",
     });
   });
 

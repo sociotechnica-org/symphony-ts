@@ -123,6 +123,7 @@ export type FactoryStatusFreshnessReason =
   | "current-snapshot"
   | "worker-offline"
   | "startup-in-progress"
+  | "startup-failed"
   | "no-live-runtime"
   | "missing-snapshot"
   | "unreadable-snapshot";
@@ -208,14 +209,12 @@ export function isProcessAlive(pid: number): boolean {
 export function renderFactoryStatusSnapshot(
   snapshot: FactoryStatusSnapshot,
   options?: {
-    readonly workerAlive?: boolean;
     readonly statusFilePath?: string;
     readonly freshness?: FactoryStatusFreshnessAssessment;
   },
 ): string {
   const lines: string[] = [];
-  const freshness =
-    options?.freshness ?? assessFactoryStatusSnapshot(snapshot, options);
+  const freshness = options?.freshness ?? assessFactoryStatusSnapshot(snapshot);
   const workerAlive = freshness.workerAlive;
   const workerState =
     workerAlive === null ? "unknown" : workerAlive ? "online" : "offline";
@@ -404,8 +403,18 @@ export function assessFactoryStatusSnapshot(
   const workerAlive =
     options?.workerAlive ?? isProcessAlive(snapshot.worker.pid);
   if (publication.state === "initializing") {
+    if (!workerAlive) {
+      return {
+        freshness: "stale",
+        reason: "startup-failed",
+        summary:
+          "The startup placeholder belongs to an offline worker, so startup did not complete and this snapshot is historical.",
+        workerAlive,
+        publicationState: publication.state,
+      };
+    }
     return {
-      freshness: workerAlive ? "unavailable" : "stale",
+      freshness: "unavailable",
       reason: "startup-in-progress",
       summary:
         publication.detail ??

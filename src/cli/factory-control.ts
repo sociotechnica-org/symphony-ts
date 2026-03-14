@@ -238,7 +238,6 @@ export function renderFactoryControlStatus(
     lines.push("");
     lines.push(
       renderFactoryStatusSnapshot(snapshot.statusSnapshot, {
-        workerAlive: snapshot.workerAlive,
         statusFilePath: snapshot.paths.statusFilePath,
         freshness: snapshot.snapshotFreshness,
       }),
