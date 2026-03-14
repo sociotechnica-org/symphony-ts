@@ -121,6 +121,27 @@ async function createOrchestrator(
   );
 }
 
+async function waitForFile(
+  filePath: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await fs.stat(filePath);
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${filePath}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 describe("Phase 1.2 PR lifecycle factory", () => {
   let server: MockGitHubServer;
   let tempDir: string;
@@ -291,6 +312,79 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
+  });
+
+  it("suppresses post-merge retry noise when a PR merges during a failing attempt", async () => {
+    server.seedIssue({
+      number: 82,
+      title: "Post-merge retry suppression",
+      body: "Merge should dominate late local failure handling",
+      labels: ["symphony:ready"],
+    });
+
+    const startedFile = path.join(tempDir, "attempt-started");
+    const releaseFile = path.join(tempDir, "allow-failure");
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: [
+        "env",
+        `SYMPHONY_TEST_START_FILE=${startedFile}`,
+        `SYMPHONY_TEST_RELEASE_FILE=${releaseFile}`,
+        path.resolve("tests/fixtures/fake-agent-pr-then-block-and-fail.sh"),
+      ].join(" "),
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    const runOnce = orchestrator.runOnce();
+    await waitForFile(startedFile);
+
+    expect(server.getPullRequests()).toHaveLength(1);
+    server.mergePullRequest("symphony/82", "2026-03-13T08:42:53.000Z");
+    await fs.writeFile(releaseFile, "release", "utf8");
+    await runOnce;
+
+    const issue = server.getIssue(82);
+    expect(issue.state).toBe("closed");
+    expect(
+      issue.comments.some((comment) =>
+        /Retry scheduled by Symphony/i.test(comment),
+      ),
+    ).toBe(false);
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.counts.retries).toBe(0);
+    expect(status.activeIssues).toHaveLength(0);
+    expect(status.lastAction?.kind).toBe("issue-completed");
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      82,
+    );
+    expect(artifactSummary.currentOutcome).toBe("succeeded");
+
+    const artifactEvents = await readIssueArtifactEvents(
+      path.join(tempDir, ".tmp", "workspaces"),
+      82,
+    );
+    expect(artifactEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "succeeded",
+      }),
+    );
+    expect(artifactEvents).not.toContainEqual(
+      expect.objectContaining({
+        kind: "retry-scheduled",
+      }),
+    );
+    expect(artifactEvents).not.toContainEqual(
+      expect.objectContaining({
+        kind: "failed",
+      }),
+    );
   });
 
   it("blocks landing when unresolved non-outdated review threads remain even if checks are green", async () => {

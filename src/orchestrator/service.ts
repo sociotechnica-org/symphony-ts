@@ -1587,6 +1587,17 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly finishedAt?: string;
     },
   ): Promise<void> {
+    if (
+      await this.#completeIssueIfMergedDuringFailure(
+        issue,
+        runSequence,
+        message,
+        options,
+      )
+    ) {
+      return;
+    }
+
     const failureRetryAttempt = resolveFailureRetryAttempt(
       this.#state.followUp,
       issue.number,
@@ -1635,6 +1646,55 @@ export class BootstrapOrchestrator implements Orchestrator {
         : { finishedAt: options.finishedAt }),
     };
     await this.#failIssue(issue, message, failureOptions);
+  }
+
+  async #completeIssueIfMergedDuringFailure(
+    issue: RuntimeIssue,
+    runSequence: number,
+    message: string,
+    options?: {
+      readonly session?: RunSessionArtifactsState;
+      readonly finishedAt?: string;
+    },
+  ): Promise<boolean> {
+    const branchName =
+      options?.session?.runSession.workspace.branchName ??
+      this.#branchName(issue.number);
+    const refreshedLifecycle = await this.#refreshLifecycle(branchName);
+    if (refreshedLifecycle.kind !== "handoff-ready") {
+      return false;
+    }
+
+    this.#logger.info(
+      "Suppressing retry and failure handling after merged terminal reconciliation",
+      {
+        issueNumber: issue.number,
+        branchName,
+        attempt: runSequence,
+        summary: refreshedLifecycle.summary,
+        originalFailure: message,
+      },
+    );
+    // The attempt-failed observation recorded earlier preserves the original
+    // failure detail. The issue-level terminal outcome must converge to the
+    // merged success story, so do not forward that failure message here.
+    await this.#completeIssue(issue, {
+      attemptNumber: runSequence,
+      branchName,
+      ...(options?.session === undefined ? {} : { session: options.session }),
+      ...(options?.finishedAt === undefined
+        ? {}
+        : { finishedAt: options.finishedAt }),
+    });
+    if (options?.session !== undefined) {
+      await this.#cleanupWorkspaceIfNeeded(
+        options.session.runSession.workspace,
+        issue.number,
+      );
+      return true;
+    }
+    await this.#cleanupIssueWorkspaceIfNeeded(issue);
+    return true;
   }
 
   async #failIssue(

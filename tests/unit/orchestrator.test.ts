@@ -467,6 +467,25 @@ class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
   }
 }
 
+class TrackingWorkspaceManager extends StaticWorkspaceManager {
+  readonly cleaned: string[] = [];
+
+  override async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
+    this.cleaned.push(workspace.path);
+  }
+}
+
+class PrepareFailingWorkspaceManager extends TrackingWorkspaceManager {
+  override async prepareWorkspace({
+    issue,
+  }: {
+    readonly issue: RuntimeIssue;
+  }): Promise<PreparedWorkspace> {
+    this.prepared.push(`/tmp/workspaces/${issue.number}`);
+    throw new Error("workspace prepare crashed");
+  }
+}
+
 class ConcurrencyRunner implements Runner {
   readonly #startBarrier = createDeferred<void>();
   readonly #finishBarrier = createDeferred<void>();
@@ -2544,6 +2563,258 @@ describe("BootstrapOrchestrator", () => {
     ).toBeDefined();
   });
 
+  it("suppresses retry scheduling when merged state is observed after a failed attempt", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(82)],
+    });
+    tracker.setLifecycleSequence(82, [
+      lifecycle("handoff-ready", "symphony/82"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const runnerAttempts: number[] = [];
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 2,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(session): Promise<RunnerExecutionResult> {
+          runnerAttempts.push(session.attempt.sequence);
+          const timestamp = "2026-03-13T08:43:30.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runnerAttempts).toEqual([1]);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([82]);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "attempt-failed",
+      ),
+    ).toBe(true);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "succeeded",
+      ),
+    ).toBe(true);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "retry-scheduled",
+      ),
+    ).toBe(false);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 82 &&
+          observation.issue.currentOutcome === "failed",
+      ),
+    ).toBe(false);
+  });
+
+  it("cleans up the issue workspace when merged reconciliation wins after an unexpected failure without a session", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(85)],
+    });
+    tracker.setLifecycleSequence(85, [
+      lifecycle("handoff-ready", "symphony/85"),
+    ]);
+    const workspace = new PrepareFailingWorkspaceManager();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: {
+          ...baseConfig.workspace,
+          cleanupOnSuccess: true,
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      workspace,
+      new RecordingRunner(),
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.completed).toEqual([85]);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(workspace.cleaned).toEqual(["/tmp/workspaces/85"]);
+  });
+
+  it("suppresses terminal failed publication when merged state is observed before exhaustion handling", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(83)],
+    });
+    tracker.setLifecycleSequence(83, [
+      lifecycle("handoff-ready", "symphony/83"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          const timestamp = "2026-03-13T08:44:00.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([83]);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 83 &&
+          observation.issue.currentOutcome === "failed",
+      ),
+    ).toBe(false);
+    expect(
+      artifactStore.observations.some(
+        (observation) =>
+          observation.issue.issueNumber === 83 &&
+          observation.issue.currentOutcome === "succeeded",
+      ),
+    ).toBe(true);
+  });
+
+  it("drops an already-queued retry once the next poll observes merged terminal state", async () => {
+    const tempRoot = await createTempDir("symphony-post-merge-retry-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(84)],
+      });
+      tracker.setLifecycleSequence(84, [
+        lifecycle("missing-target", "symphony/84"),
+        lifecycle("handoff-ready", "symphony/84"),
+      ]);
+      const artifactStore = new RecordingIssueArtifactStore();
+      const runnerAttempts: number[] = [];
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              maxAttempts: 2,
+              backoffMs: 0,
+            },
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(session): Promise<RunnerExecutionResult> {
+            runnerAttempts.push(session.attempt.sequence);
+            const timestamp = new Date().toISOString();
+            return {
+              exitCode: 17,
+              stdout: "",
+              stderr: "simulated failure",
+              startedAt: timestamp,
+              finishedAt: timestamp,
+            };
+          },
+        },
+        new NullLogger(),
+        artifactStore,
+      );
+
+      await orchestrator.runOnce();
+      expect(tracker.retried).toEqual([
+        {
+          issueNumber: 84,
+          reason: "Runner exited with 17\nsimulated failure",
+        },
+      ]);
+
+      await orchestrator.runOnce();
+
+      expect(runnerAttempts).toEqual([1]);
+      expect(tracker.completed).toEqual([84]);
+      expect(tracker.failed).toEqual([]);
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.counts.retries).toBe(0);
+      expect(status.activeIssues).toHaveLength(0);
+      expect(
+        artifactStore.observations.some(
+          (observation) =>
+            observation.issue.issueNumber === 84 &&
+            observation.issue.currentOutcome === "succeeded",
+        ),
+      ).toBe(true);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("describes a session once per observation when writing session artifacts", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(81)],
@@ -2837,11 +3108,10 @@ describe("BootstrapOrchestrator watchdog", () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it("aborts a stalled runner when watchdog detects no progress", async () => {
+  it("completes the issue when a watchdog-aborted run races with a merged PR", async () => {
     const issue = createIssue(99);
     const tracker = new SequencedTracker({ ready: [issue] });
     tracker.setLifecycleSequence(99, [
-      lifecycle("missing-target", "symphony/99"),
       lifecycle("handoff-ready", "symphony/99"),
     ]);
 
@@ -2909,6 +3179,9 @@ describe("BootstrapOrchestrator watchdog", () => {
     await runOncePromise;
 
     expect(runAborted).toBe(true);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([99]);
   });
 
   it("keeps a pre-write run alive while runner visibility keeps advancing", async () => {
@@ -3012,8 +3285,12 @@ describe("BootstrapOrchestrator watchdog", () => {
     const issue = createIssue(88);
     const tracker = new SequencedTracker({ ready: [issue] });
     tracker.setLifecycleSequence(88, [
+      // Keep this sequence on missing-target so the watchdog retry-budget test
+      // stays focused on the terminal abort path. A handoff-ready entry here
+      // would now be consumed by merged-during-failure reconciliation instead
+      // of exercising retry exhaustion; that merged race is covered above.
       lifecycle("missing-target", "symphony/88"),
-      lifecycle("handoff-ready", "symphony/88"),
+      lifecycle("missing-target", "symphony/88"),
     ]);
 
     let abortCount = 0;
