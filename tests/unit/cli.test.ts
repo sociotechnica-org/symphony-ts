@@ -125,10 +125,12 @@ function createFactoryControlSnapshot(
       runtimeRoot: "/repo/.tmp/factory-main",
       workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
       statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+      startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
     },
     sessionName: "symphony-factory",
     sessions: [],
     workerAlive: false,
+    startup: null,
     snapshotFreshness: {
       freshness: "unavailable" as const,
       reason: "missing-snapshot" as const,
@@ -510,6 +512,15 @@ describe("runCli run", () => {
     vi.doMock("../../src/runner/factory.js", () => ({
       createRunner: vi.fn(() => "runner"),
     }));
+    vi.doMock("../../src/startup/service.js", () => ({
+      runStartupPreparation: vi.fn(async () => ({
+        kind: "ready",
+        provider: "github-bootstrap/noop",
+        summary: null,
+        workspaceRepoUrlOverride: null,
+        artifactPath: "/tmp/factory-root/.tmp/startup.json",
+      })),
+    }));
     vi.doMock("../../src/workspace/local.js", () => ({
       LocalWorkspaceManager: vi.fn(function MockWorkspaceManager() {}),
     }));
@@ -557,6 +568,179 @@ describe("runCli run", () => {
     expect(orchestratorArgs?.[7]).toBeDefined();
     expect(runOnce).toHaveBeenCalledOnce();
   });
+
+  it("exits early with a clear message when startup preparation fails", async () => {
+    vi.resetModules();
+
+    const createTracker = vi.fn();
+    const stderr: string[] = [];
+
+    vi.doMock("../../src/config/workflow.js", () => ({
+      loadWorkflow: vi.fn(async () => ({
+        config: {
+          tracker: { kind: "github-bootstrap" },
+          polling: { watchdog: { enabled: false } },
+          workspace: { root: "/tmp/factory-root" },
+          hooks: { afterCreate: [] },
+          agent: {},
+        },
+      })),
+      loadWorkflowWorkspaceRoot: vi.fn(),
+      createPromptBuilder: vi.fn(() => "prompt-builder"),
+    }));
+    vi.doMock("../../src/startup/service.js", () => ({
+      runStartupPreparation: vi.fn(async () => ({
+        kind: "failed",
+        provider: "github-bootstrap/noop",
+        summary: "Mirror refresh failed.",
+        workspaceRepoUrlOverride: null,
+        artifactPath: "/tmp/factory-root/.tmp/startup.json",
+      })),
+    }));
+    vi.doMock("../../src/tracker/factory.js", () => ({
+      createTracker,
+    }));
+    vi.doMock("../../src/runner/factory.js", () => ({
+      createRunner: vi.fn(),
+    }));
+    vi.doMock("../../src/workspace/local.js", () => ({
+      LocalWorkspaceManager: vi.fn(),
+    }));
+    vi.doMock("../../src/observability/logger.js", () => ({
+      JsonLogger: vi.fn(function MockLogger() {}),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    vi.spyOn(process.stderr, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stderr.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stderr.write);
+
+    await mockedRunCli([
+      "node",
+      "symphony",
+      "run",
+      "--once",
+      "--workflow",
+      "/tmp/workflow.md",
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    ]);
+
+    expect(stderr.join("")).toContain(
+      "Startup failed before the runtime became healthy: Mirror refresh failed.",
+    );
+    expect(process.exitCode).toBe(1);
+    expect(createTracker).not.toHaveBeenCalled();
+  });
+
+  it("forwards a startup abort signal and exits cleanly when startup preparation is interrupted", async () => {
+    vi.resetModules();
+
+    const createTracker = vi.fn();
+    const stderr: string[] = [];
+    const signalHandlers = new Map<NodeJS.Signals, () => void>();
+    let startupSignal: AbortSignal | undefined;
+
+    vi.doMock("../../src/config/workflow.js", () => ({
+      loadWorkflow: vi.fn(async () => ({
+        config: {
+          tracker: { kind: "github-bootstrap" },
+          polling: { watchdog: { enabled: false } },
+          workspace: { root: "/tmp/factory-root" },
+          hooks: { afterCreate: [] },
+          agent: {},
+        },
+      })),
+      loadWorkflowWorkspaceRoot: vi.fn(),
+      createPromptBuilder: vi.fn(() => "prompt-builder"),
+    }));
+    vi.doMock("../../src/startup/service.js", () => ({
+      runStartupPreparation: vi.fn(
+        async (options: { readonly signal?: AbortSignal }) => {
+          startupSignal = options.signal;
+          await new Promise<never>((_resolve, reject) => {
+            options.signal?.addEventListener(
+              "abort",
+              () => {
+                const error = new Error("Startup preparation aborted.");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
+          });
+        },
+      ),
+    }));
+    vi.doMock("../../src/tracker/factory.js", () => ({
+      createTracker,
+    }));
+    vi.doMock("../../src/runner/factory.js", () => ({
+      createRunner: vi.fn(),
+    }));
+    vi.doMock("../../src/workspace/local.js", () => ({
+      LocalWorkspaceManager: vi.fn(),
+    }));
+    vi.doMock("../../src/observability/logger.js", () => ({
+      JsonLogger: vi.fn(function MockLogger() {}),
+    }));
+
+    const onSpy = vi.spyOn(process, "on").mockImplementation(((
+      event: NodeJS.Signals,
+      listener: () => void,
+    ) => {
+      if (event === "SIGINT" || event === "SIGTERM") {
+        signalHandlers.set(event, listener);
+      }
+      return process;
+    }) as typeof process.on);
+    const offSpy = vi.spyOn(process, "off").mockImplementation(((
+      event: NodeJS.Signals,
+    ) => {
+      signalHandlers.delete(event);
+      return process;
+    }) as typeof process.off);
+    vi.spyOn(process.stderr, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      stderr.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stderr.write);
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+    const runPromise = mockedRunCli([
+      "node",
+      "symphony",
+      "run",
+      "--once",
+      "--workflow",
+      "/tmp/workflow.md",
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    ]);
+
+    await vi.waitFor(() => {
+      expect(startupSignal).toBeDefined();
+      expect(signalHandlers.has("SIGTERM")).toBe(true);
+    });
+    signalHandlers.get("SIGTERM")?.();
+    await runPromise;
+
+    expect(startupSignal?.aborted).toBe(true);
+    expect(stderr.join("")).toContain("Startup preparation aborted.");
+    expect(process.exitCode).toBe(130);
+    expect(createTracker).not.toHaveBeenCalled();
+    expect(onSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+    expect(onSpy).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+    expect(offSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+    expect(offSpy).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+  });
 });
 
 describe("runCli factory", () => {
@@ -575,10 +759,12 @@ describe("runCli factory", () => {
             runtimeRoot: "/repo/.tmp/factory-main",
             workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
             statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+            startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
           },
           sessionName: "symphony-factory",
           sessions: [],
           workerAlive: false,
+          startup: null,
           snapshotFreshness: {
             freshness: "unavailable",
             reason: "missing-snapshot",
@@ -600,10 +786,12 @@ describe("runCli factory", () => {
             runtimeRoot: "/repo/.tmp/factory-main",
             workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
             statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+            startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
           },
           sessionName: "symphony-factory",
           sessions: [],
           workerAlive: false,
+          startup: null,
           snapshotFreshness: {
             freshness: "unavailable",
             reason: "missing-snapshot",
@@ -655,10 +843,12 @@ describe("runCli factory", () => {
             runtimeRoot: "/repo/.tmp/factory-main",
             workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
             statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+            startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
           },
           sessionName: "symphony-factory",
           sessions: [],
           workerAlive: false,
+          startup: null,
           snapshotFreshness: {
             freshness: "unavailable",
             reason: "missing-snapshot",

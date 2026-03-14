@@ -44,6 +44,9 @@ Run one poll cycle:
 pnpm tsx bin/symphony.ts run --once
 ```
 
+Startup preparation now runs on this mainline `run` path. Do not use or
+invent a separate "safe" wrapper entrypoint for GitHub bootstrap hardening.
+
 Run continuously:
 
 ```bash
@@ -67,6 +70,10 @@ pnpm tsx bin/symphony.ts factory status --json
 pnpm tsx bin/symphony.ts factory restart
 pnpm tsx bin/symphony.ts factory stop
 ```
+
+`factory start` launches the same startup-preparation path as `symphony run`
+and surfaces startup preparation/failure details through `factory status`
+instead of relying on a separate wrapper command.
 
 These commands target the checked-out runtime under `.tmp/factory-main`. Use
 `status` when you want the raw runtime snapshot for a specific workflow path,

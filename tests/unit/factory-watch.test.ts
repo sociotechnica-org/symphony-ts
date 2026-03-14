@@ -14,6 +14,7 @@ function createSnapshot(): FactoryControlStatusSnapshot {
       runtimeRoot: "/repo/.tmp/factory-main",
       workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
       statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+      startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
     },
     sessionName: "symphony-factory",
     sessions: [
@@ -25,6 +26,7 @@ function createSnapshot(): FactoryControlStatusSnapshot {
       },
     ],
     workerAlive: true,
+    startup: null,
     snapshotFreshness: {
       freshness: "fresh",
       reason: "current-snapshot",
@@ -154,5 +156,36 @@ describe("watchFactory", () => {
     expect(writes).toHaveLength(2);
     expect(writes[0]).toContain("Watch error: runtime missing");
     expect(writes[1]).toContain("Factory control: running");
+  });
+
+  it("treats ABORT_ERR sleep failures as local watch shutdown", async () => {
+    const writes: string[] = [];
+    const listeners = new Map<NodeJS.Signals, () => void>();
+    const abortError = Object.assign(new Error("Factory watch aborted."), {
+      code: "ABORT_ERR",
+    });
+
+    await watchFactory({
+      inspectFactoryControl: vi.fn(async () => createSnapshot()),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
+      writeStdout: (chunk) => {
+        writes.push(chunk);
+      },
+      isStdoutTTY: () => false,
+      onSignal: (signal, listener) => {
+        listeners.set(signal, listener);
+      },
+      offSignal: (signal) => {
+        listeners.delete(signal);
+      },
+      sleep: async () => {
+        listeners.get("SIGINT")?.();
+        throw abortError;
+      },
+    });
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toContain("Factory control: running");
+    expect(listeners.size).toBe(0);
   });
 });

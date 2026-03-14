@@ -17,6 +17,8 @@ import { BootstrapOrchestrator } from "../orchestrator/service.js";
 import { FsLivenessProbe } from "../orchestrator/liveness-probe.js";
 import { StatusDashboard } from "../observability/tui.js";
 import { createRunner } from "../runner/factory.js";
+import { runStartupPreparation } from "../startup/service.js";
+import { isAbortError } from "../support/abort.js";
 import { createTracker } from "../tracker/factory.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
 import {
@@ -136,7 +138,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
                 ? "started"
                 : result.kind === "already-running"
                   ? "already running"
-                  : "start blocked by degraded cleanup"
+                  : result.kind === "startup-failed"
+                    ? "start failed during startup"
+                    : "start blocked by degraded cleanup"
             }.\n`,
           );
           process.stdout.write(
@@ -197,14 +201,16 @@ export async function runCli(argv: readonly string[]): Promise<void> {
           const verb =
             startResult.kind === "blocked-degraded"
               ? "restart blocked by degraded cleanup"
-              : stopResult.kind === "already-stopped" &&
-                  startResult.kind === "already-running"
-                ? "was already running"
-                : stopResult.kind === "already-stopped"
-                  ? "was already stopped and is now running again"
-                  : startResult.kind === "already-running"
-                    ? "was stopped but is already running again"
-                    : "restarted";
+              : startResult.kind === "startup-failed"
+                ? "restart failed during startup"
+                : stopResult.kind === "already-stopped" &&
+                    startResult.kind === "already-running"
+                  ? "was already running"
+                  : stopResult.kind === "already-stopped"
+                    ? "was already stopped and is now running again"
+                    : startResult.kind === "already-running"
+                      ? "was stopped but is already running again"
+                      : "restarted";
           process.stdout.write(`Factory ${verb}.\n`);
           if (stopResult.terminatedPids.length > 0) {
             process.stdout.write(
@@ -313,10 +319,49 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
   const logger = new JsonLogger();
   const workflow = await loadWorkflow(args.workflowPath);
+  const startupController = new AbortController();
+  const abortStartup = (): void => {
+    startupController.abort();
+  };
+  process.on("SIGINT", abortStartup);
+  process.on("SIGTERM", abortStartup);
+  let startup;
+  try {
+    startup = await runStartupPreparation({
+      config: workflow.config,
+      logger,
+      signal: startupController.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      process.stderr.write("Startup preparation aborted.\n");
+      process.exitCode = 130;
+      return;
+    }
+    throw error;
+  } finally {
+    process.off("SIGINT", abortStartup);
+    process.off("SIGTERM", abortStartup);
+  }
+  if (startup.kind === "failed") {
+    process.stderr.write(
+      `Startup failed before the runtime became healthy: ${startup.summary}\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  const workspaceConfig =
+    startup.workspaceRepoUrlOverride === null
+      ? workflow.config.workspace
+      : {
+          ...workflow.config.workspace,
+          repoUrl: startup.workspaceRepoUrlOverride,
+        };
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = createTracker(workflow.config.tracker, logger);
   const workspace = new LocalWorkspaceManager(
-    workflow.config.workspace,
+    workspaceConfig,
     workflow.config.hooks.afterCreate,
     logger,
   );
