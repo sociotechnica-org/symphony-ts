@@ -804,6 +804,30 @@ describe("runCli factory", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("sets a non-zero exit code when restart start is blocked after a clean stop", async () => {
+    vi.resetModules();
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      startFactory: vi.fn(async () => ({
+        kind: "blocked-degraded",
+        status: createFactoryControlSnapshot("degraded"),
+      })),
+      stopFactory: vi.fn(async () => ({
+        kind: "stopped",
+        status: createFactoryControlSnapshot("stopped"),
+        terminatedPids: [],
+      })),
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "restart"]);
+
+    expect(process.exitCode).toBe(1);
+  });
+
   it("dispatches the factory watch command", async () => {
     vi.resetModules();
     const watchFactory = vi.fn(async () => {});
