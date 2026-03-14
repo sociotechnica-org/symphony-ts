@@ -486,7 +486,9 @@ function formatRateLimitBucket(
   return `${formatCount(bucket.used)}/${formatCount(bucket.limit)} reset ${String(resetSecs)}s`;
 }
 
-function formatLastActionLine(action: NonNullable<TuiSnapshot["lastAction"]>): string {
+function formatLastActionLine(
+  action: NonNullable<TuiSnapshot["lastAction"]>,
+): string {
   const issuePart =
     action.issueNumber === null ? "" : ` #${action.issueNumber.toString()}`;
   const detail = action.summary.trim() === "" ? action.kind : action.summary;
@@ -986,14 +988,13 @@ function describeRunningEvent(entry: TuiSnapshot["running"][number]): string {
   const lifecycleContext = describeLifecycleContext(entry);
   const fromVisibility = humanizeRunnerVisibility(entry.runnerVisibility);
   const liveEvent =
-    fromVisibility ?? humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent);
+    fromVisibility ??
+    humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent);
   const meaningfulLiveEvent =
     liveEvent === "no codex message yet" ? null : liveEvent;
-  const segments = [
-    runnerLabel,
-    meaningfulLiveEvent,
-    lifecycleContext,
-  ].filter((value): value is string => value !== null && value.trim() !== "");
+  const segments = [runnerLabel, meaningfulLiveEvent, lifecycleContext].filter(
+    (value): value is string => value !== null && value.trim() !== "",
+  );
   if (segments.length > 0) {
     return segments.join(" · ");
   }
@@ -1116,7 +1117,9 @@ function describeLifecycleContext(
   const pendingChecks = lifecycle.checks.pendingNames.length;
   const failingChecks = lifecycle.checks.failingNames.length;
   if (pendingChecks > 0 || failingChecks > 0) {
-    segments.push(`checks p${pendingChecks.toString()} f${failingChecks.toString()}`);
+    segments.push(
+      `checks p${pendingChecks.toString()} f${failingChecks.toString()}`,
+    );
   }
 
   const actionableReview = lifecycle.review.actionableCount;

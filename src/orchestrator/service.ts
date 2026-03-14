@@ -218,7 +218,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     const now = Date.now();
     const running: TuiRunningEntry[] = [];
     for (const entry of this.#state.runningEntries.values()) {
-      const activeIssue = this.#state.status.activeIssues.get(entry.issueNumber);
+      const activeIssue = this.#state.status.activeIssues.get(
+        entry.issueNumber,
+      );
       running.push({
         issueNumber: entry.issueNumber,
         identifier: entry.identifier,

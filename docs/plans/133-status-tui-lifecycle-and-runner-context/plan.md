@@ -163,14 +163,14 @@ The TUI will consume the following normalized active-issue states:
 
 ## Failure-Class Matrix
 
-| Observed condition | Runtime facts available | Expected TUI behavior |
-| --- | --- | --- |
-| Active run has normalized lifecycle `awaiting-system-checks` with pending checks and a PR | active issue status, PR handle, pending/failing names | render lifecycle stage for checks waiting and inline PR/check counts |
-| Active run has normalized lifecycle `rework-required` with actionable review feedback | active issue review counts and summary | render follow-up/rework-oriented stage and inline review counts |
-| Active run has runner visibility with provider/model/backend session but no legacy `sessionId` | `runnerVisibility.session.*` populated | render provider-neutral session context without falling back to Codex-only fields |
-| Active run has turn count but no exposed max-turn budget today | turn count plus configured `agent.maxTurns` | render `turn n/N` after snapshot extension |
-| Runtime has a recent `lastAction` but no active issues | `status.lastAction` present, empty running list | header still renders the last action line |
-| Runtime has no normalized watchdog or merge-gate fields in `TuiSnapshot` | current snapshot contract only | do not invent or guess those fields; keep them deferred |
+| Observed condition                                                                             | Runtime facts available                               | Expected TUI behavior                                                             |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Active run has normalized lifecycle `awaiting-system-checks` with pending checks and a PR      | active issue status, PR handle, pending/failing names | render lifecycle stage for checks waiting and inline PR/check counts              |
+| Active run has normalized lifecycle `rework-required` with actionable review feedback          | active issue review counts and summary                | render follow-up/rework-oriented stage and inline review counts                   |
+| Active run has runner visibility with provider/model/backend session but no legacy `sessionId` | `runnerVisibility.session.*` populated                | render provider-neutral session context without falling back to Codex-only fields |
+| Active run has turn count but no exposed max-turn budget today                                 | turn count plus configured `agent.maxTurns`           | render `turn n/N` after snapshot extension                                        |
+| Runtime has a recent `lastAction` but no active issues                                         | `status.lastAction` present, empty running list       | header still renders the last action line                                         |
+| Runtime has no normalized watchdog or merge-gate fields in `TuiSnapshot`                       | current snapshot contract only                        | do not invent or guess those fields; keep them deferred                           |
 
 ## Observability Requirements
 
