@@ -858,6 +858,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
             kind: snapshot.lastAction.kind,
             issueNumber: snapshot.lastAction.issueNumber,
             summary: snapshot.lastAction.summary,
+            at: snapshot.lastAction.at,
           },
     polling: {
       checkingNow: snapshot.polling.checkingNow,
@@ -1024,6 +1025,8 @@ function resolveSessionDisplay(
 ): string | null {
   const visibility = entry.runnerVisibility;
   if (visibility !== null) {
+    // Prefer the most specific backend session identity so operators can
+    // cross-reference turn-level logs before falling back to the stable thread.
     return (
       visibility.session.backendSessionId ??
       visibility.session.backendThreadId ??

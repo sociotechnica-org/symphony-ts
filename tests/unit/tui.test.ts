@@ -1262,7 +1262,7 @@ describe("StatusDashboard", () => {
         renderFn: (content) => rendered.push(content),
         enabled: true,
         refreshMs: 10_000,
-        renderIntervalMs: 1,
+        renderIntervalMs: 0,
       },
     );
 
@@ -1285,6 +1285,47 @@ describe("StatusDashboard", () => {
     expect(rendered).toHaveLength(2);
     expect(rendered[0]).toContain("codex/gpt-5.4");
     expect(rendered[1]).toContain("app_status=offline");
+  });
+
+  it("re-renders immediately when last-action elapsed time resets", () => {
+    const rendered: string[] = [];
+    const firstAt = new Date(Date.now() - 20_000).toISOString();
+    const secondAt = new Date(Date.now() - 10_000).toISOString();
+    let snapshot = makeSnapshot({
+      lastAction: {
+        kind: "poll-started",
+        issueNumber: null,
+        summary: "Checking for ready work",
+        at: firstAt,
+      },
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 0,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      lastAction: {
+        ...snapshot.lastAction!,
+        at: secondAt,
+      },
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(3);
+    expect(rendered[0]).toContain("Checking for ready work");
+    expect(rendered[1]).toContain("Checking for ready work");
+    expect(rendered[0]).not.toBe(rendered[1]);
+    expect(rendered[2]).toContain("app_status=offline");
   });
 
   it("ignores runner visibility stderr-only churn in the fingerprint", () => {
