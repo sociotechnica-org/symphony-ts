@@ -244,6 +244,17 @@ export async function startFactory(
         status,
       };
     }
+    if (
+      status.startup?.state === "preparing" &&
+      status.startup.stale &&
+      !status.workerAlive &&
+      status.controlState === "degraded"
+    ) {
+      return {
+        kind: "startup-failed",
+        status,
+      };
+    }
     if (now() >= deadline) {
       throw new Error(
         `Factory start timed out before a healthy runtime appeared under ${paths.runtimeRoot}.`,

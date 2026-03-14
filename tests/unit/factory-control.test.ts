@@ -925,6 +925,61 @@ describe("startFactory", () => {
     expect(result.status.startup?.summary).toBe("Mirror refresh failed.");
   });
 
+  it("returns startup-failed when the worker dies during preparation and leaves a stale startup artifact", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    let startupSnapshot: StartupSnapshot | null = null;
+
+    const result = await startFactory({
+      ...createControlDeps({
+        launchScreenSession: async (options) => {
+          sessionsState.push({
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: options.sessionName,
+            state: "Detached",
+          });
+          processesState.push(
+            { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+            { pid: 9101, ppid: 9001, command: "node bin/symphony.ts run" },
+          );
+          startupSnapshot = createStartupSnapshot(9101, {
+            state: "preparing",
+            summary: "Startup preparation is in progress.",
+          });
+          processesState.splice(0, processesState.length);
+          sessionsState.splice(0, sessionsState.length);
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async (filePath) => {
+        if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
+          return `${JSON.stringify(startupSnapshot, null, 2)}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(result.kind).toBe("startup-failed");
+    expect(result.status.controlState).toBe("degraded");
+    expect(result.status.startup).toMatchObject({
+      state: "preparing",
+      stale: true,
+    });
+  });
+
   it("starts only after degraded cleanup reaches stopped", async () => {
     const sessionsState: ScreenSessionSnapshot[] = [
       {
