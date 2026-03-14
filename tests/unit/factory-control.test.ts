@@ -54,6 +54,7 @@ function createControlDeps(
     readonly sessions?: readonly ScreenSessionSnapshot[];
     readonly snapshot?: FactoryStatusSnapshot | null;
     readonly nowValues?: readonly number[];
+    readonly removeFile?: FactoryControlDeps["removeFile"];
     readonly launchScreenSession?: FactoryControlDeps["launchScreenSession"];
     readonly quitScreenSession?: FactoryControlDeps["quitScreenSession"];
     readonly signalProcess?: FactoryControlDeps["signalProcess"];
@@ -97,6 +98,7 @@ function createControlDeps(
     },
     listProcesses: async () => options.processes ?? [],
     listScreenSessions: async () => options.sessions ?? [],
+    removeFile: options.removeFile ?? (async () => {}),
     sleep: options.sleep ?? (async () => {}),
     isProcessAlive: (pid) =>
       (options.processes ?? []).some(
