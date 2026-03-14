@@ -3347,7 +3347,7 @@ describe("BootstrapOrchestrator watchdog", () => {
 
     expect(abortCount).toBe(1);
     expect(tracker.retried).toHaveLength(1);
-    expect(tracker.retried[0]?.reason).toContain("since runner-action at");
+    expect(tracker.retried[0]?.reason).toContain("since runner-heartbeat at");
   });
 
   it("does not recover beyond maxRecoveryAttempts across retries", async () => {

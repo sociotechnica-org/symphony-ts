@@ -29,6 +29,9 @@ export interface LivenessSnapshot {
 /** Per-issue watchdog tracking entry. */
 export interface WatchdogEntry {
   readonly issueNumber: number;
+  // These fields are intentionally mutated in place by checkStall() and
+  // recordWatchdogRecovery() so the watchdog loop can update per-issue state
+  // without allocating a replacement entry every poll.
   lastLiveness: LivenessSnapshot;
   lastObservableActivityAt: number;
   lastObservableActivitySource: LivenessSource | null;
@@ -78,6 +81,10 @@ export function checkStall(
   const previous = entry.lastLiveness;
 
   const activity = detectObservableActivity(previous, current);
+  // Only credit activity that is at-or-after the last known baseline.
+  // A runner may report heartbeat/action timestamps that are older than the
+  // run-start anchor because of clock skew or delayed propagation; that still
+  // updates visibility, but it must not reset the watchdog deadline.
   if (activity !== null && activity.at >= entry.lastObservableActivityAt) {
     entry.lastLiveness = current;
     entry.lastObservableActivityAt = activity.at;
@@ -266,7 +273,12 @@ function latestObservableActivity(
 ): ObservableActivity | null {
   let latest: ObservableActivity | null = null;
   for (const candidate of candidates) {
-    if (latest === null || candidate.at >= latest.at) {
+    // Candidate push order is the priority order for tied timestamps:
+    // run-start > runner-heartbeat > runner-startup/action during startup
+    // derivation, and watchdog-log > workspace-diff > pr-head >
+    // runner-heartbeat > runner-startup/action during incremental detection.
+    // Strict greater-than preserves the first (highest-priority) candidate.
+    if (latest === null || candidate.at > latest.at) {
       latest = candidate;
     }
   }

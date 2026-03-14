@@ -217,6 +217,24 @@ describe("checkStall", () => {
     );
   });
 
+  it("preserves the first activity source when timestamps tie", () => {
+    const entry = createWatchdogEntry(
+      1,
+      snapshot({ logSizeBytes: 100, capturedAt: 1000 }),
+    );
+    const result = checkStall(
+      entry,
+      snapshot({
+        logSizeBytes: 200,
+        runnerActionAt: "2026-03-13T08:46:07.000Z",
+        capturedAt: Date.parse("2026-03-13T08:46:07.000Z"),
+      }),
+      config,
+    );
+    expect(result.stalled).toBe(false);
+    expect(result.lastObservableActivitySource).toBe("watchdog-log");
+  });
+
   it("reports stalled after threshold with no changes", () => {
     const entry = createWatchdogEntry(
       1,
