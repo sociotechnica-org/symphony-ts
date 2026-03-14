@@ -21,8 +21,6 @@ RECORDING_SETTLE_SECONDS=1
 RUN_ONCE=0
 STOPPING=0
 SLEEP_PID=""
-LAST_STATE="idle"
-LAST_MESSAGE="Not started"
 LAST_LOG_FILE=""
 LAST_CYCLE_STARTED_AT=""
 LAST_CYCLE_FINISHED_AT=""
@@ -77,8 +75,6 @@ write_status() {
   local message="$2"
   local updated_at
   updated_at="$(now_utc)"
-  LAST_STATE="$state"
-  LAST_MESSAGE="$message"
 
   cat >"$STATUS_JSON" <<EOF
 {
