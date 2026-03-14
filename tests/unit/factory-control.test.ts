@@ -318,6 +318,35 @@ describe("UTF-8 locale selection", () => {
     });
   });
 
+  it("uses LC_CTYPE when LC_ALL is non-UTF-8 and LC_CTYPE is installed", () => {
+    expect(
+      selectFactoryUtf8Locale(
+        {
+          LC_ALL: "C",
+          LC_CTYPE: "fr_FR.UTF-8",
+        },
+        ["C", "fr_FR.UTF-8"],
+      ),
+    ).toEqual({
+      locale: "fr_FR.UTF-8",
+      source: "inherited",
+    });
+  });
+
+  it("falls back to the first installed UTF-8 locale when preferred locales are unavailable", () => {
+    expect(
+      selectFactoryUtf8Locale(
+        {
+          LANG: "C",
+        },
+        ["C", "fr_FR.UTF-8", "de_DE.UTF-8"],
+      ),
+    ).toEqual({
+      locale: "de_DE.UTF-8",
+      source: "fallback",
+    });
+  });
+
   it("builds a launch environment with explicit UTF-8 locale overrides", () => {
     expect(
       createFactoryLaunchEnvironment(
