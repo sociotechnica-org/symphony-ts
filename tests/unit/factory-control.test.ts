@@ -980,6 +980,43 @@ describe("startFactory", () => {
     });
   });
 
+  it("does not use the status snapshot worker to classify a preparing startup artifact as failed", async () => {
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+    let startupSnapshot: StartupSnapshot | null = null;
+
+    await expect(
+      startFactory({
+        ...createControlDeps({
+          launchScreenSession: async () => {
+            currentSnapshot = createStatusSnapshot(9201, {
+              factoryState: "running",
+            });
+            startupSnapshot = createStartupSnapshot(9101, {
+              state: "preparing",
+            });
+          },
+          nowValues: [0, 1_000, 8_000, 15_000, 16_000],
+        }),
+        listProcesses: async () => [],
+        listScreenSessions: async () => [],
+        readFile: async (filePath) => {
+          if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
+            return `${JSON.stringify(startupSnapshot, null, 2)}\n`;
+          }
+          if (filePath.endsWith("status.json") && currentSnapshot !== null) {
+            return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+          }
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        },
+        isProcessAlive: (pid) => pid === 9101,
+      }),
+    ).rejects.toThrow(
+      "Factory start timed out before a healthy runtime appeared under /repo/.tmp/factory-main.",
+    );
+  });
+
   it("starts only after degraded cleanup reaches stopped", async () => {
     const sessionsState: ScreenSessionSnapshot[] = [
       {

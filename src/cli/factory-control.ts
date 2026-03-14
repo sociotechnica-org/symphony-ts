@@ -247,7 +247,7 @@ export async function startFactory(
     if (
       status.startup?.state === "preparing" &&
       status.startup.stale &&
-      !status.workerAlive &&
+      !status.startup.workerAlive &&
       status.controlState === "degraded"
     ) {
       return {
