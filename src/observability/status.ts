@@ -413,6 +413,16 @@ export function assessFactoryStatusSnapshot(
         publicationState: publication.state,
       };
     }
+    if (options?.hasLiveRuntime === false) {
+      return {
+        freshness: "stale",
+        reason: "no-live-runtime",
+        summary:
+          "No live factory runtime owns this startup snapshot anymore, so it is historical and not current.",
+        workerAlive,
+        publicationState: publication.state,
+      };
+    }
     return {
       freshness: "unavailable",
       reason: "startup-in-progress",

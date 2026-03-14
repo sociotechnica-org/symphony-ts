@@ -372,6 +372,26 @@ describe("factory status helpers", () => {
     });
   });
 
+  it("classifies startup snapshots without a live runtime as stale", () => {
+    expect(
+      assessFactoryStatusSnapshot(
+        createSnapshot({
+          publication: {
+            state: "initializing",
+            detail:
+              "Factory startup is in progress; no current runtime snapshot is available yet.",
+          },
+        }),
+        { workerAlive: true, hasLiveRuntime: false },
+      ),
+    ).toMatchObject({
+      freshness: "stale",
+      reason: "no-live-runtime",
+      summary:
+        "No live factory runtime owns this startup snapshot anymore, so it is historical and not current.",
+    });
+  });
+
   it("renders awaiting-landing issues distinctly", () => {
     const output = renderFactoryStatusSnapshot(
       createSnapshot({

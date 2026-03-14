@@ -160,6 +160,8 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #factoryStartedAt: number = Date.now();
   #shutdownSignal: AbortSignal | undefined;
   #dashboardNotify: (() => void) | null = null;
+  // Guard startup placeholder publication so a later initializing write cannot
+  // clobber a current snapshot that has already been persisted.
   #startupStatusPublished = false;
 
   constructor(
@@ -2629,6 +2631,8 @@ export class BootstrapOrchestrator implements Orchestrator {
           retries: this.#state.retries,
         }),
       );
+      // Prevent a later #publishStartupStatusSnapshot call from overwriting
+      // this current snapshot with an initializing placeholder.
       this.#startupStatusPublished = true;
     } catch (error) {
       this.#logger.warn("Failed to write status snapshot", {
