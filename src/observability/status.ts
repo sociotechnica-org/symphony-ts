@@ -372,6 +372,11 @@ export function assessFactoryStatusSnapshot(
   snapshot: FactoryStatusSnapshot | null,
   options?: {
     readonly workerAlive?: boolean;
+    /**
+     * When omitted, the no-live-runtime stale check is skipped because the
+     * caller does not have authoritative runtime/session ownership context.
+     * Pass `true` or `false` explicitly to enable that classification path.
+     */
     readonly hasLiveRuntime?: boolean;
     readonly readError?: Error | null;
   },
