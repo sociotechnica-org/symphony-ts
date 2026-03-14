@@ -45,9 +45,13 @@ export async function collectFactoryRuntimeIdentity(
   const detailParts: string[] = [];
 
   try {
-    const result = await execGit("git", ["show", "-s", "--format=%cI", "HEAD"], {
-      cwd: resolvedCheckoutPath,
-    });
+    const result = await execGit(
+      "git",
+      ["show", "-s", "--format=%cI", "HEAD"],
+      {
+        cwd: resolvedCheckoutPath,
+      },
+    );
     committedAt = normalizeOptionalText(result.stdout);
   } catch (error) {
     detailParts.push(
@@ -65,7 +69,9 @@ export async function collectFactoryRuntimeIdentity(
     );
     isDirty = result.stdout.trim().length > 0;
   } catch (error) {
-    detailParts.push(`dirty state unavailable: ${normalizeGitErrorMessage(error)}`);
+    detailParts.push(
+      `dirty state unavailable: ${normalizeGitErrorMessage(error)}`,
+    );
   }
 
   return {
@@ -145,7 +151,11 @@ export function parseFactoryRuntimeIdentity(
       filePath,
       `${field}.checkoutPath`,
     ),
-    headSha: expectNullableString(identity.headSha, filePath, `${field}.headSha`),
+    headSha: expectNullableString(
+      identity.headSha,
+      filePath,
+      `${field}.headSha`,
+    ),
     committedAt: expectNullableString(
       identity.committedAt,
       filePath,

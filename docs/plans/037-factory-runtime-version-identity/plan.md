@@ -163,14 +163,14 @@ If identity collection fails:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected behavior |
-| --- | --- | --- |
-| Runtime checkout is a healthy git worktree | runtime root path, `HEAD` SHA, commit timestamp, diff status | publish full identity in startup/status snapshots and logs |
-| Runtime checkout is a git worktree but diff check fails | runtime root path, `HEAD` SHA, commit timestamp, dirty state unavailable | publish SHA/timestamp with `isDirty: null` and source detail explaining the partial result |
-| Runtime checkout is missing `.git` or git is unavailable | runtime root path only | publish identity with null git fields and a normalized unavailable source; status must say runtime identity unavailable, not crash |
-| Detached runtime starts, then operator checkout advances later | runtime snapshot already persisted from live runtime root | status continues to report the live runtime checkout identity, not the operator checkout `HEAD` |
-| Startup fails before orchestration reaches steady-state | startup snapshot exists | `factory status` still surfaces the runtime identity from `startup.json` for debugging |
-| Status snapshot write/log render fails | runtime remains alive | log a warning and continue; runtime identity collection must not add a fatal observability dependency |
+| Observed condition                                             | Local facts available                                                    | Expected behavior                                                                                                                  |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime checkout is a healthy git worktree                     | runtime root path, `HEAD` SHA, commit timestamp, diff status             | publish full identity in startup/status snapshots and logs                                                                         |
+| Runtime checkout is a git worktree but diff check fails        | runtime root path, `HEAD` SHA, commit timestamp, dirty state unavailable | publish SHA/timestamp with `isDirty: null` and source detail explaining the partial result                                         |
+| Runtime checkout is missing `.git` or git is unavailable       | runtime root path only                                                   | publish identity with null git fields and a normalized unavailable source; status must say runtime identity unavailable, not crash |
+| Detached runtime starts, then operator checkout advances later | runtime snapshot already persisted from live runtime root                | status continues to report the live runtime checkout identity, not the operator checkout `HEAD`                                    |
+| Startup fails before orchestration reaches steady-state        | startup snapshot exists                                                  | `factory status` still surfaces the runtime identity from `startup.json` for debugging                                             |
+| Status snapshot write/log render fails                         | runtime remains alive                                                    | log a warning and continue; runtime identity collection must not add a fatal observability dependency                              |
 
 ## Observability Requirements
 
