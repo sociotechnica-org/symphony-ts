@@ -93,7 +93,7 @@ export function checkStall(
       issueNumber: entry.issueNumber,
       stalled: false,
       reason: null,
-      stalledForMs: 0,
+      stalledForMs: current.capturedAt - activity.at,
       lastObservableActivityAt: entry.lastObservableActivityAt,
       lastObservableActivitySource: entry.lastObservableActivitySource,
     };

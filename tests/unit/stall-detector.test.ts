@@ -109,6 +109,9 @@ describe("checkStall", () => {
     );
     expect(result.stalled).toBe(false);
     expect(result.reason).toBeNull();
+    expect(result.stalledForMs).toBe(
+      7000 - Date.parse("2026-03-13T08:46:00.000Z"),
+    );
     expect(entry.lastObservableActivityAt).toBe(
       Date.parse("2026-03-13T08:46:00.000Z"),
     );

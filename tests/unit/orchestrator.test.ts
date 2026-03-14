@@ -3347,7 +3347,13 @@ describe("BootstrapOrchestrator watchdog", () => {
 
     expect(abortCount).toBe(1);
     expect(tracker.retried).toHaveLength(1);
-    expect(tracker.retried[0]?.reason).toContain("since runner-heartbeat at");
+    // Startup stalls can summarize against the initial run-start anchor or a
+    // runner-heartbeat timestamp, depending on which startup-side signal wins
+    // the first baseline sample. The regression we care about is preserving the
+    // watchdog-specific source label instead of collapsing to shutdown.
+    expect(tracker.retried[0]?.reason).toMatch(
+      /since (run-start|runner-heartbeat) at/,
+    );
   });
 
   it("does not recover beyond maxRecoveryAttempts across retries", async () => {
