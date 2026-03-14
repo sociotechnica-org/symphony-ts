@@ -32,6 +32,13 @@ import {
   writeFactoryStatusSnapshot,
 } from "../observability/status.js";
 import type {
+  FactoryCheckStatus,
+  FactoryIssueStatus,
+  FactoryPullRequestStatus,
+  FactoryReviewStatus,
+  FactoryStatusAction,
+} from "../observability/status.js";
+import type {
   LiveRunnerSession,
   Runner,
   RunnerEvent,
@@ -100,6 +107,7 @@ export interface TuiRunningEntry {
   readonly issueNumber: number;
   readonly identifier: string;
   readonly issueState: string;
+  readonly lifecycle?: TuiLifecycleSnapshot | null;
   readonly startedAt: Date;
   readonly retryAttempt: number;
   readonly sessionId: string | null;
@@ -112,6 +120,14 @@ export interface TuiRunningEntry {
   readonly lastCodexMessage: unknown;
   readonly lastCodexTimestamp: string | null;
   readonly runnerVisibility: RunnerVisibilitySnapshot | null;
+}
+
+export interface TuiLifecycleSnapshot {
+  readonly status: FactoryIssueStatus;
+  readonly summary: string;
+  readonly pullRequest: FactoryPullRequestStatus | null;
+  readonly checks: FactoryCheckStatus;
+  readonly review: FactoryReviewStatus;
 }
 
 export interface TuiRetryEntry {
@@ -127,8 +143,10 @@ export interface TuiSnapshot {
   readonly retrying: readonly TuiRetryEntry[];
   readonly codexTotals: CodexTotals;
   readonly rateLimits: RateLimits | null;
+  readonly lastAction: FactoryStatusAction | null;
   readonly polling: PollingState;
   readonly maxConcurrentRuns: number;
+  readonly maxTurns: number;
   readonly projectUrl: string | null;
 }
 
@@ -200,10 +218,21 @@ export class BootstrapOrchestrator implements Orchestrator {
     const now = Date.now();
     const running: TuiRunningEntry[] = [];
     for (const entry of this.#state.runningEntries.values()) {
+      const activeIssue = this.#state.status.activeIssues.get(entry.issueNumber);
       running.push({
         issueNumber: entry.issueNumber,
         identifier: entry.identifier,
         issueState: entry.issueState,
+        lifecycle:
+          activeIssue === undefined
+            ? null
+            : {
+                status: activeIssue.status,
+                summary: activeIssue.summary,
+                pullRequest: activeIssue.pullRequest,
+                checks: activeIssue.checks,
+                review: activeIssue.review,
+              },
         startedAt: entry.startedAt,
         retryAttempt: entry.retryAttempt,
         sessionId: entry.sessionId,
@@ -215,9 +244,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         lastCodexEvent: entry.lastCodexEvent,
         lastCodexMessage: entry.lastCodexMessage,
         lastCodexTimestamp: entry.lastCodexTimestamp,
-        runnerVisibility:
-          this.#state.status.activeIssues.get(entry.issueNumber)
-            ?.runnerVisibility ?? null,
+        runnerVisibility: activeIssue?.runnerVisibility ?? null,
       });
     }
     running.sort((a, b) => a.identifier.localeCompare(b.identifier));
@@ -242,8 +269,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         secondsRunning: Math.floor((now - this.#factoryStartedAt) / 1000),
       },
       rateLimits: this.#state.rateLimits,
+      lastAction: this.#state.status.lastAction,
       polling: { ...this.#state.polling },
       maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
+      maxTurns: this.#config.agent.maxTurns,
       projectUrl: this.#deriveProjectUrl(),
     };
   }

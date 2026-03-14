@@ -24,12 +24,14 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
       secondsRunning: 0,
     },
     rateLimits: null,
+    lastAction: null,
     polling: {
       checkingNow: false,
       nextPollAtMs: Date.now() + 30_000,
       intervalMs: 30_000,
     },
     maxConcurrentRuns: 5,
+    maxTurns: 3,
     projectUrl: null,
     ...overrides,
   };
@@ -104,6 +106,24 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("1,500"); // total
   });
 
+  it("renders header last-action details when present", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        lastAction: {
+          kind: "watchdog-recovery",
+          issueNumber: 133,
+          summary: "Recovered a stalled runner",
+          at: "2026-03-14T10:00:00.000Z",
+        },
+      }),
+      0,
+    );
+
+    expect(output).toContain("Last action:");
+    expect(output).toContain("watchdog-recovery #133");
+    expect(output).toContain("Recovered a stalled runner");
+  });
+
   it("renders Running section with no active agents message", () => {
     const output = formatSnapshotContent(makeSnapshot(), 0);
     expect(output).toContain("Running");
@@ -147,6 +167,156 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("12345");
     expect(output).toContain("4,521");
     expect(output).toContain("abcd...567890");
+  });
+
+  it("renders lifecycle stage from normalized active-issue status", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            lifecycle: {
+              status: "awaiting-system-checks",
+              summary: "Waiting for required checks",
+              pullRequest: {
+                number: 412,
+                url: "https://github.com/sociotechnica-org/symphony-ts/pull/412",
+                headSha: "abcdef123456",
+                latestCommitAt: "2026-03-14T10:00:00.000Z",
+              },
+              checks: {
+                pendingNames: ["build", "test"],
+                failingNames: [],
+              },
+              review: {
+                actionableCount: 0,
+                unresolvedThreadCount: 0,
+              },
+            },
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTotalTokens: 2200,
+            codexInputTokens: 1100,
+            codexOutputTokens: 1100,
+            codexAppServerPid: null,
+            lastCodexEvent: "turn/completed",
+            lastCodexMessage: { method: "turn/completed" },
+            lastCodexTimestamp: "2026-03-14T10:02:00.000Z",
+            runnerVisibility: makeRunnerVisibility({
+              state: "waiting",
+              phase: "awaiting-external",
+              session: {
+                ...makeRunnerVisibility().session,
+                provider: "claude-code",
+                model: "sonnet",
+                backendSessionId: "claude-session-1",
+                backendThreadId: null,
+                latestTurnNumber: 1,
+              },
+              waitingReason: "Waiting for CI",
+              lastActionSummary: "Waiting for required checks",
+            }),
+          },
+        ],
+      }),
+      0,
+      200,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    expect(output).toContain("system-checks");
+    expect(output).toContain("PR #412");
+    expect(output).toContain("checks p2 f0");
+  });
+
+  it("renders turn budget as turn n/N", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        maxTurns: 3,
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 2,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: "turn/completed",
+            lastCodexMessage: { method: "turn/completed" },
+            lastCodexTimestamp: "2026-03-14T10:02:00.000Z",
+            runnerVisibility: makeRunnerVisibility({
+              session: {
+                ...makeRunnerVisibility().session,
+                latestTurnNumber: 2,
+              },
+            }),
+          },
+        ],
+      }),
+      0,
+      200,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    expect(output).toContain("turn 2/3");
+  });
+
+  it("shows provider-model context and backend session identity", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: null,
+            turnCount: 1,
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: null,
+            lastCodexMessage: null,
+            lastCodexTimestamp: null,
+            runnerVisibility: makeRunnerVisibility({
+              session: {
+                ...makeRunnerVisibility().session,
+                provider: "codex",
+                model: "gpt-5.4",
+                backendSessionId: "thread-live-123-turn-2",
+                backendThreadId: "thread-live-123",
+                latestTurnNumber: 2,
+              },
+              stdoutSummary: JSON.stringify({
+                method: "thread/started",
+                params: { thread: { id: "thread-live-123" } },
+              }),
+            }),
+          },
+        ],
+      }),
+      0,
+      220,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    expect(output).toContain("codex/gpt-5.4");
+    expect(output).toContain("thre...turn-2");
+    expect(output).toContain("thread started (thread-live-123)");
   });
 
   it("renders agents count with max", () => {
@@ -645,7 +815,7 @@ describe("humanizeEvent", () => {
 
     expect(output).not.toContain("no codex message yet");
     expect(output).toContain("thread started (thread-live-123)");
-    expect(output).toContain("thread-abc");
+    expect(output).toContain("thre...turn-1");
   });
 
   it("falls back to runner action text when visibility has no stdout preview", () => {
@@ -959,7 +1129,7 @@ describe("StatusDashboard", () => {
     dashboard.stop();
 
     expect(rendered).toHaveLength(2);
-    expect(rendered[0]).toContain("thread");
+    expect(rendered[0]).toContain("codex/gpt-5.4");
     expect(rendered[1]).toContain("app_status=offline");
   });
 
@@ -1025,7 +1195,7 @@ describe("StatusDashboard", () => {
     dashboard.stop();
 
     expect(rendered).toHaveLength(2);
-    expect(rendered[0]).toContain("thread started (thread-live-123)");
+    expect(rendered[0]).toContain("thread sta");
     expect(rendered[1]).toContain("app_status=offline");
   });
 
@@ -1085,9 +1255,9 @@ describe("StatusDashboard", () => {
             phase: "awaiting-external",
             session: {
               ...makeRunnerVisibility().session,
-              model: "gpt-5.5",
+              model: "gpt-5.4",
               appServerPid: 54321,
-              latestTurnNumber: 2,
+              latestTurnNumber: 1,
             },
             stdoutSummary: JSON.stringify({
               method: "thread/started",
@@ -1101,7 +1271,7 @@ describe("StatusDashboard", () => {
     dashboard.stop();
 
     expect(rendered).toHaveLength(2);
-    expect(rendered[0]).toContain("thread started (thread-live-123)");
+    expect(rendered[0]).toContain("thread sta");
     expect(rendered[1]).toContain("app_status=offline");
   });
 });
