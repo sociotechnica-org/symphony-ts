@@ -651,9 +651,6 @@ export function selectFactoryUtf8Locale(
     }
   }
 
-  const utf8Locales = availableLocales
-    .filter((locale) => isUtf8Locale(locale))
-    .sort((left, right) => left.localeCompare(right));
   for (const preferredLocale of [
     "en_US.UTF-8",
     "en_US.utf8",
@@ -671,6 +668,9 @@ export function selectFactoryUtf8Locale(
     }
   }
 
+  const utf8Locales = availableLocales
+    .filter((locale) => isUtf8Locale(locale))
+    .sort((left, right) => left.localeCompare(right));
   const fallbackLocale = utf8Locales[0];
   if (fallbackLocale !== undefined) {
     return {
