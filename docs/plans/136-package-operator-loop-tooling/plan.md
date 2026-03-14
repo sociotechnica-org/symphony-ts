@@ -136,11 +136,12 @@ States:
 1. `idle`: loop not running
 2. `acquiring-lock`: startup path attempting to claim the local loop lock
 3. `sleeping`: loop is healthy and waiting for the next wake-up time
-4. `inspecting`: loop is gathering repo/factory/issue status for one cycle
-5. `acting`: loop is invoking the operator command for that cycle
-6. `recording`: loop is writing local-only status artifacts or logs
-7. `failed`: loop cannot continue because setup, locking, or command execution failed
-8. `stopping`: loop received shutdown and is releasing local state cleanly
+4. `retrying`: the last cycle failed and the loop is waiting for the next retry interval
+5. `inspecting`: loop is gathering repo/factory/issue status for one cycle
+6. `acting`: loop is invoking the operator command for that cycle
+7. `recording`: loop is writing local-only status artifacts or logs
+8. `failed`: loop cannot continue because setup, locking, or command execution failed
+9. `stopping`: loop received shutdown and is releasing local state cleanly
 
 Allowed transitions:
 
@@ -148,13 +149,16 @@ Allowed transitions:
 - `acquiring-lock -> sleeping`
 - `acquiring-lock -> failed`
 - `sleeping -> inspecting`
+- `retrying -> inspecting`
 - `inspecting -> acting`
 - `acting -> recording`
 - `recording -> sleeping`
+- `failed -> retrying`
 - `inspecting -> failed`
 - `acting -> failed`
 - `recording -> failed`
 - `sleeping -> stopping`
+- `retrying -> stopping`
 - `inspecting -> stopping`
 - `acting -> stopping`
 - `recording -> stopping`
@@ -167,14 +171,14 @@ Notes:
 
 ## Failure-Class Matrix
 
-| Observed condition                                   | Local facts available                                     | Expected decision                                                                                                                                     |
-| ---------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| packaged loop entry point missing or not executable  | clean clone, repo files present or validation fails       | fail clearly during setup and document the supported invocation                                                                                       |
-| second loop start attempted while local lock is held | lockfile exists and owner appears live                    | exit with a clear "already running" message rather than racing                                                                                        |
-| stale loop lock found                                | lockfile exists but owner is dead/unreadable              | clear or replace the stale lock using repo-owned rules; do not require manual `.ralph/` archaeology                                                   |
-| operator cycle command fails                         | repo commands or `gh` step exits non-zero                 | record failure in local status/log artifacts and continue or exit according to the existing loop contract; do not mutate factory policy in this issue |
-| detached factory is stopped or degraded              | `symphony factory status --json` reports stopped/degraded | surface the state in the loop's local status output; do not invent new runtime control logic                                                          |
-| `.ralph/` does not exist yet                         | clean clone or new machine                                | create only the local/generated directories/files needed at runtime; durable tooling must remain elsewhere                                            |
+| Observed condition                                   | Local facts available                                     | Expected decision                                                                                                                                          |
+| ---------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| packaged loop entry point missing or not executable  | clean clone, repo files present or validation fails       | fail clearly during setup and document the supported invocation                                                                                            |
+| second loop start attempted while local lock is held | lockfile exists and owner appears live                    | exit with a clear "already running" message rather than racing                                                                                             |
+| stale loop lock found                                | lockfile exists but owner is dead/unreadable              | clear or replace the stale lock using repo-owned rules; do not require manual `.ralph/` archaeology                                                        |
+| operator cycle command fails                         | repo commands or `gh` step exits non-zero                 | record failure in local status/log artifacts, expose a visible `retrying` wait state before the next cycle, and do not mutate factory policy in this issue |
+| detached factory is stopped or degraded              | `symphony factory status --json` reports stopped/degraded | surface the state in the loop's local status output; do not invent new runtime control logic                                                               |
+| `.ralph/` does not exist yet                         | clean clone or new machine                                | create only the local/generated directories/files needed at runtime; durable tooling must remain elsewhere                                                 |
 
 ## Storage And Persistence Contract
 

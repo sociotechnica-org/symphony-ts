@@ -256,10 +256,10 @@ if [ ! -f "$PROMPT_FILE" ]; then
 fi
 
 ensure_runtime_paths
-acquire_lock
 write_status "acquiring-lock" "Preparing operator loop runtime paths"
 trap on_signal INT TERM
 trap 'release_lock' EXIT
+acquire_lock
 
 if [ "$RUN_ONCE" -eq 1 ]; then
   if run_cycle; then
@@ -279,7 +279,7 @@ while [ "$STOPPING" -eq 0 ]; do
     write_status "sleeping" "Sleeping until next operator wake-up cycle"
   else
     NEXT_WAKE_AT="$(future_utc "$INTERVAL_SECONDS")"
-    write_status "sleeping" "Cycle failed; sleeping before retrying operator loop"
+    write_status "retrying" "Cycle failed; sleeping before retrying operator loop"
   fi
 
   sleep "$INTERVAL_SECONDS" || true
