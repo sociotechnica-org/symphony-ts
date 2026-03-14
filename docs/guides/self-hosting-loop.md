@@ -84,6 +84,11 @@ Symphony now has two status surfaces:
 For self-hosting operations, prefer `factory status` first, then `factory watch`
 when you want a live read-only monitor.
 
+The supported detached control path owns the UTF-8 terminal contract for the
+factory runtime: it selects an installed UTF-8 locale for detached startup,
+launches GNU Screen with `-U`, and fails clearly when the host cannot provide a
+usable UTF-8 locale.
+
 Do not use raw `screen -r symphony-factory` as the normal watch path. That
 attach path gives your terminal direct foreground ownership of the worker, so
 an accidental `Ctrl-C` can stop the detached factory.

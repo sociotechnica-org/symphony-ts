@@ -74,6 +74,11 @@ and use `factory status` when you want the detached runtime control state plus
 the embedded status snapshot. Operators should generally start with
 `factory status`, then use `factory watch` for continuous monitoring.
 
+The supported detached control path now normalizes the launched runtime to an
+installed UTF-8 locale and starts GNU Screen with `-U`. If the host does not
+provide any usable UTF-8 locale, `factory start` / `factory restart` fail
+clearly instead of silently launching a mojibake-prone TUI.
+
 For detached monitoring, do not use raw `screen -r symphony-factory` as the
 normal watch path. Attaching that way gives your terminal the worker's
 foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.

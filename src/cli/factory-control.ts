@@ -75,8 +75,14 @@ interface StatusSnapshotReadResult {
   readonly error: Error | null;
 }
 
+export interface FactoryUtf8LocaleSelection {
+  readonly locale: string;
+  readonly source: "inherited" | "fallback";
+}
+
 export interface FactoryControlDeps {
   readonly cwd?: () => string;
+  readonly environment?: () => NodeJS.ProcessEnv;
   readonly pathExists?: (targetPath: string) => Promise<boolean>;
   readonly loadWorkflowWorkspaceRoot?: (
     workflowPath: string,
@@ -84,10 +90,12 @@ export interface FactoryControlDeps {
   readonly readFile?: (filePath: string, encoding: "utf8") => Promise<string>;
   readonly listProcesses?: () => Promise<readonly HostProcessSnapshot[]>;
   readonly listScreenSessions?: () => Promise<readonly ScreenSessionSnapshot[]>;
+  readonly listAvailableLocales?: () => Promise<readonly string[]>;
   readonly launchScreenSession?: (options: {
     readonly runtimeRoot: string;
     readonly sessionName: string;
     readonly command: readonly string[];
+    readonly env: NodeJS.ProcessEnv;
   }) => Promise<void>;
   readonly quitScreenSession?: (sessionId: string) => Promise<void>;
   readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
@@ -161,9 +169,21 @@ export async function startFactory(
 
   const launchScreenSession =
     deps.launchScreenSession ?? defaultLaunchScreenSession;
+  const environment = deps.environment ?? (() => process.env);
+  const listAvailableLocales =
+    deps.listAvailableLocales ?? defaultListAvailableLocales;
   const removeFile = deps.removeFile ?? defaultRemoveFile;
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? (() => Date.now());
+  const launchEnvironment = createFactoryLaunchEnvironment(
+    environment(),
+    await listAvailableLocales().catch((error) => {
+      throw new Error(
+        "Factory detached TUI requires an installed UTF-8 locale, but installed locales could not be determined with 'locale -a'.",
+        { cause: error as Error },
+      );
+    }),
+  );
 
   await removeFile(paths.statusFilePath);
 
@@ -171,6 +191,7 @@ export async function startFactory(
     runtimeRoot: paths.runtimeRoot,
     sessionName: FACTORY_SCREEN_SESSION_NAME,
     command: createFactoryRunCommand(),
+    env: launchEnvironment,
   });
 
   const deadline = now() + START_TIMEOUT_MS;
@@ -590,6 +611,114 @@ function collectSnapshotProcessIds(
   return [...pids];
 }
 
+export function parseLocaleListOutput(output: string): readonly string[] {
+  return output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+export function selectFactoryUtf8Locale(
+  inheritedEnv: NodeJS.ProcessEnv,
+  availableLocales: readonly string[],
+): FactoryUtf8LocaleSelection {
+  const installedLocales = new Map<string, string>();
+  for (const locale of availableLocales) {
+    installedLocales.set(locale.toLowerCase(), locale);
+  }
+
+  const lcAll = inheritedEnv["LC_ALL"]?.trim() ?? "";
+  const inheritedCandidates =
+    lcAll.length > 0
+      ? [lcAll]
+      : collectUniqueLocaleCandidates([
+          inheritedEnv["LC_CTYPE"],
+          inheritedEnv["LANG"],
+        ]);
+  const overrideFallbackCandidates =
+    lcAll.length > 0
+      ? collectUniqueLocaleCandidates([
+          inheritedEnv["LC_CTYPE"],
+          inheritedEnv["LANG"],
+        ])
+      : [];
+
+  for (const candidate of inheritedCandidates) {
+    if (!isUtf8Locale(candidate)) {
+      continue;
+    }
+    const installed = installedLocales.get(candidate.toLowerCase());
+    if (installed !== undefined) {
+      return {
+        locale: installed,
+        source: "inherited",
+      };
+    }
+  }
+
+  for (const candidate of overrideFallbackCandidates) {
+    if (!isUtf8Locale(candidate)) {
+      continue;
+    }
+    const installed = installedLocales.get(candidate.toLowerCase());
+    if (installed !== undefined) {
+      return {
+        locale: installed,
+        source: "fallback",
+      };
+    }
+  }
+
+  for (const preferredLocale of [
+    "en_US.UTF-8",
+    "en_US.utf8",
+    "C.UTF-8",
+    "C.utf8",
+    "UTF-8",
+    "utf8",
+  ]) {
+    const installed = installedLocales.get(preferredLocale.toLowerCase());
+    if (installed !== undefined) {
+      return {
+        locale: installed,
+        source: "fallback",
+      };
+    }
+  }
+
+  const utf8Locales = availableLocales
+    .filter((locale) => isUtf8Locale(locale))
+    .sort((left, right) => left.localeCompare(right));
+  const fallbackLocale = utf8Locales[0];
+  if (fallbackLocale !== undefined) {
+    return {
+      locale: fallbackLocale,
+      source: "fallback",
+    };
+  }
+
+  const inheritedSummary =
+    inheritedCandidates.length > 0
+      ? ` Inherited locale candidates: ${inheritedCandidates.join(", ")}.`
+      : "";
+  throw new Error(
+    `Factory detached TUI requires an installed UTF-8 locale, but 'locale -a' reported none.${inheritedSummary}`,
+  );
+}
+
+export function createFactoryLaunchEnvironment(
+  inheritedEnv: NodeJS.ProcessEnv,
+  availableLocales: readonly string[],
+): NodeJS.ProcessEnv {
+  const { locale } = selectFactoryUtf8Locale(inheritedEnv, availableLocales);
+  return {
+    ...inheritedEnv,
+    LANG: locale,
+    LC_ALL: locale,
+    LC_CTYPE: locale,
+  };
+}
+
 async function readStatusSnapshot(
   filePath: string,
   deps: FactoryControlDeps,
@@ -661,15 +790,37 @@ async function defaultListScreenSessions(): Promise<
   }
 }
 
+async function defaultListAvailableLocales(): Promise<readonly string[]> {
+  try {
+    const { stdout } = await execFile("locale", ["-a"]);
+    return parseLocaleListOutput(stdout);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOEXEC") {
+      throw new Error(
+        "Could not run 'locale -a'. Install locale support before using detached factory control.",
+        { cause: error as Error },
+      );
+    }
+    throw error;
+  }
+}
+
 async function defaultLaunchScreenSession(options: {
   readonly runtimeRoot: string;
   readonly sessionName: string;
   readonly command: readonly string[];
+  readonly env: NodeJS.ProcessEnv;
 }): Promise<void> {
-  await execFile("screen", ["-dmS", options.sessionName, ...options.command], {
-    cwd: options.runtimeRoot,
-    timeout: 5_000,
-  });
+  await execFile(
+    "screen",
+    createFactoryScreenLaunchCommand(options.sessionName, options.command),
+    {
+      cwd: options.runtimeRoot,
+      env: options.env,
+      timeout: 5_000,
+    },
+  );
 }
 
 async function defaultQuitScreenSession(sessionId: string): Promise<void> {
@@ -715,4 +866,26 @@ export function createFactoryRunCommand(): readonly string[] {
     "run",
     FACTORY_RUN_GUARDRAILS_ACK_FLAG,
   ];
+}
+
+export function createFactoryScreenLaunchCommand(
+  sessionName: string,
+  command: readonly string[],
+): readonly string[] {
+  return ["-U", "-dmS", sessionName, ...command];
+}
+
+function isUtf8Locale(locale: string): boolean {
+  return /utf-?8/i.test(locale);
+}
+
+function collectUniqueLocaleCandidates(
+  candidates: ReadonlyArray<string | undefined>,
+): string[] {
+  return candidates
+    .map((value) => value?.trim() ?? "")
+    .filter(
+      (value, index, values) =>
+        value.length > 0 && values.indexOf(value) === index,
+    );
 }
