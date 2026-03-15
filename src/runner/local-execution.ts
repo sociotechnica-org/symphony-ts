@@ -4,13 +4,9 @@ import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
 import type { RunSession, RunUpdateEvent } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
+import { parseRunUpdateEvent } from "./run-update-event.js";
 import type { RunnerExecutionResult, RunnerRunOptions } from "./service.js";
 
-/**
- * Try to parse a single stdout line as a JSON event object.
- * Returns a RunUpdateEvent if the line is valid JSON with an event/method key,
- * or undefined otherwise.
- */
 function tryParseStdoutEvent(line: string): RunUpdateEvent | undefined {
   const trimmed = line.trim();
   if (trimmed === "") return undefined;
@@ -20,37 +16,7 @@ function tryParseStdoutEvent(line: string): RunUpdateEvent | undefined {
   } catch {
     return undefined;
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return undefined;
-  }
-  const obj = parsed as Record<string, unknown>;
-  // Prefer explicit "event" field, then drill into Codex JSON-RPC payload type
-  // (prefixed with codex/event/ to match wrapper event convention), then fall
-  // back to the raw "method" field.
-  const payloadType = extractPayloadType(obj);
-  const event =
-    typeof obj["event"] === "string"
-      ? obj["event"]
-      : payloadType !== undefined
-        ? `codex/event/${payloadType}`
-        : typeof obj["method"] === "string"
-          ? (obj["method"] as string)
-          : "unknown";
-  return { event, payload: parsed, timestamp: new Date().toISOString() };
-}
-
-function extractPayloadType(obj: Record<string, unknown>): string | undefined {
-  const params = obj["params"];
-  if (params === null || typeof params !== "object" || Array.isArray(params))
-    return undefined;
-  const msg = (params as Record<string, unknown>)["msg"];
-  if (msg === null || typeof msg !== "object" || Array.isArray(msg))
-    return undefined;
-  const payload = (msg as Record<string, unknown>)["payload"];
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload))
-    return undefined;
-  const type = (payload as Record<string, unknown>)["type"];
-  return typeof type === "string" ? type : undefined;
+  return parseRunUpdateEvent(parsed);
 }
 
 export interface LocalCommandExecutionOptions {

@@ -1,9 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
-import type { RunSession, RunTurn } from "../domain/run.js";
+import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { describeLocalRunnerSession } from "./local-session-description.js";
+import { parseRunUpdateEvent } from "./run-update-event.js";
 import {
   buildCodexAppServerCommand,
   type CodexAppServerCommand,
@@ -64,6 +65,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #nextTurnStartRequestId = TURN_START_FIRST_REQUEST_ID;
   #startupStderr = "";
   #currentOnEvent: ((event: RunnerEvent) => void | Promise<void>) | null = null;
+  #currentOnUpdate: ((event: RunUpdateEvent) => void) | null = null;
 
   constructor(config: AgentConfig, logger: Logger, session: RunSession) {
     this.#config = config;
@@ -121,6 +123,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
 
     try {
       this.#currentOnEvent = options?.onEvent ?? null;
+      this.#currentOnUpdate = options?.onUpdate ?? null;
       options?.signal?.addEventListener("abort", handleAbort, { once: true });
       await this.#emitVisibility({
         state: "starting",
@@ -137,6 +140,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       return await Promise.race([runPromise, timeoutPromise, abortPromise]);
     } finally {
       this.#currentOnEvent = null;
+      this.#currentOnUpdate = null;
       clearTimeout(timeoutHandle);
       options?.signal?.removeEventListener("abort", handleAbort);
     }
@@ -548,6 +552,20 @@ export class CodexAppServerSession implements LiveRunnerSession {
     if (message === null) {
       return;
     }
+
+    const update = parseRunUpdateEvent(payload);
+    if (update !== undefined) {
+      try {
+        this.#currentOnUpdate?.(update);
+      } catch (error) {
+        this.#logger.warn("Codex app-server onUpdate handler failed", {
+          runSessionId: this.#runSession.id,
+          error: error instanceof Error ? error.message : String(error),
+          event: update.event,
+        });
+      }
+    }
+
     if (message["id"] !== undefined) {
       this.#handleResponse(message);
       return;
