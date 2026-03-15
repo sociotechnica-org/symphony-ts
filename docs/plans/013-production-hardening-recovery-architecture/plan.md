@@ -2,7 +2,7 @@
 
 ## Status
 
-- plan-ready
+- approved
 
 ## Goal
 
