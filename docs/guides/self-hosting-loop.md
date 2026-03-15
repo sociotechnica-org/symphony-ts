@@ -41,7 +41,9 @@ For the bootstrap GitHub flow, Symphony can derive the workspace clone URL from
 
 That means the local orchestrator will poll the real `symphony-ts` GitHub repo
 and create issue branches inside local workspaces cloned from that same
-repository.
+repository. Startup now refreshes a local bare mirror under
+`.tmp/github/upstream` first, so those per-issue workspaces clone from the
+local mirror instead of directly from GitHub.
 
 ### 3. Create a real GitHub issue
 

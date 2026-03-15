@@ -1071,6 +1071,97 @@ agent:
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe("my-org/my-repo");
   });
 
+  it("resolves relative local workspace.repo_url values against WORKFLOW.md", async () => {
+    const dir = await createTempDir("workflow-local-repo-url-");
+    const workflowPath = path.join(dir, "nested", "WORKFLOW.md");
+    await fs.mkdir(path.dirname(workflowPath), { recursive: true });
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  endpoint: https://linear.example.test
+  api_key: linear-token
+  project_slug: symphony
+  assignee: worker@example.test
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: ../repos/local.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: generic-command
+  command: echo test
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.workspace.repoUrl).toBe(
+      path.resolve(path.dirname(workflowPath), "../repos/local.git"),
+    );
+  });
+
+  it("preserves scp-style workspace.repo_url values", async () => {
+    const dir = await createTempDir("workflow-scp-repo-url-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  endpoint: https://linear.example.test
+  api_key: linear-token
+  project_slug: symphony
+  assignee: worker@example.test
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: generic-command
+  command: echo test
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.workspace.repoUrl).toBe("git@example.com:repo.git");
+  });
+
   it("SYMPHONY_REPO overrides tracker.repo and derives repoUrl and GITHUB_REPO", async () => {
     process.env["SYMPHONY_REPO"] = "my-org/my-test-repo";
 

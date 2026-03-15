@@ -48,16 +48,20 @@ export async function commitAllFiles(
   return result.stdout.trim();
 }
 
-export async function createSeedRemote(): Promise<{
+export async function createSeedRemote(options?: {
+  readonly branch?: string;
+}): Promise<{
   readonly rootDir: string;
   readonly remotePath: string;
+  readonly seedPath: string;
 }> {
   const rootDir = await createTempDir("symphony-git-");
   const seedPath = path.join(rootDir, "seed");
   const remotePath = path.join(rootDir, "remote.git");
+  const branchName = options?.branch ?? "main";
   await fs.mkdir(seedPath, { recursive: true });
   await execFileAsync("git", ["init", "--bare", remotePath]);
-  await execFileAsync("git", ["init", "-b", "main"], { cwd: seedPath });
+  await execFileAsync("git", ["init", "-b", branchName], { cwd: seedPath });
   await execFileAsync("git", ["config", "user.name", "Symphony Test"], {
     cwd: seedPath,
   });
@@ -74,10 +78,15 @@ export async function createSeedRemote(): Promise<{
   await execFileAsync("git", ["remote", "add", "origin", remotePath], {
     cwd: seedPath,
   });
-  await execFileAsync("git", ["push", "-u", "origin", "main"], {
+  await execFileAsync("git", ["push", "-u", "origin", branchName], {
     cwd: seedPath,
   });
-  return { rootDir, remotePath };
+  await execFileAsync(
+    "git",
+    ["symbolic-ref", "HEAD", `refs/heads/${branchName}`],
+    { cwd: remotePath },
+  );
+  return { rootDir, remotePath, seedPath };
 }
 
 export async function readRemoteBranchFile(
