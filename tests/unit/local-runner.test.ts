@@ -5,6 +5,10 @@ import type { RunSession } from "../../src/domain/run.js";
 import type { AgentConfig } from "../../src/domain/workflow.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
+import {
+  createRunningEntry,
+  integrateCodexUpdate,
+} from "../../src/orchestrator/running-entry.js";
 import { ClaudeCodeRunner } from "../../src/runner/claude-code.js";
 import {
   buildClaudeResumeCommand,
@@ -107,6 +111,7 @@ function createClaudeCodeConfig(overrides?: Partial<AgentConfig>): AgentConfig {
 type FakeCodexMode =
   | "success"
   | "hang"
+  | "token-count-event-msg"
   | "turn-failed"
   | "turn-failed-null-params"
   | "turn-failed-without-params"
@@ -171,6 +176,21 @@ function completeTurn(turnId) {
   }
   if (mode === "malformed-stream") {
     process.stdout.write("not-json\\n");
+  }
+  if (mode === "token-count-event-msg") {
+    send({
+      type: "event_msg",
+      payload: {
+        type: "token_count",
+        info: {
+          total_token_usage: {
+            input_tokens: 123,
+            output_tokens: 45,
+            total_tokens: 168,
+          },
+        },
+      },
+    });
   }
   if (mode === "completed-null-params") {
     send({
@@ -921,6 +941,52 @@ describe("runners", () => {
         line: "not-json",
       }),
     );
+  });
+
+  it("forwards top-level event_msg token_count updates from the Codex app-server", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = createCodexRunnerForMode(fakeCodex, "token-count-event-msg");
+    const liveSession = await runner.startSession(createSession());
+    const updates: Array<{ event: string; payload: unknown }> = [];
+
+    try {
+      await liveSession.runTurn(
+        {
+          turnNumber: 1,
+          prompt: "first",
+        },
+        {
+          onUpdate(event) {
+            updates.push({ event: event.event, payload: event.payload });
+          },
+        },
+      );
+    } finally {
+      await liveSession.close();
+    }
+
+    expect(updates).toContainEqual(
+      expect.objectContaining({
+        event: "codex/event/token_count",
+      }),
+    );
+
+    const tokenUpdate = updates.find(
+      (event) => event.event === "codex/event/token_count",
+    );
+    expect(tokenUpdate).toBeDefined();
+
+    const entry = createRunningEntry(87, "sociotechnica-org/symphony-ts#87", "open", 1);
+    integrateCodexUpdate(entry, {
+      event: tokenUpdate?.event ?? "unknown",
+      payload: tokenUpdate?.payload ?? {},
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(entry.codexTokenState).toBe("observed");
+    expect(entry.codexInputTokens).toBe(123);
+    expect(entry.codexOutputTokens).toBe(45);
+    expect(entry.codexTotalTokens).toBe(168);
   });
 
   it("completes a Codex turn when turn/completed omits params", async () => {

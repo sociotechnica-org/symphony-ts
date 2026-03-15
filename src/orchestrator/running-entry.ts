@@ -64,6 +64,8 @@ function extractTokenDelta(
 ): TokenDelta {
   const inputRaw =
     getMapKey(payload, ["input_tokens", "inputTokens"]) ??
+    mapPath(payload, ["payload", "total_token_usage", "input_tokens"]) ??
+    mapPath(payload, ["payload", "info", "total_token_usage", "input_tokens"]) ??
     mapPath(payload, [
       "params",
       "msg",
@@ -92,6 +94,8 @@ function extractTokenDelta(
     mapPath(payload, ["usage", "input_tokens"]);
   const outputRaw =
     getMapKey(payload, ["output_tokens", "outputTokens"]) ??
+    mapPath(payload, ["payload", "total_token_usage", "output_tokens"]) ??
+    mapPath(payload, ["payload", "info", "total_token_usage", "output_tokens"]) ??
     mapPath(payload, [
       "params",
       "msg",
@@ -120,6 +124,8 @@ function extractTokenDelta(
     mapPath(payload, ["usage", "output_tokens"]);
   const totalRaw =
     getMapKey(payload, ["total_tokens", "totalTokens"]) ??
+    mapPath(payload, ["payload", "total_token_usage", "total_tokens"]) ??
+    mapPath(payload, ["payload", "info", "total_token_usage", "total_tokens"]) ??
     mapPath(payload, [
       "params",
       "msg",
@@ -197,6 +203,8 @@ function extractSessionId(
 ): string | null {
   const raw =
     getMapKey(payload, ["session_id", "sessionId"]) ??
+    mapPath(payload, ["payload", "sessionId"]) ??
+    mapPath(payload, ["payload", "session_id"]) ??
     mapPath(payload, ["params", "sessionId"]) ??
     mapPath(payload, ["params", "session_id"]) ??
     mapPath(payload, ["params", "msg", "payload", "session_id"]) ??

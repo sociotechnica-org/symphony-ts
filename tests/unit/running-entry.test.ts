@@ -94,6 +94,38 @@ describe("integrateCodexUpdate", () => {
     expect(entry.codexTokenState).toBe("observed");
   });
 
+  it("extracts tokens from top-level Codex event_msg payloads", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/token_count",
+      payload: {
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 123,
+              output_tokens: 45,
+              total_tokens: 168,
+            },
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      inputTokens: 123,
+      outputTokens: 45,
+      totalTokens: 168,
+    });
+    expect(entry.codexInputTokens).toBe(123);
+    expect(entry.codexOutputTokens).toBe(45);
+    expect(entry.codexTotalTokens).toBe(168);
+    expect(entry.codexTokenState).toBe("observed");
+  });
+
   it("extracts session ID from nested Codex JSON-RPC payload", () => {
     const entry = createRunningEntry(99, "issue-99", "open", 1);
 
