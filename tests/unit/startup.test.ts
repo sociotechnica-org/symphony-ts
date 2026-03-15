@@ -1,6 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { JsonLogger } from "../../src/observability/logger.js";
+import {
+  GitHubMirrorStartupPreparer,
+  deriveGitHubMirrorPath,
+} from "../../src/startup/github-mirror.js";
 import {
   createStartupPreparer,
   deriveStartupFilePath,
@@ -9,15 +16,21 @@ import {
   runStartupPreparation,
   type StartupPreparer,
 } from "../../src/startup/service.js";
-import { JsonLogger } from "../../src/observability/logger.js";
+import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import { isAbortError } from "../../src/support/abort.js";
-import { createTempDir } from "../support/git.js";
+import {
+  commitAllFiles,
+  createSeedRemote,
+  createTempDir,
+} from "../support/git.js";
+
+const execFile = promisify(execFileCallback);
 
 afterEach(() => {
   process.exitCode = undefined;
 });
 
-function createConfig(root: string) {
+function createConfig(root: string, repoUrl: string) {
   return {
     workflowPath: path.join(root, "WORKFLOW.md"),
     tracker: {
@@ -37,7 +50,7 @@ function createConfig(root: string) {
     },
     workspace: {
       root: path.join(root, ".tmp", "workspaces"),
-      repoUrl: "/tmp/repo.git",
+      repoUrl,
       branchPrefix: "symphony/",
       cleanupOnSuccess: false,
     },
@@ -60,15 +73,45 @@ function createConfig(root: string) {
   };
 }
 
+async function readFileAtRef(
+  repoPath: string,
+  ref: string,
+  filePath: string,
+): Promise<string> {
+  const result = await execFile("git", ["show", `${ref}:${filePath}`], {
+    cwd: repoPath,
+  });
+  return result.stdout;
+}
+
+function createIssue(number: number) {
+  return {
+    id: String(number),
+    identifier: `sociotechnica-org/symphony-ts#${number.toString()}`,
+    number,
+    title: `Issue ${number.toString()}`,
+    description: "desc",
+    labels: [],
+    state: "open" as const,
+    url: `https://example.test/issues/${number.toString()}`,
+    createdAt: "2026-03-14T12:00:00.000Z",
+    updatedAt: "2026-03-14T12:00:00.000Z",
+  };
+}
+
 describe("startup service", () => {
-  it("creates tracker-specific no-op preparers", () => {
-    const preparer = createStartupPreparer(createConfig("/tmp/repo"));
-    expect(preparer.id).toBe("github-bootstrap/noop");
+  it("creates a GitHub bootstrap mirror preparer", () => {
+    const preparer = createStartupPreparer(
+      createConfig("/tmp/repo", "/tmp/repo.git"),
+    );
+    expect(preparer).toBeInstanceOf(GitHubMirrorStartupPreparer);
+    expect(preparer.id).toBe("github-bootstrap/local-mirror");
   });
 
-  it("writes a ready startup snapshot for successful startup preparation", async () => {
-    const tempDir = await createTempDir("symphony-startup-ready-");
-    const config = createConfig(tempDir);
+  it("creates a local mirror and writes a ready startup snapshot", async () => {
+    const runtimeRoot = await createTempDir("symphony-startup-ready-");
+    const remote = await createSeedRemote();
+    const config = createConfig(runtimeRoot, remote.remotePath);
 
     try {
       const outcome = await runStartupPreparation({
@@ -78,25 +121,135 @@ describe("startup service", () => {
       });
 
       expect(outcome.kind).toBe("ready");
+      expect(outcome.provider).toBe("github-bootstrap/local-mirror");
+      expect(outcome.workspaceRepoUrlOverride).toBe(
+        deriveGitHubMirrorPath(config.workspace.root),
+      );
+
+      const mirrorResult = await execFile(
+        "git",
+        ["rev-parse", "--is-bare-repository"],
+        { cwd: deriveGitHubMirrorPath(config.workspace.root) },
+      );
+      expect(mirrorResult.stdout.trim()).toBe("true");
+
       const snapshot = await readStartupSnapshot(
         deriveStartupFilePath(config.workspace.root),
       );
       expect(snapshot).toMatchObject({
         state: "ready",
         workerPid: 3210,
-        provider: "github-bootstrap/noop",
+        provider: "github-bootstrap/local-mirror",
         runtimeIdentity: {
-          checkoutPath: tempDir,
+          checkoutPath: runtimeRoot,
         },
       });
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes an existing mirror and lets the workspace reuse it for newer upstream commits", async () => {
+    const runtimeRoot = await createTempDir("symphony-startup-refresh-");
+    const remote = await createSeedRemote();
+    const config = createConfig(runtimeRoot, remote.remotePath);
+    const logger = new JsonLogger();
+
+    try {
+      const firstStartup = await runStartupPreparation({
+        config,
+        logger,
+      });
+      expect(firstStartup.kind).toBe("ready");
+      if (firstStartup.kind !== "ready") {
+        throw new Error("expected startup success");
+      }
+
+      const workspace = new LocalWorkspaceManager(
+        {
+          ...config.workspace,
+          repoUrl:
+            firstStartup.workspaceRepoUrlOverride ?? config.workspace.repoUrl,
+        },
+        [],
+        logger,
+      );
+
+      const firstPrepared = await workspace.prepareWorkspace({
+        issue: createIssue(88),
+      });
+      expect(
+        await readFileAtRef(firstPrepared.path, "HEAD", "README.md"),
+      ).toContain("# mock repo");
+
+      await fs.writeFile(
+        path.join(remote.seedPath, "README.md"),
+        "# refreshed repo\n",
+        "utf8",
+      );
+      await commitAllFiles(remote.seedPath, "refresh upstream");
+      await execFile("git", ["push", "origin", "HEAD"], {
+        cwd: remote.seedPath,
+      });
+
+      const secondStartup = await runStartupPreparation({
+        config,
+        logger,
+      });
+      expect(secondStartup.kind).toBe("ready");
+
+      const secondPrepared = await workspace.prepareWorkspace({
+        issue: createIssue(88),
+      });
+      expect(secondPrepared.createdNow).toBe(false);
+      expect(
+        await readFileAtRef(secondPrepared.path, "HEAD", "README.md"),
+      ).toContain("# refreshed repo");
+
+      const remoteUrl = await execFile(
+        "git",
+        ["config", "--get", "remote.origin.url"],
+        { cwd: secondPrepared.path },
+      );
+      expect(remoteUrl.stdout.trim()).toBe(
+        deriveGitHubMirrorPath(config.workspace.root),
+      );
+    } finally {
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports a clear startup failure when mirror setup cannot reach the source", async () => {
+    const runtimeRoot = await createTempDir("symphony-startup-mirror-fail-");
+    const config = createConfig(
+      runtimeRoot,
+      path.join(runtimeRoot, "missing", "remote.git"),
+    );
+
+    try {
+      const outcome = await runStartupPreparation({
+        config,
+        logger: new JsonLogger(),
+        workerPid: 6543,
+      });
+
+      expect(outcome.kind).toBe("failed");
+      expect(outcome.provider).toBe("github-bootstrap/local-mirror");
+      expect(outcome.summary).toContain("GitHub bootstrap mirror setup failed");
+      expect(outcome.summary).toContain(config.workspace.repoUrl);
+      expect(outcome.summary).toContain(
+        deriveGitHubMirrorPath(config.workspace.root),
+      );
+    } finally {
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
     }
   });
 
   it("persists an explicit failed startup snapshot when the preparer fails", async () => {
     const tempDir = await createTempDir("symphony-startup-failed-");
-    const config = createConfig(tempDir);
+    const config = createConfig(tempDir, "/tmp/repo.git");
     const preparer: StartupPreparer = {
       id: "github-bootstrap/test-failure",
       async prepare() {
@@ -136,7 +289,7 @@ describe("startup service", () => {
 
   it("rethrows AbortError without overwriting the preparing snapshot", async () => {
     const tempDir = await createTempDir("symphony-startup-abort-");
-    const config = createConfig(tempDir);
+    const config = createConfig(tempDir, "/tmp/repo.git");
     const preparer: StartupPreparer = {
       id: "github-bootstrap/test-abort",
       async prepare() {

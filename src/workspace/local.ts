@@ -59,6 +59,54 @@ async function branchAheadCount(
   return Number(result.stdout.trim() || "0");
 }
 
+async function syncOriginHead(cwd: string): Promise<void> {
+  try {
+    await execFileAsync("git", ["remote", "set-head", "origin", "--auto"], {
+      cwd,
+    });
+  } catch {
+    // Some remotes do not advertise HEAD; default-branch resolution handles
+    // the explicit fallback/error path after fetch.
+  }
+}
+
+async function remoteRefExists(cwd: string, refName: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["show-ref", "--verify", "--quiet", refName], {
+      cwd,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveDefaultBranch(cwd: string): Promise<string> {
+  try {
+    const result = await execFileAsync(
+      "git",
+      ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+      { cwd },
+    );
+    const branchRef = result.stdout.trim();
+    if (branchRef.startsWith("origin/")) {
+      return branchRef.slice("origin/".length);
+    }
+  } catch {
+    // Fall through to explicit fallback refs below.
+  }
+
+  for (const branchName of ["main", "master"]) {
+    if (await remoteRefExists(cwd, `refs/remotes/origin/${branchName}`)) {
+      return branchName;
+    }
+  }
+
+  throw new WorkspaceError(
+    `Could not resolve the default branch for origin in ${cwd}. Expected refs/remotes/origin/HEAD or a known fallback branch.`,
+  );
+}
+
 export class LocalWorkspaceManager implements WorkspaceManager {
   readonly #config: WorkspaceConfig;
   readonly #afterCreate: readonly string[];
@@ -99,6 +147,9 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     }
 
     await execFileAsync("git", ["fetch", "origin"], { cwd: workspacePath });
+    await syncOriginHead(workspacePath);
+    const defaultBranch = await resolveDefaultBranch(workspacePath);
+    const defaultBranchRef = `origin/${defaultBranch}`;
     const hasBranch = await branchExists(workspacePath, branchName);
     const hasRemoteTrackingBranch = await remoteTrackingBranchExists(
       workspacePath,
@@ -113,15 +164,21 @@ export class LocalWorkspaceManager implements WorkspaceManager {
         cwd: workspacePath,
       });
     } else {
-      await execFileAsync("git", ["checkout", "main"], { cwd: workspacePath });
-      await execFileAsync("git", ["reset", "--hard", "origin/main"], {
+      await execFileAsync(
+        "git",
+        ["checkout", "-B", defaultBranch, defaultBranchRef],
+        {
+          cwd: workspacePath,
+        },
+      );
+      await execFileAsync("git", ["reset", "--hard", defaultBranchRef], {
         cwd: workspacePath,
       });
 
       if (hasBranch) {
         const aheadCount = await branchAheadCount(
           workspacePath,
-          "origin/main",
+          defaultBranchRef,
           branchName,
         );
         if (aheadCount > 0) {
@@ -134,7 +191,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
         await execFileAsync("git", ["checkout", branchName], {
           cwd: workspacePath,
         });
-        await execFileAsync("git", ["reset", "--hard", "origin/main"], {
+        await execFileAsync("git", ["reset", "--hard", defaultBranchRef], {
           cwd: workspacePath,
         });
       } else {
@@ -148,6 +205,8 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       workspacePath,
       issueIdentifier: issue.identifier,
       branchName,
+      repoUrl: this.#config.repoUrl,
+      defaultBranch,
       createdNow: !exists,
     });
 

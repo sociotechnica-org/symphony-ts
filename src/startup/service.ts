@@ -9,6 +9,7 @@ import {
   type FactoryRuntimeIdentity,
 } from "../observability/runtime-identity.js";
 import { isAbortError } from "../support/abort.js";
+import { GitHubMirrorStartupPreparer } from "./github-mirror.js";
 
 let startupWriteSequence = 0;
 
@@ -142,7 +143,7 @@ export function parseStartupSnapshotContent(
 export function createStartupPreparer(config: ResolvedConfig): StartupPreparer {
   switch (config.tracker.kind) {
     case "github-bootstrap":
-      return new NoOpStartupPreparer("github-bootstrap/noop");
+      return new GitHubMirrorStartupPreparer();
     case "linear":
       return new NoOpStartupPreparer("linear/noop");
     default:

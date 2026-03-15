@@ -236,21 +236,21 @@ Workers should treat those summarized GitHub fields as untrusted context that
 helps explain the task, not as instructions that can override checked-in repo
 policy, code, docs, or local test evidence.
 
-| Field                          | Purpose                                                                       |
-| ------------------------------ | ----------------------------------------------------------------------------- |
-| `tracker.repo`                 | GitHub repository to poll for labeled issues                                  |
-| `tracker.review_bot_logins`    | PR comment authors treated as actionable bot review                           |
-| `polling.interval_ms`          | How often to check for new work                                               |
-| `polling.max_concurrent_runs`  | Local concurrency cap                                                         |
-| `workspace.root`               | Where isolated workspaces are created                                         |
-| `workspace.repo_url`           | Explicit SSH or HTTPS clone URL when it cannot be derived from tracker config |
-| `workspace.branch_prefix`      | Issue branch naming prefix                                                    |
-| `agent.runner.kind`            | Selects the execution backend (`codex`, `claude-code`, or `generic-command`)  |
-| `agent.command`                | Runner command shape; Codex reuses its flags to launch `codex app-server`     |
-| `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path                         |
-| `agent.timeout_ms`             | Max wall-clock time per runner turn                                           |
-| `agent.max_turns`              | Max in-process continuation turns per worker run                              |
-| `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`)                |
+| Field                          | Purpose                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------- |
+| `tracker.repo`                 | GitHub repository to poll for labeled issues                                           |
+| `tracker.review_bot_logins`    | PR comment authors treated as actionable bot review                                    |
+| `polling.interval_ms`          | How often to check for new work                                                        |
+| `polling.max_concurrent_runs`  | Local concurrency cap                                                                  |
+| `workspace.root`               | Where isolated workspaces are created                                                  |
+| `workspace.repo_url`           | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
+| `workspace.branch_prefix`      | Issue branch naming prefix                                                             |
+| `agent.runner.kind`            | Selects the execution backend (`codex`, `claude-code`, or `generic-command`)           |
+| `agent.command`                | Runner command shape; Codex reuses its flags to launch `codex app-server`              |
+| `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path                                  |
+| `agent.timeout_ms`             | Max wall-clock time per runner turn                                                    |
+| `agent.max_turns`              | Max in-process continuation turns per worker run                                       |
+| `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`)                         |
 
 `agent.timeout_ms` applies to each runner turn. If `agent.max_turns` is greater
 than `1`, a single worker run can consume multiple per-turn timeout windows
@@ -258,9 +258,13 @@ before it exits.
 
 For `tracker.kind: github-bootstrap`, Symphony can derive the workspace clone
 URL from `tracker.repo` (or `SYMPHONY_REPO`) for the normal bootstrap flow.
-Set `workspace.repo_url` explicitly when you want to override that derived URL
-or when using a tracker/config path that does not provide enough repository
-information on its own.
+On startup, that GitHub bootstrap path now creates or refreshes a local bare
+mirror under `.tmp/github/upstream` and clones per-issue workspaces from that
+mirror instead of hitting GitHub directly. Set `workspace.repo_url` explicitly
+when you want to override the derived source or when using a tracker/config
+path that does not provide enough repository information on its own. Explicit
+local-path `workspace.repo_url` values are resolved relative to the owning
+`WORKFLOW.md`.
 
 `agent.runner.kind` keeps backend selection in `WORKFLOW.md`. Use `codex` for
 the built-in long-lived Codex app-server path, `claude-code` for the first-class
