@@ -193,15 +193,15 @@ The seam should not decide from:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized startup/workspace facts available | Expected decision |
-| --- | --- | --- | --- |
-| Mirror path absent on first startup | configured source URL/path, target mirror path | no existing mirror | create bare mirror, return local override path |
-| Mirror exists and source has new commits | existing mirror repo, configured source, `git remote update --prune` succeeds | remote HEAD resolves to current default branch | reuse mirror path, workspace later fetches new refs from mirror |
-| Mirror exists but configured source remote is unreachable | existing mirror repo, git error text | startup provider selected for GitHub bootstrap | fail startup loudly with provider/source/mirror path in the error summary; do not silently use stale data |
-| Configured `workspace.repo_url` is a relative local path | workflow path, raw config value | config resolves absolute repo path | use resolved absolute path as the source remote for mirror creation or direct workspace cloning |
-| Workspace clone source remote default branch is `master` | workspace git checkout, `refs/remotes/origin/HEAD` resolves to `origin/master` | default branch resolved as `master` | reset workspace to `origin/master` before issue-branch handling |
-| Source remote has no `origin/HEAD` symbolic ref but `origin/main` exists | workspace git checkout | `origin/HEAD` absent, `origin/main` exists | fall back to `main` and proceed |
-| Source remote has neither `origin/HEAD` nor known fallback refs | workspace git checkout, git verification failure | no default branch resolved | fail workspace preparation loudly with diagnosable error |
+| Observed condition                                                       | Local facts available                                                          | Normalized startup/workspace facts available   | Expected decision                                                                                         |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Mirror path absent on first startup                                      | configured source URL/path, target mirror path                                 | no existing mirror                             | create bare mirror, return local override path                                                            |
+| Mirror exists and source has new commits                                 | existing mirror repo, configured source, `git remote update --prune` succeeds  | remote HEAD resolves to current default branch | reuse mirror path, workspace later fetches new refs from mirror                                           |
+| Mirror exists but configured source remote is unreachable                | existing mirror repo, git error text                                           | startup provider selected for GitHub bootstrap | fail startup loudly with provider/source/mirror path in the error summary; do not silently use stale data |
+| Configured `workspace.repo_url` is a relative local path                 | workflow path, raw config value                                                | config resolves absolute repo path             | use resolved absolute path as the source remote for mirror creation or direct workspace cloning           |
+| Workspace clone source remote default branch is `master`                 | workspace git checkout, `refs/remotes/origin/HEAD` resolves to `origin/master` | default branch resolved as `master`            | reset workspace to `origin/master` before issue-branch handling                                           |
+| Source remote has no `origin/HEAD` symbolic ref but `origin/main` exists | workspace git checkout                                                         | `origin/HEAD` absent, `origin/main` exists     | fall back to `main` and proceed                                                                           |
+| Source remote has neither `origin/HEAD` nor known fallback refs          | workspace git checkout, git verification failure                               | no default branch resolved                     | fail workspace preparation loudly with diagnosable error                                                  |
 
 ## Storage / Persistence Contract
 
