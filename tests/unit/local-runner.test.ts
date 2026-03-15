@@ -976,7 +976,12 @@ describe("runners", () => {
     );
     expect(tokenUpdate).toBeDefined();
 
-    const entry = createRunningEntry(87, "sociotechnica-org/symphony-ts#87", "open", 1);
+    const entry = createRunningEntry(
+      87,
+      "sociotechnica-org/symphony-ts#87",
+      "open",
+      1,
+    );
     integrateCodexUpdate(entry, {
       event: tokenUpdate?.event ?? "unknown",
       payload: tokenUpdate?.payload ?? {},

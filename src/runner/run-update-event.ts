@@ -3,7 +3,11 @@ import type { RunUpdateEvent } from "../domain/run.js";
 export function parseRunUpdateEvent(
   payload: unknown,
 ): RunUpdateEvent | undefined {
-  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
     return undefined;
   }
 
