@@ -286,7 +286,7 @@ Phase 6 needs one explicit coordination-owned model even if individual child iss
 9. `completed`
    - the issue reached a successful terminal handoff
 10. `failed-terminal`
-   - the issue reached a non-retryable or budget-exhausted terminal failure
+    - the issue reached a non-retryable or budget-exhausted terminal failure
 
 ### Recovery Posture States
 
@@ -334,18 +334,18 @@ Invalid transitions that follow-up issues should avoid:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected coordination decision |
-| --- | --- | --- | --- |
-| Factory receives shutdown while runner is active | active run ownership, runner PID/session, shutdown signal | issue still in running lifecycle | move to `cleanup-pending`; attempt graceful runner cancellation; preserve recoverable state if shutdown interrupts completion |
-| Process restarts and finds a `running` issue with healthy owner and live runner | durable lease/ownership, live PID, current runtime not authoritative yet | issue marked running | classify as `reconciling`; do not double-dispatch; either adopt or explicitly recover per ownership contract |
-| Process restarts and finds `running` issue with stale owner and dead runner | stale lease, dead owner PID, no runner | issue marked running, no terminal PR state | classify `orphaned`; requeue through retry path if budget remains, otherwise fail terminally |
-| Process restarts and finds `running` issue with stale owner but live orphaned runner | stale owner PID, live runner PID | issue marked running | terminate orphaned runner through execution seam, then reconcile to retry or terminal failure |
-| Runner exits with transient failure and retry budget remains | run result, retry counters, watchdog/recovery counters | issue still eligible | enqueue `retry-scheduled` entry with bounded backoff and visible failure summary |
-| Runner exits with non-retryable failure or retry budget exhausted | run result, exhausted counters | issue still active or waiting | move to `cleanup-pending`, then `failed-terminal`; publish actionable diagnostics |
-| No runner progress beyond stall threshold but recovery budget remains | watchdog state, liveness probe, runner PID | issue still active | classify `stalled-suspected`; abort and move through `recovering` to `retry-scheduled` |
-| Issue is waiting on plan review / PR review / CI | no local runner, normalized blocked reason | waiting lifecycle present | classify `awaiting-external` + `waiting-expected`; do not consume retry budget |
-| Status snapshot missing or stale after restart | no current snapshot or stale publication metadata | tracker may still show active work | keep orchestration truth in coordination; mark observability `degraded`/`restart-recovery`, not terminal |
-| Workspace cleanup fails after terminal outcome | terminal issue result, cleanup error | tracker may already reflect terminal state | keep terminal issue outcome, record `cleanup-pending`/degraded cleanup diagnostics, and surface operator actionability |
+| Observed condition                                                                   | Local facts available                                                    | Normalized tracker facts available         | Expected coordination decision                                                                                                |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Factory receives shutdown while runner is active                                     | active run ownership, runner PID/session, shutdown signal                | issue still in running lifecycle           | move to `cleanup-pending`; attempt graceful runner cancellation; preserve recoverable state if shutdown interrupts completion |
+| Process restarts and finds a `running` issue with healthy owner and live runner      | durable lease/ownership, live PID, current runtime not authoritative yet | issue marked running                       | classify as `reconciling`; do not double-dispatch; either adopt or explicitly recover per ownership contract                  |
+| Process restarts and finds `running` issue with stale owner and dead runner          | stale lease, dead owner PID, no runner                                   | issue marked running, no terminal PR state | classify `orphaned`; requeue through retry path if budget remains, otherwise fail terminally                                  |
+| Process restarts and finds `running` issue with stale owner but live orphaned runner | stale owner PID, live runner PID                                         | issue marked running                       | terminate orphaned runner through execution seam, then reconcile to retry or terminal failure                                 |
+| Runner exits with transient failure and retry budget remains                         | run result, retry counters, watchdog/recovery counters                   | issue still eligible                       | enqueue `retry-scheduled` entry with bounded backoff and visible failure summary                                              |
+| Runner exits with non-retryable failure or retry budget exhausted                    | run result, exhausted counters                                           | issue still active or waiting              | move to `cleanup-pending`, then `failed-terminal`; publish actionable diagnostics                                             |
+| No runner progress beyond stall threshold but recovery budget remains                | watchdog state, liveness probe, runner PID                               | issue still active                         | classify `stalled-suspected`; abort and move through `recovering` to `retry-scheduled`                                        |
+| Issue is waiting on plan review / PR review / CI                                     | no local runner, normalized blocked reason                               | waiting lifecycle present                  | classify `awaiting-external` + `waiting-expected`; do not consume retry budget                                                |
+| Status snapshot missing or stale after restart                                       | no current snapshot or stale publication metadata                        | tracker may still show active work         | keep orchestration truth in coordination; mark observability `degraded`/`restart-recovery`, not terminal                      |
+| Workspace cleanup fails after terminal outcome                                       | terminal issue result, cleanup error                                     | tracker may already reflect terminal state | keep terminal issue outcome, record `cleanup-pending`/degraded cleanup diagnostics, and surface operator actionability        |
 
 ## Storage And Persistence Contract
 
