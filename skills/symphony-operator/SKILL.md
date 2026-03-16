@@ -31,14 +31,19 @@ scratchpad, status snapshots, logs, and loop lock files.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
 4. Compare the supported live watch/TUI surface against `factory status --json` whenever practical. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
-5. If the factory is unhealthy, fix the concrete problem and restart it.
-6. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-7. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
+5. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
+   - any active issue waiting in `plan-ready` / `awaiting-human-handoff`
+   - any PR or active issue waiting in `awaiting-landing-command`
+6. If the factory is unhealthy, fix the concrete problem and restart it.
+7. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
+8. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
    - `Plan review: approved`
    - `Plan review: changes-requested`
    - `Plan review: waived` (record why in the comment)
-8. After posting a review decision, verify the factory acknowledges it and transitions correctly.
-9. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+9. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
+10. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
+11. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
+12. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
 
@@ -78,7 +83,13 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 - Greptile and Bugbot comments count as review feedback.
 - Do not treat "all threads resolved" as sufficient by itself. Before merging, also check for top-level bot review comments or review summaries that still contain unaddressed actionable feedback.
 - Low-severity cleanup comments can be answered instead of fixed only when the tradeoff is explicit and defensible.
-- When a PR is green and review-clean, the operator may issue `/land` on the PR without waiting for separate human intervention. This is the normal way to keep the factory moving overnight.
+- Plan review and landing are default operator duties, not optional extras:
+  - each wake-up should check for `plan-ready` issues and decide `approved`, `changes-requested`, or `waived`
+  - each wake-up should check for review-clean PRs waiting on `/land` and post it when the guard conditions are satisfied
+- Landing is not complete at merge observation alone:
+  - after a landed PR merges, the operator should pull the latest `origin/main` into the root checkout and `.tmp/factory-main`
+  - then restart the detached factory from that refreshed runtime before allowing the next queued issue to proceed
+- When a PR is green and review-clean, the operator should issue `/land` on the PR without waiting for separate human intervention unless the user has explicitly reserved landing for themselves. This is the normal way to keep the factory moving overnight.
 - `/land` is appropriate only when:
   - required CI is green,
   - actionable review feedback has been addressed,
