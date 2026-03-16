@@ -166,15 +166,15 @@ Allowed transitions in this slice stay the same as the current GitHub implementa
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| `tracker.kind: github` workflow loads with full GitHub fields | front matter plus env | n/a | resolve the maintained GitHub config and construct the maintained tracker |
-| legacy `tracker.kind: github-bootstrap` workflow loads | front matter plus env | n/a | preserve current behavior through the compatibility path |
-| maintained GitHub issue is ready and claimable | issue labels from tracker read | ready issue snapshot | claim through tracker write path and return normalized running issue |
-| branch has no PR, but plan-review comment is `plan-ready` with no accepted review marker | issue comments and issue timestamp | `awaiting-human-handoff` lifecycle | orchestrator waits; no retry/failure branch is added |
-| branch has no PR and no waiting handoff signal | issue comments/PR lookup | `missing-target` lifecycle | preserve existing missing-target behavior |
-| PR exists with pending checks or unresolved human review feedback | checks/reviews/comments from tracker reads | normalized waiting lifecycle | orchestrator waits on normalized lifecycle, not GitHub-specific branches |
-| workflow selects unsupported GitHub variant beyond this slice | config only | n/a | fail fast in config/docs rather than silently inventing semantics |
+| Observed condition                                                                       | Local facts available                      | Normalized tracker facts available | Expected decision                                                         |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------- |
+| `tracker.kind: github` workflow loads with full GitHub fields                            | front matter plus env                      | n/a                                | resolve the maintained GitHub config and construct the maintained tracker |
+| legacy `tracker.kind: github-bootstrap` workflow loads                                   | front matter plus env                      | n/a                                | preserve current behavior through the compatibility path                  |
+| maintained GitHub issue is ready and claimable                                           | issue labels from tracker read             | ready issue snapshot               | claim through tracker write path and return normalized running issue      |
+| branch has no PR, but plan-review comment is `plan-ready` with no accepted review marker | issue comments and issue timestamp         | `awaiting-human-handoff` lifecycle | orchestrator waits; no retry/failure branch is added                      |
+| branch has no PR and no waiting handoff signal                                           | issue comments/PR lookup                   | `missing-target` lifecycle         | preserve existing missing-target behavior                                 |
+| PR exists with pending checks or unresolved human review feedback                        | checks/reviews/comments from tracker reads | normalized waiting lifecycle       | orchestrator waits on normalized lifecycle, not GitHub-specific branches  |
+| workflow selects unsupported GitHub variant beyond this slice                            | config only                                | n/a                                | fail fast in config/docs rather than silently inventing semantics         |
 
 ## Implementation Steps
 
