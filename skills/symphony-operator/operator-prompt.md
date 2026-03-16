@@ -9,8 +9,12 @@ Required workflow:
 3. Inspect the detached factory via `pnpm tsx bin/symphony.ts factory status --json` as the primary source of truth.
 4. Inspect the live watch surface when useful, but treat `factory status --json` as canonical.
 5. Review active issues, PRs, CI, and automated review feedback.
-6. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
-7. Update `.ralph/operator-scratchpad.md` before finishing the cycle.
+6. As mandatory operator checkpoints for this wake-up, explicitly:
+   - review any active `plan-ready` / `awaiting-human-handoff` issue and post a plan decision,
+   - post `/land` on any PR waiting in `awaiting-landing-command` once it is green and review-clean,
+   - and after any successful landing, pull latest `origin/main`, refresh `.tmp/factory-main`, and restart the detached factory from that merged code.
+7. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
+8. Update `.ralph/operator-scratchpad.md` before finishing the cycle.
 
 Constraints:
 
