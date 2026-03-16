@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { RunSession } from "../../src/domain/run.js";
-import type { AgentConfig } from "../../src/domain/workflow.js";
+import type {
+  AgentConfig,
+  GenericCommandRunnerConfig,
+} from "../../src/domain/workflow.js";
 import { RunnerAbortedError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {
@@ -80,10 +83,14 @@ function createLoggerSpy(): Logger {
   };
 }
 
-function createGenericCommandConfig(command: string): AgentConfig {
+function createGenericCommandConfig(
+  command: string,
+  runnerOverrides: Omit<GenericCommandRunnerConfig, "kind"> = {},
+): AgentConfig {
   return {
     runner: {
       kind: "generic-command",
+      ...runnerOverrides,
     },
     command,
     promptTransport: "stdin",
@@ -345,6 +352,27 @@ describe("runners", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "generic-command",
       model: null,
+      backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      appServerPid: null,
+      latestTurnNumber: null,
+      logPointers: [],
+    });
+  });
+
+  it("describes generic command sessions with configured provider and model metadata", () => {
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig("pi --print", {
+        provider: "pi",
+        model: "pi-pro",
+      }),
+      new JsonLogger(),
+    );
+
+    expect(runner.describeSession(createSession())).toEqual({
+      provider: "pi",
+      model: "pi-pro",
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,

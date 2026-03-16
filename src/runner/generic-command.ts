@@ -1,5 +1,8 @@
 import type { RunSession } from "../domain/run.js";
-import type { AgentConfig } from "../domain/workflow.js";
+import type {
+  AgentConfig,
+  GenericCommandRunnerConfig,
+} from "../domain/workflow.js";
 import { RunnerError } from "../domain/errors.js";
 import type { Logger } from "../observability/logger.js";
 import { executeLocalRunnerCommand } from "./local-execution.js";
@@ -10,10 +13,12 @@ import type {
   RunnerSessionDescription,
 } from "./service.js";
 
-function describeGenericCommandSession(): RunnerSessionDescription {
+function describeGenericCommandSession(
+  config: GenericCommandRunnerConfig,
+): RunnerSessionDescription {
   return {
-    provider: "generic-command",
-    model: null,
+    provider: config.provider ?? "generic-command",
+    model: config.model ?? null,
     backendSessionId: null,
     backendThreadId: null,
     latestTurnId: null,
@@ -25,6 +30,7 @@ function describeGenericCommandSession(): RunnerSessionDescription {
 
 export class GenericCommandRunner implements Runner {
   readonly #config: AgentConfig;
+  readonly #runnerConfig: GenericCommandRunnerConfig;
   readonly #logger: Logger;
 
   constructor(config: AgentConfig, logger: Logger) {
@@ -35,11 +41,12 @@ export class GenericCommandRunner implements Runner {
     }
 
     this.#config = config;
+    this.#runnerConfig = config.runner;
     this.#logger = logger;
   }
 
   describeSession(_session: RunSession): RunnerSessionDescription {
-    return describeGenericCommandSession();
+    return describeGenericCommandSession(this.#runnerConfig);
   }
 
   async run(

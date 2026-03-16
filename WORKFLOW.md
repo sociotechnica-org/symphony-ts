@@ -39,6 +39,12 @@ agent:
   # runner:
   #   kind: claude-code
   # command: claude -p --output-format json --permission-mode bypassPermissions --model sonnet
+  # Generic backend metadata example:
+  # runner:
+  #   kind: generic-command
+  #   provider: pi
+  #   model: pi-pro
+  # command: pi --print
   prompt_transport: stdin
   timeout_ms: 5400000
   max_turns: 20

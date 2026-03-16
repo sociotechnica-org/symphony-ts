@@ -307,11 +307,17 @@ Claude-specific session semantics:
 agent:
   runner:
     kind: generic-command
-  command: claude --print
+    provider: pi
+    model: pi-pro
+  command: pi --print
   prompt_transport: stdin
   timeout_ms: 1800000
   max_turns: 20
 ```
+
+`provider` and `model` are optional repo-owned metadata for observability.
+Use them when the command launches another backend such as Pi so status,
+artifacts, and reports show a stable identity instead of the generic default.
 
 The prompt template below the YAML front matter uses Liquid syntax with access to `issue`, `config`, and `pull_request` variables. See the checked-in [`WORKFLOW.md`](WORKFLOW.md) for the full template.
 

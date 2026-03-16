@@ -549,7 +549,7 @@ function resolveAgentRunnerConfig(
     case "codex":
       return { kind: "codex" };
     case "generic-command":
-      return { kind: "generic-command" };
+      return resolveGenericCommandRunnerConfig(runner);
     case "claude-code":
       return { kind: "claude-code" };
     default:
@@ -564,7 +564,25 @@ function inferAgentRunnerConfig(command: string): AgentRunnerConfig {
     return { kind: "codex" };
   }
 
-  return { kind: "generic-command" };
+  return {
+    kind: "generic-command",
+  };
+}
+
+function resolveGenericCommandRunnerConfig(
+  runner: Readonly<Record<string, unknown>>,
+): AgentRunnerConfig {
+  const provider = requireOptionalString(
+    runner["provider"],
+    "agent.runner.provider",
+  );
+  const model = requireOptionalString(runner["model"], "agent.runner.model");
+
+  return {
+    kind: "generic-command",
+    ...(provider === null ? {} : { provider }),
+    ...(model === null ? {} : { model }),
+  };
 }
 
 function validateExplicitAgentRunnerKind(

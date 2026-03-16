@@ -41,6 +41,8 @@ async function writeWorkflow(options: {
   agentCommand: string;
   trackerKind?: "github" | "github-bootstrap";
   runnerKind?: "codex" | "generic-command" | "claude-code";
+  runnerProvider?: string;
+  runnerModel?: string;
   retryBackoffMs?: number;
   maxAttempts?: number;
   maxTurns?: number;
@@ -94,6 +96,18 @@ hooks:
 agent:
   runner:
     kind: ${options.runnerKind ?? "generic-command"}
+${
+  options.runnerProvider === undefined
+    ? ""
+    : `    provider: ${options.runnerProvider}
+`
+}
+${
+  options.runnerModel === undefined
+    ? ""
+    : `    model: ${options.runnerModel}
+`
+}
   command: ${options.agentCommand}
   prompt_transport: stdin
   timeout_ms: 30000
@@ -343,6 +357,41 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
+  });
+
+  it("records configured provider and model metadata for generic command runs", async () => {
+    server.seedIssue({
+      number: 35,
+      title: "Multi-model runner metadata",
+      body: "Record generic provider metadata in artifacts",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+      runnerKind: "generic-command",
+      runnerProvider: "pi",
+      runnerModel: "pi-pro",
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      35,
+    );
+    const session = await readIssueArtifactSession(
+      path.join(tempDir, ".tmp", "workspaces"),
+      35,
+      artifactSummary.latestSessionId!,
+    );
+
+    expect(session.provider).toBe("pi");
+    expect(session.model).toBe("pi-pro");
   });
 
   it("suppresses post-merge retry noise when a PR merges during a failing attempt", async () => {
