@@ -31,7 +31,6 @@ export interface GitHubBootstrapTrackerConfig extends BaseGitHubTrackerConfig {
   readonly kind: "github-bootstrap";
 }
 
-export type GitHubTrackerKind = GitHubTrackerConfig["kind"];
 export type GitHubCompatibleTrackerConfig =
   | GitHubTrackerConfig
   | GitHubBootstrapTrackerConfig;
