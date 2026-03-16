@@ -142,6 +142,7 @@ export function parseStartupSnapshotContent(
 
 export function createStartupPreparer(config: ResolvedConfig): StartupPreparer {
   switch (config.tracker.kind) {
+    case "github":
     case "github-bootstrap":
       return new GitHubMirrorStartupPreparer();
     case "linear":

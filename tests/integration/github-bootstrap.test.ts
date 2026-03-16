@@ -6,17 +6,17 @@ import {
   loadWorkflow,
 } from "../../src/config/workflow.js";
 import { JsonLogger } from "../../src/observability/logger.js";
-import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
+import { GitHubTracker } from "../../src/tracker/github.js";
 import { formatPlanReadyComment } from "../../src/tracker/plan-review-comment.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
 import { createTempDir } from "../support/git.js";
 
 const logger = new JsonLogger();
 
-function createTracker(server: MockGitHubServer): GitHubBootstrapTracker {
-  return new GitHubBootstrapTracker(
+function createTracker(server: MockGitHubServer): GitHubTracker {
+  return new GitHubTracker(
     {
-      kind: "github-bootstrap",
+      kind: "github",
       repo: "sociotechnica-org/symphony-ts",
       apiUrl: server.baseUrl,
       readyLabel: "symphony:ready",
@@ -29,7 +29,7 @@ function createTracker(server: MockGitHubServer): GitHubBootstrapTracker {
   );
 }
 
-describe("GitHubBootstrapTracker", () => {
+describe("GitHubTracker", () => {
   let server: MockGitHubServer;
   const previousToken = process.env.GH_TOKEN;
 

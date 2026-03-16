@@ -6,7 +6,7 @@ import type {
   PullRequestCheck,
   PullRequestCheckStatus,
 } from "../domain/pull-request.js";
-import type { GitHubBootstrapTrackerConfig } from "../domain/workflow.js";
+import type { GitHubCompatibleTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 
 const execFileAsync = promisify(execFile);
@@ -387,7 +387,7 @@ export function toRuntimeIssue(
 }
 
 export class GitHubClient {
-  readonly #config: GitHubBootstrapTrackerConfig;
+  readonly #config: GitHubCompatibleTrackerConfig;
   readonly #logger: Logger;
   readonly #tokenPromise: Promise<string>;
   readonly #repoOwner: string;
@@ -395,7 +395,7 @@ export class GitHubClient {
   #mergeMethodPromise: Promise<GitHubMergeMethod> | null = null;
 
   constructor(
-    config: GitHubBootstrapTrackerConfig,
+    config: GitHubCompatibleTrackerConfig,
     logger: Logger = NULL_LOGGER,
   ) {
     this.#config = config;

@@ -1,6 +1,6 @@
 ---
 tracker:
-  kind: github-bootstrap
+  kind: github
   repo: # REQUIRED: set to your-org/your-repo
   api_url: https://api.github.com
   ready_label: symphony:ready

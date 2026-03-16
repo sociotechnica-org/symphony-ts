@@ -19,7 +19,7 @@ import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { FsLivenessProbe } from "../../src/orchestrator/liveness-probe.js";
 import { createRunner } from "../../src/runner/factory.js";
-import { GitHubBootstrapTracker } from "../../src/tracker/github-bootstrap.js";
+import { createTracker } from "../../src/tracker/factory.js";
 import { parsePlanReadyCommentMetadata } from "../../src/tracker/plan-review-comment.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
@@ -39,6 +39,7 @@ async function writeWorkflow(options: {
   remotePath: string;
   apiUrl: string;
   agentCommand: string;
+  trackerKind?: "github" | "github-bootstrap";
   runnerKind?: "codex" | "generic-command" | "claude-code";
   retryBackoffMs?: number;
   maxAttempts?: number;
@@ -57,7 +58,7 @@ async function writeWorkflow(options: {
     workflowPath,
     `---
 tracker:
-  kind: github-bootstrap
+  kind: ${options.trackerKind ?? "github-bootstrap"}
   repo: sociotechnica-org/symphony-ts
   api_url: ${options.apiUrl}
   ready_label: symphony:ready
@@ -121,12 +122,15 @@ async function createOrchestrator(
   workflowPath: string,
 ): Promise<BootstrapOrchestrator> {
   const workflow = await loadWorkflow(workflowPath);
-  if (workflow.config.tracker.kind !== "github-bootstrap") {
-    throw new Error("expected github-bootstrap tracker config");
+  if (
+    workflow.config.tracker.kind !== "github" &&
+    workflow.config.tracker.kind !== "github-bootstrap"
+  ) {
+    throw new Error("expected GitHub-backed tracker config");
   }
   const logger = new JsonLogger();
   const promptBuilder = createPromptBuilder(workflow);
-  const tracker = new GitHubBootstrapTracker(workflow.config.tracker, logger);
+  const tracker = createTracker(workflow.config.tracker, logger);
   const workspace = new LocalWorkspaceManager(
     workflow.config.workspace,
     workflow.config.hooks.afterCreate,
@@ -197,7 +201,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
-  it("keeps the issue running after PR open until the pull request is merged", async () => {
+  it("keeps the issue running after PR open until the pull request is merged with tracker.kind github", async () => {
     server.seedIssue({
       number: 1,
       title: "Implement Symphony",
@@ -210,6 +214,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       remotePath,
       apiUrl: server.baseUrl,
       agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+      trackerKind: "github",
     });
     const orchestrator = await createOrchestrator(workflowPath);
 

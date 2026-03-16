@@ -44,7 +44,7 @@ Prerequisites:
 ```yaml
 ---
 tracker:
-  kind: github-bootstrap
+  kind: github
   repo: sociotechnica-org/symphony-ts-test
   api_url: https://api.github.com
   ready_label: symphony:ready

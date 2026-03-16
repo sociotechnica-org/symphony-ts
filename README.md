@@ -196,7 +196,7 @@ Everything is configured in `WORKFLOW.md` — YAML front matter for the runtime,
 
 ```yaml
 tracker:
-  kind: github-bootstrap
+  kind: github
   repo: your-org/your-repo
   ready_label: symphony:ready
   running_label: symphony:running
@@ -256,15 +256,16 @@ policy, code, docs, or local test evidence.
 than `1`, a single worker run can consume multiple per-turn timeout windows
 before it exits.
 
-For `tracker.kind: github-bootstrap`, Symphony can derive the workspace clone
-URL from `tracker.repo` (or `SYMPHONY_REPO`) for the normal bootstrap flow.
-On startup, that GitHub bootstrap path now creates or refreshes a local bare
-mirror under `.tmp/github/upstream` and clones per-issue workspaces from that
-mirror instead of hitting GitHub directly. Set `workspace.repo_url` explicitly
-when you want to override the derived source or when using a tracker/config
-path that does not provide enough repository information on its own. Explicit
-local-path `workspace.repo_url` values are resolved relative to the owning
-`WORKFLOW.md`.
+For `tracker.kind: github`, Symphony derives the workspace clone URL from
+`tracker.repo` (or `SYMPHONY_REPO`) for the maintained GitHub backend. On
+startup, GitHub-backed workflows create or refresh a local bare mirror under
+`.tmp/github/upstream` and clone per-issue workspaces from that mirror instead
+of hitting GitHub directly. `tracker.kind: github-bootstrap` remains supported
+as a compatibility path for the self-hosting bootstrap flow and currently
+shares the same runtime semantics. Set `workspace.repo_url` explicitly when you
+want to override the derived source or when using a tracker/config path that
+does not provide enough repository information on its own. Explicit local-path
+`workspace.repo_url` values are resolved relative to the owning `WORKFLOW.md`.
 
 `agent.runner.kind` keeps backend selection in `WORKFLOW.md`. Use `codex` for
 the built-in long-lived Codex app-server path, `claude-code` for the first-class
