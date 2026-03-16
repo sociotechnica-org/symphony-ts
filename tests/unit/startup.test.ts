@@ -30,11 +30,15 @@ afterEach(() => {
   process.exitCode = undefined;
 });
 
-function createConfig(root: string, repoUrl: string) {
+function createConfig(
+  root: string,
+  repoUrl: string,
+  trackerKind: "github" | "github-bootstrap" = "github-bootstrap",
+) {
   return {
     workflowPath: path.join(root, "WORKFLOW.md"),
     tracker: {
-      kind: "github-bootstrap" as const,
+      kind: trackerKind,
       repo: "sociotechnica-org/symphony-ts",
       apiUrl: "https://example.test",
       readyLabel: "symphony:ready",
@@ -103,6 +107,14 @@ describe("startup service", () => {
   it("creates a GitHub bootstrap mirror preparer", () => {
     const preparer = createStartupPreparer(
       createConfig("/tmp/repo", "/tmp/repo.git"),
+    );
+    expect(preparer).toBeInstanceOf(GitHubMirrorStartupPreparer);
+    expect(preparer.id).toBe("github-bootstrap/local-mirror");
+  });
+
+  it("creates the same mirror preparer for the maintained github tracker", () => {
+    const preparer = createStartupPreparer(
+      createConfig("/tmp/repo", "/tmp/repo.git", "github"),
     );
     expect(preparer).toBeInstanceOf(GitHubMirrorStartupPreparer);
     expect(preparer.id).toBe("github-bootstrap/local-mirror");

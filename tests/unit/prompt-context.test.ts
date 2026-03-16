@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
-import type { GitHubBootstrapTrackerConfig } from "../../src/domain/workflow.js";
+import type { GitHubTrackerConfig } from "../../src/domain/workflow.js";
 import { buildPromptIssueContext } from "../../src/tracker/prompt-context.js";
 
-const githubTracker: GitHubBootstrapTrackerConfig = {
-  kind: "github-bootstrap",
+const githubTracker: GitHubTrackerConfig = {
+  kind: "github",
   repo: "sociotechnica-org/symphony-ts",
   apiUrl: "https://api.github.com",
   readyLabel: "symphony:ready",

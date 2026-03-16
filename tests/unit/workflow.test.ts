@@ -111,6 +111,38 @@ ${buildSharedWorkflowSections()}`,
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
   });
 
+  it("loads an explicit maintained github tracker config", async () => {
+    const dir = await createTempDir("workflow-github-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: github
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.tracker.kind).toBe("github");
+    if (workflow.config.tracker.kind === "github") {
+      expect(workflow.config.tracker.repo).toBe(
+        "sociotechnica-org/symphony-ts",
+      );
+    }
+    expect(workflow.config.workspace.repoUrl).toBe("git@example.com:repo.git");
+    expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
+      "sociotechnica-org/symphony-ts",
+    );
+  });
+
   it("renders continuation guidance separately from the workflow template", async () => {
     const dir = await createTempDir("workflow-continuation-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
@@ -1528,7 +1560,7 @@ ${buildSharedWorkflowSections()}`,
     );
 
     await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
-      "Unsupported tracker.kind 'linear-preview'. Supported kinds: github-bootstrap, linear",
+      "Unsupported tracker.kind 'linear-preview'. Supported kinds: github, github-bootstrap, linear",
     );
   });
 

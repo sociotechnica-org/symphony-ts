@@ -13,8 +13,7 @@ export interface RetryPolicy {
   readonly backoffMs: number;
 }
 
-export interface GitHubBootstrapTrackerConfig {
-  readonly kind: "github-bootstrap";
+interface BaseGitHubTrackerConfig {
   readonly repo: string;
   readonly apiUrl: string;
   readonly readyLabel: string;
@@ -23,6 +22,19 @@ export interface GitHubBootstrapTrackerConfig {
   readonly successComment: string;
   readonly reviewBotLogins: readonly string[];
 }
+
+export interface GitHubTrackerConfig extends BaseGitHubTrackerConfig {
+  readonly kind: "github";
+}
+
+export interface GitHubBootstrapTrackerConfig extends BaseGitHubTrackerConfig {
+  readonly kind: "github-bootstrap";
+}
+
+export type GitHubTrackerKind = GitHubTrackerConfig["kind"];
+export type GitHubCompatibleTrackerConfig =
+  | GitHubTrackerConfig
+  | GitHubBootstrapTrackerConfig;
 
 export interface LinearTrackerConfig {
   readonly kind: "linear";
@@ -34,7 +46,10 @@ export interface LinearTrackerConfig {
   readonly terminalStates: readonly string[];
 }
 
-export type TrackerConfig = GitHubBootstrapTrackerConfig | LinearTrackerConfig;
+export type TrackerConfig =
+  | GitHubTrackerConfig
+  | GitHubBootstrapTrackerConfig
+  | LinearTrackerConfig;
 
 export interface PollingConfig {
   readonly intervalMs: number;

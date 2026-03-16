@@ -12,7 +12,7 @@ import {
 } from "../tracker/prompt-context.js";
 import type {
   AgentRunnerConfig,
-  GitHubBootstrapTrackerConfig,
+  GitHubCompatibleTrackerConfig,
   LinearTrackerConfig,
   ObservabilityConfig,
   PromptBuilder,
@@ -50,7 +50,11 @@ const DEFAULT_DISABLED_WATCHDOG_CONFIG: Omit<WatchdogConfig, "enabled"> = {
   stallThresholdMs: 300_000,
   maxRecoveryAttempts: 2,
 };
-const SUPPORTED_TRACKER_KINDS = ["github-bootstrap", "linear"] as const;
+const SUPPORTED_TRACKER_KINDS = [
+  "github",
+  "github-bootstrap",
+  "linear",
+] as const;
 const SUPPORTED_AGENT_RUNNER_KINDS = [
   "codex",
   "generic-command",
@@ -325,7 +329,7 @@ function resolveRepoUrl(
       ? " (SYMPHONY_REPO is set but has no effect for this tracker kind)"
       : "";
     throw new ConfigError(
-      `workspace.repo_url is required when not using github-bootstrap tracker${hint}`,
+      `workspace.repo_url is required when not using a GitHub-backed tracker${hint}`,
     );
   }
 
@@ -387,7 +391,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
     "observability",
   );
 
-  // Apply SYMPHONY_REPO env override (github-bootstrap only; ignored by other tracker kinds)
+  // Apply SYMPHONY_REPO env override (GitHub-backed trackers only; ignored by other tracker kinds)
   const rawRepoEnv = process.env["SYMPHONY_REPO"];
   const repoOverride =
     rawRepoEnv !== undefined
@@ -409,19 +413,16 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
 
   const resolvedTracker = resolveTrackerConfig(effectiveTracker);
 
-  if (
-    repoOverride !== undefined &&
-    resolvedTracker.kind !== "github-bootstrap"
-  ) {
+  if (repoOverride !== undefined && !isGitHubTrackerConfig(resolvedTracker)) {
     console.warn(
       `[symphony] SYMPHONY_REPO is set but ignored for tracker.kind="${resolvedTracker.kind}"`,
     );
   }
 
-  // For github-bootstrap trackers, derive repoUrl and inject GITHUB_REPO
+  // For GitHub-backed trackers, derive repoUrl and inject GITHUB_REPO.
   let derivedRepoUrl: string | undefined;
   let repo: string | undefined;
-  if (resolvedTracker.kind === "github-bootstrap") {
+  if (isGitHubTrackerConfig(resolvedTracker)) {
     repo = resolvedTracker.repo;
     try {
       const gitHost = new URL(resolvedTracker.apiUrl).hostname.replace(
@@ -601,8 +602,10 @@ function resolveTrackerConfig(
 ): TrackerConfig {
   const kind = resolveTrackerKind(tracker);
   switch (kind) {
+    case "github":
+      return resolveGitHubTrackerConfig("github", tracker);
     case "github-bootstrap":
-      return resolveGitHubBootstrapTrackerConfig(tracker);
+      return resolveGitHubTrackerConfig("github-bootstrap", tracker);
     case "linear":
       return resolveLinearTrackerConfig(tracker);
     default:
@@ -632,11 +635,14 @@ function resolveTrackerKind(
   );
 }
 
-function resolveGitHubBootstrapTrackerConfig(
+function resolveGitHubTrackerConfig<
+  TKind extends GitHubCompatibleTrackerConfig["kind"],
+>(
+  kind: TKind,
   tracker: Readonly<Record<string, unknown>>,
-): GitHubBootstrapTrackerConfig {
+): Extract<GitHubCompatibleTrackerConfig, { readonly kind: TKind }> {
   return {
-    kind: "github-bootstrap",
+    kind,
     repo: requireGitHubRepo(tracker["repo"]),
     apiUrl: requireString(tracker["api_url"], "tracker.api_url"),
     readyLabel: requireString(tracker["ready_label"], "tracker.ready_label"),
@@ -656,7 +662,7 @@ function resolveGitHubBootstrapTrackerConfig(
             tracker["review_bot_logins"],
             "tracker.review_bot_logins",
           ),
-  };
+  } as Extract<GitHubCompatibleTrackerConfig, { readonly kind: TKind }>;
 }
 
 function resolveLinearTrackerConfig(
@@ -840,6 +846,7 @@ function exhaustiveTrackerConfig(tracker: never): never {
 
 function redactTrackerConfig(tracker: TrackerConfig): TrackerConfig {
   switch (tracker.kind) {
+    case "github":
     case "github-bootstrap":
       return tracker;
     case "linear":
@@ -850,6 +857,12 @@ function redactTrackerConfig(tracker: TrackerConfig): TrackerConfig {
     default:
       return exhaustiveTrackerConfig(tracker);
   }
+}
+
+function isGitHubTrackerConfig(
+  tracker: TrackerConfig,
+): tracker is GitHubCompatibleTrackerConfig {
+  return tracker.kind === "github" || tracker.kind === "github-bootstrap";
 }
 
 function redactPromptConfig(config: ResolvedConfig): ResolvedConfig {
