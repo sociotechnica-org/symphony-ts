@@ -645,6 +645,54 @@ agent:
     });
   });
 
+  it("loads generic command metadata for arbitrary backends", async () => {
+    const dir = await createTempDir("workflow-generic-runner-metadata-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: generic-command
+    provider: pi
+    model: pi-pro
+  command: pi --print
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.agent.runner).toEqual({
+      kind: "generic-command",
+      provider: "pi",
+      model: "pi-pro",
+    });
+  });
+
   it("rejects an explicit codex runner selection for a non-codex command", async () => {
     const dir = await createTempDir("workflow-codex-runner-mismatch-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

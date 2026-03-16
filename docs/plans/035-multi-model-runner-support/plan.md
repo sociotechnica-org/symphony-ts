@@ -1,211 +1,180 @@
-# Issue 35 Plan: Generic Runner Metadata For Multi-Backend / Multi-Model Support
+# Issue 35 Plan: Multi-Model Runner Support Metadata For Generic Command Backends
 
 ## Status
 
-- plan-ready
+- approved
 
 ## Goal
 
-Close the remaining gap in Symphony's multi-model runner story by extending the existing `generic-command` runner path so arbitrary local backends and model choices remain visible, typed, and configurable without requiring orchestrator changes for each new CLI.
+Keep Symphony's execution boundary open to additional local backends after the provider-neutral runner contract is proven by making `generic-command` runs observable with explicit provider/model metadata, without reopening orchestrator or tracker seams.
 
 ## Scope
 
-- add a repo-owned config seam for generic runner metadata under `agent.runner`
-- let `generic-command` publish normalized backend/provider and optional model metadata instead of always collapsing to `provider: "generic-command"`
-- keep the provider-neutral runner contract intact while making non-first-class backends such as Pi observable through the same execution path
-- add focused workflow parsing, runner-factory, runner-contract, and e2e coverage for generic backends with explicit metadata
-- update docs so the supported path for backend/model choice beyond Codex and Claude is inspectable in `WORKFLOW.md`
+- extend `agent.runner.kind: generic-command` with optional repo-owned metadata fields for provider and model identity
+- thread that metadata through workflow parsing and the generic-command runner session description
+- preserve current default behavior when the metadata is omitted
+- add tests that prove the config seam, runner metadata emission, and end-to-end artifact visibility
+- update operator docs and checked-in examples so arbitrary generic backends such as Pi are configured explicitly
 
 ## Non-goals
 
-- adding a new first-class runner adapter for Pi or any other specific provider
-- dynamic per-issue backend routing or fallback policy
-- orchestration retry, continuation, reconciliation, or lease changes
+- adding another first-class runner adapter in this issue
+- changing orchestrator continuation, retry, reconciliation, lease, or handoff policy
 - tracker transport, normalization, or policy changes
-- remote/background execution providers
-- richer provider capability modeling such as per-backend feature matrices beyond metadata surfaced by this slice
+- dynamic per-issue backend routing or automatic backend fallback
+- redesigning the provider-neutral runner contract
+- generic capability negotiation across backends
 
 ## Current Gaps
 
-- `#89`, `#90`, `#91`, and `#114` already landed the provider-neutral runner contract, workflow runner selection, and first-class Codex / Claude adapters
-- `generic-command` can already execute arbitrary CLIs, but its session metadata is currently fixed to `provider: "generic-command"` and `model: null`
-- because the generic path hides the underlying backend/model identity, status surfaces, artifacts, and reports cannot distinguish a Pi run from any other raw command run
-- this means Symphony is no longer Codex-only in execution capability, but the generic path does not yet give operators a repo-owned, inspectable contract for backend/model choice beyond the built-in first-class adapters
+- `generic-command` currently reports a fixed session provider of `generic-command` and a `null` model, even when the underlying CLI is a distinct backend
+- workflow config has no typed place to declare repo-owned metadata for generic local CLIs
+- status, artifacts, and reports therefore cannot distinguish a Pi-backed generic command from any other arbitrary subprocess
+- the current execution seam is otherwise already in place on `main`: provider-neutral runner contract, workflow-owned runner selection, and first-class Codex/Claude adapters exist already
 
 ## Decision Notes
 
-- The current issue should not reopen the broader runner-contract work; that already landed.
-- The reviewable seam is config plus execution-layer metadata, not another runner implementation.
-- `generic-command` should stay the escape hatch for new local CLIs, but it should surface explicit identity metadata when the workflow owner knows what backend and model they are invoking.
-- Keep the metadata contract optional and narrow:
-  - default to a sensible provider identity when no metadata is supplied
-  - allow an explicit provider/backend label
-  - allow an optional model label
-- Do not teach the orchestrator or tracker about provider-specific behavior. They should keep consuming normalized runner session descriptions only.
+- Narrow `#35` to metadata for arbitrary generic backends instead of reopening the already-landed runner-contract and backend-selection work.
+- Keep the seam in configuration plus execution only. The orchestrator should continue consuming the same normalized runner session shape.
+- Prefer explicit workflow-owned metadata over command-string heuristics for future backends. Heuristics can stay as defaults elsewhere, but repo-owned identity should be inspectable in `WORKFLOW.md`.
+- Preserve backward compatibility by keeping `generic-command` / `null` as the default emitted metadata when no explicit values are configured.
 
 ## Spec Alignment By Abstraction Level
 
 - Policy Layer
-  - belongs: the repo-owned rule that backend/model choice outside first-class adapters should remain a runner concern expressed through `WORKFLOW.md`
-  - does not belong: subprocess launch details or tracker lifecycle behavior
+  - belongs: the repo-owned rule that arbitrary generic backends declare their observable identity in `WORKFLOW.md`
+  - does not belong: subprocess launch details or tracker policy
 - Configuration Layer
-  - belongs: typed parsing and validation for generic runner metadata under `agent.runner`
-  - does not belong: process spawning, prompt rendering, or tracker mutations
+  - belongs: typed parsing and validation of optional generic-command provider/model metadata
+  - does not belong: process spawning, session lifecycle, or tracker writes
 - Coordination Layer
-  - belongs: unchanged consumption of normalized runner session metadata
-  - does not belong: branches for Pi, Opus, or any other provider/model choice
+  - belongs: untouched in this slice; it keeps consuming normalized runner session descriptions
+  - does not belong: branching on generic backend identity
 - Execution Layer
-  - belongs: generic runner session description, metadata defaults, and normalized result/session reporting
-  - does not belong: tracker policy, retry decisions, or workflow prompt construction
+  - belongs: generic-command runner session description and metadata emission
+  - does not belong: prompt rendering, retry policy, or tracker mutations
 - Integration Layer
   - belongs: untouched in this slice
-  - does not belong: generic runner metadata or backend/model selection
+  - does not belong: runner metadata config
 - Observability Layer
-  - belongs: surfacing normalized provider/model metadata already emitted by the runner contract
-  - does not belong: guessing backend/model identity from raw command strings or logs
+  - belongs: existing status/artifact/report surfaces consuming the richer normalized metadata without schema redesign
+  - does not belong: backend-specific parsing logic
 
 ## Architecture Boundaries
 
 ### Belongs in this issue
 
 - `src/domain/workflow.ts`
-  - extend the generic runner config variant with explicit metadata fields
+  - add typed optional metadata fields for `generic-command`
 - `src/config/workflow.ts`
-  - parse and validate the generic runner metadata seam
+  - parse and validate those fields
 - `src/runner/generic-command.ts`
-  - publish normalized provider/model metadata from config instead of a hard-coded generic label
-- `src/runner/factory.ts`
-  - keep wiring unchanged except for consuming the expanded typed config
+  - emit normalized provider/model metadata from config
 - tests
-  - workflow parsing tests
-  - generic runner/session description tests
-  - runner-factory coverage
-  - one e2e path proving explicit generic metadata survives through the observable factory flow
+  - workflow config coverage
+  - runner contract/factory coverage
+  - one end-to-end artifact/status assertion path
 - docs
-  - README and `WORKFLOW.md` examples for arbitrary local backends via `generic-command`
+  - README and `WORKFLOW.md` examples for explicit generic backend metadata
 
 ### Does not belong in this issue
 
-- new runner subclasses for provider-specific CLIs
-- orchestrator runtime-state refactors
-- tracker adapter changes
+- new runner kinds
+- orchestration-state refactors
+- tracker changes
 - workspace lifecycle changes
-- report-enricher redesign
+- broader provider capability modeling beyond provider/model labels
 
 ## Layering Notes
 
 - `config/workflow`
-  - owns the typed metadata contract and validation for generic backends
-  - does not infer provider/model identity later from runtime logs
-- `tracker`
-  - remains isolated from runner metadata policy
-  - does not special-case generic backends
-- `workspace`
-  - continues to provide filesystem context only
-  - does not decide backend/model identity
+  - owns repo-owned metadata parsing
+  - should not infer tracker or orchestrator behavior from that metadata
 - `runner`
-  - owns publishing normalized provider/model session metadata
-  - does not make orchestration or tracker policy decisions
+  - owns turning config metadata into normalized session descriptions
+  - should not mutate tracker state or prompt content
 - `orchestrator`
-  - keeps consuming a `Runner` plus normalized session descriptions
-  - does not branch on provider/model values
+  - remains backend-agnostic
+  - should not branch on generic provider/model labels
 - `observability`
-  - shows whatever normalized metadata the runner supplies
-  - does not parse command strings to recover provider/model identity heuristically
+  - consumes normalized session metadata already present in the runner contract
+  - should not become a second config parser
 
 ## Slice Strategy And PR Seam
 
-This should land as one reviewable PR by limiting the seam to config, generic-runner metadata, tests, and docs:
+This issue stays reviewable as one PR by limiting the seam to:
 
-1. extend typed workflow config for generic backend/model metadata
-2. update the generic runner to emit that metadata
-3. prove the seam with focused tests and one e2e scenario
-4. document how arbitrary local CLIs use this path
+1. typed workflow metadata for `generic-command`
+2. generic runner session-description emission
+3. targeted tests and docs
 
-This is reviewable because it does not combine:
+This avoids mixing:
 
-- another first-class runner adapter
-- orchestrator state changes
-- tracker or workspace refactors
-- dynamic routing policy
-
-Follow-up issues can still add dedicated adapters for providers that need special continuation or command validation, but simple backend/model choice should not require them.
+- another runner adapter
+- orchestrator policy changes
+- tracker or workspace seams
+- remote execution or routing policy
 
 ## Runtime State Model
 
-This issue does not change retries, continuations, reconciliation, leases, or handoff states, so no new orchestrator runtime state machine is required.
+No new orchestrator runtime state machine is required. This issue does not change retries, continuations, reconciliation, leases, or handoff states.
 
-The execution-layer session lifecycle remains the existing runner contract:
+## Validation Matrix
 
-- `idle -> starting -> running -> completed|failed -> closed`
-
-Additional rule for this slice:
-
-- generic runner metadata is resolved once from validated workflow config and remains stable for the lifetime of the runner instance
-
-## Failure-Class Matrix
-
-| Observed condition                                                     | Boundary facts available                     | Expected decision                                                                 |
-| ---------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
-| `agent.runner.kind: generic-command` omits custom metadata            | workflow config, parsed command              | load successfully and fall back to default generic provider identity              |
-| generic metadata provides a non-empty provider and optional model      | workflow config                              | load successfully and publish that normalized metadata in session descriptions     |
-| generic metadata provider is empty or malformed                        | workflow config                              | fail workflow loading with `ConfigError` before runtime wiring                    |
-| generic command executes successfully with explicit provider metadata   | runner config, subprocess result             | preserve the configured provider/model in status/artifacts without orchestrator changes |
-| generic command executes successfully without explicit metadata         | runner config, subprocess result             | preserve backward-compatible generic provider identity                            |
-| operator wants a new backend that does not need special session logic  | workflow config only                         | use `generic-command` with explicit metadata instead of adding a new adapter       |
+| Observed input / condition                               | Boundary facts available           | Expected decision                                                                               |
+| -------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `generic-command` configured without metadata            | workflow front matter              | load successfully; emit default provider/model metadata                                         |
+| `generic-command` configured with provider only          | workflow front matter              | load successfully; emit explicit provider with `model: null`                                    |
+| `generic-command` configured with provider and model     | workflow front matter              | load successfully; emit both through session descriptions                                       |
+| generic command run completes successfully               | runner config and execution result | status/artifacts show configured provider/model                                                 |
+| non-generic runner kind includes generic metadata fields | runner kind plus parsed fields     | ignore by construction because those fields belong only to the `generic-command` config variant |
 
 ## Observability Requirements
 
-- status and issue artifacts should surface explicit provider/model metadata for generic backends when configured
-- existing provider-neutral session/result contracts must remain unchanged outside the metadata values
-- no observability component should need to inspect raw `agent.command` to learn the backend/model identity
-- docs should show how operators make Pi-like or model-specific runs inspectable without code changes
+- keep `RunnerSessionDescription` unchanged
+- ensure generic-command sessions can publish explicit provider/model values
+- preserve backward-compatible defaults when metadata is omitted
+- keep issue artifacts, status snapshots, and reports readable without additional schema changes
 
 ## Implementation Steps
 
-1. Extend `AgentRunnerConfig` so `generic-command` can carry explicit provider/model metadata.
-2. Update workflow parsing to validate and resolve the metadata fields with backward-compatible defaults.
-3. Update `GenericCommandRunner.describeSession()` so session descriptions emit the resolved provider/model values.
-4. Add or update tests for:
-   - workflow parsing and validation of generic metadata
-   - generic runner session descriptions with and without explicit metadata
-   - runner-factory behavior with expanded generic config
-   - one e2e path proving the configured metadata reaches observable factory artifacts/status
-5. Update README and `WORKFLOW.md` examples to document the generic multi-backend/model path.
+1. Add optional `provider` and `model` fields to the `generic-command` workflow config type.
+2. Parse and validate those fields in `src/config/workflow.ts`.
+3. Update `GenericCommandRunner` to emit provider/model metadata from config with backward-compatible defaults.
+4. Add tests for workflow parsing, runner construction/session description, and one e2e artifact path.
+5. Update README and `WORKFLOW.md` examples to show explicit metadata for arbitrary generic backends such as Pi.
 
 ## Tests And Acceptance Scenarios
 
 ### Unit tests
 
-- `loadWorkflow()` accepts `agent.runner.kind: generic-command` with explicit provider metadata and optional model metadata
-- `loadWorkflow()` rejects malformed generic metadata such as an empty provider label
-- `GenericCommandRunner.describeSession()` publishes explicit provider/model metadata when configured
-- `GenericCommandRunner.describeSession()` preserves backward-compatible defaults when metadata is omitted
-- `createRunner()` still returns `GenericCommandRunner` for the generic path with the expanded config
+- workflow config accepts `generic-command` with explicit `provider`
+- workflow config accepts `generic-command` with explicit `provider` and `model`
+- generic-command runner emits configured provider/model through `describeSession()`
+- generic-command runner keeps the current default metadata when those fields are omitted
 
 ### Integration / end-to-end coverage
 
-- keep existing Codex, Claude, and generic-command tests green
-- add one focused e2e path that configures `generic-command` with explicit provider/model metadata and asserts the resulting session visibility/artifacts reflect that metadata
+- keep existing generic-command factory/e2e paths green
+- add one e2e assertion that issue artifacts record configured generic provider/model metadata
 
 ### Acceptance scenarios
 
-1. A workflow can run an arbitrary CLI through `generic-command` and explicitly identify it as a backend such as Pi without adding a new orchestrator branch.
-2. A workflow can surface a model label such as Opus or another provider-specific model on the same generic path.
-3. Existing generic-command workflows continue to work without any required config changes.
-4. Status surfaces and artifacts show the configured provider/model identity for generic runs.
+1. A workflow can select `generic-command` and declare `provider: pi`.
+2. A generic-command run surfaces `provider: pi` in normalized session metadata without orchestrator changes.
+3. A workflow can optionally declare a model label for the same backend.
+4. Existing generic-command workflows without metadata continue to emit the current default shape.
 
 ## Exit Criteria
 
-- arbitrary local CLI backends can be made observable through `generic-command` with repo-owned config
-- no orchestrator changes are required to surface provider/model identity for those backends
-- backward compatibility is preserved for existing generic-command workflows
-- tests cover config parsing, runner metadata emission, and one observable end-to-end path
-- docs explain the multi-backend/model path clearly enough that operators do not need a new runner implementation for simple CLI swaps
+- `WORKFLOW.md` supports explicit provider/model metadata for `generic-command`
+- generic-command runs emit that metadata through the existing runner session contract
+- tests cover parsing, default behavior, and artifact visibility
+- docs show the supported config shape clearly enough for future backends
 
 ## Deferred To Later Issues Or PRs
 
-- first-class adapters for providers that need special continuation or command validation
-- automatic backend routing based on issue labels, token pressure, or cost policy
-- richer provider capability metadata such as continuation support flags or streaming-event capabilities
-- report enrichment for provider-specific generic-command logs
+- first-class adapters for additional providers beyond Codex and Claude
+- dynamic backend routing or fallback based on token pressure or issue labels
+- richer capability metadata beyond provider/model identity
+- remote or hosted runner implementations

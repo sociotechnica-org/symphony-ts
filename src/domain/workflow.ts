@@ -60,6 +60,8 @@ export interface CodexRunnerConfig {
 
 export interface GenericCommandRunnerConfig {
   readonly kind: "generic-command";
+  readonly provider?: string | null;
+  readonly model?: string | null;
 }
 
 export interface ClaudeCodeRunnerConfig {
