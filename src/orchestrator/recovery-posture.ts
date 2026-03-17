@@ -54,10 +54,10 @@ export function noteTerminalCleanupPosture(
   entry: RuntimeTerminalCleanupPosture,
   limit = 10,
 ): readonly RuntimeTerminalCleanupPosture[] {
-  return [entry, ...entries.filter((item) => item.issueNumber !== entry.issueNumber)].slice(
-    0,
-    limit,
-  );
+  return [
+    entry,
+    ...entries.filter((item) => item.issueNumber !== entry.issueNumber),
+  ].slice(0, limit);
 }
 
 export function projectRecoveryPosture(input: {
@@ -201,9 +201,7 @@ export function projectRecoveryPosture(input: {
       ? "healthy"
       : entries.reduce(
           (current, entry) =>
-            compareFamilies(entry.family, current) < 0
-              ? entry.family
-              : current,
+            compareFamilies(entry.family, current) < 0 ? entry.family : current,
           entries[0]!.family,
         );
 
@@ -259,7 +257,9 @@ function summarizeRecoveryPosture(
   family: FactoryRecoveryPostureFamily,
   entries: readonly FactoryRecoveryPostureEntry[],
 ): string {
-  const issueCount = entries.filter((entry) => entry.issueNumber !== null).length;
+  const issueCount = entries.filter(
+    (entry) => entry.issueNumber !== null,
+  ).length;
   switch (family) {
     case "degraded-observability":
       return entries[0]?.summary ?? "Observability is degraded.";

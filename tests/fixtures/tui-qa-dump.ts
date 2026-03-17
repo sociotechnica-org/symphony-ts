@@ -184,7 +184,8 @@ const activeSnapshot: TuiSnapshot = {
   recoveryPosture: {
     summary: {
       family: "watchdog-recovery",
-      summary: "2 issues currently reflect watchdog recovery or watchdog-driven retry posture.",
+      summary:
+        "2 issues currently reflect watchdog recovery or watchdog-driven retry posture.",
       issueCount: 2,
     },
     entries: [
@@ -203,7 +204,8 @@ const activeSnapshot: TuiSnapshot = {
         issueIdentifier: "sociotechnica-org/symphony-ts#14",
         title: "Recover a stalled runner",
         source: "retry-queue",
-        summary: "Watchdog scheduled retry attempt 3 for sociotechnica-org/symphony-ts#14.",
+        summary:
+          "Watchdog scheduled retry attempt 3 for sociotechnica-org/symphony-ts#14.",
         observedAt: new Date().toISOString(),
       },
     ],

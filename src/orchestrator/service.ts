@@ -143,9 +143,7 @@ import {
   finalizeRetainedWorkspace,
   type WorkspaceRetentionOutcome,
 } from "./workspace-retention.js";
-import {
-  projectRecoveryPosture,
-} from "./recovery-posture.js";
+import { projectRecoveryPosture } from "./recovery-posture.js";
 
 export interface TuiRunningEntry {
   readonly issueNumber: number;

@@ -41,7 +41,8 @@ describe("projectRecoveryPosture", () => {
     const posture = projectRecoveryPosture({
       publication: {
         state: "initializing",
-        detail: "Factory startup is still publishing a current runtime snapshot.",
+        detail:
+          "Factory startup is still publishing a current runtime snapshot.",
       },
       restartRecovery: {
         ...restartRecovery,

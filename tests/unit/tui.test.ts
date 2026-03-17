@@ -155,7 +155,8 @@ describe("formatSnapshotContent", () => {
               issueIdentifier: "sociotechnica-org/symphony-ts#166",
               title: "Recovery posture observability",
               source: "retry-queue",
-              summary: "Retry attempt 2 is queued until 2026-03-17T10:05:00.000Z.",
+              summary:
+                "Retry attempt 2 is queued until 2026-03-17T10:05:00.000Z.",
               observedAt: "2026-03-17T10:00:00.000Z",
             },
           ],

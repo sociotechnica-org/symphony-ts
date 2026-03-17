@@ -836,7 +836,11 @@ function parseRecoveryPostureSummary(
       filePath,
       "recoveryPosture.summary.family",
     ),
-    summary: expectString(summary.summary, filePath, "recoveryPosture.summary.summary"),
+    summary: expectString(
+      summary.summary,
+      filePath,
+      "recoveryPosture.summary.summary",
+    ),
     issueCount: expectInteger(
       summary.issueCount,
       filePath,
@@ -852,8 +856,16 @@ function parseRecoveryPostureEntry(
 ): FactoryRecoveryPostureEntry {
   const entry = expectObject(value, filePath, field);
   return {
-    family: expectRecoveryPostureFamily(entry.family, filePath, `${field}.family`),
-    issueNumber: expectNullableInteger(entry.issueNumber, filePath, `${field}.issueNumber`),
+    family: expectRecoveryPostureFamily(
+      entry.family,
+      filePath,
+      `${field}.family`,
+    ),
+    issueNumber: expectNullableInteger(
+      entry.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
     issueIdentifier: expectNullableString(
       entry.issueIdentifier,
       filePath,
@@ -874,7 +886,11 @@ function parseRecoveryPostureEntry(
       `${field}.source`,
     ),
     summary: expectString(entry.summary, filePath, `${field}.summary`),
-    observedAt: expectNullableString(entry.observedAt, filePath, `${field}.observedAt`),
+    observedAt: expectNullableString(
+      entry.observedAt,
+      filePath,
+      `${field}.observedAt`,
+    ),
   };
 }
 
