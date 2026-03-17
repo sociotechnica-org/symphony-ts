@@ -244,4 +244,31 @@ describe("integrateCodexUpdate", () => {
     expect(entry.codexTokenState).toBe("pending");
     expect(entry.codexTotalTokens).toBe(0);
   });
+
+  it("preserves per-field token nullability across later non-token events", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    integrateCodexUpdate(entry, {
+      event: "codex/event/token_count",
+      payload: { input_tokens: 100 },
+      timestamp: new Date().toISOString(),
+    });
+    integrateCodexUpdate(entry, {
+      event: "thread/started",
+      payload: {
+        method: "thread/started",
+        params: { thread: { id: "thread-live-123" } },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(entry.accounting).toEqual({
+      status: "partial",
+      inputTokens: 100,
+      outputTokens: null,
+      totalTokens: null,
+      costUsd: null,
+    });
+    expect(entry.codexTokenState).toBe("observed");
+  });
 });

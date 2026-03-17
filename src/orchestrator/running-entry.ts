@@ -373,17 +373,17 @@ export function integrateCodexUpdate(
       : null;
   entry.accounting = createRunnerAccountingSnapshot({
     inputTokens:
-      entry.codexTokenState === "observed" || tokenDelta.inputTokens > 0
+      entry.accounting.inputTokens !== null || tokenDelta.inputTokens > 0
         ? entry.codexInputTokens
-        : entry.accounting.inputTokens,
+        : null,
     outputTokens:
-      entry.codexTokenState === "observed" || tokenDelta.outputTokens > 0
+      entry.accounting.outputTokens !== null || tokenDelta.outputTokens > 0
         ? entry.codexOutputTokens
-        : entry.accounting.outputTokens,
+        : null,
     totalTokens:
-      entry.codexTokenState === "observed" || tokenDelta.totalTokens > 0
+      entry.accounting.totalTokens !== null || tokenDelta.totalTokens > 0
         ? entry.codexTotalTokens
-        : entry.accounting.totalTokens,
+        : null,
     costUsd: entry.accountingCostUsd,
   });
   if (
