@@ -12,6 +12,7 @@ tracker:
     - bugbot[bot]
     - greptile-apps
     - cursor
+    - devin-ai-integration
 polling:
   interval_ms: 30000
   max_concurrent_runs: 1

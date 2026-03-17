@@ -168,6 +168,47 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.unresolvedThreadIds).toEqual([]);
   });
 
+  it("treats configured top-level bot review comments as bot feedback", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "devin-ai-integration" },
+              body: "Automated review found a shutdown edge case.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
+    });
+
+    expect(snapshot.actionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.botActionableReviewFeedback[0]?.authorLogin).toBe(
+      "devin-ai-integration",
+    );
+  });
+
   it("detects a human /land command on the current PR head", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
