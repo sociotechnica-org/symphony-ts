@@ -46,6 +46,7 @@ import type {
   FactoryCheckStatus,
   FactoryIssueStatus,
   FactoryPullRequestStatus,
+  FactoryStatusPublication,
   FactoryRestartRecoveryIssueSnapshot,
   FactoryReviewStatus,
   FactoryStatusAction,
@@ -247,6 +248,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   // Guard startup placeholder publication so a later initializing write cannot
   // clobber a current snapshot that has already been persisted.
   #startupStatusPublished = false;
+  #hasPublishedCurrentStatusSnapshot = false;
   #startupRecoveryCompleted = false;
   readonly #recoveredRunningLifecycles = new Map<number, HandoffLifecycle>();
 
@@ -355,10 +357,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       },
       rateLimits: this.#state.rateLimits,
       recoveryPosture: projectRecoveryPosture({
-        publication: {
-          state: "current",
-          detail: null,
-        },
+        publication: this.#snapshotPublicationState(),
         restartRecovery: this.#state.status.restartRecovery,
         activeIssues: [...this.#state.status.activeIssues.values()],
         retries: queuedRetries.map((retry) => ({
@@ -380,6 +379,21 @@ export class BootstrapOrchestrator implements Orchestrator {
       maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
       maxTurns: this.#config.agent.maxTurns,
       projectUrl: this.#deriveProjectUrl(),
+    };
+  }
+
+  #snapshotPublicationState(): FactoryStatusPublication {
+    if (this.#hasPublishedCurrentStatusSnapshot) {
+      return {
+        state: "current",
+        detail: null,
+      };
+    }
+
+    return {
+      state: "initializing",
+      detail:
+        "Factory startup is in progress; no current runtime snapshot is available yet.",
     };
   }
 
@@ -3445,6 +3459,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         statusFilePath: this.#statusFilePath,
         ...factoryRuntimeIdentityLogFields(runtimeIdentity),
       });
+      this.#hasPublishedCurrentStatusSnapshot = true;
       // Prevent a later #publishStartupStatusSnapshot call from overwriting
       // this current snapshot with an initializing placeholder.
       this.#startupStatusPublished = true;
