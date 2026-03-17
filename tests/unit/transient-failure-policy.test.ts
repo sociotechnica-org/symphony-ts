@@ -314,7 +314,8 @@ describe("transient failure parsing and policy", () => {
   it("does not classify auth-domain stderr through the account fallback path", () => {
     expect(
       classifyTransientFailure({
-        message: "Runner exited with 1\ntest failed: api token invalidation flow",
+        message:
+          "Runner exited with 1\ntest failed: api token invalidation flow",
         signal: null,
         observedAt: "2026-03-17T12:00:00.000Z",
         backoffMs: 5_000,
