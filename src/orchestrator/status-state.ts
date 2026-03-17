@@ -4,6 +4,8 @@ import type { RetryState } from "../domain/retry.js";
 import type {
   FactoryActiveIssueSnapshot,
   FactoryIssueStatus,
+  FactoryRestartRecoveryIssueSnapshot,
+  FactoryRestartRecoveryState,
   FactoryState,
   FactoryStatusAction,
   FactoryStatusSnapshot,
@@ -22,6 +24,13 @@ export interface RuntimeStatusState {
   readonly workerStartedAt: string;
   trackerCounts: TrackerIssueCounts;
   readonly activeIssues: Map<number, RuntimeActiveIssueState>;
+  restartRecovery: {
+    state: FactoryRestartRecoveryState;
+    startedAt: string | null;
+    completedAt: string | null;
+    summary: string | null;
+    issues: readonly FactoryRestartRecoveryIssueSnapshot[];
+  };
   lastAction: FactoryStatusAction | null;
 }
 
@@ -34,6 +43,13 @@ export function createRuntimeStatusState(): RuntimeStatusState {
       failed: 0,
     },
     activeIssues: new Map<number, RuntimeActiveIssueState>(),
+    restartRecovery: {
+      state: "idle",
+      startedAt: null,
+      completedAt: null,
+      summary: null,
+      issues: [],
+    },
     lastAction: null,
   };
 }
@@ -206,6 +222,13 @@ export function clearActiveIssue(
   state.activeIssues.delete(issueNumber);
 }
 
+export function setRestartRecoveryState(
+  state: RuntimeStatusState,
+  restartRecovery: RuntimeStatusState["restartRecovery"],
+): void {
+  state.restartRecovery = restartRecovery;
+}
+
 export function buildFactoryStatusSnapshot(input: {
   readonly state: RuntimeStatusState;
   readonly instanceId: string;
@@ -240,6 +263,7 @@ export function buildFactoryStatusSnapshot(input: {
       state: input.publicationState ?? "current",
       detail: input.publicationDetail ?? null,
     },
+    restartRecovery: input.state.restartRecovery,
     factoryState: resolveFactoryState(
       activeIssues,
       input.activeLocalRuns,

@@ -45,6 +45,7 @@ import type {
   FactoryCheckStatus,
   FactoryIssueStatus,
   FactoryPullRequestStatus,
+  FactoryRestartRecoveryIssueSnapshot,
   FactoryReviewStatus,
   FactoryStatusAction,
 } from "../observability/status.js";
@@ -109,9 +110,11 @@ import {
   clearActiveIssue,
   noteLifecycleForIssue,
   noteStatusAction,
+  setRestartRecoveryState,
   setTrackerIssueCounts,
   upsertActiveIssue,
 } from "./status-state.js";
+import { decideRestartRecovery } from "./restart-recovery.js";
 import {
   clearActiveWatchdogEntry,
   clearWatchdogAbortReason,
@@ -223,6 +226,8 @@ export class BootstrapOrchestrator implements Orchestrator {
   // Guard startup placeholder publication so a later initializing write cannot
   // clobber a current snapshot that has already been persisted.
   #startupStatusPublished = false;
+  #startupRecoveryCompleted = false;
+  readonly #recoveredRunningLifecycles = new Map<number, HandoffLifecycle>();
 
   constructor(
     config: ResolvedConfig,
@@ -377,6 +382,7 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #runOnceInner(): Promise<void> {
     this.#state.polling.checkingNow = true;
+    this.#recoveredRunningLifecycles.clear();
     this.#notifyDashboard();
 
     let readyCandidates: readonly RuntimeIssue[];
@@ -406,7 +412,8 @@ export class BootstrapOrchestrator implements Orchestrator {
         failed: failedCandidates.length,
       });
       this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
-      await this.#reconcileRunningIssueOwnership(runningCandidates);
+      runningCandidates =
+        await this.#reconcileRunningIssueOwnership(runningCandidates);
       const dueRetries = this.#collectDueRetries();
       queue = this.#mergeQueue(readyCandidates, runningCandidates, dueRetries);
       availableSlots =
@@ -619,6 +626,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         attempt,
         lockDir,
         this.#missingLifecycle(claimed.number),
+        "ready",
       );
     });
   }
@@ -628,6 +636,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
   ): Promise<void> {
     await this.#withIssueLease(issue, attempt, async (lockDir) => {
+      const initialLifecycle = this.#recoveredRunningLifecycles.get(
+        issue.number,
+      );
+      this.#recoveredRunningLifecycles.delete(issue.number);
       upsertActiveIssue(this.#state.status, issue, {
         source: "running",
         runSequence: attempt,
@@ -651,7 +663,13 @@ export class BootstrapOrchestrator implements Orchestrator {
           branchName: this.#branchName(issue.number),
         }),
       });
-      return await this.#processClaimedIssue(issue, attempt, lockDir);
+      return await this.#processClaimedIssue(
+        issue,
+        attempt,
+        lockDir,
+        initialLifecycle,
+        "running",
+      );
     });
   }
 
@@ -684,9 +702,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
     lockDir: string,
     initialLifecycle?: HandoffLifecycle,
+    issueSourceOverride?: "ready" | "running",
   ): Promise<boolean> {
     const branchName = this.#branchName(issue.number);
-    const issueSource = initialLifecycle !== undefined ? "ready" : "running";
+    const issueSource =
+      issueSourceOverride ??
+      (initialLifecycle !== undefined ? "ready" : "running");
     const lifecycle =
       initialLifecycle ?? (await this.#refreshLifecycle(branchName));
 
@@ -1565,58 +1586,160 @@ export class BootstrapOrchestrator implements Orchestrator {
 
   async #reconcileRunningIssueOwnership(
     issues: readonly RuntimeIssue[],
-  ): Promise<void> {
-    const recoveries = await Promise.allSettled(
-      issues.map(async (issue) => ({
-        issueNumber: issue.number,
-        snapshot: await this.#leaseManager.reconcile(issue.number, {
-          preserveShutdown: true,
-        }),
-      })),
-    );
+  ): Promise<readonly RuntimeIssue[]> {
+    if (!this.#startupRecoveryCompleted) {
+      setRestartRecoveryState(this.#state.status, {
+        state: "reconciling",
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        summary: `Reconciling ${issues.length.toString()} inherited running issue${issues.length === 1 ? "" : "s"} before dispatch.`,
+        issues: [],
+      });
+      await this.#persistStatusSnapshot();
+    }
 
-    for (const [index, recovery] of recoveries.entries()) {
-      if (recovery.status === "rejected") {
-        this.#logger.error("Failed to reconcile running issue ownership", {
-          issueNumber: issues[index]?.number,
-          error: this.#normalizeFailure(
-            recovery.reason instanceof Error
-              ? recovery.reason
-              : new Error(String(recovery.reason)),
-          ),
+    const runnable: RuntimeIssue[] = [];
+    const observedIssues: FactoryRestartRecoveryIssueSnapshot[] = [];
+    let degraded = false;
+
+    for (const issue of issues) {
+      const observedAt = new Date().toISOString();
+      const branchName = this.#branchName(issue.number);
+      try {
+        const snapshot = await this.#leaseManager.inspect(issue.number);
+        const lifecycle =
+          snapshot.kind === "active" ||
+          snapshot.kind === "shutdown-terminated" ||
+          snapshot.kind === "shutdown-forced"
+            ? null
+            : await this.#refreshLifecycle(
+                snapshot.record?.branchName ?? branchName,
+              );
+        const decision = decideRestartRecovery({
+          issue,
+          branchName: snapshot.record?.branchName ?? branchName,
+          snapshot,
+          lifecycle,
         });
-        continue;
-      }
-      const { issueNumber, snapshot } = recovery.value;
-      if (snapshot.kind === "missing" || snapshot.kind === "active") {
-        continue;
-      }
-      if (
-        snapshot.kind === "shutdown-terminated" ||
-        snapshot.kind === "shutdown-forced"
-      ) {
-        const recoveredShutdown = this.#asRecoveredShutdownLease(snapshot);
-        if (recoveredShutdown === null) {
-          continue;
+
+        observedIssues.push({
+          issueNumber: issue.number,
+          issueIdentifier: issue.identifier,
+          branchName: decision.branchName,
+          decision: decision.decision,
+          leaseState: decision.leaseState,
+          lifecycleKind: decision.lifecycleKind,
+          ownerPid: snapshot.ownerPid,
+          ownerAlive: snapshot.ownerAlive,
+          runnerPid: snapshot.runnerPid,
+          runnerAlive: snapshot.runnerAlive,
+          summary: decision.summary,
+          observedAt,
+        });
+
+        await this.#applyRestartRecoveryDecision(
+          issue,
+          snapshot,
+          lifecycle,
+          decision,
+        );
+        if (decision.shouldDispatch && lifecycle !== null) {
+          this.#recoveredRunningLifecycles.set(issue.number, lifecycle);
         }
+        if (decision.shouldDispatch) {
+          runnable.push(issue);
+        }
+        if (decision.decision === "degraded") {
+          degraded = true;
+        }
+      } catch (error) {
+        degraded = true;
+        const normalizedError =
+          error instanceof Error ? error : new Error(String(error));
+        this.#logger.error("Failed to reconcile running issue ownership", {
+          issueNumber: issue.number,
+          error: this.#normalizeFailure(normalizedError),
+        });
+        observedIssues.push({
+          issueNumber: issue.number,
+          issueIdentifier: issue.identifier,
+          branchName,
+          decision: "degraded",
+          leaseState: "missing",
+          lifecycleKind: null,
+          ownerPid: null,
+          ownerAlive: null,
+          runnerPid: null,
+          runnerAlive: null,
+          summary: `Restart recovery failed for ${issue.identifier}: ${normalizedError.message}`,
+          observedAt,
+        });
+      }
+    }
+
+    setRestartRecoveryState(this.#state.status, {
+      state: degraded ? "degraded" : "ready",
+      startedAt: this.#state.status.restartRecovery.startedAt,
+      completedAt: new Date().toISOString(),
+      summary: degraded
+        ? "Restart recovery completed with degraded inherited-state decisions."
+        : "Restart recovery completed successfully.",
+      issues: observedIssues,
+    });
+    this.#startupRecoveryCompleted = true;
+    await this.#persistStatusSnapshot();
+    return runnable;
+  }
+
+  async #applyRestartRecoveryDecision(
+    issue: RuntimeIssue,
+    snapshot: IssueLeaseSnapshot,
+    lifecycle: HandoffLifecycle | null,
+    decision: ReturnType<typeof decideRestartRecovery>,
+  ): Promise<void> {
+    if (decision.decision === "adopted") {
+      this.#logger.info("Adopted healthy inherited ownership", {
+        issueNumber: issue.number,
+        ownershipState: snapshot.kind,
+        ownerPid: snapshot.ownerPid,
+        runnerPid: snapshot.runnerPid,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "ownership-adopted",
+        summary: decision.summary,
+        issueNumber: issue.number,
+      });
+      return;
+    }
+
+    if (decision.decision === "recovered-shutdown") {
+      const recoveredShutdown = this.#asRecoveredShutdownLease(snapshot);
+      if (recoveredShutdown !== null) {
         this.#logger.info("Recovered intentional shutdown posture", {
-          issueNumber,
+          issueNumber: issue.number,
           shutdownState: recoveredShutdown.shutdownState,
           runnerPid: recoveredShutdown.runnerPid,
           runnerAlive: recoveredShutdown.runnerAlive,
           runSessionId: recoveredShutdown.runSessionId,
         });
-        noteStatusAction(this.#state.status, {
-          kind: "shutdown-recovered",
-          summary: `Recovered intentional shutdown for issue #${issueNumber.toString()}`,
-          issueNumber,
-        });
         await this.#consumeRecoveredShutdownLease(recoveredShutdown);
-        await this.#persistStatusSnapshot();
-        continue;
+      }
+      noteStatusAction(this.#state.status, {
+        kind: "shutdown-recovered",
+        summary: decision.summary,
+        issueNumber: issue.number,
+      });
+      return;
+    }
+
+    if (decision.decision === "requeued") {
+      if (snapshot.kind !== "missing") {
+        await this.#leaseManager.reconcile(issue.number, {
+          preserveShutdown: false,
+        });
       }
       this.#logger.warn("Recovered stale local run ownership", {
-        issueNumber,
+        issueNumber: issue.number,
         ownershipState: snapshot.kind,
         ownerPid: snapshot.ownerPid,
         runnerPid: snapshot.runnerPid,
@@ -1624,11 +1747,42 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
       noteStatusAction(this.#state.status, {
         kind: "ownership-recovered",
-        summary: `Recovered stale ownership for issue #${issueNumber.toString()}`,
-        issueNumber,
+        summary: decision.summary,
+        issueNumber: issue.number,
       });
-      await this.#persistStatusSnapshot();
+      return;
     }
+
+    if (decision.decision === "suppressed-terminal" && lifecycle !== null) {
+      if (snapshot.kind !== "missing") {
+        await this.#leaseManager.reconcile(issue.number, {
+          preserveShutdown: false,
+        });
+      }
+      this.#logger.info("Suppressed restart rerun for inherited issue", {
+        issueNumber: issue.number,
+        ownershipState: snapshot.kind,
+        lifecycleKind: lifecycle.kind,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "restart-recovery-suppressed",
+        summary: decision.summary,
+        issueNumber: issue.number,
+      });
+      return;
+    }
+
+    this.#logger.error("Restart recovery remained degraded", {
+      issueNumber: issue.number,
+      ownershipState: snapshot.kind,
+      lifecycleKind: lifecycle?.kind ?? null,
+      summary: decision.summary,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: "restart-recovery-degraded",
+      summary: decision.summary,
+      issueNumber: issue.number,
+    });
   }
 
   #pruneStaleActiveIssues(

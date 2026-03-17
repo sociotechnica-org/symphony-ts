@@ -30,6 +30,28 @@ function createSnapshot(
       state: "current",
       detail: null,
     },
+    restartRecovery: {
+      state: "ready",
+      startedAt: "2026-03-06T11:59:10.000Z",
+      completedAt: "2026-03-06T11:59:20.000Z",
+      summary: "Restart recovery completed successfully.",
+      issues: [
+        {
+          issueNumber: 11,
+          issueIdentifier: "sociotechnica-org/symphony-ts#11",
+          branchName: "symphony/11",
+          decision: "requeued",
+          leaseState: "stale-owner",
+          lifecycleKind: "missing-target",
+          ownerPid: 4567,
+          ownerAlive: false,
+          runnerPid: null,
+          runnerAlive: null,
+          summary: "Recovered stale inherited ownership for issue #11.",
+          observedAt: "2026-03-06T11:59:15.000Z",
+        },
+      ],
+    },
     factoryState: "blocked",
     worker: {
       instanceId: "worker-123",
@@ -159,6 +181,18 @@ describe("factory status helpers", () => {
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("renders restart recovery posture and per-issue decisions", () => {
+    const rendered = renderFactoryStatusSnapshot(createSnapshot());
+
+    expect(rendered).toContain("Restart recovery: ready");
+    expect(rendered).toContain(
+      "Restart recovery detail: Restart recovery completed successfully.",
+    );
+    expect(rendered).toContain(
+      "#11 sociotechnica-org/symphony-ts#11 [requeued]",
+    );
   });
 
   it("cleans up the temporary file when rename fails", async () => {

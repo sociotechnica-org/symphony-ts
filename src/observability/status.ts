@@ -17,6 +17,12 @@ let snapshotWriteSequence = 0;
 
 export type FactoryState = "idle" | "running" | "blocked";
 
+export type FactoryRestartRecoveryState =
+  | "idle"
+  | "reconciling"
+  | "degraded"
+  | "ready";
+
 export type FactoryIssueStatus =
   | "queued"
   | "preparing"
@@ -55,6 +61,50 @@ export interface FactoryStatusAction {
   readonly summary: string;
   readonly at: string;
   readonly issueNumber: number | null;
+}
+
+export interface FactoryRestartRecoveryIssueSnapshot {
+  readonly issueNumber: number;
+  readonly issueIdentifier: string;
+  readonly branchName: string;
+  readonly decision:
+    | "adopted"
+    | "recovered-shutdown"
+    | "requeued"
+    | "suppressed-terminal"
+    | "degraded";
+  readonly leaseState:
+    | "missing"
+    | "active"
+    | "shutdown-terminated"
+    | "shutdown-forced"
+    | "stale-owner"
+    | "stale-owner-runner"
+    | "invalid";
+  readonly lifecycleKind:
+    | "missing-target"
+    | "awaiting-human-handoff"
+    | "awaiting-human-review"
+    | "awaiting-system-checks"
+    | "awaiting-landing-command"
+    | "awaiting-landing"
+    | "rework-required"
+    | "handoff-ready"
+    | null;
+  readonly ownerPid: number | null;
+  readonly ownerAlive: boolean | null;
+  readonly runnerPid: number | null;
+  readonly runnerAlive: boolean | null;
+  readonly summary: string;
+  readonly observedAt: string;
+}
+
+export interface FactoryRestartRecoverySnapshot {
+  readonly state: FactoryRestartRecoveryState;
+  readonly startedAt: string | null;
+  readonly completedAt: string | null;
+  readonly summary: string | null;
+  readonly issues: readonly FactoryRestartRecoveryIssueSnapshot[];
 }
 
 export interface FactoryPullRequestStatus {
@@ -110,6 +160,7 @@ export interface FactoryStatusSnapshot {
   readonly generatedAt: string;
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publication?: FactoryStatusPublication;
+  readonly restartRecovery?: FactoryRestartRecoverySnapshot;
   readonly factoryState: FactoryState;
   readonly worker: FactoryWorkerSnapshot;
   readonly counts: FactoryStatusCounts;
@@ -238,6 +289,11 @@ export function renderFactoryStatusSnapshot(
   if (publication.detail !== null) {
     lines.push(`Snapshot state detail: ${publication.detail}`);
   }
+  const restartRecovery = getFactoryRestartRecovery(snapshot);
+  lines.push(`Restart recovery: ${restartRecovery.state}`);
+  if (restartRecovery.summary !== null) {
+    lines.push(`Restart recovery detail: ${restartRecovery.summary}`);
+  }
   lines.push(
     `Started: ${snapshot.worker.startedAt}  Snapshot: ${snapshot.generatedAt}`,
   );
@@ -267,6 +323,30 @@ export function renderFactoryStatusSnapshot(
     lines.push(
       `Last action: ${snapshot.lastAction.kind}${issueSuffix} at ${snapshot.lastAction.at} - ${snapshot.lastAction.summary}`,
     );
+  }
+
+  lines.push("");
+  lines.push("Restart recovery issues:");
+  if (restartRecovery.issues.length === 0) {
+    lines.push("  none");
+  } else {
+    for (const issue of restartRecovery.issues) {
+      lines.push(
+        `  #${issue.issueNumber.toString()} ${issue.issueIdentifier} [${issue.decision}]`,
+      );
+      lines.push(`    Summary: ${issue.summary}`);
+      lines.push(`    Branch: ${issue.branchName}`);
+      lines.push(
+        `    Lease: ${issue.leaseState}  Lifecycle: ${issue.lifecycleKind ?? "n/a"}`,
+      );
+      lines.push(
+        `    PIDs: owner=${issue.ownerPid?.toString() ?? "n/a"} runner=${issue.runnerPid?.toString() ?? "n/a"}`,
+      );
+      lines.push(
+        `    Liveness: owner=${issue.ownerAlive === null ? "n/a" : issue.ownerAlive ? "alive" : "dead"} runner=${issue.runnerAlive === null ? "n/a" : issue.runnerAlive ? "alive" : "dead"}`,
+      );
+      lines.push(`    Observed: ${issue.observedAt}`);
+    }
   }
 
   lines.push("");
@@ -380,6 +460,20 @@ export function getFactoryStatusPublication(
   snapshot: FactoryStatusSnapshot,
 ): FactoryStatusPublication {
   return snapshot.publication ?? { state: "current", detail: null };
+}
+
+export function getFactoryRestartRecovery(
+  snapshot: FactoryStatusSnapshot,
+): FactoryRestartRecoverySnapshot {
+  return (
+    snapshot.restartRecovery ?? {
+      state: "idle",
+      startedAt: null,
+      completedAt: null,
+      summary: null,
+      issues: [],
+    }
+  );
 }
 
 /**
@@ -514,6 +608,7 @@ function parseFactoryStatusSnapshot(
       "runtimeIdentity",
     ),
     publication: parsePublication(snapshot.publication, filePath),
+    restartRecovery: parseRestartRecovery(snapshot.restartRecovery, filePath),
     factoryState: expectEnum(
       snapshot.factoryState,
       ["idle", "running", "blocked"],
@@ -563,6 +658,140 @@ function parsePublication(
       filePath,
       "publication.detail",
     ),
+  };
+}
+
+function parseRestartRecovery(
+  value: unknown,
+  filePath: string,
+): FactoryRestartRecoverySnapshot {
+  if (value === undefined) {
+    return {
+      state: "idle",
+      startedAt: null,
+      completedAt: null,
+      summary: null,
+      issues: [],
+    };
+  }
+  const recovery = expectObject(value, filePath, "restartRecovery");
+  return {
+    state: expectEnum(
+      recovery.state,
+      ["idle", "reconciling", "degraded", "ready"],
+      filePath,
+      "restartRecovery.state",
+    ),
+    startedAt: expectNullableString(
+      recovery.startedAt,
+      filePath,
+      "restartRecovery.startedAt",
+    ),
+    completedAt: expectNullableString(
+      recovery.completedAt,
+      filePath,
+      "restartRecovery.completedAt",
+    ),
+    summary: expectNullableString(
+      recovery.summary,
+      filePath,
+      "restartRecovery.summary",
+    ),
+    issues: expectArray(
+      recovery.issues,
+      filePath,
+      "restartRecovery.issues",
+      (entry, index) =>
+        parseRestartRecoveryIssue(
+          entry,
+          filePath,
+          `restartRecovery.issues[${index.toString()}]`,
+        ),
+    ),
+  };
+}
+
+function parseRestartRecoveryIssue(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryRestartRecoveryIssueSnapshot {
+  const issue = expectObject(value, filePath, field);
+  return {
+    issueNumber: expectInteger(
+      issue.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
+    issueIdentifier: expectString(
+      issue.issueIdentifier,
+      filePath,
+      `${field}.issueIdentifier`,
+    ),
+    branchName: expectString(issue.branchName, filePath, `${field}.branchName`),
+    decision: expectEnum(
+      issue.decision,
+      [
+        "adopted",
+        "recovered-shutdown",
+        "requeued",
+        "suppressed-terminal",
+        "degraded",
+      ],
+      filePath,
+      `${field}.decision`,
+    ),
+    leaseState: expectEnum(
+      issue.leaseState,
+      [
+        "missing",
+        "active",
+        "shutdown-terminated",
+        "shutdown-forced",
+        "stale-owner",
+        "stale-owner-runner",
+        "invalid",
+      ],
+      filePath,
+      `${field}.leaseState`,
+    ),
+    lifecycleKind: expectNullableEnum(
+      issue.lifecycleKind,
+      [
+        "missing-target",
+        "awaiting-human-handoff",
+        "awaiting-human-review",
+        "awaiting-system-checks",
+        "awaiting-landing-command",
+        "awaiting-landing",
+        "rework-required",
+        "handoff-ready",
+      ],
+      filePath,
+      `${field}.lifecycleKind`,
+    ),
+    ownerPid: expectNullableInteger(
+      issue.ownerPid,
+      filePath,
+      `${field}.ownerPid`,
+    ),
+    ownerAlive: expectNullableBoolean(
+      issue.ownerAlive,
+      filePath,
+      `${field}.ownerAlive`,
+    ),
+    runnerPid: expectNullableInteger(
+      issue.runnerPid,
+      filePath,
+      `${field}.runnerPid`,
+    ),
+    runnerAlive: expectNullableBoolean(
+      issue.runnerAlive,
+      filePath,
+      `${field}.runnerAlive`,
+    ),
+    summary: expectString(issue.summary, filePath, `${field}.summary`),
+    observedAt: expectString(issue.observedAt, filePath, `${field}.observedAt`),
   };
 }
 
@@ -1039,6 +1268,20 @@ function expectNullableInteger(
   return expectInteger(value, filePath, field);
 }
 
+function expectNullableBoolean(
+  value: unknown,
+  filePath: string,
+  field: string,
+): boolean | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "boolean") {
+    throw invalidSnapshot(filePath, `expected ${field} to be a boolean`);
+  }
+  return value;
+}
+
 function expectStringArray(
   value: unknown,
   filePath: string,
@@ -1078,6 +1321,18 @@ function expectEnum<T extends string>(
     );
   }
   return value as T;
+}
+
+function expectNullableEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  filePath: string,
+  field: string,
+): T | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return expectEnum(value, allowed, filePath, field);
 }
 
 function invalidSnapshot(

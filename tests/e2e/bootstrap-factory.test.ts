@@ -1226,6 +1226,91 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       orphan.kill("SIGKILL");
     }
   });
+
+  it("suppresses duplicate reruns on startup when inherited running work is already awaiting review", async () => {
+    server.seedIssue({
+      number: 49,
+      title: "Preserve handed-off running work on restart",
+      body: "Do not launch a duplicate agent run after restart.",
+      labels: ["symphony:running"],
+    });
+    await server.recordPullRequest({
+      title: "PR for issue 49",
+      body: "",
+      head: "symphony/49",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/49", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReviewThread({
+      head: "symphony/49",
+      authorLogin: "jessmartin",
+      body: "Please tighten this before merge.",
+      path: "src/index.ts",
+      line: 1,
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+    });
+    const workspaceRoot = path.join(tempDir, ".tmp", "workspaces");
+    const lockDir = path.join(workspaceRoot, ".symphony-locks", "49");
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+    await fs.writeFile(
+      path.join(lockDir, "run.json"),
+      JSON.stringify(
+        {
+          issueNumber: 49,
+          issueIdentifier: "sociotechnica-org/symphony-ts#49",
+          branchName: "symphony/49",
+          runSessionId: "sociotechnica-org/symphony-ts#49/attempt-1/orphaned",
+          attempt: 1,
+          ownerPid: 999999,
+          runnerPid: null,
+          runRecordedAt: new Date().toISOString(),
+          runnerStartedAt: null,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const orchestrator = await createOrchestrator(workflowPath);
+    await orchestrator.runOnce();
+
+    expect(await fs.stat(lockDir).catch(() => null)).toBeNull();
+    expect(server.getPullRequests()).toHaveLength(1);
+    await expect(
+      readRemoteBranchFile(remotePath, "symphony/49", "IMPLEMENTED.txt"),
+    ).rejects.toThrow();
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.restartRecovery?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueNumber: 49,
+          decision: "suppressed-terminal",
+          lifecycleKind: "awaiting-human-review",
+        }),
+      ]),
+    );
+    const activeIssue = status.activeIssues.find(
+      (entry) => entry.issueNumber === 49,
+    );
+    expect(activeIssue).toMatchObject({
+      issueNumber: 49,
+      status: "awaiting-human-review",
+    });
+  });
 });
 
 describe("TUI dashboard integration", () => {
