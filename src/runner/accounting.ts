@@ -58,12 +58,20 @@ export function aggregateRunnerAccountingSnapshots(
   const allComplete = statuses.every((status) => status === "complete");
 
   return {
-    status: allUnavailable ? "unavailable" : allComplete ? "complete" : "partial",
-    inputTokens: sumIfAllPresent(snapshots.map((snapshot) => snapshot.inputTokens)),
+    status: allUnavailable
+      ? "unavailable"
+      : allComplete
+        ? "complete"
+        : "partial",
+    inputTokens: sumIfAllPresent(
+      snapshots.map((snapshot) => snapshot.inputTokens),
+    ),
     outputTokens: sumIfAllPresent(
       snapshots.map((snapshot) => snapshot.outputTokens),
     ),
-    totalTokens: sumIfAllPresent(snapshots.map((snapshot) => snapshot.totalTokens)),
+    totalTokens: sumIfAllPresent(
+      snapshots.map((snapshot) => snapshot.totalTokens),
+    ),
     costUsd: sumIfAllPresent(snapshots.map((snapshot) => snapshot.costUsd)),
   };
 }

@@ -179,7 +179,12 @@ function extractTokenDelta(
     mapPath(payload, ["usage", "totalTokens"]) ??
     mapPath(payload, ["usage", "total_tokens"]);
   const costRaw =
-    getMapKey(payload, ["cost_usd", "costUsd", "total_cost_usd", "totalCostUsd"]) ??
+    getMapKey(payload, [
+      "cost_usd",
+      "costUsd",
+      "total_cost_usd",
+      "totalCostUsd",
+    ]) ??
     mapPath(payload, ["payload", "cost_usd"]) ??
     mapPath(payload, ["payload", "costUsd"]) ??
     mapPath(payload, ["payload", "info", "cost_usd"]) ??
@@ -223,7 +228,10 @@ function extractTokenDelta(
     costUsd:
       reportedCost === null
         ? 0
-        : Math.max(0, reportedCost - (entry.accountingLastReportedCostUsd ?? 0)),
+        : Math.max(
+            0,
+            reportedCost - (entry.accountingLastReportedCostUsd ?? 0),
+          ),
   };
 
   // Update high-water marks using Math.max so they never decrease.

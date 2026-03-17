@@ -168,14 +168,14 @@ Aggregate runtime/report views should derive their status from session-level ava
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected decision |
-| --- | --- | --- |
-| Backend emits no accounting-bearing event for a session | runner session exists, no accounting snapshot observed | persist session/report accounting as `unavailable`; do not estimate tokens or cost |
-| Backend emits token totals but no cost fact | normalized token totals observed, cost absent | persist session/report accounting as `partial`; show observed tokens and explicit cost gap |
-| Backend emits token and cost totals | normalized accounting snapshot observed | persist session/report accounting as `complete`; aggregate into runtime/report totals |
-| Backend emits decreasing cumulative token totals | previous high-water accounting plus lower later payload | clamp deltas/high-water marks to avoid double counting; keep prior observed totals |
-| Multiple accounting-bearing events arrive for one session | normalized cumulative snapshots over time | update session high-water marks and aggregate totals deterministically |
-| Canonical session artifact has accounting, optional log enrichment disagrees or is missing | canonical artifact plus optional enrichment inputs | canonical runner-event accounting remains the source of truth; enrichment may add metadata notes only |
+| Observed condition                                                                         | Local facts available                                   | Expected decision                                                                                     |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Backend emits no accounting-bearing event for a session                                    | runner session exists, no accounting snapshot observed  | persist session/report accounting as `unavailable`; do not estimate tokens or cost                    |
+| Backend emits token totals but no cost fact                                                | normalized token totals observed, cost absent           | persist session/report accounting as `partial`; show observed tokens and explicit cost gap            |
+| Backend emits token and cost totals                                                        | normalized accounting snapshot observed                 | persist session/report accounting as `complete`; aggregate into runtime/report totals                 |
+| Backend emits decreasing cumulative token totals                                           | previous high-water accounting plus lower later payload | clamp deltas/high-water marks to avoid double counting; keep prior observed totals                    |
+| Multiple accounting-bearing events arrive for one session                                  | normalized cumulative snapshots over time               | update session high-water marks and aggregate totals deterministically                                |
+| Canonical session artifact has accounting, optional log enrichment disagrees or is missing | canonical artifact plus optional enrichment inputs      | canonical runner-event accounting remains the source of truth; enrichment may add metadata notes only |
 
 ## Storage / Persistence Contract
 

@@ -366,7 +366,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       runnerAccounting: aggregateRunnerAccountingSnapshots(
         running
           .map((entry) => entry.accounting)
-          .filter((entry): entry is RunnerAccountingSnapshot => entry !== undefined),
+          .filter(
+            (entry): entry is RunnerAccountingSnapshot => entry !== undefined,
+          ),
       ),
       rateLimits: this.#state.rateLimits,
       recoveryPosture: projectRecoveryPosture({

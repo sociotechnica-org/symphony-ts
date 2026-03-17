@@ -710,11 +710,15 @@ function buildTokenUsage(
       totalTokens: sumIfAllPresent(
         attemptSessions.map((session) => session.totalTokens),
       ),
-      costUsd: sumIfAllPresent(attemptSessions.map((session) => session.costUsd)),
+      costUsd: sumIfAllPresent(
+        attemptSessions.map((session) => session.costUsd),
+      ),
     };
   });
   const agents = aggregateAgents(sessions);
-  const totalTokens = sumIfAllPresent(sessions.map((session) => session.totalTokens));
+  const totalTokens = sumIfAllPresent(
+    sessions.map((session) => session.totalTokens),
+  );
   const costUsd = sumIfAllPresent(sessions.map((session) => session.costUsd));
   const completeCount = sessions.filter(
     (session) => session.status === "complete",
@@ -1333,7 +1337,11 @@ function aggregateAgents(
 ): readonly IssueReportTokenUsageAgent[] {
   const grouped = new Map<
     string,
-    { readonly sessionCount: number; readonly totalTokens: number | null; readonly costUsd: number | null }
+    {
+      readonly sessionCount: number;
+      readonly totalTokens: number | null;
+      readonly costUsd: number | null;
+    }
   >();
   for (const session of sessions) {
     const label =
