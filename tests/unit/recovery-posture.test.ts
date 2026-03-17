@@ -234,4 +234,43 @@ describe("projectRecoveryPosture", () => {
       "1 issue is waiting on expected human or system gates.",
     );
   });
+
+  it("counts only issues in the winning posture family", () => {
+    const posture = projectRecoveryPosture({
+      publication: { state: "current", detail: null },
+      restartRecovery,
+      activeIssues: [
+        activeIssue,
+        {
+          ...activeIssue,
+          issueNumber: 167,
+          issueIdentifier: "sociotechnica-org/symphony-ts#167",
+          title: "Another waiting issue",
+          branchName: "symphony/167",
+          runSessionId: "session-167",
+        },
+      ],
+      retries: [
+        {
+          issueNumber: 166,
+          issueIdentifier: activeIssue.issueIdentifier,
+          title: activeIssue.title,
+          nextAttempt: 3,
+          retryClass: "watchdog-abort",
+          scheduledAt: "2026-03-17T10:06:00.000Z",
+          backoffMs: 300000,
+          dueAt: "2026-03-17T10:11:00.000Z",
+          lastError: "watchdog abort",
+        },
+      ],
+      watchdogIssues: new Map(),
+      terminalIssues: [],
+    });
+
+    expect(posture.summary.family).toBe("watchdog-recovery");
+    expect(posture.summary.issueCount).toBe(1);
+    expect(posture.summary.summary).toBe(
+      "1 issue currently reflects watchdog recovery or watchdog-driven retry posture.",
+    );
+  });
 });

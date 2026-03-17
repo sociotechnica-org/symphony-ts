@@ -204,12 +204,13 @@ export function projectRecoveryPosture(input: {
             compareFamilies(entry.family, current) < 0 ? entry.family : current,
           entries[0]!.family,
         );
+  const summaryIssueCount = countEntriesForFamily(entries, family);
 
   return {
     summary: {
       family,
       summary: summarizeRecoveryPosture(family, entries),
-      issueCount: entries.filter((entry) => entry.issueNumber !== null).length,
+      issueCount: summaryIssueCount,
     },
     entries,
   };
@@ -257,9 +258,7 @@ function summarizeRecoveryPosture(
   family: FactoryRecoveryPostureFamily,
   entries: readonly FactoryRecoveryPostureEntry[],
 ): string {
-  const issueCount = entries.filter(
-    (entry) => entry.issueNumber !== null,
-  ).length;
+  const issueCount = countEntriesForFamily(entries, family);
   const issueLabel = `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"}`;
   const issueVerb = issueCount === 1 ? "is" : "are";
   const issueProgressVerb = issueCount === 1 ? "reflects" : "reflect";
@@ -286,4 +285,13 @@ function summarizeRecoveryPosture(
         ? "No active recovery posture is present."
         : `${issueCount.toString()} active issue${issueCount === 1 ? "" : "s"} ${activeIssueVerb} running without recovery pressure.`;
   }
+}
+
+function countEntriesForFamily(
+  entries: readonly FactoryRecoveryPostureEntry[],
+  family: FactoryRecoveryPostureFamily,
+): number {
+  return entries.filter(
+    (entry) => entry.family === family && entry.issueNumber !== null,
+  ).length;
 }
