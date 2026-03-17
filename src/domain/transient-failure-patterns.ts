@@ -30,10 +30,7 @@ export const ACCOUNT_PRESSURE_FALLBACK_PATTERNS = [
   /\bbilling (?:hard )?limit(?: reached| exceeded)?\b/iu,
   /\bbilling (?:error|disabled|required)\b/iu,
   /\bpayment required\b/iu,
-  /\bcredit balance\b/iu,
-  /\bcredits? (?:exceeded|exhausted|depleted|insufficient|remaining|limit)\b/iu,
-  /\b(?:no|insufficient|low) credits?\b/iu,
-  /\bsubscription (?:expired|required|inactive)\b/iu,
-  /\bapi (?:key|token) (?:expired|revoked|invalid)\b/iu,
+  /\bcredits? (?:exceeded|exhausted|depleted|limit)\b/iu,
+  /\bno credits?\b/iu,
   /\baccount (?:limit|restricted|disabled)\b/iu,
 ] as const;

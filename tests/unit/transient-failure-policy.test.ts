@@ -311,6 +311,57 @@ describe("transient failure parsing and policy", () => {
     });
   });
 
+  it("does not classify auth-domain stderr through the account fallback path", () => {
+    expect(
+      classifyTransientFailure({
+        message: "Runner exited with 1\ntest failed: api token invalidation flow",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "run-failure",
+      message: "Runner exited with 1\ntest failed: api token invalidation flow",
+      dispatchPressure: null,
+    });
+  });
+
+  it("does not classify financial-domain stderr through the account fallback path", () => {
+    expect(
+      classifyTransientFailure({
+        message:
+          "Runner exited with 1\nerror: insufficient credits for purchase",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "run-failure",
+      message: "Runner exited with 1\nerror: insufficient credits for purchase",
+      dispatchPressure: null,
+    });
+  });
+
+  it("still classifies explicit quota fallback messages as account pressure", () => {
+    expect(
+      classifyTransientFailure({
+        message: "Runner exited with 1\nprovider error: quota exceeded",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "provider-account-pressure",
+      message: "Runner exited with 1\nprovider error: quota exceeded",
+      dispatchPressure: {
+        retryClass: "provider-account-pressure",
+        reason: "Runner exited with 1\nprovider error: quota exceeded",
+        observedAt: "2026-03-17T12:00:00.000Z",
+        resumeAt: "2026-03-17T12:00:05.000Z",
+      },
+    });
+  });
+
   it("keeps ordinary transient runner failures out of dispatch pause posture", () => {
     expect(
       classifyTransientFailure({
