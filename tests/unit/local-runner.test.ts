@@ -6,7 +6,7 @@ import type {
   AgentConfig,
   GenericCommandRunnerConfig,
 } from "../../src/domain/workflow.js";
-import { RunnerAbortedError } from "../../src/domain/errors.js";
+import { RunnerShutdownError } from "../../src/domain/errors.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {
   createRunningEntry,
@@ -511,7 +511,7 @@ describe("runners", () => {
       },
     });
 
-    await expect(run).rejects.toBeInstanceOf(RunnerAbortedError);
+    await expect(run).rejects.toBeInstanceOf(RunnerShutdownError);
     expect(spawnedPid).toBeGreaterThan(0);
     await waitForExit(spawnedPid);
   });
@@ -909,7 +909,7 @@ describe("runners", () => {
             onEvent,
           },
         ),
-      ).rejects.toBeInstanceOf(RunnerAbortedError);
+      ).rejects.toBeInstanceOf(RunnerShutdownError);
 
       expect(onEvent).not.toHaveBeenCalled();
       await expectPathMissing(logFile);

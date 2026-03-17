@@ -1,5 +1,7 @@
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 
+export const RUNNER_SHUTDOWN_GRACE_MS = 200;
+
 export interface RunnerExecutionResult {
   readonly exitCode: number;
   readonly stdout: string;

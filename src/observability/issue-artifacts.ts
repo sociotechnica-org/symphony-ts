@@ -10,6 +10,8 @@ export type IssueArtifactEventKind =
   | "plan-ready"
   | "approved"
   | "waived"
+  | "shutdown-requested"
+  | "shutdown-terminated"
   | "runner-spawned"
   | "pr-opened"
   | "landing-blocked"
@@ -23,6 +25,8 @@ export type IssueArtifactEventKind =
 export type IssueArtifactOutcome =
   | "claimed"
   | "running"
+  | "shutdown-terminated"
+  | "shutdown-forced"
   | "attempt-failed"
   | "awaiting-plan-review"
   | "merged"

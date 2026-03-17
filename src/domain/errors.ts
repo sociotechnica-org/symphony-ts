@@ -50,6 +50,21 @@ export class RunnerAbortedError extends SymphonyError {
   }
 }
 
+export type RunnerShutdownTermination = "graceful" | "forced";
+
+export class RunnerShutdownError extends RunnerAbortedError {
+  readonly termination: RunnerShutdownTermination;
+
+  constructor(
+    message: string,
+    termination: RunnerShutdownTermination,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.termination = termination;
+  }
+}
+
 export class ObservabilityError extends SymphonyError {
   constructor(message: string, options?: ErrorOptions) {
     super("observability_error", message, options);

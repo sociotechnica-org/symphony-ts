@@ -1,6 +1,10 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
+import {
+  OrchestratorError,
+  RunnerAbortedError,
+  RunnerShutdownError,
+} from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryState } from "../domain/retry.js";
@@ -44,13 +48,14 @@ import type {
   FactoryReviewStatus,
   FactoryStatusAction,
 } from "../observability/status.js";
-import type {
-  LiveRunnerSession,
-  Runner,
-  RunnerEvent,
-  RunnerSpawnedEvent,
-  RunnerVisibilitySnapshot,
-  RunnerTurnResult,
+import {
+  RUNNER_SHUTDOWN_GRACE_MS,
+  type LiveRunnerSession,
+  type Runner,
+  type RunnerEvent,
+  type RunnerSpawnedEvent,
+  type RunnerVisibilitySnapshot,
+  type RunnerTurnResult,
 } from "../runner/service.js";
 import type { Tracker } from "../tracker/service.js";
 import type { LandingExecutionResult } from "../tracker/service.js";
@@ -74,6 +79,10 @@ import {
   resolveRunSequence,
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
+import type {
+  ActiveRunShutdownRecord,
+  ActiveRunShutdownState,
+} from "./issue-lease.js";
 import type { LivenessProbe } from "./liveness-probe.js";
 import {
   createRunningEntry,
@@ -175,6 +184,13 @@ interface QueueEntry {
   readonly issue: RuntimeIssue;
   readonly attempt: number;
   readonly source: "ready" | "running";
+}
+
+interface ActiveRunShutdownContext {
+  requestedAt: string | null;
+  gracefulDeadlineAt: string | null;
+  preserveLease: boolean;
+  writePromise: Promise<void>;
 }
 
 export class BootstrapOrchestrator implements Orchestrator {
@@ -550,7 +566,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           issueNumber: issue.number,
         });
         await this.#persistStatusSnapshot();
-        return;
+        return false;
       }
       upsertActiveIssue(this.#state.status, claimed, {
         source: "ready",
@@ -589,7 +605,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           }),
         ],
       });
-      await this.#processClaimedIssue(
+      return await this.#processClaimedIssue(
         claimed,
         attempt,
         lockDir,
@@ -626,27 +642,30 @@ export class BootstrapOrchestrator implements Orchestrator {
           branchName: this.#branchName(issue.number),
         }),
       });
-      await this.#processClaimedIssue(issue, attempt, lockDir);
+      return await this.#processClaimedIssue(issue, attempt, lockDir);
     });
   }
 
   async #withIssueLease(
     issue: RuntimeIssue,
     attempt: number,
-    work: (lockDir: string) => Promise<void>,
+    work: (lockDir: string) => Promise<boolean>,
   ): Promise<void> {
     const lease = await this.#leaseManager.acquire(issue.number);
     if (!lease) {
       return;
     }
     this.#state.runningIssueNumbers.add(issue.number);
+    let preserveLease = false;
     try {
-      await work(lease);
+      preserveLease = await work(lease);
     } catch (error) {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
       this.#state.runningIssueNumbers.delete(issue.number);
-      await this.#leaseManager.release(lease);
+      if (!preserveLease) {
+        await this.#leaseManager.release(lease);
+      }
       await this.#persistStatusSnapshot();
     }
   }
@@ -656,7 +675,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
     lockDir: string,
     initialLifecycle?: HandoffLifecycle,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const branchName = this.#branchName(issue.number);
     const issueSource = initialLifecycle !== undefined ? "ready" : "running";
     const lifecycle =
@@ -666,7 +685,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       clearLandingRuntimeState(this.#state.landing, issue.number);
       await this.#completeIssue(issue);
       await this.#cleanupIssueWorkspaceIfNeeded(issue);
-      return;
+      return false;
     }
 
     if (
@@ -697,7 +716,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#recordIssueArtifact(
         this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
       );
-      return;
+      return false;
     }
 
     if (lifecycle.kind === "awaiting-landing") {
@@ -708,10 +727,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName,
         lifecycle,
       );
-      return;
+      return false;
     }
 
-    await this.#runIssue(
+    return await this.#runIssue(
       issue,
       attempt,
       lockDir,
@@ -892,7 +911,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     lockDir: string,
     source: "ready" | "running",
     pullRequest: HandoffLifecycle | null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     upsertActiveIssue(this.#state.status, issue, {
       source,
       runSequence: attempt,
@@ -982,11 +1001,18 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#leaseManager.recordRun(lockDir, session);
     const abortController = new AbortController();
     const shutdownSignal = this.#shutdownSignal;
+    const shutdownContext: ActiveRunShutdownContext = {
+      requestedAt: null,
+      gracefulDeadlineAt: null,
+      preserveLease: false,
+      writePromise: Promise.resolve(),
+    };
     const handleShutdown = (): void => {
+      this.#beginActiveRunShutdown(issue, lockDir, shutdownContext);
       abortController.abort();
     };
     if (shutdownSignal?.aborted) {
-      abortController.abort();
+      handleShutdown();
     } else if (shutdownSignal) {
       shutdownSignal.addEventListener("abort", handleShutdown, { once: true });
     }
@@ -1082,7 +1108,7 @@ export class BootstrapOrchestrator implements Orchestrator {
             `Runner exited with ${result.exitCode}\n${result.stderr}`,
             result.finishedAt,
           );
-          return;
+          return false;
         }
 
         this.#setIssueRunnerVisibility(
@@ -1113,6 +1139,21 @@ export class BootstrapOrchestrator implements Orchestrator {
           result.finishedAt,
         );
         await this.#persistStatusSnapshot();
+        if (shutdownContext.requestedAt !== null) {
+          await stopWatchdog();
+          await this.#finalizeActiveRunShutdown(
+            issue,
+            attempt,
+            lockDir,
+            workspace.branchName,
+            sessionState,
+            shutdownContext,
+            result.finishedAt,
+            "shutdown-terminated",
+            "Runner exited during coordinated shutdown",
+          );
+          return true;
+        }
         const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
           workspace.branchName,
           currentLifecycle,
@@ -1127,7 +1168,7 @@ export class BootstrapOrchestrator implements Orchestrator {
             finishedAt: result.finishedAt,
           });
           await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
-          return;
+          return false;
         }
 
         if (
@@ -1161,10 +1202,29 @@ export class BootstrapOrchestrator implements Orchestrator {
           sessionState,
           result.finishedAt,
         );
-        return;
+        return false;
       }
     } catch (error) {
       await stopWatchdog();
+      if (
+        error instanceof RunnerShutdownError &&
+        shutdownContext.requestedAt !== null
+      ) {
+        await this.#finalizeActiveRunShutdown(
+          issue,
+          attempt,
+          lockDir,
+          workspace.branchName,
+          sessionState,
+          shutdownContext,
+          new Date().toISOString(),
+          error.termination === "forced"
+            ? "shutdown-forced"
+            : "shutdown-terminated",
+          error.message,
+        );
+        return true;
+      }
       const normalizedFailure = this.#resolveRunFailureMessage(
         sessionState.runSession.issue.number,
         error as Error,
@@ -1181,6 +1241,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         normalizedFailure,
         new Date().toISOString(),
       );
+      return false;
     } finally {
       await liveRunnerSession?.close().catch((error) => {
         this.#logger.warn("Failed to close live runner session cleanly", {
@@ -1222,10 +1283,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     lockDir: string,
     signal: AbortSignal,
   ): Promise<RunnerTurnResult> {
-    const onEvent = (event: RunnerEvent): void => {
+    const onEvent = async (event: RunnerEvent): Promise<void> => {
       switch (event.kind) {
         case "spawned":
-          this.#recordRunnerSpawn(
+          await this.#recordRunnerSpawn(
             {
               runSession: session,
               description:
@@ -1245,7 +1306,7 @@ export class BootstrapOrchestrator implements Orchestrator {
             event.visibility,
             event.visibility.lastHeartbeatAt ?? undefined,
           );
-          void this.#persistStatusSnapshot();
+          await this.#persistStatusSnapshot();
           return;
       }
     };
@@ -1490,7 +1551,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     const recoveries = await Promise.allSettled(
       issues.map(async (issue) => ({
         issueNumber: issue.number,
-        snapshot: await this.#leaseManager.reconcile(issue.number),
+        snapshot: await this.#leaseManager.reconcile(issue.number, {
+          preserveShutdown: true,
+        }),
       })),
     );
 
@@ -1508,6 +1571,25 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
       const { issueNumber, snapshot } = recovery.value;
       if (snapshot.kind === "missing" || snapshot.kind === "active") {
+        continue;
+      }
+      if (
+        snapshot.kind === "shutdown-terminated" ||
+        snapshot.kind === "shutdown-forced"
+      ) {
+        this.#logger.info("Recovered intentional shutdown posture", {
+          issueNumber,
+          shutdownState: snapshot.record?.shutdown?.state ?? null,
+          runnerPid: snapshot.runnerPid,
+          runnerAlive: snapshot.runnerAlive,
+          runSessionId: snapshot.record?.runSessionId ?? null,
+        });
+        noteStatusAction(this.#state.status, {
+          kind: "shutdown-recovered",
+          summary: `Recovered intentional shutdown for issue #${issueNumber.toString()}`,
+          issueNumber,
+        });
+        await this.#persistStatusSnapshot();
         continue;
       }
       this.#logger.warn("Recovered stale local run ownership", {
@@ -2026,6 +2108,56 @@ export class BootstrapOrchestrator implements Orchestrator {
     };
   }
 
+  #createShutdownObservation(
+    issue: RuntimeIssue,
+    attempt: number,
+    branchName: string,
+    session: RunSessionArtifactsState,
+    observedAt: string,
+    state: "shutdown-terminated" | "shutdown-forced",
+    summary: string,
+  ): IssueArtifactObservation {
+    const sessionArtifacts = this.#createSessionObservationArtifacts(
+      session,
+      observedAt,
+    );
+    return {
+      issue: this.#createIssueArtifactUpdate(issue, {
+        observedAt,
+        outcome: state,
+        summary,
+        branchName,
+        latestAttemptNumber: attempt,
+        latestSessionId: session.runSession.id,
+      }),
+      events: [
+        this.#createIssueEvent("shutdown-terminated", issue, {
+          observedAt,
+          attemptNumber: attempt,
+          sessionId: session.runSession.id,
+          details: {
+            branch: branchName,
+            summary,
+            forced: state === "shutdown-forced",
+            latestTurnNumber: session.latestTurnNumber,
+            backendSessionId: session.description.backendSessionId,
+          },
+        }),
+      ],
+      attempt: this.#createAttemptArtifact(issue, attempt, {
+        outcome: state,
+        summary,
+        branchName,
+        sessionId: session.runSession.id,
+        startedAt: session.runSession.startedAt,
+        finishedAt: observedAt,
+        runnerPid: this.#currentRunnerPid(issue.number),
+        latestTurnNumber: session.latestTurnNumber,
+      }),
+      ...sessionArtifacts,
+    };
+  }
+
   #createRetryScheduledObservation(
     issue: RuntimeIssue,
     attempt: number,
@@ -2482,6 +2614,138 @@ export class BootstrapOrchestrator implements Orchestrator {
     return this.#state.status.activeIssues.get(issueNumber)?.runnerPid ?? null;
   }
 
+  #beginActiveRunShutdown(
+    issue: RuntimeIssue,
+    lockDir: string,
+    context: ActiveRunShutdownContext,
+  ): void {
+    if (context.requestedAt !== null) {
+      return;
+    }
+    const requestedAt = new Date().toISOString();
+    context.requestedAt = requestedAt;
+    context.gracefulDeadlineAt = new Date(
+      Date.now() + RUNNER_SHUTDOWN_GRACE_MS,
+    ).toISOString();
+    const drainingRecord = this.#createShutdownRecord(context, {
+      state: "shutdown-draining",
+      observedAt: requestedAt,
+      reasonSummary: "Waiting for runner shutdown",
+    });
+    context.writePromise = context.writePromise.then(async () => {
+      await this.#leaseManager.recordShutdown(lockDir, drainingRecord);
+    });
+    this.#logger.info("Shutdown requested for active run", {
+      issueNumber: issue.number,
+      runSessionId: this.#state.status.activeIssues.get(issue.number)
+        ?.runSessionId,
+      gracefulDeadlineAt: context.gracefulDeadlineAt,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: "shutdown-requested",
+      summary: `Shutdown requested for ${issue.identifier}`,
+      issueNumber: issue.number,
+      at: requestedAt,
+    });
+    void this.#persistStatusSnapshot();
+  }
+
+  #createShutdownRecord(
+    context: ActiveRunShutdownContext,
+    options: {
+      readonly state: ActiveRunShutdownState;
+      readonly observedAt: string;
+      readonly reasonSummary: string;
+    },
+  ): ActiveRunShutdownRecord {
+    return {
+      state: options.state,
+      requestedAt: context.requestedAt ?? options.observedAt,
+      gracefulDeadlineAt: context.gracefulDeadlineAt,
+      terminatedAt:
+        options.state === "shutdown-terminated" ||
+        options.state === "shutdown-forced"
+          ? options.observedAt
+          : null,
+      reasonSummary: options.reasonSummary,
+      updatedAt: options.observedAt,
+    };
+  }
+
+  async #finalizeActiveRunShutdown(
+    issue: RuntimeIssue,
+    attempt: number,
+    lockDir: string,
+    branchName: string,
+    session: RunSessionArtifactsState,
+    context: ActiveRunShutdownContext,
+    observedAt: string,
+    state: Extract<
+      ActiveRunShutdownState,
+      "shutdown-terminated" | "shutdown-forced"
+    >,
+    summary: string,
+  ): Promise<void> {
+    const shutdownRecord = this.#createShutdownRecord(context, {
+      state,
+      observedAt,
+      reasonSummary: summary,
+    });
+    context.preserveLease = true;
+    await context.writePromise;
+    await this.#leaseManager.recordShutdown(lockDir, shutdownRecord);
+    this.#setIssueRunnerVisibility(
+      issue.number,
+      this.#buildRunnerVisibility(session.description, {
+        state: "cancelled",
+        phase: "shutdown",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary:
+          state === "shutdown-forced"
+            ? "Runner forced to stop during shutdown"
+            : "Runner stopped during shutdown",
+        errorSummary: summary,
+        cancelledAt: observedAt,
+      }),
+      observedAt,
+    );
+    upsertActiveIssue(this.#state.status, issue, {
+      source:
+        this.#state.status.activeIssues.get(issue.number)?.source ?? "running",
+      runSequence: attempt,
+      branchName,
+      status: state,
+      summary,
+      blockedReason: summary,
+    });
+    noteStatusAction(this.#state.status, {
+      kind: state,
+      summary,
+      issueNumber: issue.number,
+      at: observedAt,
+    });
+    await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
+      this.#createShutdownObservation(
+        issue,
+        attempt,
+        branchName,
+        session,
+        observedAt,
+        state,
+        summary,
+      ),
+    );
+    this.#logger.info("Active run stopped for intentional shutdown", {
+      issueNumber: issue.number,
+      branchName,
+      runSessionId: session.runSession.id,
+      shutdownState: state,
+      summary,
+    });
+  }
+
   #normalizeFailure(error: Error): string {
     if (error instanceof RunnerAbortedError) {
       return error.message;
@@ -2491,12 +2755,12 @@ export class BootstrapOrchestrator implements Orchestrator {
       : `${error.name}: ${error.message}`;
   }
 
-  #recordRunnerSpawn(
+  async #recordRunnerSpawn(
     session: RunSessionArtifactsState,
     lockDir: string,
     event: RunnerSpawnedEvent,
     turnNumber: number,
-  ): void {
+  ): Promise<void> {
     const issueNumber = session.runSession.issue.number;
     this.#leaseManager.recordRunnerSpawn(lockDir, event);
     const entry = this.#state.status.activeIssues.get(issueNumber);
@@ -2541,8 +2805,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       at: event.spawnedAt,
     });
     // The runner event callback is synchronous; snapshot persistence is optional.
-    void this.#persistStatusSnapshot();
-    void this.#recordIssueArtifact(
+    await this.#persistStatusSnapshot();
+    await this.#recordIssueArtifact(
       this.#createRunnerSpawnObservation(session, event, turnNumber),
     );
     this.#logger.info("Runner process attached to active issue", {

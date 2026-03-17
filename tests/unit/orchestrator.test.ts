@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RunnerAbortedError } from "../../src/domain/errors.js";
+import {
+  RunnerAbortedError,
+  RunnerShutdownError,
+} from "../../src/domain/errors.js";
 import type { HandoffLifecycle } from "../../src/domain/handoff.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type { RunSession } from "../../src/domain/run.js";
@@ -2995,7 +2998,7 @@ describe("BootstrapOrchestrator", () => {
     expect(logger.errors).toContain("Failure handling failed");
   });
 
-  it("cancels an active run on shutdown and leaves the issue queued for retry", async () => {
+  it("persists intentional shutdown without scheduling a retry", async () => {
     const tempRoot = await createTempDir("symphony-shutdown-test-");
     try {
       const tracker = new SequencedTracker({
@@ -3032,7 +3035,10 @@ describe("BootstrapOrchestrator", () => {
                   "abort",
                   () => {
                     reject(
-                      new RunnerAbortedError("Runner cancelled by shutdown"),
+                      new RunnerShutdownError(
+                        "Runner cancelled by shutdown",
+                        "graceful",
+                      ),
                     );
                   },
                   { once: true },
@@ -3050,13 +3056,16 @@ describe("BootstrapOrchestrator", () => {
       controller.abort();
       await loop;
 
-      expect(tracker.retried).toEqual([
-        {
-          issueNumber: 76,
-          reason: "Runner cancelled by shutdown",
-        },
-      ]);
+      const leaseManager = new LocalIssueLeaseManager(
+        tempRoot,
+        new NullLogger(),
+      );
+      const snapshot = await leaseManager.inspect(76);
+
+      expect(tracker.retried).toEqual([]);
       expect(tracker.failed).toEqual([]);
+      expect(snapshot.kind).toBe("shutdown-terminated");
+      expect(snapshot.record?.shutdown?.state).toBe("shutdown-terminated");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }

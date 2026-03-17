@@ -1104,6 +1104,8 @@ function resolveStageLabel(entry: TuiSnapshot["running"][number]): string {
     case "queued":
     case "preparing":
     case "running":
+    case "shutdown-terminated":
+    case "shutdown-forced":
     case "merged":
       return status;
   }

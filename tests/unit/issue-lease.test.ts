@@ -77,6 +77,36 @@ describe("LocalIssueLeaseManager", () => {
     }
   });
 
+  it("preserves an intentional shutdown record during recovery when requested", async () => {
+    const tempRoot = await createTempDir("symphony-lease-shutdown-");
+    const manager = new LocalIssueLeaseManager(tempRoot, new JsonLogger());
+
+    try {
+      const lockDir = await manager.acquire(28);
+      expect(lockDir).not.toBeNull();
+
+      await manager.recordRun(lockDir!, createSession(28, tempRoot));
+      await manager.recordShutdown(lockDir!, {
+        state: "shutdown-terminated",
+        requestedAt: new Date().toISOString(),
+        gracefulDeadlineAt: new Date().toISOString(),
+        terminatedAt: new Date().toISOString(),
+        reasonSummary: "Runner cancelled by shutdown",
+        updatedAt: new Date().toISOString(),
+      });
+      await fs.writeFile(path.join(lockDir!, "pid"), "999999\n", "utf8");
+
+      const snapshot = await manager.reconcile(28, {
+        preserveShutdown: true,
+      });
+
+      expect(snapshot.kind).toBe("shutdown-terminated");
+      expect((await manager.inspect(28)).kind).toBe("shutdown-terminated");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("removes an incomplete lease if pid persistence fails during acquire", async () => {
     const tempRoot = await createTempDir("symphony-lease-acquire-");
     const manager = new LocalIssueLeaseManager(tempRoot, new JsonLogger());

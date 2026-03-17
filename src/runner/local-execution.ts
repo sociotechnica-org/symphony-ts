@@ -1,11 +1,15 @@
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
+import { RunnerError, RunnerShutdownError } from "../domain/errors.js";
 import type { RunSession, RunUpdateEvent } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
-import type { RunnerExecutionResult, RunnerRunOptions } from "./service.js";
+import {
+  RUNNER_SHUTDOWN_GRACE_MS,
+  type RunnerExecutionResult,
+  type RunnerRunOptions,
+} from "./service.js";
 
 function tryParseStdoutEvent(line: string): RunUpdateEvent | undefined {
   const trimmed = line.trim();
@@ -27,8 +31,6 @@ export interface LocalCommandExecutionOptions {
   readonly options: RunnerRunOptions | undefined;
   readonly promptTransport: AgentConfig["promptTransport"];
 }
-
-const TERMINATION_GRACE_MS = 200;
 
 export async function executeLocalRunnerCommand(
   logger: Logger,
@@ -82,6 +84,7 @@ export async function executeLocalRunnerCommand(
     let settled = false;
     let timedOut = false;
     let aborted = false;
+    let forcedShutdown = false;
     let spawnError: RunnerError | null = null;
     let forcedKillTimeout: NodeJS.Timeout | null = null;
     let spawnNotificationPromise: Promise<void> = Promise.resolve();
@@ -111,9 +114,12 @@ export async function executeLocalRunnerCommand(
       forcedKillTimeout = setTimeout(() => {
         forcedKillTimeout = null;
         if (child.exitCode === null && child.signalCode === null) {
+          if (aborted && !timedOut) {
+            forcedShutdown = true;
+          }
           child.kill("SIGKILL");
         }
-      }, TERMINATION_GRACE_MS);
+      }, RUNNER_SHUTDOWN_GRACE_MS);
     };
 
     const handleAbort = (): void => {
@@ -242,7 +248,12 @@ export async function executeLocalRunnerCommand(
             return;
           }
           if (aborted) {
-            reject(new RunnerAbortedError(`Runner cancelled by shutdown`));
+            reject(
+              new RunnerShutdownError(
+                "Runner cancelled by shutdown",
+                forcedShutdown ? "forced" : "graceful",
+              ),
+            );
             return;
           }
           if (spawnError !== null) {
