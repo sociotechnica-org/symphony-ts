@@ -257,6 +257,43 @@ describe("transient failure parsing and policy", () => {
     });
   });
 
+  it("does not classify throttle-domain stderr as provider rate limits", () => {
+    expect(
+      classifyTransientFailure({
+        message:
+          "Runner exited with 1\ntest failed: throttle component not rendering",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "run-failure",
+      message:
+        "Runner exited with 1\ntest failed: throttle component not rendering",
+      dispatchPressure: null,
+    });
+  });
+
+  it("still classifies provider-style throttling messages in fallback mode", () => {
+    expect(
+      classifyTransientFailure({
+        message: "Runner exited with 1\nrequest was throttled by the provider",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "provider-rate-limit",
+      message: "Runner exited with 1\nrequest was throttled by the provider",
+      dispatchPressure: {
+        retryClass: "provider-rate-limit",
+        reason: "Runner exited with 1\nrequest was throttled by the provider",
+        observedAt: "2026-03-17T12:00:00.000Z",
+        resumeAt: "2026-03-17T12:00:05.000Z",
+      },
+    });
+  });
+
   it("does not classify generic account issue strings as provider account pressure", () => {
     expect(
       classifyTransientFailure({

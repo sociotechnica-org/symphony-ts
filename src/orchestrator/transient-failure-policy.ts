@@ -3,8 +3,8 @@ import type {
   TransientFailureSignal,
 } from "../domain/transient-failure.js";
 import {
-  ACCOUNT_PRESSURE_PATTERNS,
-  RATE_LIMIT_PATTERNS,
+  ACCOUNT_PRESSURE_FALLBACK_PATTERNS,
+  RATE_LIMIT_FALLBACK_PATTERNS,
 } from "../domain/transient-failure-patterns.js";
 
 export function classifyTransientFailure(options: {
@@ -59,10 +59,12 @@ export function classifyTransientFailure(options: {
 function classifyMessage(
   message: string,
 ): ClassifiedTransientFailure["retryClass"] {
-  if (RATE_LIMIT_PATTERNS.some((pattern) => pattern.test(message))) {
+  if (RATE_LIMIT_FALLBACK_PATTERNS.some((pattern) => pattern.test(message))) {
     return "provider-rate-limit";
   }
-  if (ACCOUNT_PRESSURE_PATTERNS.some((pattern) => pattern.test(message))) {
+  if (
+    ACCOUNT_PRESSURE_FALLBACK_PATTERNS.some((pattern) => pattern.test(message))
+  ) {
     return "provider-account-pressure";
   }
   return "run-failure";
