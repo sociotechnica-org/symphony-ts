@@ -518,7 +518,10 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     const merged = new Map<number, QueueEntry>();
     for (const issue of runningCandidates) {
-      if (!retryAttempts.has(issue.number) && hasQueuedRetry(this.#state.retries, issue.number)) {
+      if (
+        !retryAttempts.has(issue.number) &&
+        hasQueuedRetry(this.#state.retries, issue.number)
+      ) {
         continue;
       }
       merged.set(issue.number, {
@@ -528,7 +531,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       });
     }
     for (const issue of readyCandidates) {
-      if (!retryAttempts.has(issue.number) && hasQueuedRetry(this.#state.retries, issue.number)) {
+      if (
+        !retryAttempts.has(issue.number) &&
+        hasQueuedRetry(this.#state.retries, issue.number)
+      ) {
         continue;
       }
       if (merged.has(issue.number)) {
@@ -1269,7 +1275,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         sessionState,
         attempt,
         normalizedFailure,
-        this.#resolveRetryClass(sessionState.runSession.issue.number, error as Error),
+        this.#resolveRetryClass(
+          sessionState.runSession.issue.number,
+          error as Error,
+        ),
         new Date().toISOString(),
       );
       return false;
@@ -1786,7 +1795,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       ...readyIssues.map((issue) => issue.number),
       ...runningIssues.map((issue) => issue.number),
       ...this.#state.runningIssueNumbers,
-      ...listQueuedRetries(this.#state.retries).map((retry) => retry.issue.number),
+      ...listQueuedRetries(this.#state.retries).map(
+        (retry) => retry.issue.number,
+      ),
     ]);
 
     for (const issueNumber of this.#state.status.activeIssues.keys()) {
@@ -1983,7 +1994,12 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#notifyDashboard();
       await this.#persistStatusSnapshot();
       await this.#recordIssueArtifact(
-        this.#createRetryScheduledObservation(issue, runSequence, message, retryEntry),
+        this.#createRetryScheduledObservation(
+          issue,
+          runSequence,
+          message,
+          retryEntry,
+        ),
       );
       return;
     }

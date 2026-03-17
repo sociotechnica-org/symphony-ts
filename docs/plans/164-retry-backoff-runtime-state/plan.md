@@ -258,15 +258,15 @@ Decision notes:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Run fails and retry attempt is still below `maxAttempts` | run sequence, current retry attempt, failure message | issue still active; no merged terminal handoff | schedule retry with `dueAt = now + backoffMs`; project queued posture |
-| Run fails and retry attempt reaches `maxAttempts` | run sequence, current retry attempt, failure message | issue still active; no merged terminal handoff | mark retry `exhausted`; do not queue; fail issue terminally |
-| Run fails but post-failure lifecycle refresh shows merged terminal handoff | run failure facts | refreshed lifecycle is `handoff-ready` | suppress retry/failure queueing and complete terminally |
-| Issue already has a scheduled retry and a normal poll sees the tracker item again before due time | queued retry entry with future `dueAt` | ready/running candidate from tracker | hold queued retry; do not dispatch early |
-| Scheduled retry reaches its due time on a poll | queued retry entry with `dueAt <= now` | tracker still returns the issue as eligible running/ready work | release retry into dispatch with preserved next attempt number |
-| Retrying issue completes or reaches a non-retry terminal path | queued retry entry may still exist | lifecycle becomes handoff-ready or issue is failed terminally | clear retry ownership and counters |
-| Operator inspects status/TUI while retries are pending | queue entries with due times and summaries | none required beyond normalized issue identity | show retry queue posture sorted by due time, including next attempt and summarized reason |
+| Observed condition                                                                                | Local facts available                                | Normalized tracker facts available                             | Expected decision                                                                         |
+| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Run fails and retry attempt is still below `maxAttempts`                                          | run sequence, current retry attempt, failure message | issue still active; no merged terminal handoff                 | schedule retry with `dueAt = now + backoffMs`; project queued posture                     |
+| Run fails and retry attempt reaches `maxAttempts`                                                 | run sequence, current retry attempt, failure message | issue still active; no merged terminal handoff                 | mark retry `exhausted`; do not queue; fail issue terminally                               |
+| Run fails but post-failure lifecycle refresh shows merged terminal handoff                        | run failure facts                                    | refreshed lifecycle is `handoff-ready`                         | suppress retry/failure queueing and complete terminally                                   |
+| Issue already has a scheduled retry and a normal poll sees the tracker item again before due time | queued retry entry with future `dueAt`               | ready/running candidate from tracker                           | hold queued retry; do not dispatch early                                                  |
+| Scheduled retry reaches its due time on a poll                                                    | queued retry entry with `dueAt <= now`               | tracker still returns the issue as eligible running/ready work | release retry into dispatch with preserved next attempt number                            |
+| Retrying issue completes or reaches a non-retry terminal path                                     | queued retry entry may still exist                   | lifecycle becomes handoff-ready or issue is failed terminally  | clear retry ownership and counters                                                        |
+| Operator inspects status/TUI while retries are pending                                            | queue entries with due times and summaries           | none required beyond normalized issue identity                 | show retry queue posture sorted by due time, including next attempt and summarized reason |
 
 ## Storage / Persistence Contract
 

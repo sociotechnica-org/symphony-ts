@@ -453,7 +453,9 @@ export function renderFactoryStatusSnapshot(
       lines.push(
         `  #${retry.issueNumber.toString()} ${retry.title} attempt ${retry.nextAttempt.toString()} [${retry.retryClass}] at ${retry.dueAt}`,
       );
-      lines.push(`    Scheduled: ${retry.scheduledAt} (+${retry.backoffMs.toString()}ms)`);
+      lines.push(
+        `    Scheduled: ${retry.scheduledAt} (+${retry.backoffMs.toString()}ms)`,
+      );
       lines.push(`    Error: ${retry.lastError}`);
     }
   }
