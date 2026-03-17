@@ -290,6 +290,16 @@ export interface IntegrateResult {
   readonly accounting: RunnerAccountingSnapshot;
 }
 
+function hasObservedTokenAccounting(
+  accounting: RunnerAccountingSnapshot,
+): boolean {
+  return (
+    accounting.inputTokens !== null ||
+    accounting.outputTokens !== null ||
+    accounting.totalTokens !== null
+  );
+}
+
 /**
  * Normalize Codex event names to a canonical slash form.
  *
@@ -372,8 +382,7 @@ export function integrateCodexUpdate(
     tokenDelta.inputTokens > 0 ||
     tokenDelta.outputTokens > 0 ||
     tokenDelta.totalTokens > 0 ||
-    tokenDelta.costUsd > 0 ||
-    entry.accounting.status !== "unavailable"
+    hasObservedTokenAccounting(entry.accounting)
   ) {
     entry.codexTokenState = "observed";
   }

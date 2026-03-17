@@ -1181,7 +1181,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           runSession: session,
           description: result.session,
           latestTurnNumber: turn.turnNumber,
-          accounting: sessionState.accounting,
+          accounting:
+            this.#state.runningEntries.get(issue.number)?.accounting ??
+            sessionState.accounting,
         };
 
         if (result.exitCode !== 0) {

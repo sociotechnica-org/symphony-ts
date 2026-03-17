@@ -2543,6 +2543,98 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("persists live-session accounting observed during a turn into session artifacts", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(90)],
+    });
+    tracker.setLifecycleSequence(90, [
+      lifecycle("handoff-ready", "symphony/90"),
+    ]);
+    const tempRoot = await createTempDir("symphony-live-accounting-artifact-");
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(): Promise<RunnerExecutionResult> {
+            throw new Error("runner.run should not be called");
+          },
+          async startSession(): Promise<LiveRunnerSession> {
+            let latestTurnNumber: number | null = null;
+            return {
+              describe() {
+                return {
+                  ...createRunnerSessionDescription(),
+                  backendSessionId: "codex-session-90",
+                  latestTurnNumber,
+                };
+              },
+              async runTurn(turn, options): Promise<RunnerTurnResult> {
+                latestTurnNumber = turn.turnNumber;
+                options?.onUpdate?.({
+                  event: "codex/event/token_count",
+                  payload: {
+                    input_tokens: 123,
+                    output_tokens: 45,
+                    total_tokens: 168,
+                  },
+                  timestamp: formatTurnTimestamp(50, turn.turnNumber),
+                });
+                const timestamp = formatTurnTimestamp(50, turn.turnNumber);
+                return {
+                  exitCode: 0,
+                  stdout: "",
+                  stderr: "",
+                  startedAt: timestamp,
+                  finishedAt: timestamp,
+                  session: {
+                    ...createRunnerSessionDescription(),
+                    backendSessionId: "codex-session-90",
+                    latestTurnNumber,
+                  },
+                };
+              },
+              async close(): Promise<void> {},
+            };
+          },
+        },
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(tracker.completed).toEqual([90]);
+
+      const attempt = await readIssueArtifactAttempt(tempRoot, 90, 1);
+      const session = await readIssueArtifactSession(
+        tempRoot,
+        90,
+        attempt.sessionId!,
+      );
+      expect(session.accounting).toEqual({
+        status: "partial",
+        inputTokens: 123,
+        outputTokens: 45,
+        totalTokens: 168,
+        costUsd: null,
+      });
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the raw missing-target summary when max_turns is one", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(89)],

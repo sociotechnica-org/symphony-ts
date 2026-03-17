@@ -218,4 +218,30 @@ describe("integrateCodexUpdate", () => {
     expect(entry.codexTokenState).toBe("observed");
     expect(entry.codexTotalTokens).toBe(150);
   });
+
+  it("keeps token state pending for cost-only accounting events", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/token_count",
+      payload: { cost_usd: 1.25 },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      costUsd: 1.25,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    });
+    expect(entry.accounting).toEqual({
+      status: "partial",
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      costUsd: 1.25,
+    });
+    expect(entry.codexTokenState).toBe("pending");
+    expect(entry.codexTotalTokens).toBe(0);
+  });
 });

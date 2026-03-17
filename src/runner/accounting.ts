@@ -68,34 +68,11 @@ export function aggregateRunnerAccountingSnapshots(
   };
 }
 
-export function sumObservedRunnerAccounting(
-  snapshots: readonly RunnerAccountingSnapshot[],
-): {
-  readonly inputTokens: number | null;
-  readonly outputTokens: number | null;
-  readonly totalTokens: number | null;
-  readonly costUsd: number | null;
-} {
-  return {
-    inputTokens: sumIfAnyPresent(snapshots.map((snapshot) => snapshot.inputTokens)),
-    outputTokens: sumIfAnyPresent(
-      snapshots.map((snapshot) => snapshot.outputTokens),
-    ),
-    totalTokens: sumIfAnyPresent(snapshots.map((snapshot) => snapshot.totalTokens)),
-    costUsd: sumIfAnyPresent(snapshots.map((snapshot) => snapshot.costUsd)),
-  };
-}
-
-function sumIfAllPresent(values: readonly (number | null)[]): number | null {
+export function sumIfAllPresent(
+  values: readonly (number | null)[],
+): number | null {
   const observed = values.filter((value): value is number => value !== null);
-  return observed.length === values.length
+  return observed.length === values.length && observed.length > 0
     ? observed.reduce((sum, value) => sum + value, 0)
     : null;
-}
-
-function sumIfAnyPresent(values: readonly (number | null)[]): number | null {
-  const observed = values.filter((value): value is number => value !== null);
-  return observed.length === 0
-    ? null
-    : observed.reduce((sum, value) => sum + value, 0);
 }

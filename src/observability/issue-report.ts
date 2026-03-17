@@ -19,7 +19,10 @@ import {
   deriveFactoryRuntimeRoot,
   deriveIssueArtifactPaths,
 } from "./issue-artifacts.js";
-import { createRunnerAccountingSnapshot } from "../runner/accounting.js";
+import {
+  createRunnerAccountingSnapshot,
+  sumIfAllPresent,
+} from "../runner/accounting.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
 
 export const ISSUE_REPORT_SCHEMA_VERSION = 2 as const;
@@ -1362,13 +1365,6 @@ function aggregateAgents(
       costUsd: value.costUsd,
     }))
     .sort((left, right) => left.agent.localeCompare(right.agent));
-}
-
-function sumIfAllPresent(values: readonly (number | null)[]): number | null {
-  const observed = values.filter((value): value is number => value !== null);
-  return observed.length === values.length && observed.length > 0
-    ? observed.reduce((sum, value) => sum + value, 0)
-    : null;
 }
 
 function readPullRequestFromDetails(
