@@ -85,15 +85,16 @@ export function projectRecoveryPosture(input: {
     });
   }
 
+  const restartRecoveryFamily =
+    input.restartRecovery.state === "degraded"
+      ? "degraded"
+      : "restart-recovery";
   if (
     input.restartRecovery.state !== "idle" ||
     input.restartRecovery.issues.length > 0
   ) {
     otherEntries.push({
-      family:
-        input.restartRecovery.state === "degraded"
-          ? "degraded"
-          : "restart-recovery",
+      family: restartRecoveryFamily,
       issueNumber: null,
       issueIdentifier: null,
       title: null,
@@ -112,7 +113,7 @@ export function projectRecoveryPosture(input: {
 
   for (const issue of input.restartRecovery.issues) {
     upsertIssueEntry(issueEntries, {
-      family: issue.decision === "degraded" ? "degraded" : "restart-recovery",
+      family: restartRecoveryFamily,
       issueNumber: issue.issueNumber,
       issueIdentifier: issue.issueIdentifier,
       title: null,
@@ -203,13 +204,12 @@ export function projectRecoveryPosture(input: {
             compareFamilies(entry.family, current) < 0 ? entry.family : current,
           entries[0]!.family,
         );
-  const summaryIssueCount = countEntriesForFamily(entries, family);
 
   return {
     summary: {
       family,
       summary: summarizeRecoveryPosture(family, entries),
-      issueCount: summaryIssueCount,
+      issueCount: entries.filter((entry) => entry.issueNumber !== null).length,
     },
     entries,
   };
@@ -257,45 +257,33 @@ function summarizeRecoveryPosture(
   family: FactoryRecoveryPostureFamily,
   entries: readonly FactoryRecoveryPostureEntry[],
 ): string {
-  const issueCount = countEntriesForFamily(entries, family);
-  const issueLabel = `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"}`;
-  const issueVerb = issueCount === 1 ? "is" : "are";
-  const issueProgressVerb = issueCount === 1 ? "reflects" : "reflect";
-  const activeIssueVerb = issueCount === 1 ? "is" : "are";
-  const factorySummary = entries.find(
-    (entry) => entry.issueNumber === null,
-  )?.summary;
+  const issueCount = entries.filter(
+    (entry) => entry.issueNumber !== null,
+  ).length;
+  const factorySummary = entries.find((entry) => entry.issueNumber === null)
+    ?.summary;
   switch (family) {
     case "degraded-observability":
       return entries[0]?.summary ?? "Observability is degraded.";
     case "degraded":
       return issueCount === 0
         ? "Recovery posture is degraded."
-        : `${issueLabel} currently ${issueCount === 1 ? "needs" : "need"} degraded recovery or cleanup attention.`;
+        : `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"} currently need degraded recovery or cleanup attention.`;
     case "watchdog-recovery":
-      return `${issueLabel} currently ${issueProgressVerb} watchdog recovery or watchdog-driven retry posture.`;
+      return `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"} currently reflect watchdog recovery or watchdog-driven retry posture.`;
     case "restart-recovery":
       return issueCount === 0
-        ? (factorySummary ?? "Restart reconciliation posture is active.")
-        : `${issueLabel} still ${issueProgressVerb} restart reconciliation posture.`;
+        ? factorySummary ?? "Restart reconciliation posture is active."
+        : `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"} still show restart reconciliation posture.`;
     case "cleanup-terminal":
-      return `${issueLabel} recently completed terminal cleanup or retention handling.`;
+      return `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"} recently completed terminal cleanup or retention handling.`;
     case "retry-backoff":
-      return `${issueLabel} ${issueVerb} queued in retry backoff.`;
+      return `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"} are queued in retry backoff.`;
     case "waiting-expected":
-      return `${issueLabel} ${issueVerb} waiting on expected human or system gates.`;
+      return `${issueCount.toString()} issue${issueCount === 1 ? "" : "s"} are waiting on expected human or system gates.`;
     case "healthy":
       return issueCount === 0
         ? "No active recovery posture is present."
-        : `${issueCount.toString()} active issue${issueCount === 1 ? "" : "s"} ${activeIssueVerb} running without recovery pressure.`;
+        : `${issueCount.toString()} active issue${issueCount === 1 ? "" : "s"} are running without recovery pressure.`;
   }
-}
-
-function countEntriesForFamily(
-  entries: readonly FactoryRecoveryPostureEntry[],
-  family: FactoryRecoveryPostureFamily,
-): number {
-  return entries.filter(
-    (entry) => entry.family === family && entry.issueNumber !== null,
-  ).length;
 }
