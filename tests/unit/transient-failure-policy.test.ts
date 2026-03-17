@@ -197,6 +197,38 @@ describe("transient failure parsing and policy", () => {
     });
   });
 
+  it("does not classify unrelated 429 references as provider rate limits", () => {
+    expect(
+      classifyTransientFailure({
+        message: "Runner exited with 1\nline 429: command not found",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "run-failure",
+      message: "Runner exited with 1\nline 429: command not found",
+      dispatchPressure: null,
+    });
+  });
+
+  it("does not classify generic account issue strings as provider account pressure", () => {
+    expect(
+      classifyTransientFailure({
+        message:
+          "Runner exited with 1\ntest failed: account issue creation returned 500",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "run-failure",
+      message:
+        "Runner exited with 1\ntest failed: account issue creation returned 500",
+      dispatchPressure: null,
+    });
+  });
+
   it("keeps ordinary transient runner failures out of dispatch pause posture", () => {
     expect(
       classifyTransientFailure({
