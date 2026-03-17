@@ -723,6 +723,9 @@ function buildTokenUsage(
   const completeCount = sessions.filter(
     (session) => session.status === "complete",
   ).length;
+  const estimatedCount = sessions.filter(
+    (session) => session.status === "estimated",
+  ).length;
   const partialCount = sessions.filter(
     (session) => session.status === "partial",
   ).length;
@@ -734,12 +737,16 @@ function buildTokenUsage(
       ? "unavailable"
       : partialCount > 0 || unavailableCount > 0
         ? "partial"
+        : estimatedCount > 0
+          ? "estimated"
         : "complete";
   const explanation =
     status === "complete"
       ? `Canonical runner-event accounting supplied complete token and cost totals for all ${sessions.length.toString()} session(s).`
+      : status === "estimated"
+        ? `All ${sessions.length.toString()} session(s) supplied token totals, but ${estimatedCount.toString()} session(s) remained estimated.`
       : status === "partial"
-        ? `Canonical runner-event accounting was complete for ${completeCount.toString()} of ${sessions.length.toString()} session(s); ${partialCount.toString()} remained partial and ${unavailableCount.toString()} remained unavailable.`
+        ? `Canonical runner-event accounting was complete for ${completeCount.toString()} of ${sessions.length.toString()} session(s); ${estimatedCount.toString()} remained estimated, ${partialCount.toString()} remained partial, and ${unavailableCount.toString()} remained unavailable.`
         : "Canonical runner-event accounting was unavailable for all recorded sessions.";
   const notes = [
     ...(sessions.some((session) => session.costUsd === null)
