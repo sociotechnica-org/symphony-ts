@@ -5,6 +5,7 @@ import {
   LocalIssueArtifactStore,
   deriveIssueArtifactPaths,
 } from "../../src/observability/issue-artifacts.js";
+import type { RunnerAccountingSnapshot } from "../../src/runner/accounting.js";
 
 export async function writeReportWorkflow(rootDir: string): Promise<string> {
   const workflowPath = path.join(rootDir, "WORKFLOW.md");
@@ -67,6 +68,7 @@ export async function seedSuccessfulIssueArtifacts(
     readonly latestCommitAt?: string | undefined;
     readonly succeededAt?: string | undefined;
     readonly finalCommitAt?: string | undefined;
+    readonly accounting?: RunnerAccountingSnapshot | undefined;
   },
 ): Promise<void> {
   const store = new LocalIssueArtifactStore(workspaceRoot);
@@ -182,6 +184,7 @@ export async function seedSuccessfulIssueArtifacts(
         `issue-${issueNumber.toString()}`,
       ),
       branch,
+      accounting: options?.accounting,
       logPointers: [
         {
           name: "runner.log",

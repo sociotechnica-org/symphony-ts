@@ -19,6 +19,7 @@ import {
   deriveFactoryRuntimeRoot,
   deriveIssueArtifactPaths,
 } from "./issue-artifacts.js";
+import { createRunnerAccountingSnapshot } from "../runner/accounting.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
 
 export const ISSUE_REPORT_SCHEMA_VERSION = 2 as const;
@@ -693,49 +694,64 @@ function buildTokenUsage(
   loaded: LoadedIssueArtifacts,
   attemptNumbers: readonly number[],
 ): IssueReportTokenUsage {
-  const sessions = loaded.sessions.map((session) => ({
-    sessionId: session.sessionId,
-    attemptNumber: session.attemptNumber,
-    provider: session.provider,
-    model: session.model,
-    status: "unavailable" as const,
-    inputTokens: null,
-    cachedInputTokens: null,
-    outputTokens: null,
-    reasoningOutputTokens: null,
-    totalTokens: null,
-    costUsd: null,
-    originator: null,
-    sessionSource: null,
-    cliVersion: null,
-    modelProvider: null,
-    gitBranch: null,
-    gitCommit: null,
-    finalSummary: null,
-    notes: [],
-    sourceArtifacts: [
-      path.join(
-        loaded.paths.sessionsDir,
-        `${encodeURIComponent(session.sessionId)}.json`,
+  const sessions = loaded.sessions.map((session) =>
+    buildTokenUsageSession(loaded, session),
+  );
+  const attempts = attemptNumbers.map((attemptNumber) => {
+    const attemptSessions = sessions.filter(
+      (session) => session.attemptNumber === attemptNumber,
+    );
+    return {
+      attemptNumber,
+      sessionIds: attemptSessions.map((session) => session.sessionId),
+      totalTokens: sumIfAllPresent(
+        attemptSessions.map((session) => session.totalTokens),
       ),
-    ],
-  }));
-  const attempts = attemptNumbers.map((attemptNumber) => ({
-    attemptNumber,
-    sessionIds: loaded.sessions
-      .filter((session) => session.attemptNumber === attemptNumber)
-      .map((session) => session.sessionId),
-    totalTokens: null,
-    costUsd: null,
-  }));
-  const agents = aggregateAgents(loaded.sessions);
+      costUsd: sumIfAllPresent(attemptSessions.map((session) => session.costUsd)),
+    };
+  });
+  const agents = aggregateAgents(sessions);
+  const totalTokens = sumIfAllPresent(sessions.map((session) => session.totalTokens));
+  const costUsd = sumIfAllPresent(sessions.map((session) => session.costUsd));
+  const completeCount = sessions.filter(
+    (session) => session.status === "complete",
+  ).length;
+  const partialCount = sessions.filter(
+    (session) => session.status === "partial",
+  ).length;
+  const unavailableCount = sessions.filter(
+    (session) => session.status === "unavailable",
+  ).length;
+  const status =
+    sessions.length === 0 || unavailableCount === sessions.length
+      ? "unavailable"
+      : partialCount > 0 || unavailableCount > 0
+        ? "partial"
+        : "complete";
+  const explanation =
+    status === "complete"
+      ? `Canonical runner-event accounting supplied complete token and cost totals for all ${sessions.length.toString()} session(s).`
+      : status === "partial"
+        ? `Canonical runner-event accounting was complete for ${completeCount.toString()} of ${sessions.length.toString()} session(s); ${partialCount.toString()} remained partial and ${unavailableCount.toString()} remained unavailable.`
+        : "Canonical runner-event accounting was unavailable for all recorded sessions.";
+  const notes = [
+    ...(sessions.some((session) => session.costUsd === null)
+      ? [
+          "At least one recorded session lacked an explicit backend-provided cost fact, so aggregate cost remained partial or unavailable.",
+        ]
+      : []),
+    ...(sessions.some((session) => session.totalTokens === null)
+      ? [
+          "At least one recorded session lacked complete backend-provided token totals, so aggregate token usage remained partial or unavailable.",
+        ]
+      : []),
+  ];
 
   return {
-    status: "unavailable",
-    explanation:
-      "Canonical local artifacts include session metadata and raw log pointers, but they do not yet store provider token totals or cost data. Later enrichment is deferred to issue #46.",
-    totalTokens: null,
-    costUsd: null,
+    status,
+    explanation,
+    totalTokens,
+    costUsd,
     sessions,
     attempts,
     agents,
@@ -743,7 +759,7 @@ function buildTokenUsage(
       ...sessions.flatMap((session) => session.sourceArtifacts),
       ...(loaded.logPointers === null ? [] : [loaded.paths.logPointersFile]),
     ],
-    notes: [],
+    notes,
   };
 }
 
@@ -1267,25 +1283,92 @@ function buildReviewLoopSummary(
   return `Observed ${reviewFeedbackRounds.toString()} recorded review-feedback round(s) across ${pullRequests.length.toString()} pull request(s).`;
 }
 
+function buildTokenUsageSession(
+  loaded: LoadedIssueArtifacts,
+  session: IssueArtifactSessionSnapshot,
+): IssueReportTokenUsageSession {
+  const accounting =
+    session.accounting ??
+    createRunnerAccountingSnapshot({
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      costUsd: null,
+    });
+
+  return {
+    sessionId: session.sessionId,
+    attemptNumber: session.attemptNumber,
+    provider: session.provider,
+    model: session.model,
+    status: accounting.status,
+    inputTokens: accounting.inputTokens,
+    cachedInputTokens: null,
+    outputTokens: accounting.outputTokens,
+    reasoningOutputTokens: null,
+    totalTokens: accounting.totalTokens,
+    costUsd: accounting.costUsd,
+    originator: null,
+    sessionSource: null,
+    cliVersion: null,
+    modelProvider: null,
+    gitBranch: null,
+    gitCommit: null,
+    finalSummary: null,
+    notes: [],
+    sourceArtifacts: [
+      path.join(
+        loaded.paths.sessionsDir,
+        `${encodeURIComponent(session.sessionId)}.json`,
+      ),
+    ],
+  };
+}
+
 function aggregateAgents(
-  sessions: readonly IssueArtifactSessionSnapshot[],
+  sessions: readonly IssueReportTokenUsageSession[],
 ): readonly IssueReportTokenUsageAgent[] {
-  const grouped = new Map<string, number>();
+  const grouped = new Map<
+    string,
+    { readonly sessionCount: number; readonly totalTokens: number | null; readonly costUsd: number | null }
+  >();
   for (const session of sessions) {
     const label =
       session.model === null
         ? session.provider
         : `${session.provider} (${session.model})`;
-    grouped.set(label, (grouped.get(label) ?? 0) + 1);
+    const existing = grouped.get(label) ?? {
+      sessionCount: 0,
+      totalTokens: 0,
+      costUsd: 0,
+    };
+    grouped.set(label, {
+      sessionCount: existing.sessionCount + 1,
+      totalTokens:
+        existing.totalTokens === null || session.totalTokens === null
+          ? null
+          : existing.totalTokens + session.totalTokens,
+      costUsd:
+        existing.costUsd === null || session.costUsd === null
+          ? null
+          : existing.costUsd + session.costUsd,
+    });
   }
   return [...grouped.entries()]
-    .map(([agent, sessionCount]) => ({
+    .map(([agent, value]) => ({
       agent,
-      sessionCount,
-      totalTokens: null,
-      costUsd: null,
+      sessionCount: value.sessionCount,
+      totalTokens: value.totalTokens,
+      costUsd: value.costUsd,
     }))
     .sort((left, right) => left.agent.localeCompare(right.agent));
+}
+
+function sumIfAllPresent(values: readonly (number | null)[]): number | null {
+  const observed = values.filter((value): value is number => value !== null);
+  return observed.length === values.length && observed.length > 0
+    ? observed.reduce((sum, value) => sum + value, 0)
+    : null;
 }
 
 function readPullRequestFromDetails(

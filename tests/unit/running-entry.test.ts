@@ -116,6 +116,7 @@ describe("integrateCodexUpdate", () => {
     });
 
     expect(result.tokenDelta).toEqual({
+      costUsd: 0,
       inputTokens: 123,
       outputTokens: 45,
       totalTokens: 168,

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
 import { writeJsonFileAtomic } from "./atomic-file.js";
 
 export const ISSUE_ARTIFACT_SCHEMA_VERSION = 1 as const;
@@ -131,6 +132,7 @@ export interface IssueArtifactSessionSnapshot {
   readonly finishedAt: string | null;
   readonly workspacePath: string | null;
   readonly branch: string | null;
+  readonly accounting?: RunnerAccountingSnapshot | undefined;
   readonly logPointers: readonly IssueArtifactLogPointer[];
 }
 

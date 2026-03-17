@@ -201,6 +201,13 @@ describe("issue artifacts", () => {
         finishedAt: observedAt,
         workspacePath: "/tmp/workspaces/43",
         branch: "symphony/43",
+        accounting: {
+          status: "partial",
+          inputTokens: 1200,
+          outputTokens: 300,
+          totalTokens: 1500,
+          costUsd: null,
+        },
         logPointers: [],
       },
       logPointers: {
@@ -221,6 +228,13 @@ describe("issue artifacts", () => {
     );
     expect(session.provider).toBe("local-runner");
     expect(session.finishedAt).toBe(observedAt);
+    expect(session.accounting).toEqual({
+      status: "partial",
+      inputTokens: 1200,
+      outputTokens: 300,
+      totalTokens: 1500,
+      costUsd: null,
+    });
 
     const logPointers = await readIssueArtifactLogPointers(workspaceRoot, 43);
     expect(logPointers.sessions[sessionId]?.sessionId).toBe(sessionId);

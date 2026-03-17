@@ -2,12 +2,14 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RunSession, RunTurn } from "../domain/run.js";
 import type { PromptBuilder } from "../domain/workflow.js";
+import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
 import type { RunnerSessionDescription } from "../runner/service.js";
 
 export interface RunSessionArtifactsState {
   readonly runSession: RunSession;
   readonly description: RunnerSessionDescription;
   readonly latestTurnNumber: number | null;
+  readonly accounting: RunnerAccountingSnapshot;
 }
 
 export async function createContinuationRunTurn(input: {

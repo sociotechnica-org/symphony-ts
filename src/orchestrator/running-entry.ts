@@ -1,5 +1,9 @@
 import type { RunUpdateEvent } from "../domain/run.js";
 import { getMapKey, mapPath } from "../domain/codex-payload.js";
+import {
+  createRunnerAccountingSnapshot,
+  type RunnerAccountingSnapshot,
+} from "../runner/accounting.js";
 
 export type CodexTokenState = "pending" | "observed";
 
@@ -11,13 +15,16 @@ export interface RunningEntry {
   readonly retryAttempt: number;
   sessionId: string | null;
   turnCount: number;
+  accounting: RunnerAccountingSnapshot;
   codexTokenState: CodexTokenState;
   codexInputTokens: number;
   codexOutputTokens: number;
   codexTotalTokens: number;
+  accountingCostUsd: number | null;
   codexLastReportedInputTokens: number;
   codexLastReportedOutputTokens: number;
   codexLastReportedTotalTokens: number;
+  accountingLastReportedCostUsd: number | null;
   codexAppServerPid: number | null;
   lastCodexEvent: string | null;
   lastCodexMessage: unknown;
@@ -38,13 +45,16 @@ export function createRunningEntry(
     retryAttempt,
     sessionId: null,
     turnCount: 0,
+    accounting: createRunnerAccountingSnapshot(),
     codexTokenState: "pending",
     codexInputTokens: 0,
     codexOutputTokens: 0,
     codexTotalTokens: 0,
+    accountingCostUsd: null,
     codexLastReportedInputTokens: 0,
     codexLastReportedOutputTokens: 0,
     codexLastReportedTotalTokens: 0,
+    accountingLastReportedCostUsd: null,
     codexAppServerPid: null,
     lastCodexEvent: null,
     lastCodexMessage: null,
@@ -56,6 +66,7 @@ interface TokenDelta {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
+  readonly costUsd: number;
 }
 
 function extractTokenDelta(
@@ -167,47 +178,81 @@ function extractTokenDelta(
     mapPath(payload, ["params", "usage", "total_tokens"]) ??
     mapPath(payload, ["usage", "totalTokens"]) ??
     mapPath(payload, ["usage", "total_tokens"]);
+  const costRaw =
+    getMapKey(payload, ["cost_usd", "costUsd", "total_cost_usd", "totalCostUsd"]) ??
+    mapPath(payload, ["payload", "cost_usd"]) ??
+    mapPath(payload, ["payload", "costUsd"]) ??
+    mapPath(payload, ["payload", "info", "cost_usd"]) ??
+    mapPath(payload, ["payload", "info", "costUsd"]) ??
+    mapPath(payload, ["params", "msg", "payload", "cost_usd"]) ??
+    mapPath(payload, ["params", "msg", "payload", "costUsd"]) ??
+    mapPath(payload, ["params", "msg", "payload", "info", "cost_usd"]) ??
+    mapPath(payload, ["params", "msg", "payload", "info", "costUsd"]) ??
+    mapPath(payload, ["params", "usage", "costUsd"]) ??
+    mapPath(payload, ["params", "usage", "cost_usd"]) ??
+    mapPath(payload, ["usage", "costUsd"]) ??
+    mapPath(payload, ["usage", "cost_usd"]);
 
-  const reported = {
-    input: typeof inputRaw === "number" ? inputRaw : 0,
-    output: typeof outputRaw === "number" ? outputRaw : 0,
-    total: typeof totalRaw === "number" ? totalRaw : 0,
-  };
+  const reportedInput = typeof inputRaw === "number" ? inputRaw : null;
+  const reportedOutput = typeof outputRaw === "number" ? outputRaw : null;
+  const reportedTotal = typeof totalRaw === "number" ? totalRaw : null;
+  const reportedCost = typeof costRaw === "number" ? costRaw : null;
 
-  if (reported.input === 0 && reported.output === 0 && reported.total === 0) {
-    return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  if (
+    reportedInput === null &&
+    reportedOutput === null &&
+    reportedTotal === null &&
+    reportedCost === null
+  ) {
+    return { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
   }
 
   const delta = {
-    inputTokens: Math.max(
-      0,
-      reported.input - entry.codexLastReportedInputTokens,
-    ),
-    outputTokens: Math.max(
-      0,
-      reported.output - entry.codexLastReportedOutputTokens,
-    ),
-    totalTokens: Math.max(
-      0,
-      reported.total - entry.codexLastReportedTotalTokens,
-    ),
+    inputTokens:
+      reportedInput === null
+        ? 0
+        : Math.max(0, reportedInput - entry.codexLastReportedInputTokens),
+    outputTokens:
+      reportedOutput === null
+        ? 0
+        : Math.max(0, reportedOutput - entry.codexLastReportedOutputTokens),
+    totalTokens:
+      reportedTotal === null
+        ? 0
+        : Math.max(0, reportedTotal - entry.codexLastReportedTotalTokens),
+    costUsd:
+      reportedCost === null
+        ? 0
+        : Math.max(0, reportedCost - (entry.accountingLastReportedCostUsd ?? 0)),
   };
 
   // Update high-water marks using Math.max so they never decrease.
   // A decrease (API quirk, race) would otherwise lower the baseline and
   // cause the next increase to double-count the difference.
-  entry.codexLastReportedInputTokens = Math.max(
-    entry.codexLastReportedInputTokens,
-    reported.input,
-  );
-  entry.codexLastReportedOutputTokens = Math.max(
-    entry.codexLastReportedOutputTokens,
-    reported.output,
-  );
-  entry.codexLastReportedTotalTokens = Math.max(
-    entry.codexLastReportedTotalTokens,
-    reported.total,
-  );
+  if (reportedInput !== null) {
+    entry.codexLastReportedInputTokens = Math.max(
+      entry.codexLastReportedInputTokens,
+      reportedInput,
+    );
+  }
+  if (reportedOutput !== null) {
+    entry.codexLastReportedOutputTokens = Math.max(
+      entry.codexLastReportedOutputTokens,
+      reportedOutput,
+    );
+  }
+  if (reportedTotal !== null) {
+    entry.codexLastReportedTotalTokens = Math.max(
+      entry.codexLastReportedTotalTokens,
+      reportedTotal,
+    );
+  }
+  if (reportedCost !== null) {
+    entry.accountingLastReportedCostUsd = Math.max(
+      entry.accountingLastReportedCostUsd ?? 0,
+      reportedCost,
+    );
+  }
 
   return delta;
 }
@@ -242,6 +287,7 @@ function extractPid(payload: Record<string, unknown>): number | null {
 
 export interface IntegrateResult {
   readonly tokenDelta: TokenDelta;
+  readonly accounting: RunnerAccountingSnapshot;
 }
 
 /**
@@ -284,6 +330,7 @@ export function integrateCodexUpdate(
     entry.codexLastReportedInputTokens = 0;
     entry.codexLastReportedOutputTokens = 0;
     entry.codexLastReportedTotalTokens = 0;
+    entry.accountingLastReportedCostUsd = null;
   }
 
   const tokenDelta = extractTokenDelta(entry, payload);
@@ -302,10 +349,31 @@ export function integrateCodexUpdate(
   entry.codexInputTokens += tokenDelta.inputTokens;
   entry.codexOutputTokens += tokenDelta.outputTokens;
   entry.codexTotalTokens += tokenDelta.totalTokens;
+  entry.accountingCostUsd =
+    tokenDelta.costUsd > 0 || entry.accountingCostUsd !== null
+      ? (entry.accountingCostUsd ?? 0) + tokenDelta.costUsd
+      : null;
+  entry.accounting = createRunnerAccountingSnapshot({
+    inputTokens:
+      entry.codexTokenState === "observed" || tokenDelta.inputTokens > 0
+        ? entry.codexInputTokens
+        : entry.accounting.inputTokens,
+    outputTokens:
+      entry.codexTokenState === "observed" || tokenDelta.outputTokens > 0
+        ? entry.codexOutputTokens
+        : entry.accounting.outputTokens,
+    totalTokens:
+      entry.codexTokenState === "observed" || tokenDelta.totalTokens > 0
+        ? entry.codexTotalTokens
+        : entry.accounting.totalTokens,
+    costUsd: entry.accountingCostUsd,
+  });
   if (
     tokenDelta.inputTokens > 0 ||
     tokenDelta.outputTokens > 0 ||
-    tokenDelta.totalTokens > 0
+    tokenDelta.totalTokens > 0 ||
+    tokenDelta.costUsd > 0 ||
+    entry.accounting.status !== "unavailable"
   ) {
     entry.codexTokenState = "observed";
   }
@@ -314,5 +382,8 @@ export function integrateCodexUpdate(
     entry.turnCount += 1;
   }
 
-  return { tokenDelta };
+  return {
+    tokenDelta,
+    accounting: entry.accounting,
+  };
 }

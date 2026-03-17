@@ -60,6 +60,11 @@ import {
   type RunnerVisibilitySnapshot,
   type RunnerTurnResult,
 } from "../runner/service.js";
+import {
+  aggregateRunnerAccountingSnapshots,
+  createRunnerAccountingSnapshot,
+  type RunnerAccountingSnapshot,
+} from "../runner/accounting.js";
 import type { Tracker } from "../tracker/service.js";
 import type { LandingExecutionResult } from "../tracker/service.js";
 import type { WorkspaceManager } from "../workspace/service.js";
@@ -155,6 +160,7 @@ export interface TuiRunningEntry {
   readonly retryAttempt: number;
   readonly sessionId: string | null;
   readonly turnCount: number;
+  readonly accounting?: RunnerAccountingSnapshot | undefined;
   readonly codexTokenState: CodexTokenState;
   readonly codexTotalTokens: number;
   readonly codexInputTokens: number;
@@ -192,6 +198,7 @@ export interface TuiSnapshot {
   readonly running: readonly TuiRunningEntry[];
   readonly retrying: readonly TuiRetryEntry[];
   readonly codexTotals: TuiCodexTotals;
+  readonly runnerAccounting?: RunnerAccountingSnapshot | undefined;
   readonly rateLimits: RateLimits | null;
   readonly recoveryPosture: ReturnType<typeof projectRecoveryPosture>;
   readonly lastAction: FactoryStatusAction | null;
@@ -320,6 +327,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         retryAttempt: entry.retryAttempt,
         sessionId: entry.sessionId,
         turnCount: entry.turnCount,
+        accounting: entry.accounting,
         codexTokenState: entry.codexTokenState,
         codexTotalTokens: entry.codexTotalTokens,
         codexInputTokens: entry.codexInputTokens,
@@ -355,6 +363,11 @@ export class BootstrapOrchestrator implements Orchestrator {
         pendingRunCount,
         secondsRunning: Math.floor((now - this.#factoryStartedAt) / 1000),
       },
+      runnerAccounting: aggregateRunnerAccountingSnapshots(
+        running
+          .map((entry) => entry.accounting)
+          .filter((entry): entry is RunnerAccountingSnapshot => entry !== undefined),
+      ),
       rateLimits: this.#state.rateLimits,
       recoveryPosture: projectRecoveryPosture({
         publication: this.#snapshotPublicationState(),
@@ -1019,6 +1032,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       runSession: session,
       description: this.#runner.describeSession(session),
       latestTurnNumber: null,
+      accounting: createRunnerAccountingSnapshot(),
     };
     upsertActiveIssue(this.#state.status, issue, {
       source,
@@ -1050,6 +1064,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         unresolvedThreadCount: pullRequest?.unresolvedThreadIds.length ?? 0,
       },
       blockedReason: null,
+      runnerAccounting: sessionState.accounting,
       runnerVisibility: this.#buildRunnerVisibility(sessionState.description, {
         state: "starting",
         phase: "boot",
@@ -1166,6 +1181,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           runSession: session,
           description: result.session,
           latestTurnNumber: turn.turnNumber,
+          accounting: sessionState.accounting,
         };
 
         if (result.exitCode !== 0) {
@@ -1381,6 +1397,9 @@ export class BootstrapOrchestrator implements Orchestrator {
                 liveRunnerSession?.describe() ??
                 this.#runner.describeSession(session),
               latestTurnNumber: turn.turnNumber,
+              accounting:
+                this.#state.runningEntries.get(session.issue.number)
+                  ?.accounting ?? createRunnerAccountingSnapshot(),
             },
             lockDir,
             event,
@@ -1896,6 +1915,7 @@ export class BootstrapOrchestrator implements Orchestrator {
             runSession,
             description: this.#runner.describeSession(runSession),
             latestTurnNumber: null,
+            accounting: createRunnerAccountingSnapshot(),
           };
     this.#logger.error("Issue run failed", {
       issueNumber: runSession.issue.number,
@@ -2958,6 +2978,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       finishedAt: finishedAt ?? null,
       workspacePath: session.runSession.workspace.path,
       branch: session.runSession.workspace.branchName,
+      accounting: session.accounting,
       logPointers: session.description.logPointers.map((pointer) =>
         this.#createLogPointer(pointer),
       ),
@@ -3034,12 +3055,15 @@ export class BootstrapOrchestrator implements Orchestrator {
     session: RunSessionArtifactsState,
     liveRunnerSession?: LiveRunnerSession,
   ): RunSessionArtifactsState {
-    if (liveRunnerSession === undefined) {
-      return session;
-    }
     return {
       ...session,
-      description: liveRunnerSession.describe(),
+      description:
+        liveRunnerSession === undefined
+          ? session.description
+          : liveRunnerSession.describe(),
+      accounting:
+        this.#state.runningEntries.get(session.runSession.issue.number)
+          ?.accounting ?? session.accounting,
     };
   }
 
@@ -3254,6 +3278,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         ...entry,
         runnerPid: event.pid,
         updatedAt: event.spawnedAt,
+        runnerAccounting: session.accounting,
         runnerVisibility: this.#buildRunnerVisibility(
           {
             ...(entry.runnerVisibility?.session ?? session.description),
@@ -3313,6 +3338,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.status.activeIssues.set(issueNumber, {
       ...entry,
       updatedAt: updatedAt ?? runnerVisibility.lastActionAt ?? entry.updatedAt,
+      runnerAccounting:
+        this.#state.runningEntries.get(issueNumber)?.accounting ??
+        entry.runnerAccounting,
       runnerVisibility,
     });
   }
