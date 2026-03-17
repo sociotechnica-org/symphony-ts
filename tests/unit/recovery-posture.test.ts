@@ -126,4 +126,112 @@ describe("projectRecoveryPosture", () => {
       }),
     );
   });
+
+  it("keeps non-degraded restart decisions in restart-recovery posture", () => {
+    const posture = projectRecoveryPosture({
+      publication: { state: "current", detail: null },
+      restartRecovery: {
+        state: "degraded",
+        startedAt: "2026-03-17T10:00:00.000Z",
+        completedAt: "2026-03-17T10:02:00.000Z",
+        summary: "Restart reconciliation completed with degraded inherited-state decisions.",
+        issues: [
+          {
+            issueNumber: 166,
+            issueIdentifier: activeIssue.issueIdentifier,
+            branchName: "symphony/166",
+            decision: "requeued",
+            leaseState: "missing",
+            lifecycleKind: "awaiting-system-checks",
+            ownerPid: null,
+            ownerAlive: null,
+            runnerPid: null,
+            runnerAlive: null,
+            summary: "Requeued after restart reconciliation.",
+            observedAt: "2026-03-17T10:02:00.000Z",
+          },
+          {
+            issueNumber: 167,
+            issueIdentifier: "sociotechnica-org/symphony-ts#167",
+            branchName: "symphony/167",
+            decision: "degraded",
+            leaseState: "invalid",
+            lifecycleKind: null,
+            ownerPid: null,
+            ownerAlive: null,
+            runnerPid: null,
+            runnerAlive: null,
+            summary: "Inherited run metadata was invalid.",
+            observedAt: "2026-03-17T10:02:30.000Z",
+          },
+        ],
+      },
+      activeIssues: [],
+      retries: [],
+      watchdogIssues: new Map(),
+      terminalIssues: [],
+    });
+
+    expect(posture.summary.family).toBe("degraded");
+    expect(posture.entries).toContainEqual(
+      expect.objectContaining({
+        family: "restart-recovery",
+        issueNumber: 166,
+        source: "restart-recovery",
+      }),
+    );
+    expect(posture.entries).toContainEqual(
+      expect.objectContaining({
+        family: "degraded",
+        issueNumber: 167,
+        source: "restart-recovery",
+      }),
+    );
+  });
+
+  it("uses singular recovery posture summaries for one issue", () => {
+    const posture = projectRecoveryPosture({
+      publication: { state: "current", detail: null },
+      restartRecovery: {
+        ...restartRecovery,
+        issues: [
+          {
+            issueNumber: 166,
+            issueIdentifier: activeIssue.issueIdentifier,
+            branchName: "symphony/166",
+            decision: "requeued",
+            leaseState: "missing",
+            lifecycleKind: "awaiting-system-checks",
+            ownerPid: null,
+            ownerAlive: null,
+            runnerPid: null,
+            runnerAlive: null,
+            summary: "Requeued after restart reconciliation.",
+            observedAt: "2026-03-17T10:02:00.000Z",
+          },
+        ],
+      },
+      activeIssues: [],
+      retries: [],
+      watchdogIssues: new Map(),
+      terminalIssues: [],
+    });
+
+    expect(posture.summary.summary).toBe(
+      "1 issue still reflects restart reconciliation posture.",
+    );
+
+    const waitingPosture = projectRecoveryPosture({
+      publication: { state: "current", detail: null },
+      restartRecovery,
+      activeIssues: [activeIssue],
+      retries: [],
+      watchdogIssues: new Map(),
+      terminalIssues: [],
+    });
+
+    expect(waitingPosture.summary.summary).toBe(
+      "1 issue is waiting on expected human or system gates.",
+    );
+  });
 });
