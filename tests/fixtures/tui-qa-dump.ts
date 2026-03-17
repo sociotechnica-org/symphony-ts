@@ -181,6 +181,12 @@ const activeSnapshot: TuiSnapshot = {
     secondary: { used: 3, limit: 100, resetInMs: 60_000 },
     credits: "$4.32 / $50.00",
   },
+  dispatchPressure: {
+    retryClass: "provider-rate-limit",
+    reason: "Provider rate-limit pressure is active.",
+    observedAt: new Date(nowMs - 5_000).toISOString(),
+    resumeAt: new Date(nowMs + 60_000).toISOString(),
+  },
   recoveryPosture: {
     summary: {
       family: "watchdog-recovery",
@@ -258,6 +264,7 @@ const idleSnapshot: TuiSnapshot = {
     secondsRunning: 0,
   },
   rateLimits: null,
+  dispatchPressure: null,
   recoveryPosture: {
     summary: {
       family: "healthy",

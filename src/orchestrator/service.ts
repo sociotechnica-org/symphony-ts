@@ -9,6 +9,12 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryClass, RetryState } from "../domain/retry.js";
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
+import type {
+  ClassifiedTransientFailure,
+  DispatchPressureStateSnapshot,
+  RateLimits,
+  TransientFailureSignal,
+} from "../domain/transient-failure.js";
 import type { PreparedWorkspace } from "../domain/workspace.js";
 import type {
   PromptBuilder,
@@ -92,9 +98,15 @@ import type {
 } from "./issue-lease.js";
 import type { LivenessProbe } from "./liveness-probe.js";
 import {
+  activateDispatchPressure,
+  clearDispatchPressure,
+  getActiveDispatchPressure,
+} from "./dispatch-pressure-state.js";
+import {
   clearRetryState,
   collectDueRetries,
   hasQueuedRetry,
+  listDueRetries,
   listQueuedRetries,
   resolveFailureRetryAttempt,
   scheduleRetry,
@@ -114,7 +126,6 @@ import {
 import {
   createOrchestratorState,
   type CodexTotals,
-  type RateLimits,
   type PollingState,
 } from "./state.js";
 import {
@@ -142,6 +153,10 @@ import {
 } from "./watchdog-state.js";
 import { summarizeRunnerText } from "../runner/service.js";
 import {
+  extractRateLimitsSnapshot,
+  extractTransientFailureSignal,
+} from "../runner/transient-failure.js";
+import {
   classifyWorkspaceCleanupFailure,
   classifyWorkspaceCleanupSuccess,
   decideRetryWorkspaceRetention,
@@ -150,6 +165,7 @@ import {
   type WorkspaceRetentionOutcome,
 } from "./workspace-retention.js";
 import { projectRecoveryPosture } from "./recovery-posture.js";
+import { classifyTransientFailure } from "./transient-failure-policy.js";
 
 export interface TuiRunningEntry {
   readonly issueNumber: number;
@@ -200,6 +216,7 @@ export interface TuiSnapshot {
   readonly codexTotals: TuiCodexTotals;
   readonly runnerAccounting?: RunnerAccountingSnapshot | undefined;
   readonly rateLimits: RateLimits | null;
+  readonly dispatchPressure: DispatchPressureStateSnapshot | null;
   readonly recoveryPosture: ReturnType<typeof projectRecoveryPosture>;
   readonly lastAction: FactoryStatusAction | null;
   readonly polling: PollingState;
@@ -371,6 +388,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           ),
       ),
       rateLimits: this.#state.rateLimits,
+      dispatchPressure: getActiveDispatchPressure(this.#state.dispatchPressure),
       recoveryPosture: projectRecoveryPosture({
         publication: this.#snapshotPublicationState(),
         restartRecovery: this.#state.status.restartRecovery,
@@ -463,6 +481,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     let failedCandidates: readonly RuntimeIssue[];
     let queue: readonly QueueEntry[];
     let availableSlots: number;
+    let dispatchPressure: DispatchPressureStateSnapshot | null;
 
     try {
       noteStatusAction(this.#state.status, {
@@ -487,8 +506,16 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
       runningCandidates =
         await this.#reconcileRunningIssueOwnership(runningCandidates);
-      const dueRetries = collectDueRetries(this.#state.retries);
-      queue = this.#mergeQueue(readyCandidates, runningCandidates, dueRetries);
+      dispatchPressure = this.#releaseExpiredDispatchPressure();
+      const dueRetries =
+        dispatchPressure === null
+          ? collectDueRetries(this.#state.retries)
+          : listDueRetries(this.#state.retries);
+      queue = this.#mergeQueue(
+        dispatchPressure === null ? readyCandidates : [],
+        runningCandidates,
+        dueRetries,
+      );
       availableSlots =
         this.#config.polling.maxConcurrentRuns -
         this.#state.runningIssueNumbers.size;
@@ -498,10 +525,20 @@ export class BootstrapOrchestrator implements Orchestrator {
         failedCount: failedCandidates.length,
         candidateCount: queue.length,
         availableSlots,
+        dispatchPressure:
+          dispatchPressure === null
+            ? null
+            : {
+                retryClass: dispatchPressure.retryClass,
+                resumeAt: dispatchPressure.resumeAt,
+              },
       });
       noteStatusAction(this.#state.status, {
         kind: "poll-fetched",
-        summary: `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`,
+        summary:
+          dispatchPressure === null
+            ? `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`
+            : `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}; ${runningCandidates.length.toString()} running issues still inspected`,
         issueNumber: null,
       });
     } catch (err) {
@@ -1001,6 +1038,28 @@ export class BootstrapOrchestrator implements Orchestrator {
     source: "ready" | "running",
     pullRequest: HandoffLifecycle | null,
   ): Promise<boolean> {
+    const dispatchPressure = getActiveDispatchPressure(
+      this.#state.dispatchPressure,
+    );
+    if (dispatchPressure !== null) {
+      const summary = `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}`;
+      upsertActiveIssue(this.#state.status, issue, {
+        source,
+        runSequence: attempt,
+        branchName: this.#branchName(issue.number),
+        status: "queued",
+        summary,
+        ownerPid: process.pid,
+        blockedReason: dispatchPressure.reason,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "dispatch-paused",
+        summary,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
+      return false;
+    }
     upsertActiveIssue(this.#state.status, issue, {
       source,
       runSequence: attempt,
@@ -1118,6 +1177,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     this.#state.runAbortControllers.set(issue.number, abortController);
     this.#initWatchdogEntry(issue.number);
+    let transientFailureSignal: TransientFailureSignal | null = null;
 
     const watchdogStop = new AbortController();
     const watchdogPromise = this.#runWatchdogLoop(
@@ -1178,6 +1238,14 @@ export class BootstrapOrchestrator implements Orchestrator {
           turn,
           lockDir,
           abortController.signal,
+          {
+            onRateLimits: (rateLimits) => {
+              this.#state.rateLimits = rateLimits;
+            },
+            onTransientFailureSignal: (signal) => {
+              transientFailureSignal = signal;
+            },
+          },
         );
         sessionState = {
           runSession: session,
@@ -1208,8 +1276,11 @@ export class BootstrapOrchestrator implements Orchestrator {
           await this.#handleFailure(
             sessionState,
             attempt,
-            `Runner exited with ${result.exitCode}\n${result.stderr}`,
-            "run-failure",
+            this.#classifyFailure(
+              `Runner exited with ${result.exitCode}\n${result.stderr}`,
+              transientFailureSignal,
+              result.finishedAt,
+            ),
             result.finishedAt,
           );
           return false;
@@ -1342,10 +1413,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleFailure(
         sessionState,
         attempt,
-        normalizedFailure,
-        this.#resolveRetryClass(
-          sessionState.runSession.issue.number,
-          error as Error,
+        this.#classifyFailure(
+          normalizedFailure,
+          transientFailureSignal,
+          new Date().toISOString(),
+          this.#resolveRetryClass(
+            sessionState.runSession.issue.number,
+            error as Error,
+          ),
         ),
         new Date().toISOString(),
       );
@@ -1390,6 +1465,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     turn: RunTurn,
     lockDir: string,
     signal: AbortSignal,
+    signalHandlers?: {
+      readonly onRateLimits?: (rateLimits: RateLimits) => void;
+      readonly onTransientFailureSignal?: (
+        signal: TransientFailureSignal,
+      ) => void;
+    },
   ): Promise<RunnerTurnResult> {
     const onEvent = async (event: RunnerEvent): Promise<void> => {
       switch (event.kind) {
@@ -1429,6 +1510,17 @@ export class BootstrapOrchestrator implements Orchestrator {
           this.#state.codexTotals.inputTokens += tokenDelta.inputTokens;
           this.#state.codexTotals.outputTokens += tokenDelta.outputTokens;
           this.#state.codexTotals.totalTokens += tokenDelta.totalTokens;
+        }
+        const rateLimits = extractRateLimitsSnapshot(event);
+        if (rateLimits !== null) {
+          signalHandlers?.onRateLimits?.(rateLimits);
+        }
+        const transientSignal = extractTransientFailureSignal(event);
+        if (transientSignal !== null) {
+          signalHandlers?.onTransientFailureSignal?.(transientSignal);
+          if (transientSignal.rateLimits !== null) {
+            signalHandlers?.onRateLimits?.(transientSignal.rateLimits);
+          }
         }
       } catch (err: unknown) {
         this.#logger.warn("onUpdate integration error", {
@@ -1569,8 +1661,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#handleFailure(
         session,
         attempt,
-        summarizeMissingTargetFailure(lifecycle, this.#config.agent.maxTurns),
-        "missing-target",
+        {
+          retryClass: "missing-target",
+          message: summarizeMissingTargetFailure(
+            lifecycle,
+            this.#config.agent.maxTurns,
+          ),
+          dispatchPressure: null,
+        },
         finishedAt,
       );
       return;
@@ -1907,8 +2005,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #handleFailure(
     session: RunSession | RunSessionArtifactsState,
     attempt: number,
-    message: string,
-    retryClass: RetryClass,
+    failure: ClassifiedTransientFailure,
     finishedAt = new Date().toISOString(),
   ): Promise<void> {
     const runSession = "runSession" in session ? session.runSession : session;
@@ -1924,13 +2021,13 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#logger.error("Issue run failed", {
       issueNumber: runSession.issue.number,
       attempt,
-      error: message,
+      error: failure.message,
       workspacePath: runSession.workspace.path,
       runSessionId: runSession.id,
     });
     noteStatusAction(this.#state.status, {
       kind: "run-failed",
-      summary: message,
+      summary: failure.message,
       issueNumber: runSession.issue.number,
     });
     await this.#persistStatusSnapshot();
@@ -1938,20 +2035,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#createAttemptFailureObservation(
         sessionState,
         attempt,
-        message,
+        failure.message,
         finishedAt,
       ),
     );
-    await this.#scheduleRetryOrFailSafely(
-      runSession.issue,
-      attempt,
-      message,
-      retryClass,
-      {
-        session: sessionState,
-        finishedAt,
-      },
-    );
+    await this.#scheduleRetryOrFailSafely(runSession.issue, attempt, failure, {
+      session: sessionState,
+      finishedAt,
+    });
   }
 
   async #handleUnexpectedFailure(
@@ -1971,37 +2062,29 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
-    await this.#scheduleRetryOrFailSafely(
-      issue,
-      attempt,
+    await this.#scheduleRetryOrFailSafely(issue, attempt, {
+      retryClass: "unexpected-orchestrator-failure",
       message,
-      "unexpected-orchestrator-failure",
-    );
+      dispatchPressure: null,
+    });
   }
 
   async #scheduleRetryOrFailSafely(
     issue: RuntimeIssue,
     attempt: number,
-    message: string,
-    retryClass: RetryClass,
+    failure: ClassifiedTransientFailure,
     options?: {
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
     },
   ): Promise<void> {
     try {
-      await this.#scheduleRetryOrFail(
-        issue,
-        attempt,
-        message,
-        retryClass,
-        options,
-      );
+      await this.#scheduleRetryOrFail(issue, attempt, failure, options);
     } catch (error) {
       this.#logger.error("Failure handling failed", {
         issueNumber: issue.number,
         attempt,
-        originalError: message,
+        originalError: failure.message,
         error: this.#normalizeFailure(error as Error),
       });
     }
@@ -2010,8 +2093,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #scheduleRetryOrFail(
     issue: RuntimeIssue,
     runSequence: number,
-    message: string,
-    retryClass: RetryClass,
+    failure: ClassifiedTransientFailure,
     options?: {
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
@@ -2021,7 +2103,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#completeIssueIfMergedDuringFailure(
         issue,
         runSequence,
-        message,
+        failure.message,
+        failure.dispatchPressure !== null,
         options,
       )
     ) {
@@ -2033,13 +2116,34 @@ export class BootstrapOrchestrator implements Orchestrator {
       issue.number,
     );
     if (failureRetryAttempt < this.#config.polling.retry.maxAttempts) {
-      await this.#tracker.recordRetry(issue.number, message);
+      if (failure.dispatchPressure !== null) {
+        const transition = activateDispatchPressure(
+          this.#state.dispatchPressure,
+          {
+            retryClass: failure.dispatchPressure.retryClass,
+            reason: failure.dispatchPressure.reason,
+            observedAt: failure.dispatchPressure.observedAt,
+            resumeAt: Date.parse(failure.dispatchPressure.resumeAt),
+            rateLimits: this.#state.rateLimits,
+          },
+        );
+        this.#logger.warn("Dispatch pressure active", {
+          issueNumber: issue.number,
+          retryClass: transition.pressure.retryClass,
+          resumeAt: transition.pressure.resumeAt,
+          transition: transition.transition,
+        });
+      }
+      await this.#tracker.recordRetry(
+        issue.number,
+        this.#formatRetryReason(failure),
+      );
       const retryEntry = scheduleRetry(this.#state.retries, {
         issue,
         runSequence,
-        retryClass,
+        retryClass: failure.retryClass,
         backoffMs: this.#config.polling.retry.backoffMs,
-        message,
+        message: failure.message,
       });
       this.#state.followUp.nextRunSequenceByIssueNumber.set(
         issue.number,
@@ -2065,7 +2169,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         this.#createRetryScheduledObservation(
           issue,
           runSequence,
-          message,
+          failure.message,
           retryEntry,
           workspaceRetention,
         ),
@@ -2083,13 +2187,17 @@ export class BootstrapOrchestrator implements Orchestrator {
         ? {}
         : { finishedAt: options.finishedAt }),
     };
-    await this.#failIssue(issue, message, failureOptions);
+    if (failure.dispatchPressure !== null) {
+      clearDispatchPressure(this.#state.dispatchPressure);
+    }
+    await this.#failIssue(issue, failure.message, failureOptions);
   }
 
   async #completeIssueIfMergedDuringFailure(
     issue: RuntimeIssue,
     runSequence: number,
     message: string,
+    clearPressure: boolean,
     options?: {
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
@@ -2113,6 +2221,9 @@ export class BootstrapOrchestrator implements Orchestrator {
         originalFailure: message,
       },
     );
+    if (clearPressure) {
+      clearDispatchPressure(this.#state.dispatchPressure);
+    }
     // The attempt-failed observation recorded earlier preserves the original
     // failure detail. The issue-level terminal outcome must converge to the
     // merged success story, so do not forward that failure message here.
@@ -3414,6 +3525,53 @@ export class BootstrapOrchestrator implements Orchestrator {
     return "run-failure";
   }
 
+  #classifyFailure(
+    message: string,
+    signal: TransientFailureSignal | null,
+    observedAt: string,
+    fallbackRetryClass?: RetryClass,
+  ): ClassifiedTransientFailure {
+    const classified = classifyTransientFailure({
+      message,
+      signal,
+      observedAt,
+      backoffMs: this.#config.polling.retry.backoffMs,
+    });
+    if (
+      classified.retryClass === "run-failure" &&
+      fallbackRetryClass !== undefined &&
+      fallbackRetryClass !== "run-failure"
+    ) {
+      return {
+        ...classified,
+        retryClass: fallbackRetryClass,
+      };
+    }
+    return classified;
+  }
+
+  #formatRetryReason(failure: ClassifiedTransientFailure): string {
+    if (failure.dispatchPressure === null) {
+      return failure.message;
+    }
+    return `${failure.retryClass}: ${failure.message}`;
+  }
+
+  #releaseExpiredDispatchPressure(): DispatchPressureStateSnapshot | null {
+    const active = getActiveDispatchPressure(this.#state.dispatchPressure);
+    if (active !== null) {
+      return active;
+    }
+    if (this.#state.dispatchPressure.current !== null) {
+      this.#logger.info("Dispatch pressure released", {
+        retryClass: this.#state.dispatchPressure.current.retryClass,
+        resumeAt: this.#state.dispatchPressure.current.resumeAt,
+      });
+    }
+    clearDispatchPressure(this.#state.dispatchPressure);
+    return null;
+  }
+
   #formatWatchdogAbortSummary(
     issueNumber: number,
     reason: StallReason,
@@ -3484,6 +3642,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
           activeLocalRuns: this.#state.runningIssueNumbers.size,
           retries: this.#state.retries,
+          dispatchPressure: getActiveDispatchPressure(
+            this.#state.dispatchPressure,
+          ),
           runtimeIdentity,
         }),
       );
@@ -3530,6 +3691,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
           activeLocalRuns: this.#state.runningIssueNumbers.size,
           retries: this.#state.retries,
+          dispatchPressure: getActiveDispatchPressure(
+            this.#state.dispatchPressure,
+          ),
           runtimeIdentity,
           publicationState: "initializing",
           publicationDetail:

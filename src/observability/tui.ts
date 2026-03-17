@@ -369,6 +369,7 @@ export function formatSnapshotContent(
     retrying,
     codexTotals,
     rateLimits,
+    dispatchPressure,
     recoveryPosture,
     lastAction,
     polling,
@@ -410,6 +411,8 @@ export function formatSnapshotContent(
       colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
     colorize("│ Tokens: ", BOLD) + formatHeaderTokens(codexTotals),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
+    colorize("│ Dispatch: ", BOLD) +
+      formatDispatchPressure(dispatchPressure, effectiveNowMs),
     ...lastActionLine,
     ...projectLine,
     formatRefreshLine(polling, effectiveNowMs),
@@ -526,6 +529,26 @@ function formatRateLimitBucket(
   if (bucket === null) return "n/a";
   const resetSecs = Math.ceil(bucket.resetInMs / 1000);
   return `${formatCount(bucket.used)}/${formatCount(bucket.limit)} reset ${String(resetSecs)}s`;
+}
+
+function formatDispatchPressure(
+  dispatchPressure: TuiSnapshot["dispatchPressure"],
+  nowMs: number,
+): string {
+  if (dispatchPressure === null) {
+    return colorize("open", GREEN);
+  }
+  const remainingMs = Math.max(
+    0,
+    Date.parse(dispatchPressure.resumeAt) - nowMs,
+  );
+  return (
+    colorize(dispatchPressure.retryClass, YELLOW) +
+    colorize(" until ", GRAY) +
+    colorize(formatDueIn(remainingMs), CYAN) +
+    colorize(" | ", GRAY) +
+    colorize(truncate(dispatchPressure.reason, 80), GRAY)
+  );
 }
 
 function formatLastActionLine(

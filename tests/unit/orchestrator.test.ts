@@ -4145,4 +4145,210 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
     expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery-exhausted");
   });
+
+  it("pauses new ready-issue dispatch after a rate-limited runner failure", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(1), createIssue(2)],
+    });
+    tracker.setLifecycleSequence(1, [
+      lifecycle("missing-target", "symphony/1"),
+    ]);
+    tracker.setLifecycleSequence(2, [
+      lifecycle("missing-target", "symphony/2"),
+    ]);
+
+    let runnerCalls = 0;
+    const runner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(session, options) {
+        runnerCalls += 1;
+        if (session.issue.number === 1) {
+          options?.onUpdate?.({
+            event: "account/rateLimits/updated",
+            timestamp: "2026-03-17T12:00:00.000Z",
+            payload: {
+              params: {
+                rateLimits: {
+                  limitId: "core",
+                  primary: {
+                    used: 100,
+                    limit: 100,
+                    resetInMs: 60_000,
+                  },
+                },
+              },
+            },
+          });
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "HTTP 429 rate limit exceeded",
+            startedAt: "2026-03-17T12:00:00.000Z",
+            finishedAt: "2026-03-17T12:00:00.000Z",
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: "2026-03-17T12:01:00.000Z",
+          finishedAt: "2026-03-17T12:01:00.000Z",
+        };
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: { ...baseConfig.workspace, root: tmpDir },
+        polling: {
+          ...baseConfig.polling,
+          maxConcurrentRuns: 1,
+          retry: {
+            ...baseConfig.polling.retry,
+            backoffMs: 1_000,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(runnerCalls).toBe(1);
+    expect(tracker.retried).toEqual([
+      {
+        issueNumber: 1,
+        reason:
+          "provider-rate-limit: Runner exited with 17\nHTTP 429 rate limit exceeded",
+      },
+    ]);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.dispatchPressure).toMatchObject({
+      retryClass: "provider-rate-limit",
+    });
+    expect(tracker.readyIssues.has(2)).toBe(true);
+  });
+
+  it("keeps unrelated ready work dispatchable after an ordinary transient failure", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(3)],
+    });
+    tracker.setLifecycleSequence(3, [
+      lifecycle("missing-target", "symphony/3"),
+    ]);
+    tracker.setLifecycleSequence(4, [lifecycle("handoff-ready", "symphony/4")]);
+
+    const runnerIssues: number[] = [];
+    const runner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(session) {
+        runnerIssues.push(session.issue.number);
+        if (session.issue.number === 3) {
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "temporary sandbox crash",
+            startedAt: "2026-03-17T12:00:00.000Z",
+            finishedAt: "2026-03-17T12:00:00.000Z",
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: "2026-03-17T12:00:05.000Z",
+          finishedAt: "2026-03-17T12:00:05.000Z",
+        };
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: { ...baseConfig.workspace, root: tmpDir },
+        polling: { ...baseConfig.polling, maxConcurrentRuns: 2 },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    tracker.readyIssues.set(4, createIssue(4));
+    await orchestrator.runOnce();
+
+    expect(runnerIssues).toEqual([3, 3, 4]);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.dispatchPressure).toBeNull();
+  });
+
+  it("clears dispatch pressure when merged reconciliation suppresses a pressure retry", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(5)],
+    });
+    tracker.setLifecycleSequence(5, [lifecycle("handoff-ready", "symphony/5")]);
+
+    const runner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        options?.onUpdate?.({
+          event: "turn/failed",
+          timestamp: "2026-03-17T12:00:00.000Z",
+          payload: {
+            params: {
+              error: {
+                message: "Billing hard limit reached for this account",
+              },
+            },
+          },
+        });
+        return {
+          exitCode: 17,
+          stdout: "",
+          stderr: "Billing hard limit reached for this account",
+          startedAt: "2026-03-17T12:00:00.000Z",
+          finishedAt: "2026-03-17T12:00:00.000Z",
+        };
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: { ...baseConfig.workspace, root: tmpDir },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.completed).toEqual([5]);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.dispatchPressure).toBeNull();
+  });
 });

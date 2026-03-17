@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { RetryClass } from "../domain/retry.js";
 import { ObservabilityError } from "../domain/errors.js";
+import type { DispatchPressureStateSnapshot } from "../domain/transient-failure.js";
 import {
   parseFactoryRuntimeIdentity,
   renderFactoryRuntimeIdentity,
@@ -203,6 +204,7 @@ export interface FactoryStatusSnapshot {
   readonly generatedAt: string;
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publication?: FactoryStatusPublication;
+  readonly dispatchPressure?: DispatchPressureStateSnapshot | null;
   readonly restartRecovery?: FactoryRestartRecoverySnapshot;
   readonly recoveryPosture?: FactoryRecoveryPostureSnapshot;
   readonly factoryState: FactoryState;
@@ -335,9 +337,20 @@ export function renderFactoryStatusSnapshot(
   }
   const restartRecovery = getFactoryRestartRecovery(snapshot);
   const recoveryPosture = getFactoryRecoveryPosture(snapshot);
+  const dispatchPressure = snapshot.dispatchPressure ?? null;
   lines.push(`Restart recovery: ${restartRecovery.state}`);
   if (restartRecovery.summary !== null) {
     lines.push(`Restart recovery detail: ${restartRecovery.summary}`);
+  }
+  lines.push(
+    `Dispatch pressure: ${
+      dispatchPressure === null
+        ? "open"
+        : `${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}`
+    }`,
+  );
+  if (dispatchPressure !== null) {
+    lines.push(`Dispatch pressure detail: ${dispatchPressure.reason}`);
   }
   lines.push(`Recovery posture: ${recoveryPosture.summary.family}`);
   lines.push(`Recovery detail: ${recoveryPosture.summary.summary}`);
@@ -701,6 +714,11 @@ function parseFactoryStatusSnapshot(
       "runtimeIdentity",
     ),
     publication: parsePublication(snapshot.publication, filePath),
+    dispatchPressure: parseDispatchPressure(
+      snapshot.dispatchPressure,
+      filePath,
+      "dispatchPressure",
+    ),
     restartRecovery: parseRestartRecovery(snapshot.restartRecovery, filePath),
     recoveryPosture: parseRecoveryPosture(snapshot.recoveryPosture, filePath),
     factoryState: expectEnum(
@@ -726,6 +744,34 @@ function parseFactoryStatusSnapshot(
       (entry, index) =>
         parseRetry(entry, filePath, `retries[${index.toString()}]`),
     ),
+  };
+}
+
+function parseDispatchPressure(
+  value: unknown,
+  filePath: string,
+  field: string,
+): DispatchPressureStateSnapshot | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const pressure = expectObject(value, filePath, field);
+  return {
+    retryClass: expectRetryClass(
+      pressure.retryClass,
+      filePath,
+      `${field}.retryClass`,
+    ) as Extract<
+      RetryClass,
+      "provider-rate-limit" | "provider-account-pressure"
+    >,
+    reason: expectString(pressure.reason, filePath, `${field}.reason`),
+    observedAt: expectString(
+      pressure.observedAt,
+      filePath,
+      `${field}.observedAt`,
+    ),
+    resumeAt: expectString(pressure.resumeAt, filePath, `${field}.resumeAt`),
   };
 }
 
@@ -1459,6 +1505,8 @@ function expectRetryClass(
   const retryClass = expectString(value, filePath, field);
   if (
     retryClass !== "run-failure" &&
+    retryClass !== "provider-rate-limit" &&
+    retryClass !== "provider-account-pressure" &&
     retryClass !== "missing-target" &&
     retryClass !== "watchdog-abort" &&
     retryClass !== "unexpected-orchestrator-failure"
