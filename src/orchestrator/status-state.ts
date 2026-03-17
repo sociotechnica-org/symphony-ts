@@ -12,6 +12,13 @@ import type {
 import type { FactoryRuntimeIdentity } from "../observability/runtime-identity.js";
 import type { RetryRuntimeState } from "./retry-state.js";
 import { listQueuedRetries } from "./retry-state.js";
+import {
+  noteTerminalCleanupPosture,
+  projectRecoveryPosture,
+  type RuntimeTerminalCleanupPosture,
+  type RuntimeWatchdogPosture,
+} from "./recovery-posture.js";
+import type { WorkspaceRetentionOutcome } from "./workspace-retention.js";
 
 export interface TrackerIssueCounts {
   readonly ready: number;
@@ -25,6 +32,8 @@ export interface RuntimeStatusState {
   readonly workerStartedAt: string;
   trackerCounts: TrackerIssueCounts;
   readonly activeIssues: Map<number, RuntimeActiveIssueState>;
+  readonly watchdogIssues: Map<number, RuntimeWatchdogPosture>;
+  terminalIssues: readonly RuntimeTerminalCleanupPosture[];
   restartRecovery: {
     state: FactoryRestartRecoveryState;
     startedAt: string | null;
@@ -44,6 +53,8 @@ export function createRuntimeStatusState(): RuntimeStatusState {
       failed: 0,
     },
     activeIssues: new Map<number, RuntimeActiveIssueState>(),
+    watchdogIssues: new Map<number, RuntimeWatchdogPosture>(),
+    terminalIssues: [],
     restartRecovery: {
       state: "idle",
       startedAt: null,
@@ -223,6 +234,43 @@ export function clearActiveIssue(
   state.activeIssues.delete(issueNumber);
 }
 
+export function noteWatchdogIssue(
+  state: RuntimeStatusState,
+  update: RuntimeWatchdogPosture,
+): void {
+  state.watchdogIssues.set(update.issueNumber, update);
+}
+
+export function clearWatchdogIssue(
+  state: RuntimeStatusState,
+  issueNumber: number,
+): void {
+  state.watchdogIssues.delete(issueNumber);
+}
+
+export function noteTerminalIssue(
+  state: RuntimeStatusState,
+  issue: RuntimeIssue,
+  options: {
+    readonly branchName: string;
+    readonly terminalOutcome: "success" | "failure";
+    readonly summary: string;
+    readonly observedAt: string;
+    readonly workspaceRetention: WorkspaceRetentionOutcome;
+  },
+): void {
+  state.terminalIssues = noteTerminalCleanupPosture(state.terminalIssues, {
+    issueNumber: issue.number,
+    issueIdentifier: issue.identifier,
+    title: issue.title,
+    branchName: options.branchName,
+    terminalOutcome: options.terminalOutcome,
+    summary: options.summary,
+    observedAt: options.observedAt,
+    workspaceRetention: options.workspaceRetention,
+  });
+}
+
 export function setRestartRecoveryState(
   state: RuntimeStatusState,
   restartRecovery: RuntimeStatusState["restartRecovery"],
@@ -268,6 +316,17 @@ export function buildFactoryStatusSnapshot(input: {
       detail: input.publicationDetail ?? null,
     },
     restartRecovery: input.state.restartRecovery,
+    recoveryPosture: projectRecoveryPosture({
+      publication: {
+        state: input.publicationState ?? "current",
+        detail: input.publicationDetail ?? null,
+      },
+      restartRecovery: input.state.restartRecovery,
+      activeIssues,
+      retries,
+      watchdogIssues: input.state.watchdogIssues,
+      terminalIssues: input.state.terminalIssues,
+    }),
     factoryState: resolveFactoryState(
       activeIssues,
       input.activeLocalRuns,

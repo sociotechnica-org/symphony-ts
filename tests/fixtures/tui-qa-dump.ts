@@ -181,6 +181,33 @@ const activeSnapshot: TuiSnapshot = {
     secondary: { used: 3, limit: 100, resetInMs: 60_000 },
     credits: "$4.32 / $50.00",
   },
+  recoveryPosture: {
+    summary: {
+      family: "watchdog-recovery",
+      summary: "2 issues currently reflect watchdog recovery or watchdog-driven retry posture.",
+      issueCount: 2,
+    },
+    entries: [
+      {
+        family: "waiting-expected",
+        issueNumber: 11,
+        issueIdentifier: "sociotechnica-org/symphony-ts#11",
+        title: "Wait for checks",
+        source: "active-issue",
+        summary: "Waiting for required checks",
+        observedAt: new Date().toISOString(),
+      },
+      {
+        family: "watchdog-recovery",
+        issueNumber: 14,
+        issueIdentifier: "sociotechnica-org/symphony-ts#14",
+        title: "Recover a stalled runner",
+        source: "retry-queue",
+        summary: "Watchdog scheduled retry attempt 3 for sociotechnica-org/symphony-ts#14.",
+        observedAt: new Date().toISOString(),
+      },
+    ],
+  },
   lastAction: {
     kind: "awaiting-system-checks",
     summary: "PR #412 is waiting for required checks",
@@ -229,6 +256,14 @@ const idleSnapshot: TuiSnapshot = {
     secondsRunning: 0,
   },
   rateLimits: null,
+  recoveryPosture: {
+    summary: {
+      family: "healthy",
+      summary: "No active recovery posture is present.",
+      issueCount: 0,
+    },
+    entries: [],
+  },
   lastAction: null,
   polling: { checkingNow: true, nextPollAtMs: nowMs, intervalMs: 30_000 },
   maxConcurrentRuns: 3,

@@ -25,6 +25,14 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
       secondsRunning: 0,
     },
     rateLimits: null,
+    recoveryPosture: {
+      summary: {
+        family: "healthy",
+        summary: "No active recovery posture is present.",
+        issueCount: 0,
+      },
+      entries: [],
+    },
     lastAction: null,
     polling: {
       checkingNow: false,
@@ -102,6 +110,7 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("Agents:");
     expect(output).toContain("Throughput:");
     expect(output).toContain("250"); // tps
+    expect(output).toContain("Recovery posture");
     expect(output).toContain("Runtime:");
     expect(output).toContain("2m 5s");
     expect(output).toContain("Tokens:");
@@ -128,6 +137,36 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("watchdog-recovery #133");
     expect(output).toContain("Recovered a stalled runner");
     expect(output).toContain("(3m 0s ago)");
+  });
+
+  it("renders recovery posture summary and issue entries", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        recoveryPosture: {
+          summary: {
+            family: "retry-backoff",
+            summary: "1 issue is queued in retry backoff.",
+            issueCount: 1,
+          },
+          entries: [
+            {
+              family: "retry-backoff",
+              issueNumber: 166,
+              issueIdentifier: "sociotechnica-org/symphony-ts#166",
+              title: "Recovery posture observability",
+              source: "retry-queue",
+              summary: "Retry attempt 2 is queued until 2026-03-17T10:05:00.000Z.",
+              observedAt: "2026-03-17T10:00:00.000Z",
+            },
+          ],
+        },
+      }),
+      0,
+    );
+
+    expect(output).toContain("retry-backoff");
+    expect(output).toContain("#166 sociotechnica-org/symphony-ts#166");
+    expect(output).toContain("Recovery posture");
   });
 
   it("omits duplicated last-action detail when summary is blank", () => {

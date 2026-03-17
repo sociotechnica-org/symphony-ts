@@ -52,6 +52,52 @@ function createSnapshot(
         },
       ],
     },
+    recoveryPosture: {
+      summary: {
+        family: "restart-recovery",
+        summary: "1 issue still show restart reconciliation posture.",
+        issueCount: 3,
+      },
+      entries: [
+        {
+          family: "restart-recovery",
+          issueNumber: null,
+          issueIdentifier: null,
+          title: null,
+          source: "restart-recovery",
+          summary: "Restart recovery completed successfully.",
+          observedAt: "2026-03-06T11:59:20.000Z",
+        },
+        {
+          family: "restart-recovery",
+          issueNumber: 11,
+          issueIdentifier: "sociotechnica-org/symphony-ts#11",
+          title: null,
+          source: "restart-recovery",
+          summary: "Recovered stale inherited ownership for issue #11.",
+          observedAt: "2026-03-06T11:59:15.000Z",
+        },
+        {
+          family: "waiting-expected",
+          issueNumber: 12,
+          issueIdentifier: "sociotechnica-org/symphony-ts#12",
+          title: "Expose factory status",
+          source: "active-issue",
+          summary:
+            "Waiting for PR checks to appear on https://example.test/pr/12",
+          observedAt: "2026-03-06T12:00:00.000Z",
+        },
+        {
+          family: "retry-backoff",
+          issueNumber: 9,
+          issueIdentifier: "sociotechnica-org/symphony-ts#9",
+          title: "Retry a failed run",
+          source: "retry-queue",
+          summary: "Retry attempt 2 is queued until 2026-03-06T12:05:00.000Z.",
+          observedAt: "2026-03-06T12:00:00.000Z",
+        },
+      ],
+    },
     factoryState: "blocked",
     worker: {
       instanceId: "worker-123",
@@ -193,6 +239,9 @@ describe("factory status helpers", () => {
     expect(rendered).toContain(
       "Restart recovery detail: Restart recovery completed successfully.",
     );
+    expect(rendered).toContain("Recovery posture: restart-recovery");
+    expect(rendered).toContain("Recovery posture entries:");
+    expect(rendered).toContain("[waiting-expected] #12");
     expect(rendered).toContain(
       "#11 sociotechnica-org/symphony-ts#11 [requeued]",
     );

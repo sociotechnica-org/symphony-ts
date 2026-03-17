@@ -115,8 +115,11 @@ import {
   adjustTrackerIssueCounts,
   buildFactoryStatusSnapshot,
   clearActiveIssue,
+  clearWatchdogIssue,
   noteLifecycleForIssue,
   noteStatusAction,
+  noteTerminalIssue,
+  noteWatchdogIssue,
   setRestartRecoveryState,
   setTrackerIssueCounts,
   upsertActiveIssue,
@@ -140,6 +143,9 @@ import {
   finalizeRetainedWorkspace,
   type WorkspaceRetentionOutcome,
 } from "./workspace-retention.js";
+import {
+  projectRecoveryPosture,
+} from "./recovery-posture.js";
 
 export interface TuiRunningEntry {
   readonly issueNumber: number;
@@ -188,6 +194,7 @@ export interface TuiSnapshot {
   readonly retrying: readonly TuiRetryEntry[];
   readonly codexTotals: TuiCodexTotals;
   readonly rateLimits: RateLimits | null;
+  readonly recoveryPosture: ReturnType<typeof projectRecoveryPosture>;
   readonly lastAction: FactoryStatusAction | null;
   readonly polling: PollingState;
   readonly maxConcurrentRuns: number;
@@ -327,7 +334,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     running.sort((a, b) => a.identifier.localeCompare(b.identifier));
 
     const retrying: TuiRetryEntry[] = [];
-    for (const retry of listQueuedRetries(this.#state.retries)) {
+    const queuedRetries = listQueuedRetries(this.#state.retries);
+    for (const retry of queuedRetries) {
       retrying.push({
         issueNumber: retry.issue.number,
         identifier: retry.issue.identifier,
@@ -348,6 +356,27 @@ export class BootstrapOrchestrator implements Orchestrator {
         secondsRunning: Math.floor((now - this.#factoryStartedAt) / 1000),
       },
       rateLimits: this.#state.rateLimits,
+      recoveryPosture: projectRecoveryPosture({
+        publication: {
+          state: "current",
+          detail: null,
+        },
+        restartRecovery: this.#state.status.restartRecovery,
+        activeIssues: [...this.#state.status.activeIssues.values()],
+        retries: queuedRetries.map((retry) => ({
+          issueNumber: retry.issue.number,
+          issueIdentifier: retry.issue.identifier,
+          title: retry.issue.title,
+          nextAttempt: retry.nextAttempt,
+          retryClass: retry.retryClass,
+          scheduledAt: new Date(retry.scheduledAt).toISOString(),
+          backoffMs: retry.backoffMs,
+          dueAt: new Date(retry.dueAt).toISOString(),
+          lastError: retry.lastError,
+        })),
+        watchdogIssues: this.#state.status.watchdogIssues,
+        terminalIssues: this.#state.status.terminalIssues,
+      }),
       lastAction: this.#state.status.lastAction,
       polling: { ...this.#state.polling },
       maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
@@ -1532,6 +1561,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#tracker.completeIssue(issue.number);
     clearRetryState(this.#state.retries, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
+    clearWatchdogIssue(this.#state.status, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearLandingRuntimeState(this.#state.landing, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
@@ -1546,6 +1576,13 @@ export class BootstrapOrchestrator implements Orchestrator {
       `Completed issue #${issue.number.toString()}`,
       workspaceRetention,
     );
+    noteTerminalIssue(this.#state.status, issue, {
+      branchName: options?.branchName ?? this.#branchName(issue.number),
+      terminalOutcome: "success",
+      summary,
+      observedAt,
+      workspaceRetention,
+    });
     this.#logger.info("Issue completed", { issueNumber: issue.number });
     noteStatusAction(this.#state.status, {
       kind: "issue-completed",
@@ -1972,6 +2009,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         issue.number,
         retryEntry.nextAttempt,
       );
+      clearWatchdogIssue(this.#state.status, issue.number);
       clearActiveIssue(this.#state.status, issue.number);
       const workspaceRetention = finalizeRetainedWorkspace(
         decideRetryWorkspaceRetention(),
@@ -2071,6 +2109,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#tracker.markIssueFailed(issue.number, message);
     clearRetryState(this.#state.retries, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
+    clearWatchdogIssue(this.#state.status, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearLandingRuntimeState(this.#state.landing, issue.number);
     clearActiveIssue(this.#state.status, issue.number);
@@ -2082,16 +2121,24 @@ export class BootstrapOrchestrator implements Orchestrator {
       terminalOutcome: "failure",
       workspace: options?.workspace ?? options?.session?.runSession.workspace,
     });
+    const summary = this.#summarizeTerminalOutcome(message, workspaceRetention);
+    noteTerminalIssue(this.#state.status, issue, {
+      branchName: options?.branchName ?? this.#branchName(issue.number),
+      terminalOutcome: "failure",
+      summary,
+      observedAt,
+      workspaceRetention,
+    });
     noteStatusAction(this.#state.status, {
       kind: "issue-failed",
-      summary: this.#summarizeTerminalOutcome(message, workspaceRetention),
+      summary,
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
       this.#createTerminalObservation(issue, "failed", {
         observedAt,
-        summary: this.#summarizeTerminalOutcome(message, workspaceRetention),
+        summary,
         attemptNumber: options?.attemptNumber,
         branchName: options?.branchName ?? this.#branchName(issue.number),
         session: options?.session,
@@ -3486,6 +3533,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       return;
     }
     clearWatchdogAbortReason(this.#state.watchdog, issueNumber);
+    clearWatchdogIssue(this.#state.status, issueNumber);
     const activeIssue = this.#state.status.activeIssues.get(issueNumber);
     const now = Date.now();
     initWatchdogEntry(this.#state.watchdog, issueNumber, {
@@ -3577,6 +3625,16 @@ export class BootstrapOrchestrator implements Orchestrator {
             issueNumber,
             at: observedAt,
           });
+          if (activeIssue !== undefined) {
+            noteWatchdogIssue(this.#state.status, {
+              issueNumber,
+              issueIdentifier: activeIssue.issueIdentifier,
+              title: activeIssue.title,
+              summary,
+              observedAt,
+              recoveryExhausted: true,
+            });
+          }
           noteWatchdogAbortReason(this.#state.watchdog, issueNumber, {
             reason: result.reason,
             summary,
@@ -3639,6 +3697,17 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber,
       at: observedAt,
     });
+    const activeIssue = this.#state.status.activeIssues.get(issueNumber);
+    if (activeIssue !== undefined) {
+      noteWatchdogIssue(this.#state.status, {
+        issueNumber,
+        issueIdentifier: activeIssue.issueIdentifier,
+        title: activeIssue.title,
+        summary,
+        observedAt,
+        recoveryExhausted: false,
+      });
+    }
     noteWatchdogAbortReason(this.#state.watchdog, issueNumber, {
       reason: result.reason,
       summary,
