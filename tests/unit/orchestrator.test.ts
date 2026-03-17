@@ -4363,6 +4363,8 @@ describe("BootstrapOrchestrator watchdog", () => {
     ]);
 
     let runnerCalls = 0;
+    const runStartedAt = new Date().toISOString();
+    const runFinishedAt = runStartedAt;
     const runner: Runner = {
       describeSession() {
         return createRunnerSessionDescription();
@@ -4372,7 +4374,7 @@ describe("BootstrapOrchestrator watchdog", () => {
         if (session.issue.number === 1) {
           options?.onUpdate?.({
             event: "account/rateLimits/updated",
-            timestamp: "2026-03-17T12:00:00.000Z",
+            timestamp: runStartedAt,
             payload: {
               params: {
                 rateLimits: {
@@ -4390,16 +4392,16 @@ describe("BootstrapOrchestrator watchdog", () => {
             exitCode: 17,
             stdout: "",
             stderr: "HTTP 429 rate limit exceeded",
-            startedAt: "2026-03-17T12:00:00.000Z",
-            finishedAt: "2026-03-17T12:00:00.000Z",
+            startedAt: runStartedAt,
+            finishedAt: runFinishedAt,
           };
         }
         return {
           exitCode: 0,
           stdout: "",
           stderr: "",
-          startedAt: "2026-03-17T12:01:00.000Z",
-          finishedAt: "2026-03-17T12:01:00.000Z",
+          startedAt: runStartedAt,
+          finishedAt: runFinishedAt,
         };
       },
     };

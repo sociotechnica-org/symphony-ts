@@ -46,6 +46,7 @@ async function writeWorkflow(options: {
   retryBackoffMs?: number;
   maxAttempts?: number;
   maxTurns?: number;
+  maxConcurrentRuns?: number;
   watchdog?:
     | {
         readonly enabled: boolean;
@@ -72,7 +73,7 @@ tracker:
     - bugbot[bot]
 polling:
   interval_ms: 5
-  max_concurrent_runs: 1
+  max_concurrent_runs: ${options.maxConcurrentRuns ?? 1}
   retry:
     max_attempts: ${options.maxAttempts ?? 2}
     backoff_ms: ${options.retryBackoffMs ?? 0}
@@ -516,6 +517,97 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(status.dispatchPressure).toBeNull();
     expect(status.counts.retries).toBe(0);
+  });
+
+  it("keeps status coherent when one concurrent issue waits in handoff while another sits in retry backoff", async () => {
+    server.seedIssue({
+      number: 90,
+      title: "Rate-limit under concurrent load",
+      body: "One issue should retry while another remains legible in status.",
+      labels: ["symphony:ready"],
+    });
+    server.seedIssue({
+      number: 91,
+      title: "Concurrent successful handoff",
+      body: "Another issue should still reach PR handoff cleanly.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve(
+        "tests/fixtures/fake-agent-concurrent-mixed.sh",
+      ),
+      retryBackoffMs: 0,
+      maxConcurrentRuns: 2,
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    let status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(server.getPullRequests()).toHaveLength(1);
+    expect(server.getPullRequests()[0]).toMatchObject({
+      head: "symphony/91",
+    });
+    expect(status.retries).toEqual([
+      expect.objectContaining({
+        issueNumber: 90,
+        retryClass: "provider-rate-limit",
+      }),
+    ]);
+    expect(status.activeIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueNumber: 91,
+          status: "awaiting-system-checks",
+          branchName: "symphony/91",
+        }),
+      ]),
+    );
+    expect(status.recoveryPosture?.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          family: "retry-backoff",
+          issueNumber: 90,
+          source: "retry-queue",
+        }),
+        expect.objectContaining({
+          family: "waiting-expected",
+          issueNumber: 91,
+          source: "active-issue",
+        }),
+      ]),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await orchestrator.runOnce();
+
+    status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(server.getPullRequests()).toHaveLength(2);
+    expect(
+      server.getPullRequests().map((pullRequest) => pullRequest.head),
+    ).toEqual(expect.arrayContaining(["symphony/90", "symphony/91"]));
+    expect(status.counts.retries).toBe(0);
+    expect(status.dispatchPressure).toBeNull();
+    expect(status.activeIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueNumber: 90,
+          status: expect.stringMatching(/^awaiting-/),
+        }),
+        expect.objectContaining({
+          issueNumber: 91,
+          status: expect.stringMatching(/^awaiting-/),
+        }),
+      ]),
+    );
   });
 
   it("preserves the watchdog stall reason instead of flattening it to shutdown", async () => {

@@ -2,6 +2,11 @@
 
 Symphony runs against the `symphony-ts` GitHub repo and works `symphony-ts` issues by opening PRs back to that same repo. This is how we develop it.
 
+Canonical day-two operating procedure now lives in:
+
+- [`operator-runbook.md`](./operator-runbook.md)
+- [`failure-drills.md`](./failure-drills.md)
+
 ## Setup
 
 ### 1. Prepare the local machine
@@ -76,6 +81,9 @@ pnpm tsx bin/symphony.ts factory watch
 In continuous mode, Symphony will keep polling for additional ready issues. The
 factory-control commands are the normal operator surface for the detached
 runtime under `.tmp/factory-main`.
+For the full daily-use procedure, recovery interpretation, and restart rules,
+use the checked-in operator runbook instead of treating this guide as the only
+operations reference.
 
 To run the higher-level repo-owned operator wake-up loop from a clean clone,
 use the versioned entry point under `skills/symphony-operator/` through the
@@ -169,6 +177,7 @@ That is the self-hosting loop:
 
 ## Practical Notes
 
+- For the canonical daily-use runbook and failure rehearsals, use [`operator-runbook.md`](./operator-runbook.md) and [`failure-drills.md`](./failure-drills.md).
 - Run only one local Symphony instance against this repo at a time (Phase 1.2 constraint).
 - If you want to inspect successful runs locally, set `workspace.retention.on_success: retain` temporarily or inspect the workspace before the next retry/reset.
 - Use `--once` when you want tight control over one issue at a time.
