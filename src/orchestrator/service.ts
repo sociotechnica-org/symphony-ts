@@ -2119,6 +2119,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       if (failure.dispatchPressure !== null) {
         const transition = activateDispatchPressure(
           this.#state.dispatchPressure,
+          issue.number,
           {
             retryClass: failure.dispatchPressure.retryClass,
             reason: failure.dispatchPressure.reason,
@@ -2188,7 +2189,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         : { finishedAt: options.finishedAt }),
     };
     if (failure.dispatchPressure !== null) {
-      clearDispatchPressure(this.#state.dispatchPressure);
+      clearDispatchPressure(this.#state.dispatchPressure, issue.number);
     }
     await this.#failIssue(issue, failure.message, failureOptions);
   }
@@ -2222,7 +2223,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       },
     );
     if (clearPressure) {
-      clearDispatchPressure(this.#state.dispatchPressure);
+      clearDispatchPressure(this.#state.dispatchPressure, issue.number);
     }
     // The attempt-failed observation recorded earlier preserves the original
     // failure detail. The issue-level terminal outcome must converge to the

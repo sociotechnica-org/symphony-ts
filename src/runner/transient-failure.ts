@@ -3,6 +3,10 @@ import type {
   RateLimits,
   TransientFailureSignal,
 } from "../domain/transient-failure.js";
+import {
+  ACCOUNT_PRESSURE_PATTERNS,
+  RATE_LIMIT_PATTERNS,
+} from "../domain/transient-failure-patterns.js";
 import type { RunUpdateEvent } from "../domain/run.js";
 import { getMapKey, mapPath } from "../domain/codex-payload.js";
 
@@ -51,7 +55,7 @@ export function extractTransientFailureSignal(
   update: RunUpdateEvent,
 ): TransientFailureSignal | null {
   const rateLimits = extractRateLimitsSnapshot(update);
-  if (rateLimits !== null) {
+  if (rateLimits !== null && hasExhaustedBucket(rateLimits)) {
     const resumeAt = deriveResumeAt(rateLimits, Date.parse(update.timestamp));
     if (resumeAt !== null) {
       return {
@@ -68,11 +72,7 @@ export function extractTransientFailureSignal(
   if (message === null) {
     return null;
   }
-  if (
-    /\brate limit\b|\b429\b|\btoo many requests\b|\bthrottl(?:e|ed|ing)\b/iu.test(
-      message,
-    )
-  ) {
+  if (RATE_LIMIT_PATTERNS.some((pattern) => pattern.test(message))) {
     return {
       retryClass: "provider-rate-limit",
       reason: message,
@@ -81,11 +81,7 @@ export function extractTransientFailureSignal(
       rateLimits,
     };
   }
-  if (
-    /\binsufficient quota\b|\bquota exceeded\b|\bbilling\b|\bpayment required\b|\bcredit(?:s| balance)?\b|\bsubscription\b|\bauth(?:entication)?\b|\baccount (?:limit|restricted|disabled|issue)\b/iu.test(
-      message,
-    )
-  ) {
+  if (ACCOUNT_PRESSURE_PATTERNS.some((pattern) => pattern.test(message))) {
     return {
       retryClass: "provider-account-pressure",
       reason: message,
@@ -95,6 +91,12 @@ export function extractTransientFailureSignal(
     };
   }
   return null;
+}
+
+function hasExhaustedBucket(rateLimits: RateLimits): boolean {
+  return [rateLimits.primary, rateLimits.secondary].some(
+    (bucket) => bucket !== null && bucket.used >= bucket.limit,
+  );
 }
 
 function deriveResumeAt(

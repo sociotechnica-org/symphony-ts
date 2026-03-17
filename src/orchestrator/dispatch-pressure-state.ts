@@ -5,11 +5,13 @@ import type {
 
 export interface DispatchPressureRuntimeState {
   current: DispatchPressureStateSnapshot | null;
+  readonly contributors: Map<number, DispatchPressureStateSnapshot>;
 }
 
 export function createDispatchPressureState(): DispatchPressureRuntimeState {
   return {
     current: null,
+    contributors: new Map(),
   };
 }
 
@@ -26,6 +28,7 @@ export function getActiveDispatchPressure(
 
 export function activateDispatchPressure(
   state: DispatchPressureRuntimeState,
+  issueNumber: number,
   signal: TransientFailureSignal,
 ): {
   readonly transition: "activated" | "extended";
@@ -37,33 +40,46 @@ export function activateDispatchPressure(
     observedAt: signal.observedAt,
     resumeAt: new Date(signal.resumeAt ?? Date.now()).toISOString(),
   } satisfies DispatchPressureStateSnapshot;
-  const current = state.current;
-  if (current === null) {
-    state.current = next;
+  const previous = state.current;
+  state.contributors.set(issueNumber, next);
+  const current = selectCurrentDispatchPressure(state);
+  state.current = current;
+  if (previous === null || current === null) {
     return {
       transition: "activated",
-      pressure: next,
+      pressure: current ?? next,
     };
   }
-
-  const merged = {
-    retryClass: next.retryClass,
-    reason: next.reason,
-    observedAt: next.observedAt,
-    resumeAt:
-      Date.parse(next.resumeAt) >= Date.parse(current.resumeAt)
-        ? next.resumeAt
-        : current.resumeAt,
-  } satisfies DispatchPressureStateSnapshot;
-  state.current = merged;
   return {
     transition: "extended",
-    pressure: merged,
+    pressure: current,
   };
 }
 
 export function clearDispatchPressure(
   state: DispatchPressureRuntimeState,
+  issueNumber?: number,
 ): void {
-  state.current = null;
+  if (issueNumber === undefined) {
+    state.contributors.clear();
+    state.current = null;
+    return;
+  }
+  state.contributors.delete(issueNumber);
+  state.current = selectCurrentDispatchPressure(state);
+}
+
+function selectCurrentDispatchPressure(
+  state: DispatchPressureRuntimeState,
+): DispatchPressureStateSnapshot | null {
+  let current: DispatchPressureStateSnapshot | null = null;
+  for (const pressure of state.contributors.values()) {
+    if (
+      current === null ||
+      Date.parse(pressure.resumeAt) > Date.parse(current.resumeAt)
+    ) {
+      current = pressure;
+    }
+  }
+  return current;
 }

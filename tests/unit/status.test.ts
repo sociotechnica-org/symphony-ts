@@ -276,6 +276,36 @@ describe("factory status helpers", () => {
     }
   });
 
+  it("fails clearly when dispatch pressure carries a non-pressure retry class", async () => {
+    const tempDir = await createTempDir(
+      "symphony-status-invalid-dispatch-pressure-",
+    );
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      const invalidSnapshot = {
+        ...createSnapshot(),
+        dispatchPressure: {
+          retryClass: "run-failure",
+          reason: "not allowed",
+          observedAt: "2026-03-06T12:00:00.000Z",
+          resumeAt: "2026-03-06T12:05:00.000Z",
+        },
+      };
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(invalidSnapshot, null, 2)}\n`,
+        "utf8",
+      );
+
+      await expect(readFactoryStatusSnapshot(filePath)).rejects.toThrowError(
+        `Invalid factory status snapshot at ${filePath}: expected dispatchPressure.retryClass to be one of provider-rate-limit, provider-account-pressure`,
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("cleans up the temporary file when rename fails", async () => {
     const tempDir = await createTempDir("symphony-status-rename-failure-");
     const filePath = path.join(tempDir, "status.json");

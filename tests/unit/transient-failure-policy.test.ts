@@ -44,6 +44,33 @@ describe("transient failure parsing and policy", () => {
       },
       credits: "$8.00",
     });
+    expect(extractTransientFailureSignal(update)).toBeNull();
+  });
+
+  it("treats exhausted rate-limit snapshots as provider pressure", () => {
+    const update = {
+      event: "account/rateLimits/updated",
+      timestamp: "2026-03-17T12:00:00.000Z",
+      payload: {
+        params: {
+          rateLimits: {
+            limitId: "core",
+            primary: {
+              used: 100,
+              limit: 100,
+              resetInMs: 45_000,
+            },
+            secondary: {
+              used: 1,
+              limit: 10,
+              resetInMs: 5_000,
+            },
+            credits: "$8.00",
+          },
+        },
+      },
+    } as const;
+
     expect(extractTransientFailureSignal(update)).toEqual({
       retryClass: "provider-rate-limit",
       reason: "Provider rate-limit pressure is active.",
@@ -52,7 +79,7 @@ describe("transient failure parsing and policy", () => {
       rateLimits: {
         limitId: "core",
         primary: {
-          used: 10,
+          used: 100,
           limit: 100,
           resetInMs: 45_000,
         },
@@ -64,6 +91,22 @@ describe("transient failure parsing and policy", () => {
         credits: "$8.00",
       },
     });
+  });
+
+  it("does not classify unrelated auth errors as account pressure", () => {
+    const update = {
+      event: "turn/failed",
+      timestamp: "2026-03-17T12:00:00.000Z",
+      payload: {
+        params: {
+          error: {
+            message: "git auth failed for remote origin",
+          },
+        },
+      },
+    } as const;
+
+    expect(extractTransientFailureSignal(update)).toBeNull();
   });
 
   it("extracts account pressure from error-bearing runner updates", () => {

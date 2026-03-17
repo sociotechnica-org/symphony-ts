@@ -757,14 +757,12 @@ function parseDispatchPressure(
   }
   const pressure = expectObject(value, filePath, field);
   return {
-    retryClass: expectRetryClass(
+    retryClass: expectEnum(
       pressure.retryClass,
+      ["provider-rate-limit", "provider-account-pressure"],
       filePath,
       `${field}.retryClass`,
-    ) as Extract<
-      RetryClass,
-      "provider-rate-limit" | "provider-account-pressure"
-    >,
+    ),
     reason: expectString(pressure.reason, filePath, `${field}.reason`),
     observedAt: expectString(
       pressure.observedAt,
