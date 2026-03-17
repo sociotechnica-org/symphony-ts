@@ -138,6 +138,9 @@ function createSnapshot(
         issueIdentifier: "sociotechnica-org/symphony-ts#9",
         title: "Retry a failed run",
         nextAttempt: 2,
+        retryClass: "run-failure",
+        scheduledAt: "2026-03-06T12:00:00.000Z",
+        backoffMs: 300000,
         dueAt: "2026-03-06T12:05:00.000Z",
         lastError: "Runner exited with 1",
       },
@@ -192,6 +195,10 @@ describe("factory status helpers", () => {
     );
     expect(rendered).toContain(
       "#11 sociotechnica-org/symphony-ts#11 [requeued]",
+    );
+    expect(rendered).toContain("[run-failure]");
+    expect(rendered).toContain(
+      "Scheduled: 2026-03-06T12:00:00.000Z (+300000ms)",
     );
   });
 

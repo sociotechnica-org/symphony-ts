@@ -7,7 +7,7 @@ import {
 } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { RetryState } from "../domain/retry.js";
+import type { RetryClass, RetryState } from "../domain/retry.js";
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import type {
   PromptBuilder,
@@ -75,8 +75,6 @@ import {
 import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
-  noteRetryScheduled,
-  resolveFailureRetryAttempt,
   resolveRunSequence,
 } from "./follow-up-state.js";
 import { LocalIssueLeaseManager } from "./issue-lease.js";
@@ -86,6 +84,14 @@ import type {
   IssueLeaseSnapshot,
 } from "./issue-lease.js";
 import type { LivenessProbe } from "./liveness-probe.js";
+import {
+  clearRetryState,
+  collectDueRetries,
+  hasQueuedRetry,
+  listQueuedRetries,
+  resolveFailureRetryAttempt,
+  scheduleRetry,
+} from "./retry-state.js";
 import {
   createRunningEntry,
   integrateCodexUpdate,
@@ -158,6 +164,7 @@ export interface TuiRetryEntry {
   readonly issueNumber: number;
   readonly identifier: string;
   readonly nextAttempt: number;
+  readonly retryClass: RetryClass;
   readonly dueInMs: number;
   readonly lastError: string;
 }
@@ -311,11 +318,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     running.sort((a, b) => a.identifier.localeCompare(b.identifier));
 
     const retrying: TuiRetryEntry[] = [];
-    for (const retry of this.#state.retries.values()) {
+    for (const retry of listQueuedRetries(this.#state.retries)) {
       retrying.push({
         issueNumber: retry.issue.number,
         identifier: retry.issue.identifier,
         nextAttempt: retry.nextAttempt,
+        retryClass: retry.retryClass,
         dueInMs: Math.max(0, retry.dueAt - now),
         lastError: retry.lastError,
       });
@@ -414,7 +422,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
       runningCandidates =
         await this.#reconcileRunningIssueOwnership(runningCandidates);
-      const dueRetries = this.#collectDueRetries();
+      const dueRetries = collectDueRetries(this.#state.retries);
       queue = this.#mergeQueue(readyCandidates, runningCandidates, dueRetries);
       availableSlots =
         this.#config.polling.maxConcurrentRuns -
@@ -498,18 +506,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
   }
 
-  #collectDueRetries(): readonly RetryState[] {
-    const now = Date.now();
-    const due: RetryState[] = [];
-    for (const [issueNumber, entry] of this.#state.retries.entries()) {
-      if (entry.dueAt <= now) {
-        due.push(entry);
-        this.#state.retries.delete(issueNumber);
-      }
-    }
-    return due;
-  }
-
   #mergeQueue(
     readyCandidates: readonly RuntimeIssue[],
     runningCandidates: readonly RuntimeIssue[],
@@ -524,7 +520,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     for (const issue of runningCandidates) {
       if (
         !retryAttempts.has(issue.number) &&
-        this.#state.retries.has(issue.number)
+        hasQueuedRetry(this.#state.retries, issue.number)
       ) {
         continue;
       }
@@ -537,7 +533,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     for (const issue of readyCandidates) {
       if (
         !retryAttempts.has(issue.number) &&
-        this.#state.retries.has(issue.number)
+        hasQueuedRetry(this.#state.retries, issue.number)
       ) {
         continue;
       }
@@ -1145,6 +1141,7 @@ export class BootstrapOrchestrator implements Orchestrator {
             sessionState,
             attempt,
             `Runner exited with ${result.exitCode}\n${result.stderr}`,
+            "run-failure",
             result.finishedAt,
           );
           return false;
@@ -1278,6 +1275,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         sessionState,
         attempt,
         normalizedFailure,
+        this.#resolveRetryClass(
+          sessionState.runSession.issue.number,
+          error as Error,
+        ),
         new Date().toISOString(),
       );
       return false;
@@ -1498,6 +1499,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         session,
         attempt,
         summarizeMissingTargetFailure(lifecycle, this.#config.agent.maxTurns),
+        "missing-target",
         finishedAt,
       );
       return;
@@ -1519,7 +1521,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): Promise<void> {
     const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.completeIssue(issue.number);
-    this.#state.retries.delete(issue.number);
+    clearRetryState(this.#state.retries, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearLandingRuntimeState(this.#state.landing, issue.number);
@@ -1793,7 +1795,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       ...readyIssues.map((issue) => issue.number),
       ...runningIssues.map((issue) => issue.number),
       ...this.#state.runningIssueNumbers,
-      ...this.#state.retries.keys(),
+      ...listQueuedRetries(this.#state.retries).map(
+        (retry) => retry.issue.number,
+      ),
     ]);
 
     for (const issueNumber of this.#state.status.activeIssues.keys()) {
@@ -1845,6 +1849,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     session: RunSession | RunSessionArtifactsState,
     attempt: number,
     message: string,
+    retryClass: RetryClass,
     finishedAt = new Date().toISOString(),
   ): Promise<void> {
     const runSession = "runSession" in session ? session.runSession : session;
@@ -1877,10 +1882,16 @@ export class BootstrapOrchestrator implements Orchestrator {
         finishedAt,
       ),
     );
-    await this.#scheduleRetryOrFailSafely(runSession.issue, attempt, message, {
-      session: sessionState,
-      finishedAt,
-    });
+    await this.#scheduleRetryOrFailSafely(
+      runSession.issue,
+      attempt,
+      message,
+      retryClass,
+      {
+        session: sessionState,
+        finishedAt,
+      },
+    );
   }
 
   async #handleUnexpectedFailure(
@@ -1900,20 +1911,32 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
-    await this.#scheduleRetryOrFailSafely(issue, attempt, message);
+    await this.#scheduleRetryOrFailSafely(
+      issue,
+      attempt,
+      message,
+      "unexpected-orchestrator-failure",
+    );
   }
 
   async #scheduleRetryOrFailSafely(
     issue: RuntimeIssue,
     attempt: number,
     message: string,
+    retryClass: RetryClass,
     options?: {
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
     },
   ): Promise<void> {
     try {
-      await this.#scheduleRetryOrFail(issue, attempt, message, options);
+      await this.#scheduleRetryOrFail(
+        issue,
+        attempt,
+        message,
+        retryClass,
+        options,
+      );
     } catch (error) {
       this.#logger.error("Failure handling failed", {
         issueNumber: issue.number,
@@ -1928,6 +1951,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     runSequence: number,
     message: string,
+    retryClass: RetryClass,
     options?: {
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
@@ -1945,28 +1969,26 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     const failureRetryAttempt = resolveFailureRetryAttempt(
-      this.#state.followUp,
+      this.#state.retries,
       issue.number,
     );
     if (failureRetryAttempt < this.#config.polling.retry.maxAttempts) {
       await this.#tracker.recordRetry(issue.number, message);
-      this.#state.retries.set(
+      const retryEntry = scheduleRetry(this.#state.retries, {
+        issue,
+        runSequence,
+        retryClass,
+        backoffMs: this.#config.polling.retry.backoffMs,
+        message,
+      });
+      this.#state.followUp.nextRunSequenceByIssueNumber.set(
         issue.number,
-        noteRetryScheduled(
-          this.#state.followUp,
-          issue,
-          runSequence,
-          failureRetryAttempt,
-          this.#config.polling.retry.backoffMs,
-          message,
-        ),
+        retryEntry.nextAttempt,
       );
       clearActiveIssue(this.#state.status, issue.number);
       noteStatusAction(this.#state.status, {
         kind: "retry-scheduled",
-        summary: `Retry ${this.#state.retries
-          .get(issue.number)!
-          .nextAttempt.toString()} scheduled for ${issue.identifier}`,
+        summary: `Retry ${retryEntry.nextAttempt.toString()} scheduled for ${issue.identifier}`,
         issueNumber: issue.number,
       });
       this.#notifyDashboard();
@@ -1976,7 +1998,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           issue,
           runSequence,
           message,
-          this.#state.retries.get(issue.number)!.nextAttempt,
+          retryEntry,
         ),
       );
       return;
@@ -2056,7 +2078,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): Promise<void> {
     const runnerPid = this.#currentRunnerPid(issue.number);
     await this.#tracker.markIssueFailed(issue.number, message);
-    this.#state.retries.delete(issue.number);
+    clearRetryState(this.#state.retries, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
     clearLandingRuntimeState(this.#state.landing, issue.number);
@@ -2388,14 +2410,14 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
     message: string,
-    nextAttempt: number,
+    retry: RetryState,
   ): IssueArtifactObservation {
     const observedAt = new Date().toISOString();
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
         observedAt,
         outcome: "retry-scheduled",
-        summary: `Retry ${nextAttempt.toString()} scheduled for ${issue.identifier}`,
+        summary: `Retry ${retry.nextAttempt.toString()} scheduled for ${issue.identifier}`,
         branchName: this.#branchName(issue.number),
         latestAttemptNumber: attempt,
       }),
@@ -2404,7 +2426,11 @@ export class BootstrapOrchestrator implements Orchestrator {
           observedAt,
           attemptNumber: attempt,
           details: {
-            nextAttempt,
+            nextAttempt: retry.nextAttempt,
+            retryClass: retry.retryClass,
+            scheduledAt: new Date(retry.scheduledAt).toISOString(),
+            backoffMs: retry.backoffMs,
+            failureRetryAttempt: retry.failureRetryAttempt,
             reason: message,
           },
         }),
@@ -3177,6 +3203,19 @@ export class BootstrapOrchestrator implements Orchestrator {
       }
     }
     return this.#normalizeFailure(error);
+  }
+
+  #resolveRetryClass(issueNumber: number, error: Error): RetryClass {
+    if (error instanceof RunnerAbortedError) {
+      const watchdogAbort = readWatchdogAbortReason(
+        this.#state.watchdog,
+        issueNumber,
+      );
+      if (watchdogAbort !== null) {
+        return "watchdog-abort";
+      }
+    }
+    return "run-failure";
   }
 
   #formatWatchdogAbortSummary(

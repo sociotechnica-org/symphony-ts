@@ -641,6 +641,7 @@ describe("formatSnapshotContent", () => {
           issueNumber: 2,
           identifier: "MT-102",
           nextAttempt: 3,
+          retryClass: "run-failure",
           dueInMs: 12_500,
           lastError: "rate limited",
         },
@@ -649,6 +650,7 @@ describe("formatSnapshotContent", () => {
     const output = formatSnapshotContent(snapshot, 0);
     expect(output).toContain("MT-102");
     expect(output).toContain("attempt=3");
+    expect(output).toContain("class=run-failure");
     expect(output).toContain("13s");
     expect(output).toContain("error=rate limited");
   });
@@ -660,6 +662,7 @@ describe("formatSnapshotContent", () => {
           issueNumber: 2,
           identifier: "MT-102",
           nextAttempt: 3,
+          retryClass: "watchdog-abort",
           dueInMs: 12_567,
           lastError: "rate limited",
         },
@@ -676,6 +679,7 @@ describe("formatSnapshotContent", () => {
           issueNumber: 2,
           identifier: "MT-102",
           nextAttempt: 1,
+          retryClass: "missing-target",
           dueInMs: 2_000,
           lastError: "",
         },
@@ -776,6 +780,7 @@ describe("formatSnapshotContent", () => {
           issueNumber: 7,
           identifier: "#7",
           nextAttempt: 2,
+          retryClass: "run-failure",
           dueInMs: 8_000,
           lastError: "Runner exited with 1",
         },

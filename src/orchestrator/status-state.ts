@@ -1,6 +1,5 @@
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import type { RetryState } from "../domain/retry.js";
 import type {
   FactoryActiveIssueSnapshot,
   FactoryIssueStatus,
@@ -11,6 +10,8 @@ import type {
   FactoryStatusSnapshot,
 } from "../observability/status.js";
 import type { FactoryRuntimeIdentity } from "../observability/runtime-identity.js";
+import type { RetryRuntimeState } from "./retry-state.js";
+import { listQueuedRetries } from "./retry-state.js";
 
 export interface TrackerIssueCounts {
   readonly ready: number;
@@ -236,7 +237,7 @@ export function buildFactoryStatusSnapshot(input: {
   readonly pollIntervalMs: number;
   readonly maxConcurrentRuns: number;
   readonly activeLocalRuns: number;
-  readonly retries: ReadonlyMap<number, RetryState>;
+  readonly retries: RetryRuntimeState;
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publicationState?: "current" | "initializing";
   readonly publicationDetail?: string | null;
@@ -244,13 +245,16 @@ export function buildFactoryStatusSnapshot(input: {
   const activeIssues = [...input.state.activeIssues.values()].sort(
     (left, right) => left.issueNumber - right.issueNumber,
   );
-  const retries = [...input.retries.values()]
-    .sort((left, right) => left.issue.number - right.issue.number)
+  const retries = [...listQueuedRetries(input.retries)]
+    .sort((left, right) => left.dueAt - right.dueAt)
     .map((retry) => ({
       issueNumber: retry.issue.number,
       issueIdentifier: retry.issue.identifier,
       title: retry.issue.title,
       nextAttempt: retry.nextAttempt,
+      retryClass: retry.retryClass,
+      scheduledAt: new Date(retry.scheduledAt).toISOString(),
+      backoffMs: retry.backoffMs,
       dueAt: new Date(retry.dueAt).toISOString(),
       lastError: retry.lastError,
     }));
