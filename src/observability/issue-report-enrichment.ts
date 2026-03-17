@@ -152,32 +152,60 @@ function rebuildTokenUsage(
   sessions: readonly IssueReportTokenUsageSession[],
   notes: readonly string[],
 ): IssueReportTokenUsage {
+  const baseSessionsById = new Map(
+    base.sessions.map((session) => [session.sessionId, session]),
+  );
   const enrichedSessionCount = sessions.filter(
     (session) => session.status !== "unavailable",
   ).length;
   const completeSessionCount = sessions.filter(
+    (session) => session.status === "complete",
+  ).length;
+  const tokenTotalSessionCount = sessions.filter(
     (session) => session.totalTokens !== null,
   ).length;
+  const newlyFilledTokenTotals = sessions.filter((session) => {
+    const previous = baseSessionsById.get(session.sessionId);
+    return previous?.totalTokens === null && session.totalTokens !== null;
+  }).length;
   const anySessionDetail = enrichedSessionCount > 0;
   const allSessionTotalsAvailable =
-    sessions.length > 0 && completeSessionCount === sessions.length;
+    sessions.length > 0 && tokenTotalSessionCount === sessions.length;
   const someSessionTotalsAvailable =
-    completeSessionCount > 0 && !allSessionTotalsAvailable;
+    tokenTotalSessionCount > 0 && !allSessionTotalsAvailable;
+  const costAvailableSessionCount = sessions.filter(
+    (session) => session.costUsd !== null,
+  ).length;
+  const allSessionCostsAvailable =
+    sessions.length > 0 && costAvailableSessionCount === sessions.length;
+  const someSessionCostsAvailable =
+    costAvailableSessionCount > 0 && !allSessionCostsAvailable;
+  const costExplanation = allSessionCostsAvailable
+    ? `Canonical runner-event accounting already supplied cost totals for all ${sessions.length.toString()} session(s).`
+    : someSessionCostsAvailable
+      ? `Canonical runner-event accounting supplied cost totals for ${costAvailableSessionCount.toString()} of ${sessions.length.toString()} session(s); aggregate cost remained partial or unavailable.`
+      : "Estimated cost remains unavailable because report generation does not apply provider pricing.";
 
-  const status = allSessionTotalsAvailable
-    ? "complete"
-    : someSessionTotalsAvailable
-      ? "partial"
-      : anySessionDetail
-        ? "partial"
-        : base.status;
-  const explanation = allSessionTotalsAvailable
-    ? `Runner log enrichment supplied token totals for all ${sessions.length.toString()} session(s). Estimated cost remains unavailable because report generation does not apply provider pricing.`
-    : someSessionTotalsAvailable
-      ? `Runner log enrichment supplied token totals for ${completeSessionCount.toString()} of ${sessions.length.toString()} session(s). Remaining sessions stayed partial or unavailable, and estimated cost remains unavailable because report generation does not apply provider pricing.`
-      : anySessionDetail
-        ? "Runner log enrichment supplied optional session detail, but token totals remained partial or unavailable."
-        : base.explanation;
+  const status =
+    newlyFilledTokenTotals === 0 && base.status !== "unavailable"
+      ? base.status
+      : completeSessionCount === sessions.length && sessions.length > 0
+        ? "complete"
+        : someSessionTotalsAvailable
+          ? "partial"
+          : anySessionDetail
+            ? "partial"
+            : base.status;
+  const explanation =
+    newlyFilledTokenTotals === 0 && base.status !== "unavailable"
+      ? base.explanation
+      : allSessionTotalsAvailable
+        ? `Runner log enrichment supplied token totals for all ${sessions.length.toString()} session(s). ${costExplanation}`
+        : someSessionTotalsAvailable
+          ? `Runner log enrichment supplied token totals for ${tokenTotalSessionCount.toString()} of ${sessions.length.toString()} session(s). Remaining sessions stayed partial or unavailable. ${costExplanation}`
+          : anySessionDetail
+            ? "Runner log enrichment supplied optional session detail, but token totals remained partial or unavailable."
+            : base.explanation;
 
   const attempts = base.attempts.map((attempt) => {
     const attemptSessions = sessions.filter((session) =>
@@ -194,7 +222,14 @@ function rebuildTokenUsage(
     return {
       ...attempt,
       totalTokens,
-      costUsd: null,
+      costUsd:
+        attemptSessions.length > 0 &&
+        attemptSessions.every((session) => session.costUsd !== null)
+          ? attemptSessions.reduce(
+              (total, session) => total + (session.costUsd ?? 0),
+              0,
+            )
+          : null,
     };
   });
 
@@ -232,7 +267,9 @@ function rebuildTokenUsage(
       agent,
       sessionCount: value.sessionCount,
       totalTokens: value.hasMissingTokens ? null : value.totalTokens,
-      costUsd: null,
+      costUsd:
+        base.agents.find((candidate) => candidate.agent === agent)?.costUsd ??
+        null,
     }))
     .sort((left, right) => left.agent.localeCompare(right.agent));
 
@@ -250,7 +287,7 @@ function rebuildTokenUsage(
     status,
     explanation,
     totalTokens,
-    costUsd: null,
+    costUsd: base.costUsd,
     sessions,
     attempts,
     agents,
@@ -265,10 +302,14 @@ function rebuildTokenUsage(
 function deriveSessionStatus(
   session: IssueReportTokenUsageSession,
 ): IssueReportTokenUsageSession["status"] {
-  if (session.totalTokens !== null) {
+  if (session.totalTokens !== null && session.costUsd !== null) {
     return "complete";
   }
   if (
+    session.inputTokens !== null ||
+    session.outputTokens !== null ||
+    session.totalTokens !== null ||
+    session.costUsd !== null ||
     session.originator !== null ||
     session.sessionSource !== null ||
     session.finalSummary !== null ||

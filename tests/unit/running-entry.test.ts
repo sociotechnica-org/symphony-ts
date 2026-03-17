@@ -116,6 +116,8 @@ describe("integrateCodexUpdate", () => {
     });
 
     expect(result.tokenDelta).toEqual({
+      costUsd: 0,
+      costObserved: false,
       inputTokens: 123,
       outputTokens: 45,
       totalTokens: 168,
@@ -216,5 +218,84 @@ describe("integrateCodexUpdate", () => {
 
     expect(entry.codexTokenState).toBe("observed");
     expect(entry.codexTotalTokens).toBe(150);
+  });
+
+  it("keeps token state pending for cost-only accounting events", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/token_count",
+      payload: { cost_usd: 1.25 },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      costUsd: 1.25,
+      costObserved: true,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    });
+    expect(entry.accounting).toEqual({
+      status: "partial",
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null,
+      costUsd: 1.25,
+    });
+    expect(entry.codexTokenState).toBe("pending");
+    expect(entry.codexTotalTokens).toBe(0);
+  });
+
+  it("preserves explicit zero-cost accounting as observed", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/token_count",
+      payload: { total_tokens: 150, cost_usd: 0 },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      costUsd: 0,
+      costObserved: true,
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 150,
+    });
+    expect(entry.accounting).toEqual({
+      status: "complete",
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: 150,
+      costUsd: 0,
+    });
+  });
+
+  it("preserves per-field token nullability across later non-token events", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    integrateCodexUpdate(entry, {
+      event: "codex/event/token_count",
+      payload: { input_tokens: 100 },
+      timestamp: new Date().toISOString(),
+    });
+    integrateCodexUpdate(entry, {
+      event: "thread/started",
+      payload: {
+        method: "thread/started",
+        params: { thread: { id: "thread-live-123" } },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(entry.accounting).toEqual({
+      status: "partial",
+      inputTokens: 100,
+      outputTokens: null,
+      totalTokens: null,
+      costUsd: null,
+    });
+    expect(entry.codexTokenState).toBe("observed");
   });
 });

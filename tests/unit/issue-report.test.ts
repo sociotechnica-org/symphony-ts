@@ -66,6 +66,47 @@ describe("issue report generation", () => {
     expect(generated.markdown).toContain("failing checks None");
   });
 
+  it("projects canonical runner-event accounting into report token usage", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-accounting-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      accounting: {
+        status: "partial",
+        inputTokens: 2000,
+        outputTokens: 750,
+        totalTokens: 2750,
+        costUsd: null,
+      },
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:05:00.000Z",
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.totalTokens).toBe(2750);
+    expect(generated.report.tokenUsage.costUsd).toBeNull();
+    expect(generated.report.tokenUsage.sessions[0]).toEqual(
+      expect.objectContaining({
+        status: "partial",
+        inputTokens: 2000,
+        outputTokens: 750,
+        totalTokens: 2750,
+        costUsd: null,
+      }),
+    );
+    expect(generated.report.tokenUsage.explanation).toContain(
+      "Canonical runner-event accounting",
+    );
+    expect(generated.report.tokenUsage.explanation).toContain(
+      "1 remained partial",
+    );
+    expect(generated.report.tokenUsage.explanation).not.toContain(
+      "remained estimated",
+    );
+  });
+
   it("generates a partial report when issue and event artifacts are missing but session artifacts remain", async () => {
     const tempDir = await createTempDir("symphony-issue-report-partial-");
     tempRoots.push(tempDir);

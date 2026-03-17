@@ -164,6 +164,10 @@ export function upsertActiveIssue(
       update.blockedReason === undefined
         ? (existing?.blockedReason ?? null)
         : update.blockedReason,
+    runnerAccounting:
+      update.runnerAccounting === undefined
+        ? existing?.runnerAccounting
+        : update.runnerAccounting,
     runnerVisibility:
       update.runnerVisibility === undefined
         ? (existing?.runnerVisibility ?? null)

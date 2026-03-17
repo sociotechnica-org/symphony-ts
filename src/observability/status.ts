@@ -13,6 +13,7 @@ import type {
   RunnerVisibilitySnapshot,
   RunnerVisibilityState,
 } from "../runner/service.js";
+import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
 
 let snapshotWriteSequence = 0;
 
@@ -144,6 +145,7 @@ export interface FactoryActiveIssueSnapshot {
   readonly checks: FactoryCheckStatus;
   readonly review: FactoryReviewStatus;
   readonly blockedReason: string | null;
+  readonly runnerAccounting?: RunnerAccountingSnapshot | undefined;
   readonly runnerVisibility: RunnerVisibilitySnapshot | null;
 }
 
@@ -459,6 +461,11 @@ export function renderFactoryStatusSnapshot(
       lines.push(
         `    Review: actionable=${issue.review.actionableCount.toString()} unresolved_threads=${issue.review.unresolvedThreadCount.toString()}`,
       );
+      if (issue.runnerAccounting !== undefined) {
+        lines.push(
+          `    Accounting: ${issue.runnerAccounting.status} total_tokens=${renderNullableNumber(issue.runnerAccounting.totalTokens)} cost_usd=${renderNullableNumber(issue.runnerAccounting.costUsd)}`,
+        );
+      }
       if (issue.blockedReason !== null) {
         lines.push(`    Blocked: ${issue.blockedReason}`);
       }
@@ -667,6 +674,10 @@ export function assessFactoryStatusSnapshot(
     workerAlive,
     publicationState: publication.state,
   };
+}
+
+function renderNullableNumber(value: number | null): string {
+  return value === null ? "n/a" : value.toString();
 }
 
 function parseFactoryStatusSnapshot(
@@ -1126,6 +1137,11 @@ function parseActiveIssue(
       filePath,
       `${field}.blockedReason`,
     ),
+    runnerAccounting: parseRunnerAccounting(
+      issue.runnerAccounting,
+      filePath,
+      `${field}.runnerAccounting`,
+    ),
     runnerVisibility: parseRunnerVisibility(
       issue.runnerVisibility,
       filePath,
@@ -1222,6 +1238,45 @@ function parseRunnerVisibility(
       visibility.timedOutAt,
       filePath,
       `${field}.timedOutAt`,
+    ),
+  };
+}
+
+function parseRunnerAccounting(
+  value: unknown,
+  filePath: string,
+  field: string,
+): RunnerAccountingSnapshot | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  const accounting = expectObject(value, filePath, field);
+  return {
+    status: expectEnum(
+      accounting.status,
+      ["unavailable", "partial", "complete"],
+      filePath,
+      `${field}.status`,
+    ),
+    inputTokens: expectNullableNumber(
+      accounting.inputTokens,
+      filePath,
+      `${field}.inputTokens`,
+    ),
+    outputTokens: expectNullableNumber(
+      accounting.outputTokens,
+      filePath,
+      `${field}.outputTokens`,
+    ),
+    totalTokens: expectNullableNumber(
+      accounting.totalTokens,
+      filePath,
+      `${field}.totalTokens`,
+    ),
+    costUsd: expectNullableNumber(
+      accounting.costUsd,
+      filePath,
+      `${field}.costUsd`,
     ),
   };
 }
@@ -1502,6 +1557,22 @@ function expectNullableInteger(
     return null;
   }
   return expectInteger(value, filePath, field);
+}
+
+function expectNullableNumber(
+  value: unknown,
+  filePath: string,
+  field: string,
+): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new ObservabilityError(
+      `Expected ${field} in ${filePath} to be a finite number or null`,
+    );
+  }
+  return value;
 }
 
 function expectNullableBoolean(

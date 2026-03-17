@@ -135,6 +135,11 @@ Missing, malformed, or ambiguous runner logs do not block report generation;
 the report stays partial and keeps the canonical local artifacts as the source
 of truth.
 
+Canonical session artifacts now persist any backend-provided runner-event token
+and cost facts that Symphony observed live. Reports and status surfaces project
+those canonical facts first and stay explicit about partial or unavailable
+accounting when a backend does not emit them.
+
 Publish one generated issue report into a checked-out `factory-runs` archive
 worktree:
 

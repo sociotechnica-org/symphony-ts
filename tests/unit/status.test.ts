@@ -366,6 +366,7 @@ describe("factory status helpers", () => {
             startedAt: undefined,
             pullRequest: undefined,
             blockedReason: undefined,
+            runnerAccounting: null,
             runnerVisibility: undefined,
           },
         ],
@@ -376,7 +377,8 @@ describe("factory status helpers", () => {
         "utf8",
       );
 
-      await expect(readFactoryStatusSnapshot(filePath)).resolves.toMatchObject({
+      const parsed = await readFactoryStatusSnapshot(filePath);
+      expect(parsed).toMatchObject({
         lastAction: null,
         activeIssues: [
           {
@@ -387,6 +389,7 @@ describe("factory status helpers", () => {
           },
         ],
       });
+      expect(parsed.activeIssues[0]?.runnerAccounting).toBeUndefined();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

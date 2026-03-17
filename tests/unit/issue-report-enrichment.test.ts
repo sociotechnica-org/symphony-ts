@@ -63,7 +63,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.status).toBe("partial");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.explanation).toContain(
       "token totals for all 1 session(s)",
@@ -71,7 +71,7 @@ describe("issue report enrichment", () => {
     expect(generated.report.tokenUsage.sessions).toEqual([
       expect.objectContaining({
         sessionId: "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
-        status: "complete",
+        status: "partial",
         inputTokens: 2000,
         cachedInputTokens: 500,
         outputTokens: 250,
@@ -138,7 +138,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.status).toBe("partial");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.sessions[0]).toEqual(
       expect.objectContaining({
@@ -190,6 +190,50 @@ describe("issue report enrichment", () => {
     expect(generated.report.tokenUsage.sessions[0]?.totalTokens).toBeNull();
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "Multiple runner log files matched this session, so enrichment was skipped to avoid guessing.",
+    );
+  });
+
+  it("preserves canonical cost availability when enrichment fills missing token totals", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-cost-kept-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      accounting: {
+        status: "partial",
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+        costUsd: 1.25,
+      },
+    });
+
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-cost-kept.jsonl",
+      inputTokens: 2000,
+      cachedInputTokens: 500,
+      outputTokens: 250,
+      reasoningOutputTokens: 100,
+      totalTokens: 2750,
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:06:00.000Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.totalTokens).toBe(2750);
+    expect(generated.report.tokenUsage.costUsd).toBe(1.25);
+    expect(generated.report.tokenUsage.explanation).toContain(
+      "already supplied cost totals for all 1 session(s)",
+    );
+    expect(generated.report.tokenUsage.explanation).not.toContain(
+      "Estimated cost remains unavailable",
     );
   });
 
@@ -250,7 +294,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.status).toBe("partial");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
@@ -409,7 +453,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.status).toBe("partial");
     expect(generated.report.tokenUsage.totalTokens).toBe(1440);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,
@@ -446,7 +490,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("complete");
+    expect(generated.report.tokenUsage.status).toBe("partial");
     expect(generated.report.tokenUsage.totalTokens).toBe(900);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,

@@ -66,6 +66,44 @@ describe("report CLI", () => {
     expect(stdout.join("")).toContain("Generated issue report for #44");
   });
 
+  it("renders canonical runner-event accounting without requiring enrichment", async () => {
+    const tempDir = await createTempDir("symphony-report-cli-canonical-");
+    tempRoots.push(tempDir);
+    const workflowPath = await writeReportWorkflow(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      accounting: {
+        status: "partial",
+        inputTokens: 2000,
+        outputTokens: 750,
+        totalTokens: 2750,
+        costUsd: null,
+      },
+    });
+
+    await runReportCli(
+      [
+        "node",
+        "symphony-report",
+        "issue",
+        "--issue",
+        "44",
+        "--workflow",
+        workflowPath,
+      ],
+      { issueEnrichers: [] },
+    );
+
+    const reportDir = path.join(tempDir, ".var", "reports", "issues", "44");
+    const reportJson = await fs.readFile(
+      path.join(reportDir, "report.json"),
+      "utf8",
+    );
+    expect(reportJson).toContain('"status": "partial"');
+    expect(reportJson).toContain('"totalTokens": 2750');
+    expect(reportJson).toContain("Canonical runner-event accounting");
+  });
+
   it("renders a failed issue report with explicit token unavailability", async () => {
     const tempDir = await createTempDir("symphony-report-cli-failed-");
     tempRoots.push(tempDir);
@@ -142,10 +180,10 @@ describe("report CLI", () => {
       path.join(reportDir, "report.md"),
       "utf8",
     );
-    expect(reportJson).toContain('"status": "complete"');
+    expect(reportJson).toContain('"status": "partial"');
     expect(reportJson).toContain('"totalTokens": 3210');
     expect(reportJson).toContain("matched Codex JSONL session");
-    expect(reportMd).toContain("Status: complete");
+    expect(reportMd).toContain("Status: partial");
     expect(reportMd).toContain("Final summary:");
   });
 
