@@ -1247,7 +1247,7 @@ function parseRunnerAccounting(
   filePath: string,
   field: string,
 ): RunnerAccountingSnapshot | undefined {
-  if (value === undefined) {
+  if (value === null || value === undefined) {
     return undefined;
   }
   const accounting = expectObject(value, filePath, field);
