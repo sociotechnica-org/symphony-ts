@@ -3071,6 +3071,64 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("records a shutdown-requested artifact event before shutdown termination", async () => {
+    const issue = createIssue(77);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(77, [
+      lifecycle("missing-target", "symphony/77"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const started = createDeferred<void>();
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(_session, options): Promise<RunnerExecutionResult> {
+          started.resolve();
+          return await new Promise<RunnerExecutionResult>(
+            (_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => {
+                  reject(
+                    new RunnerShutdownError(
+                      "Runner cancelled by shutdown",
+                      "graceful",
+                    ),
+                  );
+                },
+                { once: true },
+              );
+            },
+          );
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+    const controller = new AbortController();
+    const loop = orchestrator.runLoop(controller.signal);
+
+    await started.promise;
+    controller.abort();
+    await loop;
+
+    const shutdownEventKinds = artifactStore.observations.flatMap(
+      (observation) => observation.events?.map((event) => event.kind) ?? [],
+    );
+
+    expect(shutdownEventKinds).toContain("shutdown-requested");
+    expect(shutdownEventKinds).toContain("shutdown-terminated");
+    expect(
+      shutdownEventKinds.indexOf("shutdown-requested"),
+    ).toBeLessThan(shutdownEventKinds.indexOf("shutdown-terminated"));
+  });
+
   it("generates unique run session ids across orchestrator instances", async () => {
     const issue = createIssue(12);
     const firstTracker = new SequencedTracker({ ready: [issue] });

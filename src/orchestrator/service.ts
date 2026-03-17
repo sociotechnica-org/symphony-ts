@@ -1006,7 +1006,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       writePromise: Promise.resolve(),
     };
     const handleShutdown = (): void => {
-      this.#beginActiveRunShutdown(issue, lockDir, shutdownContext);
+      this.#beginActiveRunShutdown(
+        issue,
+        attempt,
+        workspace.branchName,
+        sessionState,
+        lockDir,
+        shutdownContext,
+      );
       abortController.abort();
     };
     if (shutdownSignal?.aborted) {
@@ -2156,6 +2163,55 @@ export class BootstrapOrchestrator implements Orchestrator {
     };
   }
 
+  #createShutdownRequestedObservation(
+    issue: RuntimeIssue,
+    attempt: number,
+    branchName: string,
+    session: RunSessionArtifactsState,
+    observedAt: string,
+    gracefulDeadlineAt: string | null,
+  ): IssueArtifactObservation {
+    const summary = `Shutdown requested for ${issue.identifier}`;
+    const sessionArtifacts = this.#createSessionObservationArtifacts(
+      session,
+      observedAt,
+    );
+    return {
+      issue: this.#createIssueArtifactUpdate(issue, {
+        observedAt,
+        outcome: "running",
+        summary,
+        branchName,
+        latestAttemptNumber: attempt,
+        latestSessionId: session.runSession.id,
+      }),
+      events: [
+        this.#createIssueEvent("shutdown-requested", issue, {
+          observedAt,
+          attemptNumber: attempt,
+          sessionId: session.runSession.id,
+          details: {
+            branch: branchName,
+            summary,
+            gracefulDeadlineAt,
+            latestTurnNumber: session.latestTurnNumber,
+            backendSessionId: session.description.backendSessionId,
+          },
+        }),
+      ],
+      attempt: this.#createAttemptArtifact(issue, attempt, {
+        outcome: "running",
+        summary,
+        branchName,
+        sessionId: session.runSession.id,
+        startedAt: session.runSession.startedAt,
+        runnerPid: this.#currentRunnerPid(issue.number),
+        latestTurnNumber: session.latestTurnNumber,
+      }),
+      ...sessionArtifacts,
+    };
+  }
+
   #createRetryScheduledObservation(
     issue: RuntimeIssue,
     attempt: number,
@@ -2612,8 +2668,22 @@ export class BootstrapOrchestrator implements Orchestrator {
     return this.#state.status.activeIssues.get(issueNumber)?.runnerPid ?? null;
   }
 
+  #queueActiveRunShutdownWrite(
+    context: ActiveRunShutdownContext,
+    write: () => Promise<void>,
+  ): void {
+    const writePromise = context.writePromise.then(write);
+    // Attach a handler immediately so shutdown persistence failures do not
+    // surface as unhandled rejections before the shutdown path awaits them.
+    void writePromise.catch(() => {});
+    context.writePromise = writePromise;
+  }
+
   #beginActiveRunShutdown(
     issue: RuntimeIssue,
+    attempt: number,
+    branchName: string,
+    session: RunSessionArtifactsState,
     lockDir: string,
     context: ActiveRunShutdownContext,
   ): void {
@@ -2630,8 +2700,18 @@ export class BootstrapOrchestrator implements Orchestrator {
       observedAt: requestedAt,
       reasonSummary: "Waiting for runner shutdown",
     });
-    context.writePromise = context.writePromise.then(async () => {
+    this.#queueActiveRunShutdownWrite(context, async () => {
       await this.#leaseManager.recordShutdown(lockDir, drainingRecord);
+      await this.#recordIssueArtifact(
+        this.#createShutdownRequestedObservation(
+          issue,
+          attempt,
+          branchName,
+          session,
+          requestedAt,
+          context.gracefulDeadlineAt,
+        ),
+      );
     });
     this.#logger.info("Shutdown requested for active run", {
       issueNumber: issue.number,
