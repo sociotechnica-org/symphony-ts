@@ -876,6 +876,44 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("projects degraded observability in the live snapshot until a current status snapshot is published", async () => {
+    const tempRoot = await createTempDir(
+      "symphony-startup-publication-posture-test-",
+    );
+    try {
+      const tracker = new SequencedTracker({
+        ready: [],
+        running: [],
+      });
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
+
+      expect(orchestrator.snapshot().recoveryPosture.summary.family).toBe(
+        "degraded-observability",
+      );
+
+      await orchestrator.runOnce();
+
+      expect(orchestrator.snapshot().recoveryPosture.summary.family).not.toBe(
+        "degraded-observability",
+      );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("waits when a running PR only has pending checks", async () => {
     const tracker = new SequencedTracker({
       running: [createIssue(7, "symphony:running")],

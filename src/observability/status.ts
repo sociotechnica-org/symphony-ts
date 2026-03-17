@@ -159,12 +159,50 @@ export interface FactoryRetrySnapshot {
   readonly lastError: string;
 }
 
+export type FactoryRecoveryPostureFamily =
+  | "healthy"
+  | "waiting-expected"
+  | "restart-recovery"
+  | "retry-backoff"
+  | "watchdog-recovery"
+  | "cleanup-terminal"
+  | "degraded-observability"
+  | "degraded";
+
+export interface FactoryRecoveryPostureEntry {
+  readonly family: FactoryRecoveryPostureFamily;
+  readonly issueNumber: number | null;
+  readonly issueIdentifier: string | null;
+  readonly title: string | null;
+  readonly source:
+    | "active-issue"
+    | "retry-queue"
+    | "restart-recovery"
+    | "terminal-cleanup"
+    | "watchdog"
+    | "snapshot";
+  readonly summary: string;
+  readonly observedAt: string | null;
+}
+
+export interface FactoryRecoveryPostureSummary {
+  readonly family: FactoryRecoveryPostureFamily;
+  readonly summary: string;
+  readonly issueCount: number;
+}
+
+export interface FactoryRecoveryPostureSnapshot {
+  readonly summary: FactoryRecoveryPostureSummary;
+  readonly entries: readonly FactoryRecoveryPostureEntry[];
+}
+
 export interface FactoryStatusSnapshot {
   readonly version: 1;
   readonly generatedAt: string;
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publication?: FactoryStatusPublication;
   readonly restartRecovery?: FactoryRestartRecoverySnapshot;
+  readonly recoveryPosture?: FactoryRecoveryPostureSnapshot;
   readonly factoryState: FactoryState;
   readonly worker: FactoryWorkerSnapshot;
   readonly counts: FactoryStatusCounts;
@@ -294,10 +332,13 @@ export function renderFactoryStatusSnapshot(
     lines.push(`Snapshot state detail: ${publication.detail}`);
   }
   const restartRecovery = getFactoryRestartRecovery(snapshot);
+  const recoveryPosture = getFactoryRecoveryPosture(snapshot);
   lines.push(`Restart recovery: ${restartRecovery.state}`);
   if (restartRecovery.summary !== null) {
     lines.push(`Restart recovery detail: ${restartRecovery.summary}`);
   }
+  lines.push(`Recovery posture: ${recoveryPosture.summary.family}`);
+  lines.push(`Recovery detail: ${recoveryPosture.summary.summary}`);
   lines.push(
     `Started: ${snapshot.worker.startedAt}  Snapshot: ${snapshot.generatedAt}`,
   );
@@ -327,6 +368,25 @@ export function renderFactoryStatusSnapshot(
     lines.push(
       `Last action: ${snapshot.lastAction.kind}${issueSuffix} at ${snapshot.lastAction.at} - ${snapshot.lastAction.summary}`,
     );
+  }
+
+  lines.push("");
+  lines.push("Recovery posture entries:");
+  if (recoveryPosture.entries.length === 0) {
+    lines.push("  none");
+  } else {
+    for (const entry of recoveryPosture.entries) {
+      const issuePrefix =
+        entry.issueNumber === null
+          ? ""
+          : ` #${entry.issueNumber.toString()} ${entry.issueIdentifier ?? ""}`.trimEnd();
+      lines.push(`  [${entry.family}]${issuePrefix}`);
+      lines.push(`    Summary: ${entry.summary}`);
+      lines.push(`    Source: ${entry.source}`);
+      if (entry.observedAt !== null) {
+        lines.push(`    Observed: ${entry.observedAt}`);
+      }
+    }
   }
 
   lines.push("");
@@ -483,6 +543,21 @@ export function getFactoryRestartRecovery(
   );
 }
 
+export function getFactoryRecoveryPosture(
+  snapshot: FactoryStatusSnapshot,
+): FactoryRecoveryPostureSnapshot {
+  return (
+    snapshot.recoveryPosture ?? {
+      summary: {
+        family: "healthy",
+        summary: "No active recovery posture is present.",
+        issueCount: 0,
+      },
+      entries: [],
+    }
+  );
+}
+
 /**
  * Assesses whether a persisted factory status snapshot can be treated as
  * current for operator-facing status surfaces.
@@ -616,6 +691,7 @@ function parseFactoryStatusSnapshot(
     ),
     publication: parsePublication(snapshot.publication, filePath),
     restartRecovery: parseRestartRecovery(snapshot.restartRecovery, filePath),
+    recoveryPosture: parseRecoveryPosture(snapshot.recoveryPosture, filePath),
     factoryState: expectEnum(
       snapshot.factoryState,
       ["idle", "running", "blocked"],
@@ -714,6 +790,106 @@ function parseRestartRecovery(
           filePath,
           `restartRecovery.issues[${index.toString()}]`,
         ),
+    ),
+  };
+}
+
+function parseRecoveryPosture(
+  value: unknown,
+  filePath: string,
+): FactoryRecoveryPostureSnapshot {
+  if (value === undefined) {
+    return {
+      summary: {
+        family: "healthy",
+        summary: "No active recovery posture is present.",
+        issueCount: 0,
+      },
+      entries: [],
+    };
+  }
+  const posture = expectObject(value, filePath, "recoveryPosture");
+  return {
+    summary: parseRecoveryPostureSummary(posture.summary, filePath),
+    entries: expectArray(
+      posture.entries,
+      filePath,
+      "recoveryPosture.entries",
+      (entry, index) =>
+        parseRecoveryPostureEntry(
+          entry,
+          filePath,
+          `recoveryPosture.entries[${index.toString()}]`,
+        ),
+    ),
+  };
+}
+
+function parseRecoveryPostureSummary(
+  value: unknown,
+  filePath: string,
+): FactoryRecoveryPostureSummary {
+  const summary = expectObject(value, filePath, "recoveryPosture.summary");
+  return {
+    family: expectRecoveryPostureFamily(
+      summary.family,
+      filePath,
+      "recoveryPosture.summary.family",
+    ),
+    summary: expectString(
+      summary.summary,
+      filePath,
+      "recoveryPosture.summary.summary",
+    ),
+    issueCount: expectInteger(
+      summary.issueCount,
+      filePath,
+      "recoveryPosture.summary.issueCount",
+    ),
+  };
+}
+
+function parseRecoveryPostureEntry(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryRecoveryPostureEntry {
+  const entry = expectObject(value, filePath, field);
+  return {
+    family: expectRecoveryPostureFamily(
+      entry.family,
+      filePath,
+      `${field}.family`,
+    ),
+    issueNumber: expectNullableInteger(
+      entry.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
+    issueIdentifier: expectNullableString(
+      entry.issueIdentifier,
+      filePath,
+      `${field}.issueIdentifier`,
+    ),
+    title: expectNullableString(entry.title, filePath, `${field}.title`),
+    source: expectEnum(
+      entry.source,
+      [
+        "active-issue",
+        "retry-queue",
+        "restart-recovery",
+        "terminal-cleanup",
+        "watchdog",
+        "snapshot",
+      ],
+      filePath,
+      `${field}.source`,
+    ),
+    summary: expectString(entry.summary, filePath, `${field}.summary`),
+    observedAt: expectNullableString(
+      entry.observedAt,
+      filePath,
+      `${field}.observedAt`,
     ),
   };
 }
@@ -1238,6 +1414,28 @@ function expectRetryClass(
     );
   }
   return retryClass;
+}
+
+function expectRecoveryPostureFamily(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryRecoveryPostureFamily {
+  return expectEnum(
+    value,
+    [
+      "healthy",
+      "waiting-expected",
+      "restart-recovery",
+      "retry-backoff",
+      "watchdog-recovery",
+      "cleanup-terminal",
+      "degraded-observability",
+      "degraded",
+    ],
+    filePath,
+    field,
+  );
 }
 
 function expectObject(

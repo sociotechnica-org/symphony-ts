@@ -369,6 +369,7 @@ export function formatSnapshotContent(
     retrying,
     codexTotals,
     rateLimits,
+    recoveryPosture,
     lastAction,
     polling,
     maxConcurrentRuns,
@@ -385,6 +386,7 @@ export function formatSnapshotContent(
   );
   const runningToBackoffSpacer = running.length > 0 ? ["│"] : [];
   const backoffRows = formatRetryRows(retrying);
+  const recoveryRows = formatRecoveryRows(recoveryPosture);
   const lastActionLine =
     lastAction === null
       ? []
@@ -411,6 +413,10 @@ export function formatSnapshotContent(
     ...lastActionLine,
     ...projectLine,
     formatRefreshLine(polling, effectiveNowMs),
+    colorize("├─ Recovery posture", BOLD),
+    "│",
+    ...recoveryRows,
+    "│",
     colorize("├─ Running", BOLD),
     "│",
     runningTableHeaderRow(eventWidth),
@@ -424,6 +430,45 @@ export function formatSnapshotContent(
   ]
     .flat()
     .join("\n");
+}
+
+function formatRecoveryRows(
+  recoveryPosture: TuiSnapshot["recoveryPosture"],
+): string[] {
+  const rows = [
+    "│  " +
+      colorize(recoveryPosture.summary.family, CYAN) +
+      colorize(" | ", GRAY) +
+      colorize(recoveryPosture.summary.summary, GRAY),
+  ];
+  if (recoveryPosture.entries.length === 0) {
+    rows.push("│  " + colorize("No issue-level recovery entries", GRAY));
+    return rows;
+  }
+  for (const entry of recoveryPosture.entries.slice(0, 4)) {
+    const issuePrefix =
+      entry.issueNumber === null
+        ? entry.source
+        : `#${entry.issueNumber.toString()} ${entry.issueIdentifier ?? ""}`.trimEnd();
+    rows.push(
+      "│  " +
+        colorize(`[${entry.family}]`, YELLOW) +
+        " " +
+        colorize(issuePrefix, CYAN) +
+        colorize(" ", GRAY) +
+        colorize(truncate(entry.summary, 92), GRAY),
+    );
+  }
+  if (recoveryPosture.entries.length > 4) {
+    rows.push(
+      "│  " +
+        colorize(
+          `+${String(recoveryPosture.entries.length - 4)} more recovery entries`,
+          GRAY,
+        ),
+    );
+  }
+  return rows;
 }
 
 // ─── Header helpers ───────────────────────────────────────────────────────
@@ -896,6 +941,19 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       pendingRunCount: snapshot.codexTotals.pendingRunCount,
     },
     rateLimits: snapshot.rateLimits,
+    recoveryPosture: {
+      summary: {
+        family: snapshot.recoveryPosture.summary.family,
+        summary: snapshot.recoveryPosture.summary.summary,
+        issueCount: snapshot.recoveryPosture.summary.issueCount,
+      },
+      entries: snapshot.recoveryPosture.entries.map((entry) => ({
+        family: entry.family,
+        issueNumber: entry.issueNumber,
+        source: entry.source,
+        summary: entry.summary,
+      })),
+    },
     lastAction:
       snapshot.lastAction === null
         ? null
