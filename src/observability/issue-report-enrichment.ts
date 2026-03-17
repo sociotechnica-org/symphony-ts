@@ -173,6 +173,18 @@ function rebuildTokenUsage(
     sessions.length > 0 && tokenTotalSessionCount === sessions.length;
   const someSessionTotalsAvailable =
     tokenTotalSessionCount > 0 && !allSessionTotalsAvailable;
+  const costAvailableSessionCount = sessions.filter(
+    (session) => session.costUsd !== null,
+  ).length;
+  const allSessionCostsAvailable =
+    sessions.length > 0 && costAvailableSessionCount === sessions.length;
+  const someSessionCostsAvailable =
+    costAvailableSessionCount > 0 && !allSessionCostsAvailable;
+  const costExplanation = allSessionCostsAvailable
+    ? `Canonical runner-event accounting already supplied cost totals for all ${sessions.length.toString()} session(s).`
+    : someSessionCostsAvailable
+      ? `Canonical runner-event accounting supplied cost totals for ${costAvailableSessionCount.toString()} of ${sessions.length.toString()} session(s); aggregate cost remained partial or unavailable.`
+      : "Estimated cost remains unavailable because report generation does not apply provider pricing.";
 
   const status =
     newlyFilledTokenTotals === 0 && base.status !== "unavailable"
@@ -188,9 +200,9 @@ function rebuildTokenUsage(
     newlyFilledTokenTotals === 0 && base.status !== "unavailable"
       ? base.explanation
       : allSessionTotalsAvailable
-        ? `Runner log enrichment supplied token totals for all ${sessions.length.toString()} session(s). Estimated cost remains unavailable because report generation does not apply provider pricing.`
+        ? `Runner log enrichment supplied token totals for all ${sessions.length.toString()} session(s). ${costExplanation}`
         : someSessionTotalsAvailable
-          ? `Runner log enrichment supplied token totals for ${tokenTotalSessionCount.toString()} of ${sessions.length.toString()} session(s). Remaining sessions stayed partial or unavailable, and estimated cost remains unavailable because report generation does not apply provider pricing.`
+          ? `Runner log enrichment supplied token totals for ${tokenTotalSessionCount.toString()} of ${sessions.length.toString()} session(s). Remaining sessions stayed partial or unavailable. ${costExplanation}`
           : anySessionDetail
             ? "Runner log enrichment supplied optional session detail, but token totals remained partial or unavailable."
             : base.explanation;
