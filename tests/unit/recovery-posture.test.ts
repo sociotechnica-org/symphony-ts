@@ -92,6 +92,34 @@ describe("projectRecoveryPosture", () => {
     );
   });
 
+  it("uses the factory-level restart summary when reconciliation has no issue decisions yet", () => {
+    const posture = projectRecoveryPosture({
+      publication: { state: "current", detail: null },
+      restartRecovery: {
+        ...restartRecovery,
+        state: "reconciling",
+        startedAt: "2026-03-17T10:00:00.000Z",
+      },
+      activeIssues: [],
+      retries: [],
+      watchdogIssues: new Map(),
+      terminalIssues: [],
+    });
+
+    expect(posture.summary.family).toBe("restart-recovery");
+    expect(posture.summary.issueCount).toBe(0);
+    expect(posture.summary.summary).toBe(
+      "Restart reconciliation is still running.",
+    );
+    expect(posture.entries).toContainEqual(
+      expect.objectContaining({
+        family: "restart-recovery",
+        issueNumber: null,
+        summary: "Restart reconciliation is still running.",
+      }),
+    );
+  });
+
   it("projects cleanup failure as degraded terminal posture", () => {
     const posture = projectRecoveryPosture({
       publication: { state: "current", detail: null },
