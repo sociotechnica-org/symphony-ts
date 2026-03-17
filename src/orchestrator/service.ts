@@ -9,6 +9,7 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { RetryClass, RetryState } from "../domain/retry.js";
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
+import type { PreparedWorkspace } from "../domain/workspace.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -131,6 +132,14 @@ import {
   recordWatchdogRecovery,
 } from "./watchdog-state.js";
 import { summarizeRunnerText } from "../runner/service.js";
+import {
+  classifyWorkspaceCleanupFailure,
+  classifyWorkspaceCleanupSuccess,
+  decideRetryWorkspaceRetention,
+  decideTerminalWorkspaceRetention,
+  finalizeRetainedWorkspace,
+  type WorkspaceRetentionOutcome,
+} from "./workspace-retention.js";
 
 export interface TuiRunningEntry {
   readonly issueNumber: number;
@@ -710,7 +719,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (lifecycle.kind === "handoff-ready") {
       clearLandingRuntimeState(this.#state.landing, issue.number);
       await this.#completeIssue(issue);
-      await this.#cleanupIssueWorkspaceIfNeeded(issue);
       return false;
     }
 
@@ -871,7 +879,6 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName,
         finishedAt: new Date().toISOString(),
       });
-      await this.#cleanupIssueWorkspaceIfNeeded(issue);
       return;
     }
 
@@ -1200,10 +1207,10 @@ export class BootstrapOrchestrator implements Orchestrator {
           await this.#completeIssue(issue, {
             attemptNumber: attempt,
             branchName: workspace.branchName,
+            workspace,
             session: sessionState,
             finishedAt: result.finishedAt,
           });
-          await this.#cleanupWorkspaceIfNeeded(workspace, issue.number);
           return false;
         }
 
@@ -1515,11 +1522,13 @@ export class BootstrapOrchestrator implements Orchestrator {
     options?: {
       readonly attemptNumber?: number;
       readonly branchName?: string | null;
+      readonly workspace?: PreparedWorkspace | undefined;
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
     },
   ): Promise<void> {
     const runnerPid = this.#currentRunnerPid(issue.number);
+    const observedAt = options?.finishedAt ?? new Date().toISOString();
     await this.#tracker.completeIssue(issue.number);
     clearRetryState(this.#state.retries, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
@@ -1529,57 +1538,35 @@ export class BootstrapOrchestrator implements Orchestrator {
     adjustTrackerIssueCounts(this.#state.status, {
       running: -1,
     });
+    const workspaceRetention = await this.#applyTerminalWorkspacePolicy(issue, {
+      terminalOutcome: "success",
+      workspace: options?.workspace,
+    });
+    const summary = this.#summarizeTerminalOutcome(
+      `Completed issue #${issue.number.toString()}`,
+      workspaceRetention,
+    );
     this.#logger.info("Issue completed", { issueNumber: issue.number });
     noteStatusAction(this.#state.status, {
       kind: "issue-completed",
-      summary: `Completed issue #${issue.number.toString()}`,
+      summary,
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
       this.#createTerminalObservation(issue, "succeeded", {
-        observedAt: options?.finishedAt ?? new Date().toISOString(),
-        summary: `Completed ${issue.identifier}`,
+        observedAt,
+        summary: this.#summarizeTerminalOutcome(
+          `Completed ${issue.identifier}`,
+          workspaceRetention,
+        ),
         attemptNumber: options?.attemptNumber,
         branchName: options?.branchName ?? this.#branchName(issue.number),
         session: options?.session,
         runnerPid,
+        workspaceRetention,
       }),
     );
-  }
-
-  async #cleanupIssueWorkspaceIfNeeded(issue: RuntimeIssue): Promise<void> {
-    if (!this.#config.workspace.cleanupOnSuccess) {
-      return;
-    }
-
-    try {
-      await this.#workspaceManager.cleanupWorkspaceForIssue({ issue });
-    } catch (error) {
-      this.#logger.error("Workspace cleanup failed", {
-        issueNumber: issue.number,
-        error: this.#normalizeFailure(error as Error),
-      });
-    }
-  }
-
-  async #cleanupWorkspaceIfNeeded(
-    workspace: RunSession["workspace"],
-    issueNumber: number,
-  ): Promise<void> {
-    if (!this.#config.workspace.cleanupOnSuccess) {
-      return;
-    }
-
-    try {
-      await this.#workspaceManager.cleanupWorkspace(workspace);
-    } catch (error) {
-      this.#logger.error("Workspace cleanup failed", {
-        issueNumber,
-        workspacePath: workspace.path,
-        error: this.#normalizeFailure(error as Error),
-      });
-    }
   }
 
   async #refreshLifecycle(branchName: string): Promise<HandoffLifecycle> {
@@ -1986,9 +1973,16 @@ export class BootstrapOrchestrator implements Orchestrator {
         retryEntry.nextAttempt,
       );
       clearActiveIssue(this.#state.status, issue.number);
+      const workspaceRetention = finalizeRetainedWorkspace(
+        decideRetryWorkspaceRetention(),
+      );
       noteStatusAction(this.#state.status, {
         kind: "retry-scheduled",
-        summary: `Retry ${retryEntry.nextAttempt.toString()} scheduled for ${issue.identifier}`,
+        summary: this.#summarizeRetryScheduled(
+          issue.identifier,
+          retryEntry.nextAttempt,
+          workspaceRetention,
+        ),
         issueNumber: issue.number,
       });
       this.#notifyDashboard();
@@ -1999,6 +1993,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           runSequence,
           message,
           retryEntry,
+          workspaceRetention,
         ),
       );
       return;
@@ -2008,6 +2003,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       branchName:
         options?.session?.runSession.workspace.branchName ??
         this.#branchName(issue.number),
+      workspace: options?.session?.runSession.workspace,
       ...(options?.session === undefined ? {} : { session: options.session }),
       ...(options?.finishedAt === undefined
         ? {}
@@ -2049,19 +2045,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#completeIssue(issue, {
       attemptNumber: runSequence,
       branchName,
+      workspace: options?.session?.runSession.workspace,
       ...(options?.session === undefined ? {} : { session: options.session }),
       ...(options?.finishedAt === undefined
         ? {}
         : { finishedAt: options.finishedAt }),
     });
-    if (options?.session !== undefined) {
-      await this.#cleanupWorkspaceIfNeeded(
-        options.session.runSession.workspace,
-        issue.number,
-      );
-      return true;
-    }
-    await this.#cleanupIssueWorkspaceIfNeeded(issue);
     return true;
   }
 
@@ -2071,12 +2060,14 @@ export class BootstrapOrchestrator implements Orchestrator {
     options?: {
       readonly attemptNumber?: number;
       readonly branchName?: string | null;
+      readonly workspace?: PreparedWorkspace | undefined;
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
       readonly lifecycle?: HandoffLifecycle | null;
     },
   ): Promise<void> {
     const runnerPid = this.#currentRunnerPid(issue.number);
+    const observedAt = options?.finishedAt ?? new Date().toISOString();
     await this.#tracker.markIssueFailed(issue.number, message);
     clearRetryState(this.#state.retries, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
@@ -2087,23 +2078,122 @@ export class BootstrapOrchestrator implements Orchestrator {
       running: -1,
       failed: 1,
     });
+    const workspaceRetention = await this.#applyTerminalWorkspacePolicy(issue, {
+      terminalOutcome: "failure",
+      workspace: options?.workspace ?? options?.session?.runSession.workspace,
+    });
     noteStatusAction(this.#state.status, {
       kind: "issue-failed",
-      summary: message,
+      summary: this.#summarizeTerminalOutcome(message, workspaceRetention),
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
       this.#createTerminalObservation(issue, "failed", {
-        observedAt: options?.finishedAt ?? new Date().toISOString(),
-        summary: message,
+        observedAt,
+        summary: this.#summarizeTerminalOutcome(message, workspaceRetention),
         attemptNumber: options?.attemptNumber,
         branchName: options?.branchName ?? this.#branchName(issue.number),
         session: options?.session,
         runnerPid,
         lifecycle: options?.lifecycle ?? null,
+        workspaceRetention,
       }),
     );
+  }
+
+  async #applyTerminalWorkspacePolicy(
+    issue: RuntimeIssue,
+    options: {
+      readonly terminalOutcome: "success" | "failure";
+      readonly workspace?: PreparedWorkspace | undefined;
+    },
+  ): Promise<WorkspaceRetentionOutcome> {
+    const decision = decideTerminalWorkspaceRetention(
+      this.#config.workspace.retention,
+      options.terminalOutcome,
+    );
+    if (decision.action === "retain") {
+      const outcome = finalizeRetainedWorkspace(decision);
+      this.#logger.info("Workspace retained by policy", {
+        issueNumber: issue.number,
+        retentionState: outcome.state,
+        terminalOutcome: options.terminalOutcome,
+        workspacePath: options.workspace?.path ?? null,
+      });
+      return outcome;
+    }
+
+    try {
+      const cleanupResult =
+        options.workspace === undefined
+          ? await this.#workspaceManager.cleanupWorkspaceForIssue({ issue })
+          : await this.#workspaceManager.cleanupWorkspace(options.workspace);
+      const outcome = classifyWorkspaceCleanupSuccess(decision, cleanupResult);
+      this.#logger.info("Workspace cleanup completed", {
+        issueNumber: issue.number,
+        retentionState: outcome.state,
+        terminalOutcome: options.terminalOutcome,
+        workspacePath: cleanupResult.workspacePath,
+        cleanupResult: cleanupResult.kind,
+      });
+      return outcome;
+    } catch (error) {
+      const cleanupError = this.#normalizeFailure(error as Error);
+      const outcome = classifyWorkspaceCleanupFailure(decision, cleanupError);
+      this.#logger.error("Workspace cleanup failed", {
+        issueNumber: issue.number,
+        retentionState: outcome.state,
+        terminalOutcome: options.terminalOutcome,
+        workspacePath: options.workspace?.path ?? null,
+        error: cleanupError,
+      });
+      return outcome;
+    }
+  }
+
+  #summarizeTerminalOutcome(
+    summary: string,
+    retention: WorkspaceRetentionOutcome,
+  ): string {
+    return `${summary}; ${this.#summarizeWorkspaceRetention(retention)}`;
+  }
+
+  #summarizeRetryScheduled(
+    issueIdentifier: string,
+    nextAttempt: number,
+    retention: WorkspaceRetentionOutcome,
+  ): string {
+    return `Retry ${nextAttempt.toString()} scheduled for ${issueIdentifier}; ${this.#summarizeWorkspaceRetention(retention)}`;
+  }
+
+  #summarizeWorkspaceRetention(retention: WorkspaceRetentionOutcome): string {
+    switch (retention.state) {
+      case "retry-retained":
+        return "workspace retained for retry";
+      case "terminal-retained":
+        return "workspace retained by policy";
+      case "cleanup-succeeded":
+        return retention.cleanupResult?.kind === "already-absent"
+          ? "workspace cleanup skipped because the workspace was already absent"
+          : "workspace cleaned";
+      case "cleanup-failed":
+        return `workspace cleanup failed: ${retention.cleanupError ?? "unknown error"}`;
+    }
+  }
+
+  #createWorkspaceRetentionDetails(
+    retention: WorkspaceRetentionOutcome,
+  ): Readonly<Record<string, unknown>> {
+    return {
+      workspaceRetentionState: retention.state,
+      workspaceRetentionReason: retention.reason,
+      workspaceCleanupAction: retention.action,
+      workspaceCleanupResult: retention.cleanupResult?.kind ?? null,
+      workspaceCleanupError: retention.cleanupError ?? null,
+      workspaceCleanupSummary: this.#summarizeWorkspaceRetention(retention),
+      workspacePath: retention.cleanupResult?.workspacePath ?? null,
+    };
   }
 
   async #recordIssueArtifact(
@@ -2411,13 +2501,18 @@ export class BootstrapOrchestrator implements Orchestrator {
     attempt: number,
     message: string,
     retry: RetryState,
+    workspaceRetention: WorkspaceRetentionOutcome,
   ): IssueArtifactObservation {
     const observedAt = new Date().toISOString();
     return {
       issue: this.#createIssueArtifactUpdate(issue, {
         observedAt,
         outcome: "retry-scheduled",
-        summary: `Retry ${retry.nextAttempt.toString()} scheduled for ${issue.identifier}`,
+        summary: this.#summarizeRetryScheduled(
+          issue.identifier,
+          retry.nextAttempt,
+          workspaceRetention,
+        ),
         branchName: this.#branchName(issue.number),
         latestAttemptNumber: attempt,
       }),
@@ -2432,6 +2527,12 @@ export class BootstrapOrchestrator implements Orchestrator {
             backoffMs: retry.backoffMs,
             failureRetryAttempt: retry.failureRetryAttempt,
             reason: message,
+            summary: this.#summarizeRetryScheduled(
+              issue.identifier,
+              retry.nextAttempt,
+              workspaceRetention,
+            ),
+            ...this.#createWorkspaceRetentionDetails(workspaceRetention),
           },
         }),
       ],
@@ -2449,6 +2550,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly session?: RunSessionArtifactsState | undefined;
       readonly runnerPid?: number | null | undefined;
       readonly lifecycle?: HandoffLifecycle | null | undefined;
+      readonly workspaceRetention: WorkspaceRetentionOutcome;
     },
   ): IssueArtifactObservation {
     const sessionArtifacts =
@@ -2478,6 +2580,9 @@ export class BootstrapOrchestrator implements Orchestrator {
             latestTurnNumber: options.session?.latestTurnNumber ?? null,
             backendSessionId:
               options.session?.description.backendSessionId ?? null,
+            ...this.#createWorkspaceRetentionDetails(
+              options.workspaceRetention,
+            ),
           },
         }),
       ],

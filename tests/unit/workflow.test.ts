@@ -81,6 +81,10 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.workspace.root).toContain(
       `${path.sep}.tmp${path.sep}ws`,
     );
+    expect(workflow.config.workspace.retention).toEqual({
+      onSuccess: "delete",
+      onFailure: "retain",
+    });
     expect(workflow.config.tracker.kind).toBe("github-bootstrap");
     expect(workflow.config.polling.retry.maxAttempts).toBe(2);
     expect(workflow.config.polling.watchdog).toBeUndefined();
@@ -141,6 +145,54 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
       "sociotechnica-org/symphony-ts",
     );
+  });
+
+  it("loads an explicit workspace retention policy", async () => {
+    const dir = await createTempDir("workflow-workspace-retention-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  retention:
+    on_success: retain
+    on_failure: delete
+hooks:
+  after_create:
+    - git fetch origin
+agent:
+  runner:
+    kind: codex
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env:
+    FOO: bar`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.workspace.retention).toEqual({
+      onSuccess: "retain",
+      onFailure: "delete",
+    });
   });
 
   it("renders continuation guidance separately from the workflow template", async () => {

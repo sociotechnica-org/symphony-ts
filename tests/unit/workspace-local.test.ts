@@ -43,7 +43,10 @@ describe("LocalWorkspaceManager", () => {
         root: path.join(tempDir, ".tmp", "workspaces"),
         repoUrl: remote.remotePath,
         branchPrefix: "symphony/",
-        cleanupOnSuccess: false,
+        retention: {
+          onSuccess: "retain",
+          onFailure: "retain",
+        },
       },
       [],
       logger,
@@ -100,7 +103,10 @@ describe("LocalWorkspaceManager", () => {
         root: path.join(tempDir, ".tmp", "workspaces"),
         repoUrl: remotePath,
         branchPrefix: "symphony/",
-        cleanupOnSuccess: false,
+        retention: {
+          onSuccess: "retain",
+          onFailure: "retain",
+        },
       },
       [],
       logger,
@@ -122,6 +128,39 @@ describe("LocalWorkspaceManager", () => {
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an idempotent cleanup result when the workspace is already absent", async () => {
+    const tempDir = await createTempDir("workspace-cleanup-");
+    const remote = await createSeedRemote();
+    const logger = new JsonLogger();
+    const manager = new LocalWorkspaceManager(
+      {
+        root: path.join(tempDir, ".tmp", "workspaces"),
+        repoUrl: remote.remotePath,
+        branchPrefix: "symphony/",
+        retention: {
+          onSuccess: "delete",
+          onFailure: "retain",
+        },
+      },
+      [],
+      logger,
+    );
+
+    try {
+      const result = await manager.cleanupWorkspaceForIssue({
+        issue: createIssue(9),
+      });
+
+      expect(result).toEqual({
+        kind: "already-absent",
+        workspacePath: path.join(tempDir, ".tmp", "workspaces", "repo_9"),
+      });
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
     }
   });
 });

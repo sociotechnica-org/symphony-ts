@@ -61,7 +61,14 @@ export interface WorkspaceConfig {
   readonly root: string;
   readonly repoUrl: string;
   readonly branchPrefix: string;
-  readonly cleanupOnSuccess: boolean;
+  readonly retention: WorkspaceRetentionPolicy;
+}
+
+export type WorkspaceRetentionMode = "delete" | "retain";
+
+export interface WorkspaceRetentionPolicy {
+  readonly onSuccess: WorkspaceRetentionMode;
+  readonly onFailure: WorkspaceRetentionMode;
 }
 
 export interface HooksConfig {

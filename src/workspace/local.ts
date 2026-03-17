@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { WorkspaceError } from "../domain/errors.js";
 import type {
   PreparedWorkspace,
+  WorkspaceCleanupResult,
   WorkspacePreparationRequest,
 } from "../domain/workspace.js";
 import type { WorkspaceConfig } from "../domain/workflow.js";
@@ -218,15 +219,28 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     };
   }
 
-  async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
-    this.#logger.info("Cleaning workspace", { workspacePath: workspace.path });
+  async cleanupWorkspace(
+    workspace: PreparedWorkspace,
+  ): Promise<WorkspaceCleanupResult> {
+    const existed = await fs
+      .stat(workspace.path)
+      .then(() => true)
+      .catch(() => false);
+    this.#logger.info("Cleaning workspace", {
+      workspacePath: workspace.path,
+      existed,
+    });
     await fs.rm(workspace.path, { recursive: true, force: true });
+    return {
+      kind: existed ? "deleted" : "already-absent",
+      workspacePath: workspace.path,
+    };
   }
 
   async cleanupWorkspaceForIssue(
     request: WorkspacePreparationRequest,
-  ): Promise<void> {
-    await this.cleanupWorkspace({
+  ): Promise<WorkspaceCleanupResult> {
+    return await this.cleanupWorkspace({
       key: sanitize(request.issue.identifier),
       path: this.#workspacePathForIssue(request.issue.identifier),
       branchName: `${this.#config.branchPrefix}${request.issue.number}`,

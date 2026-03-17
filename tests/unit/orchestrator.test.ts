@@ -139,7 +139,10 @@ const baseConfig: ResolvedConfig = {
     ),
     repoUrl: "/tmp/remote.git",
     branchPrefix: "symphony/",
-    cleanupOnSuccess: false,
+    retention: {
+      onSuccess: "retain",
+      onFailure: "retain",
+    },
   },
   hooks: {
     afterCreate: [],
@@ -455,14 +458,21 @@ class StaticWorkspaceManager implements WorkspaceManager {
     };
   }
 
-  async cleanupWorkspace(_workspace: PreparedWorkspace): Promise<void> {}
+  async cleanupWorkspace(
+    _workspace: PreparedWorkspace,
+  ): Promise<{ kind: "deleted"; workspacePath: string }> {
+    return {
+      kind: "deleted",
+      workspacePath: _workspace.path,
+    };
+  }
 
   async cleanupWorkspaceForIssue({
     issue,
   }: {
     readonly issue: RuntimeIssue;
-  }): Promise<void> {
-    await this.cleanupWorkspace({
+  }): Promise<{ kind: "deleted"; workspacePath: string }> {
+    return await this.cleanupWorkspace({
       key: `sociotechnica-org_symphony-ts_${issue.number}`,
       path: `/tmp/workspaces/${issue.number}`,
       branchName: `symphony/${issue.number}`,
@@ -474,7 +484,9 @@ class StaticWorkspaceManager implements WorkspaceManager {
 class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
   readonly cleaned: string[] = [];
 
-  override async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
+  override async cleanupWorkspace(
+    workspace: PreparedWorkspace,
+  ): Promise<{ kind: "deleted"; workspacePath: string }> {
     this.cleaned.push(workspace.path);
     throw new Error("rm failed");
   }
@@ -483,8 +495,14 @@ class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
 class TrackingWorkspaceManager extends StaticWorkspaceManager {
   readonly cleaned: string[] = [];
 
-  override async cleanupWorkspace(workspace: PreparedWorkspace): Promise<void> {
+  override async cleanupWorkspace(
+    workspace: PreparedWorkspace,
+  ): Promise<{ kind: "deleted"; workspacePath: string }> {
     this.cleaned.push(workspace.path);
+    return {
+      kind: "deleted",
+      workspacePath: workspace.path,
+    };
   }
 }
 
@@ -1462,7 +1480,10 @@ describe("BootstrapOrchestrator", () => {
         ...baseConfig,
         workspace: {
           ...baseConfig.workspace,
-          cleanupOnSuccess: true,
+          retention: {
+            ...baseConfig.workspace.retention,
+            onSuccess: "delete",
+          },
         },
       },
       staticPromptBuilder,
@@ -1918,7 +1939,10 @@ describe("BootstrapOrchestrator", () => {
         ...baseConfig,
         workspace: {
           ...baseConfig.workspace,
-          cleanupOnSuccess: true,
+          retention: {
+            ...baseConfig.workspace.retention,
+            onSuccess: "delete",
+          },
         },
       },
       staticPromptBuilder,
@@ -1951,7 +1975,10 @@ describe("BootstrapOrchestrator", () => {
         ...baseConfig,
         workspace: {
           ...baseConfig.workspace,
-          cleanupOnSuccess: true,
+          retention: {
+            ...baseConfig.workspace.retention,
+            onSuccess: "delete",
+          },
         },
       },
       staticPromptBuilder,
@@ -2818,7 +2845,10 @@ describe("BootstrapOrchestrator", () => {
         ...baseConfig,
         workspace: {
           ...baseConfig.workspace,
-          cleanupOnSuccess: true,
+          retention: {
+            ...baseConfig.workspace.retention,
+            onSuccess: "delete",
+          },
         },
       },
       staticPromptBuilder,

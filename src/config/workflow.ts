@@ -18,6 +18,7 @@ import type {
   PromptBuilder,
   ResolvedConfig,
   TrackerConfig,
+  WorkspaceRetentionMode,
   WatchdogConfig,
   WorkflowDefinition,
 } from "../domain/workflow.js";
@@ -38,6 +39,10 @@ const liquid = new Liquid({
 
 const DEFAULT_LINEAR_ENDPOINT = "https://api.linear.app/graphql";
 const DEFAULT_LINEAR_ACTIVE_STATES = ["Todo", "In Progress"] as const;
+const DEFAULT_WORKSPACE_RETENTION = {
+  onSuccess: "delete",
+  onFailure: "retain",
+} as const satisfies Record<string, WorkspaceRetentionMode>;
 const DEFAULT_LINEAR_TERMINAL_STATES = [
   "Closed",
   "Cancelled",
@@ -137,6 +142,19 @@ function requireBoolean(value: unknown, field: string): boolean {
     throw new ConfigError(`Expected boolean for ${field}`);
   }
   return value;
+}
+
+function requireEnum<T extends string>(
+  value: unknown,
+  options: readonly T[],
+  field: string,
+): T {
+  if (typeof value !== "string" || !options.includes(value as T)) {
+    throw new ConfigError(
+      `${field} must be one of ${options.map((option) => `'${option}'`).join(", ")}`,
+    );
+  }
+  return value as T;
 }
 
 function coerceOptionalObject(
@@ -473,7 +491,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
         workspace["branch_prefix"],
         "workspace.branch_prefix",
       ),
-      cleanupOnSuccess: Boolean(workspace["cleanup_on_success"]),
+      retention: resolveWorkspaceRetentionPolicy(workspace),
     },
     hooks: {
       afterCreate:
@@ -523,6 +541,41 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
     throw new ConfigError("polling.retry.max_attempts must be >= 1");
   }
   return resolved;
+}
+
+function resolveWorkspaceRetentionPolicy(
+  workspace: Readonly<Record<string, unknown>>,
+) {
+  const rawRetention = workspace["retention"];
+  const retention =
+    rawRetention === undefined
+      ? {}
+      : coerceOptionalObject(rawRetention, "workspace.retention");
+  const legacyCleanupOnSuccess = workspace["cleanup_on_success"];
+  const onSuccess =
+    retention["on_success"] === undefined
+      ? legacyCleanupOnSuccess === undefined
+        ? DEFAULT_WORKSPACE_RETENTION.onSuccess
+        : requireBoolean(legacyCleanupOnSuccess, "workspace.cleanup_on_success")
+          ? "delete"
+          : "retain"
+      : requireEnum(
+          retention["on_success"],
+          ["delete", "retain"],
+          "workspace.retention.on_success",
+        );
+  const onFailure =
+    retention["on_failure"] === undefined
+      ? DEFAULT_WORKSPACE_RETENTION.onFailure
+      : requireEnum(
+          retention["on_failure"],
+          ["delete", "retain"],
+          "workspace.retention.on_failure",
+        );
+  return {
+    onSuccess,
+    onFailure,
+  } as const;
 }
 
 function resolveAgentRunnerConfig(
