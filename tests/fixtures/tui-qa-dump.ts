@@ -185,8 +185,8 @@ const activeSnapshot: TuiSnapshot = {
     summary: {
       family: "watchdog-recovery",
       summary:
-        "2 issues currently reflect watchdog recovery or watchdog-driven retry posture.",
-      issueCount: 2,
+        "1 issue currently reflects watchdog recovery or watchdog-driven retry posture.",
+      issueCount: 1,
     },
     entries: [
       {

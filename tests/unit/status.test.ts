@@ -55,8 +55,8 @@ function createSnapshot(
     recoveryPosture: {
       summary: {
         family: "restart-recovery",
-        summary: "3 issues still show restart reconciliation posture.",
-        issueCount: 3,
+        summary: "1 issue still shows restart reconciliation posture.",
+        issueCount: 1,
       },
       entries: [
         {
