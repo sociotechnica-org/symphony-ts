@@ -82,6 +82,7 @@ import { LocalIssueLeaseManager } from "./issue-lease.js";
 import type {
   ActiveRunShutdownRecord,
   ActiveRunShutdownState,
+  IssueLeaseSnapshot,
 } from "./issue-lease.js";
 import type { LivenessProbe } from "./liveness-probe.js";
 import {
@@ -190,6 +191,15 @@ interface ActiveRunShutdownContext {
   requestedAt: string | null;
   gracefulDeadlineAt: string | null;
   writePromise: Promise<void>;
+}
+
+interface RecoveredShutdownLease {
+  readonly issueNumber: number;
+  readonly lockDir: string;
+  readonly shutdownState: "shutdown-terminated" | "shutdown-forced";
+  readonly runnerPid: number | null;
+  readonly runnerAlive: boolean | null;
+  readonly runSessionId: string | null;
 }
 
 export class BootstrapOrchestrator implements Orchestrator {
@@ -1005,12 +1015,15 @@ export class BootstrapOrchestrator implements Orchestrator {
       gracefulDeadlineAt: null,
       writePromise: Promise.resolve(),
     };
+    let liveRunnerSession: LiveRunnerSession | undefined;
+    const currentSessionState = (): RunSessionArtifactsState =>
+      this.#captureLiveSessionState(sessionState, liveRunnerSession);
     const handleShutdown = (): void => {
       this.#beginActiveRunShutdown(
         issue,
         attempt,
         workspace.branchName,
-        sessionState,
+        currentSessionState(),
         lockDir,
         shutdownContext,
       );
@@ -1047,9 +1060,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.runningEntries.set(issue.number, runEntry);
     this.#notifyDashboard();
 
-    let liveRunnerSession: LiveRunnerSession | undefined;
     try {
       liveRunnerSession = await this.#runner.startSession?.(session);
+      sessionState = currentSessionState();
       this.#warnIfContinuationSessionUnavailable(
         issue,
         workspace.branchName,
@@ -1151,7 +1164,7 @@ export class BootstrapOrchestrator implements Orchestrator {
             attempt,
             lockDir,
             workspace.branchName,
-            sessionState,
+            currentSessionState(),
             shutdownContext,
             result.finishedAt,
             "shutdown-terminated",
@@ -1220,7 +1233,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           attempt,
           lockDir,
           workspace.branchName,
-          sessionState,
+          currentSessionState(),
           shutdownContext,
           new Date().toISOString(),
           error.termination === "forced"
@@ -1582,18 +1595,23 @@ export class BootstrapOrchestrator implements Orchestrator {
         snapshot.kind === "shutdown-terminated" ||
         snapshot.kind === "shutdown-forced"
       ) {
+        const recoveredShutdown = this.#asRecoveredShutdownLease(snapshot);
+        if (recoveredShutdown === null) {
+          continue;
+        }
         this.#logger.info("Recovered intentional shutdown posture", {
           issueNumber,
-          shutdownState: snapshot.record?.shutdown?.state ?? null,
-          runnerPid: snapshot.runnerPid,
-          runnerAlive: snapshot.runnerAlive,
-          runSessionId: snapshot.record?.runSessionId ?? null,
+          shutdownState: recoveredShutdown.shutdownState,
+          runnerPid: recoveredShutdown.runnerPid,
+          runnerAlive: recoveredShutdown.runnerAlive,
+          runSessionId: recoveredShutdown.runSessionId,
         });
         noteStatusAction(this.#state.status, {
           kind: "shutdown-recovered",
           summary: `Recovered intentional shutdown for issue #${issueNumber.toString()}`,
           issueNumber,
         });
+        await this.#consumeRecoveredShutdownLease(recoveredShutdown);
         await this.#persistStatusSnapshot();
         continue;
       }
@@ -2668,6 +2686,52 @@ export class BootstrapOrchestrator implements Orchestrator {
     return this.#state.status.activeIssues.get(issueNumber)?.runnerPid ?? null;
   }
 
+  #captureLiveSessionState(
+    session: RunSessionArtifactsState,
+    liveRunnerSession?: LiveRunnerSession,
+  ): RunSessionArtifactsState {
+    if (liveRunnerSession === undefined) {
+      return session;
+    }
+    return {
+      ...session,
+      description: liveRunnerSession.describe(),
+    };
+  }
+
+  #asRecoveredShutdownLease(
+    snapshot: IssueLeaseSnapshot,
+  ): RecoveredShutdownLease | null {
+    if (
+      (snapshot.kind !== "shutdown-terminated" &&
+        snapshot.kind !== "shutdown-forced") ||
+      snapshot.lockDir === null
+    ) {
+      return null;
+    }
+    return {
+      issueNumber: snapshot.issueNumber,
+      lockDir: snapshot.lockDir,
+      shutdownState: snapshot.kind,
+      runnerPid: snapshot.runnerPid,
+      runnerAlive: snapshot.runnerAlive,
+      runSessionId: snapshot.record?.runSessionId ?? null,
+    };
+  }
+
+  async #consumeRecoveredShutdownLease(
+    recovered: RecoveredShutdownLease,
+  ): Promise<void> {
+    await this.#leaseManager.release(recovered.lockDir);
+    this.#logger.info("Cleared recovered shutdown lease", {
+      issueNumber: recovered.issueNumber,
+      shutdownState: recovered.shutdownState,
+      runnerPid: recovered.runnerPid,
+      runnerAlive: recovered.runnerAlive,
+      runSessionId: recovered.runSessionId,
+    });
+  }
+
   #queueActiveRunShutdownWrite(
     context: ActiveRunShutdownContext,
     write: () => Promise<void>,
@@ -2881,7 +2945,6 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber,
       at: event.spawnedAt,
     });
-    // The runner event callback is synchronous; snapshot persistence is optional.
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
       this.#createRunnerSpawnObservation(session, event, turnNumber),

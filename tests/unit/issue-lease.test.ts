@@ -107,6 +107,34 @@ describe("LocalIssueLeaseManager", () => {
     }
   });
 
+  it("clears an intentional shutdown record during recovery when preservation is not requested", async () => {
+    const tempRoot = await createTempDir("symphony-lease-shutdown-clear-");
+    const manager = new LocalIssueLeaseManager(tempRoot, new JsonLogger());
+
+    try {
+      const lockDir = await manager.acquire(29);
+      expect(lockDir).not.toBeNull();
+
+      await manager.recordRun(lockDir!, createSession(29, tempRoot));
+      await manager.recordShutdown(lockDir!, {
+        state: "shutdown-forced",
+        requestedAt: new Date().toISOString(),
+        gracefulDeadlineAt: new Date().toISOString(),
+        terminatedAt: new Date().toISOString(),
+        reasonSummary: "Runner forced to stop during shutdown",
+        updatedAt: new Date().toISOString(),
+      });
+      await fs.writeFile(path.join(lockDir!, "pid"), "999999\n", "utf8");
+
+      const snapshot = await manager.reconcile(29);
+
+      expect(snapshot.kind).toBe("shutdown-forced");
+      expect((await manager.inspect(29)).kind).toBe("missing");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("removes an incomplete lease if pid persistence fails during acquire", async () => {
     const tempRoot = await createTempDir("symphony-lease-acquire-");
     const manager = new LocalIssueLeaseManager(tempRoot, new JsonLogger());

@@ -1,6 +1,7 @@
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 
-export const RUNNER_SHUTDOWN_GRACE_MS = 200;
+// Give local runners a real chance to flush/exit cleanly before escalation.
+export const RUNNER_SHUTDOWN_GRACE_MS = 2_000;
 
 export interface RunnerExecutionResult {
   readonly exitCode: number;

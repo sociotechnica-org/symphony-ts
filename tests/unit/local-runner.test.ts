@@ -20,7 +20,10 @@ import {
 import { CodexRunner } from "../../src/runner/codex.js";
 import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
-import type { RunnerEvent } from "../../src/runner/service.js";
+import {
+  RUNNER_SHUTDOWN_GRACE_MS,
+  type RunnerEvent,
+} from "../../src/runner/service.js";
 import { waitForExit } from "../support/process.js";
 import { createTempDir } from "../support/git.js";
 import type { Logger } from "../../src/observability/logger.js";
@@ -1241,7 +1244,9 @@ describe("runners", () => {
         .slice(existingTimerCount)
         .map((call) => call[1]);
       expect(
-        timerDelays.filter((delay) => delay === 200 || delay === 5_000),
+        timerDelays.filter(
+          (delay) => delay === RUNNER_SHUTDOWN_GRACE_MS || delay === 5_000,
+        ),
       ).toHaveLength(2);
 
       await Promise.all([closePromise, secondClosePromise]);
