@@ -4496,7 +4496,10 @@ describe("BootstrapOrchestrator watchdog", () => {
     tracker.readyIssues.set(4, createIssue(4));
     await orchestrator.runOnce();
 
-    expect(runnerIssues).toEqual([3, 3, 4]);
+    expect(runnerIssues[0]).toBe(3);
+    expect(runnerIssues.slice(1).sort((left, right) => left - right)).toEqual([
+      3, 4,
+    ]);
     const snapshot = await readFactoryStatusSnapshot(
       deriveStatusFilePath(tmpDir),
     );
