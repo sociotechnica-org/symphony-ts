@@ -1514,6 +1514,61 @@ describe("StatusDashboard", () => {
     expect(rendered[1]).toContain("app_status=offline");
   });
 
+  it("re-renders immediately when recovery posture changes", () => {
+    const rendered: string[] = [];
+    let snapshot = makeSnapshot({
+      recoveryPosture: {
+        summary: {
+          family: "healthy",
+          summary: "No active recovery posture is present.",
+          issueCount: 0,
+        },
+        entries: [],
+      },
+    });
+
+    const dashboard = new StatusDashboard(
+      () => snapshot,
+      () => makeConfig(),
+      {
+        renderFn: (content) => rendered.push(content),
+        enabled: true,
+        refreshMs: 10_000,
+        renderIntervalMs: 0,
+      },
+    );
+
+    dashboard.refresh();
+    snapshot = makeSnapshot({
+      recoveryPosture: {
+        summary: {
+          family: "retry-backoff",
+          summary: "1 issue is queued in retry backoff.",
+          issueCount: 1,
+        },
+        entries: [
+          {
+            family: "retry-backoff",
+            issueNumber: 166,
+            issueIdentifier: "sociotechnica-org/symphony-ts#166",
+            title: "Recovery posture observability",
+            source: "retry-queue",
+            summary:
+              "Retry attempt 2 is queued until 2026-03-17T10:05:00.000Z.",
+            observedAt: "2026-03-17T10:00:00.000Z",
+          },
+        ],
+      },
+    });
+    dashboard.refresh();
+    dashboard.stop();
+
+    expect(rendered).toHaveLength(3);
+    expect(rendered[0]).toContain("No active recovery posture is present.");
+    expect(rendered[1]).toContain("1 issue is queued in retry backoff.");
+    expect(rendered[2]).toContain("app_status=offline");
+  });
+
   it("re-renders immediately when last-action elapsed time resets", () => {
     const rendered: string[] = [];
     const firstAt = new Date(Date.now() - 20_000).toISOString();

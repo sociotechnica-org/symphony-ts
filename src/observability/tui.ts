@@ -941,6 +941,19 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       pendingRunCount: snapshot.codexTotals.pendingRunCount,
     },
     rateLimits: snapshot.rateLimits,
+    recoveryPosture: {
+      summary: {
+        family: snapshot.recoveryPosture.summary.family,
+        summary: snapshot.recoveryPosture.summary.summary,
+        issueCount: snapshot.recoveryPosture.summary.issueCount,
+      },
+      entries: snapshot.recoveryPosture.entries.map((entry) => ({
+        family: entry.family,
+        issueNumber: entry.issueNumber,
+        source: entry.source,
+        summary: entry.summary,
+      })),
+    },
     lastAction:
       snapshot.lastAction === null
         ? null
