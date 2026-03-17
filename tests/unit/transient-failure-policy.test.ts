@@ -93,6 +93,51 @@ describe("transient failure parsing and policy", () => {
     });
   });
 
+  it("derives resumeAt from exhausted buckets only", () => {
+    const update = {
+      event: "account/rateLimits/updated",
+      timestamp: "2026-03-17T12:00:00.000Z",
+      payload: {
+        params: {
+          rateLimits: {
+            limitId: "core",
+            primary: {
+              used: 100,
+              limit: 100,
+              resetInMs: 45_000,
+            },
+            secondary: {
+              used: 1,
+              limit: 10,
+              resetInMs: 90_000,
+            },
+          },
+        },
+      },
+    } as const;
+
+    expect(extractTransientFailureSignal(update)).toEqual({
+      retryClass: "provider-rate-limit",
+      reason: "Provider rate-limit pressure is active.",
+      observedAt: "2026-03-17T12:00:00.000Z",
+      resumeAt: Date.parse("2026-03-17T12:00:45.000Z"),
+      rateLimits: {
+        limitId: "core",
+        primary: {
+          used: 100,
+          limit: 100,
+          resetInMs: 45_000,
+        },
+        secondary: {
+          used: 1,
+          limit: 10,
+          resetInMs: 90_000,
+        },
+        credits: null,
+      },
+    });
+  });
+
   it("does not classify unrelated auth errors as account pressure", () => {
     const update = {
       event: "turn/failed",

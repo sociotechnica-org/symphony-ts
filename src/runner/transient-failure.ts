@@ -104,15 +104,27 @@ function deriveResumeAt(
   observedAt: number,
 ): number | null {
   const resetInMs = [
-    rateLimits?.primary?.resetInMs,
-    rateLimits?.secondary?.resetInMs,
+    rateLimits?.primary,
+    rateLimits?.secondary,
   ]
-    .filter((value): value is number => typeof value === "number" && value > 0)
+    .filter(hasExhaustedRateLimitBucket)
+    .map((bucket) => bucket.resetInMs)
     .sort((left, right) => right - left)[0];
   if (resetInMs === undefined) {
     return null;
   }
   return observedAt + resetInMs;
+}
+
+function hasExhaustedRateLimitBucket(
+  bucket: RateLimitBucket | null | undefined,
+): bucket is RateLimitBucket {
+  return (
+    bucket != null &&
+    bucket.resetInMs > 0 &&
+    bucket.limit > 0 &&
+    bucket.used >= bucket.limit
+  );
 }
 
 function parseBucket(
