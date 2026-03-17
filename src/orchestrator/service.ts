@@ -1518,7 +1518,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         const transientSignal = extractTransientFailureSignal(event);
         if (transientSignal !== null) {
           signalHandlers?.onTransientFailureSignal?.(transientSignal);
-          if (transientSignal.rateLimits !== null) {
+          if (transientSignal.rateLimits !== null && rateLimits === null) {
             signalHandlers?.onRateLimits?.(transientSignal.rateLimits);
           }
         }

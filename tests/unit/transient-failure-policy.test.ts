@@ -109,6 +109,52 @@ describe("transient failure parsing and policy", () => {
     expect(extractTransientFailureSignal(update)).toBeNull();
   });
 
+  it("does not classify git authentication required failures as account pressure", () => {
+    const update = {
+      event: "turn/failed",
+      timestamp: "2026-03-17T12:00:00.000Z",
+      payload: {
+        params: {
+          error: {
+            message: "fatal: Authentication required",
+          },
+        },
+      },
+    } as const;
+
+    expect(extractTransientFailureSignal(update)).toBeNull();
+  });
+
+  it("does not classify billing-feature failures as account pressure", () => {
+    expect(
+      classifyTransientFailure({
+        message: "Runner exited with 1\ntest failed: billing address validator",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "run-failure",
+      message: "Runner exited with 1\ntest failed: billing address validator",
+      dispatchPressure: null,
+    });
+  });
+
+  it("does not classify generic credit-domain failures as account pressure", () => {
+    expect(
+      classifyTransientFailure({
+        message: "Runner exited with 1\ntest failed: credit card validator",
+        signal: null,
+        observedAt: "2026-03-17T12:00:00.000Z",
+        backoffMs: 5_000,
+      }),
+    ).toEqual({
+      retryClass: "run-failure",
+      message: "Runner exited with 1\ntest failed: credit card validator",
+      dispatchPressure: null,
+    });
+  });
+
   it("extracts account pressure from error-bearing runner updates", () => {
     const update = {
       event: "turn/failed",

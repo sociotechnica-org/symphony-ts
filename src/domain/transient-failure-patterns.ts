@@ -8,10 +8,13 @@ export const RATE_LIMIT_PATTERNS = [
 export const ACCOUNT_PRESSURE_PATTERNS = [
   /\binsufficient quota\b/iu,
   /\bquota exceeded\b/iu,
-  /\bbilling\b/iu,
+  /\bbilling (?:hard )?limit(?: reached| exceeded)?\b/iu,
+  /\bbilling (?:error|disabled|required)\b/iu,
   /\bpayment required\b/iu,
-  /\bcredit(?:s| balance)?\b/iu,
+  /\bcredit balance\b/iu,
+  /\bcredits? (?:exceeded|exhausted|depleted|insufficient|remaining|limit)\b/iu,
+  /\b(?:no|insufficient|low) credits?\b/iu,
   /\bsubscription (?:expired|required|inactive)\b/iu,
-  /\bauthentication required\b/iu,
+  /\bapi (?:key|token) (?:expired|revoked|invalid)\b/iu,
   /\baccount (?:limit|restricted|disabled|issue)\b/iu,
 ] as const;
