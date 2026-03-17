@@ -189,7 +189,6 @@ interface QueueEntry {
 interface ActiveRunShutdownContext {
   requestedAt: string | null;
   gracefulDeadlineAt: string | null;
-  preserveLease: boolean;
   writePromise: Promise<void>;
 }
 
@@ -1004,7 +1003,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     const shutdownContext: ActiveRunShutdownContext = {
       requestedAt: null,
       gracefulDeadlineAt: null,
-      preserveLease: false,
       writePromise: Promise.resolve(),
     };
     const handleShutdown = (): void => {
@@ -2691,7 +2689,6 @@ export class BootstrapOrchestrator implements Orchestrator {
       observedAt,
       reasonSummary: summary,
     });
-    context.preserveLease = true;
     await context.writePromise;
     await this.#leaseManager.recordShutdown(lockDir, shutdownRecord);
     this.#setIssueRunnerVisibility(

@@ -1445,23 +1445,23 @@ function timelineKindOrder(kind: string): number {
     case "shutdown-requested":
       return 5;
     case "shutdown-terminated":
-      return 10;
-    case "pr-opened":
       return 6;
-    case "landing-blocked":
+    case "pr-opened":
       return 7;
-    case "landing-failed":
+    case "landing-blocked":
       return 8;
-    case "landing-requested":
+    case "landing-failed":
       return 9;
-    case "review-feedback":
+    case "landing-requested":
       return 10;
-    case "retry-scheduled":
+    case "review-feedback":
       return 11;
+    case "retry-scheduled":
+      return 12;
     case "succeeded":
     case "failed":
     case "terminal-outcome":
-      return 12;
+      return 13;
     default:
       return 99;
   }
