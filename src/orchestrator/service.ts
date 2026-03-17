@@ -1215,6 +1215,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       let turnNumber = 1;
 
       while (true) {
+        transientFailureSignal = null;
         const turn = await this.#createRunTurn(
           session.prompt,
           issue,
@@ -1285,6 +1286,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           );
           return false;
         }
+        transientFailureSignal = null;
 
         this.#setIssueRunnerVisibility(
           issue.number,

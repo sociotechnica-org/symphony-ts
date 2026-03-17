@@ -668,6 +668,77 @@ class RecordingLiveSessionRunner implements Runner {
   }
 }
 
+class StaleSignalThenOrdinaryFailureLiveRunner implements Runner {
+  describeSession() {
+    return createRunnerSessionDescription();
+  }
+
+  async run(): Promise<RunnerExecutionResult> {
+    throw new Error("runner.run should not be called");
+  }
+
+  async startSession(): Promise<LiveRunnerSession> {
+    let latestTurnNumber: number | null = null;
+    const backendSessionId = "codex-session-stale-signal";
+    return {
+      describe() {
+        return {
+          ...createRunnerSessionDescription(),
+          backendSessionId,
+          latestTurnNumber,
+        };
+      },
+      async runTurn(turn, options): Promise<RunnerTurnResult> {
+        latestTurnNumber = turn.turnNumber;
+        const timestamp = formatTurnTimestamp(45, turn.turnNumber);
+        if (turn.turnNumber === 1) {
+          options?.onUpdate?.({
+            event: "account/rateLimits/updated",
+            timestamp,
+            payload: {
+              params: {
+                rateLimits: {
+                  limitId: "core",
+                  primary: {
+                    used: 100,
+                    limit: 100,
+                    resetInMs: 60_000,
+                  },
+                },
+              },
+            },
+          });
+          return {
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+            session: {
+              ...createRunnerSessionDescription(),
+              backendSessionId,
+              latestTurnNumber,
+            },
+          };
+        }
+        return {
+          exitCode: 17,
+          stdout: "",
+          stderr: "temporary sandbox crash",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+          session: {
+            ...createRunnerSessionDescription(),
+            backendSessionId,
+            latestTurnNumber,
+          },
+        };
+      },
+      async close(): Promise<void> {},
+    };
+  }
+}
+
 class RecordingIssueArtifactStore implements IssueArtifactStore {
   readonly observations: IssueArtifactObservation[] = [];
 
@@ -2478,6 +2549,57 @@ describe("BootstrapOrchestrator", () => {
       expect(attempt.latestTurnNumber).toBe(2);
       expect(session.backendSessionId).toBe("codex-session-77");
       expect(session.latestTurnNumber).toBe(2);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not reuse a prior turn transient signal after a successful continuation turn", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(78)],
+    });
+    tracker.setLifecycleSequence(78, [
+      lifecycle("missing-target", "symphony/78"),
+      lifecycle("rework-required", "symphony/78", {
+        failingCheckNames: ["CI"],
+      }),
+    ]);
+    const tempRoot = await createTempDir(
+      "symphony-live-session-stale-signal-test-",
+    );
+
+    try {
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: { ...baseConfig.workspace, root: tempRoot },
+          polling: {
+            ...baseConfig.polling,
+            retry: {
+              ...baseConfig.polling.retry,
+              backoffMs: 1_000,
+            },
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new StaleSignalThenOrdinaryFailureLiveRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(tracker.retried).toEqual([
+        {
+          issueNumber: 78,
+          reason: "Runner exited with 17\ntemporary sandbox crash",
+        },
+      ]);
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.dispatchPressure).toBeNull();
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
