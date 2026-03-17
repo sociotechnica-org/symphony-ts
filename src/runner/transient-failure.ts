@@ -103,10 +103,7 @@ function deriveResumeAt(
   rateLimits: RateLimits | null,
   observedAt: number,
 ): number | null {
-  const resetInMs = [
-    rateLimits?.primary,
-    rateLimits?.secondary,
-  ]
+  const resetInMs = [rateLimits?.primary, rateLimits?.secondary]
     .filter(hasExhaustedRateLimitBucket)
     .map((bucket) => bucket.resetInMs)
     .sort((left, right) => right - left)[0];
