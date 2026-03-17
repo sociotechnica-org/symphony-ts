@@ -364,6 +364,70 @@ describe("issue report generation", () => {
     expect(generated.report.summary.outcome).toBe("awaiting-human-review");
   });
 
+  it("orders shutdown timeline entries ahead of review feedback when timestamps match", async () => {
+    const tempDir = await createTempDir(
+      "symphony-issue-report-shutdown-order-",
+    );
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+    await fs.mkdir(artifactPaths.issueRoot, { recursive: true });
+    await fs.writeFile(
+      artifactPaths.eventsFile,
+      [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "shutdown-terminated",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:10:00.000Z",
+          attemptNumber: 1,
+          sessionId: "session-1",
+          details: {
+            summary: "Runner exited during coordinated shutdown",
+          },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "review-feedback",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:10:00.000Z",
+          attemptNumber: 1,
+          sessionId: "session-1",
+          details: {
+            lifecycleKind: "awaiting-review-feedback",
+            summary:
+              "Waiting for review feedback on https://github.com/sociotechnica-org/symphony-ts/pull/173",
+            pullRequest: {
+              number: 173,
+              url: "https://github.com/sociotechnica-org/symphony-ts/pull/173",
+              latestCommitAt: "2026-03-09T10:09:30.000Z",
+            },
+            review: {
+              actionableCount: 1,
+              unresolvedThreadCount: 1,
+            },
+            checks: {
+              pendingNames: [],
+              failingNames: [],
+            },
+          },
+        },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:05:00.000Z",
+    });
+
+    expect(generated.report.timeline.map((entry) => entry.kind)).toEqual([
+      "shutdown-terminated",
+      "review-feedback",
+    ]);
+  });
+
   it("reports merged when the latest landing-blocked event records an already-merged lifecycle", async () => {
     const tempDir = await createTempDir("symphony-issue-report-merged-");
     tempRoots.push(tempDir);

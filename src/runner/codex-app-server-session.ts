@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { RunnerAbortedError, RunnerError } from "../domain/errors.js";
+import { RunnerError, RunnerShutdownError } from "../domain/errors.js";
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
@@ -9,7 +9,7 @@ import {
   buildCodexAppServerCommand,
   type CodexAppServerCommand,
 } from "./codex-app-server-command.js";
-import { summarizeRunnerText } from "./service.js";
+import { RUNNER_SHUTDOWN_GRACE_MS, summarizeRunnerText } from "./service.js";
 import type {
   LiveRunnerSession,
   RunnerEvent,
@@ -22,7 +22,6 @@ import type {
 const INITIALIZE_REQUEST_ID = 1;
 const THREAD_START_REQUEST_ID = 2;
 const TURN_START_FIRST_REQUEST_ID = 3;
-const TERMINATION_GRACE_MS = 200;
 const CLOSE_TIMEOUT_MS = 5_000;
 const STARTUP_STDERR_LIMIT = 4_096;
 
@@ -61,6 +60,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #appServerPid: number | null = null;
   #loggedDroppedArgs = false;
   #closingReason: "timeout" | "aborted" | null = null;
+  #forcedShutdown = false;
   #closeTimersScheduled = false;
   #nextTurnStartRequestId = TURN_START_FIRST_REQUEST_ID;
   #startupStderr = "";
@@ -94,7 +94,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
     options?: RunnerRunOptions,
   ): Promise<RunnerTurnResult> {
     if (options?.signal?.aborted) {
-      throw new RunnerAbortedError("Runner cancelled by shutdown");
+      throw new RunnerShutdownError("Runner cancelled by shutdown", "graceful");
     }
 
     let abortReject: ((error: Error) => void) | null = null;
@@ -109,7 +109,12 @@ export class CodexAppServerSession implements LiveRunnerSession {
     const handleAbort = (): void => {
       this.#closingReason = "aborted";
       void this.close().finally(() => {
-        abortReject?.(new RunnerAbortedError("Runner cancelled by shutdown"));
+        abortReject?.(
+          new RunnerShutdownError(
+            "Runner cancelled by shutdown",
+            this.#forcedShutdown ? "forced" : "graceful",
+          ),
+        );
       });
     };
     const timeoutHandle = setTimeout(() => {
@@ -163,12 +168,16 @@ export class CodexAppServerSession implements LiveRunnerSession {
       !this.#closeTimersScheduled
     ) {
       this.#closeTimersScheduled = true;
+      this.#forcedShutdown = false;
       child.kill("SIGTERM");
       setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
+          if (this.#closingReason === "aborted") {
+            this.#forcedShutdown = true;
+          }
           child.kill("SIGKILL");
         }
-      }, TERMINATION_GRACE_MS);
+      }, RUNNER_SHUTDOWN_GRACE_MS);
       setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
           this.#closeReject?.(
@@ -451,7 +460,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
     });
 
     if (options?.signal?.aborted) {
-      throw new RunnerAbortedError("Runner cancelled by shutdown");
+      throw new RunnerShutdownError(
+        "Runner cancelled by shutdown",
+        this.#forcedShutdown ? "forced" : "graceful",
+      );
     }
 
     return result;

@@ -21,6 +21,8 @@ export type FactoryIssueStatus =
   | "queued"
   | "preparing"
   | "running"
+  | "shutdown-terminated"
+  | "shutdown-forced"
   | "awaiting-human-handoff"
   | "merged"
   | "awaiting-human-review"
@@ -659,6 +661,8 @@ function parseActiveIssue(
         "queued",
         "preparing",
         "running",
+        "shutdown-terminated",
+        "shutdown-forced",
         "awaiting-human-handoff",
         "merged",
         "awaiting-human-review",

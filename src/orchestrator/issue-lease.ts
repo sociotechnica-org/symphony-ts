@@ -9,6 +9,21 @@ function isStaleLeaseError(code: string | undefined): boolean {
   return code === "ENOENT" || code === "ENOTDIR" || code === "ESRCH";
 }
 
+export type ActiveRunShutdownState =
+  | "shutdown-requested"
+  | "shutdown-draining"
+  | "shutdown-terminated"
+  | "shutdown-forced";
+
+export interface ActiveRunShutdownRecord {
+  readonly state: ActiveRunShutdownState;
+  readonly requestedAt: string;
+  readonly gracefulDeadlineAt: string | null;
+  readonly terminatedAt: string | null;
+  readonly reasonSummary: string | null;
+  readonly updatedAt: string;
+}
+
 export interface ActiveRunLeaseRecord {
   readonly issueNumber: number;
   readonly issueIdentifier: string;
@@ -19,6 +34,7 @@ export interface ActiveRunLeaseRecord {
   readonly runnerPid: number | null;
   readonly runRecordedAt: string;
   readonly runnerStartedAt: string | null;
+  readonly shutdown: ActiveRunShutdownRecord | null;
   readonly updatedAt: string;
 }
 
@@ -26,6 +42,8 @@ export interface IssueLeaseSnapshot {
   readonly kind:
     | "missing"
     | "active"
+    | "shutdown-terminated"
+    | "shutdown-forced"
     | "stale-owner"
     | "stale-owner-runner"
     | "invalid";
@@ -111,6 +129,7 @@ export class LocalIssueLeaseManager {
       runnerPid: null,
       runRecordedAt: new Date().toISOString(),
       runnerStartedAt: null,
+      shutdown: null,
       updatedAt: new Date().toISOString(),
     };
     await fs.writeFile(
@@ -134,6 +153,29 @@ export class LocalIssueLeaseManager {
     fsSync.writeFileSync(
       this.#recordFile(lockDir),
       JSON.stringify(nextRecord, null, 2),
+      "utf8",
+    );
+  }
+
+  async recordShutdown(
+    lockDir: string,
+    shutdown: ActiveRunShutdownRecord,
+  ): Promise<void> {
+    const record = await this.#readRecord(lockDir);
+    if (record === null) {
+      return;
+    }
+    await fs.writeFile(
+      this.#recordFile(lockDir),
+      JSON.stringify(
+        {
+          ...record,
+          shutdown,
+          updatedAt: shutdown.updatedAt,
+        } satisfies ActiveRunLeaseRecord,
+        null,
+        2,
+      ),
       "utf8",
     );
   }
@@ -183,6 +225,32 @@ export class LocalIssueLeaseManager {
       };
     }
 
+    if (record?.shutdown?.state === "shutdown-terminated") {
+      return {
+        kind: "shutdown-terminated",
+        issueNumber,
+        lockDir,
+        ownerPid,
+        ownerAlive,
+        runnerPid,
+        runnerAlive,
+        record,
+      };
+    }
+
+    if (record?.shutdown?.state === "shutdown-forced") {
+      return {
+        kind: "shutdown-forced",
+        issueNumber,
+        lockDir,
+        ownerPid,
+        ownerAlive,
+        runnerPid,
+        runnerAlive,
+        record,
+      };
+    }
+
     if (ownerAlive) {
       return {
         kind: "active",
@@ -208,9 +276,31 @@ export class LocalIssueLeaseManager {
     };
   }
 
-  async reconcile(issueNumber: number): Promise<IssueLeaseSnapshot> {
+  async reconcile(
+    issueNumber: number,
+    options?: {
+      readonly preserveShutdown?: boolean;
+    },
+  ): Promise<IssueLeaseSnapshot> {
     const snapshot = await this.inspect(issueNumber);
     if (snapshot.kind === "missing" || snapshot.kind === "active") {
+      return snapshot;
+    }
+
+    if (
+      (snapshot.kind === "shutdown-terminated" ||
+        snapshot.kind === "shutdown-forced") &&
+      snapshot.runnerPid !== null &&
+      snapshot.runnerAlive
+    ) {
+      await this.#terminateRunner(issueNumber, snapshot.runnerPid);
+    }
+
+    if (
+      options?.preserveShutdown === true &&
+      (snapshot.kind === "shutdown-terminated" ||
+        snapshot.kind === "shutdown-forced")
+    ) {
       return snapshot;
     }
 

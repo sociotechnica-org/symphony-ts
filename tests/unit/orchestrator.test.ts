@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RunnerAbortedError } from "../../src/domain/errors.js";
+import {
+  RunnerAbortedError,
+  RunnerShutdownError,
+} from "../../src/domain/errors.js";
 import type { HandoffLifecycle } from "../../src/domain/handoff.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type { RunSession } from "../../src/domain/run.js";
@@ -1146,6 +1149,78 @@ describe("BootstrapOrchestrator", () => {
       await orchestrator.runOnce();
 
       expect(tracker.completed).toEqual([71]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("clears recovered shutdown leases during startup reconciliation", async () => {
+    const tempRoot = await createTempDir(
+      "symphony-shutdown-reconcile-clear-test-",
+    );
+    try {
+      const issue = createIssue(82, "symphony:running");
+      const tracker = new SequencedTracker({
+        running: [issue],
+      });
+      const lockDir = path.join(tempRoot, ".symphony-locks", "82");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+      await fs.writeFile(
+        path.join(lockDir, "run.json"),
+        JSON.stringify(
+          {
+            issueNumber: 82,
+            issueIdentifier: issue.identifier,
+            branchName: "symphony/82",
+            runSessionId: `${issue.identifier}/attempt-1/shutdown`,
+            attempt: 1,
+            ownerPid: 999999,
+            runnerPid: null,
+            runRecordedAt: new Date().toISOString(),
+            runnerStartedAt: null,
+            shutdown: {
+              state: "shutdown-terminated",
+              requestedAt: new Date().toISOString(),
+              gracefulDeadlineAt: new Date().toISOString(),
+              terminatedAt: new Date().toISOString(),
+              reasonSummary: "Runner exited during coordinated shutdown",
+              updatedAt: new Date().toISOString(),
+            },
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          polling: {
+            ...baseConfig.polling,
+            maxConcurrentRuns: 0,
+          },
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const leaseManager = new LocalIssueLeaseManager(
+        tempRoot,
+        new NullLogger(),
+      );
+      expect((await leaseManager.inspect(82)).kind).toBe("missing");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -2995,7 +3070,7 @@ describe("BootstrapOrchestrator", () => {
     expect(logger.errors).toContain("Failure handling failed");
   });
 
-  it("cancels an active run on shutdown and leaves the issue queued for retry", async () => {
+  it("persists intentional shutdown without scheduling a retry", async () => {
     const tempRoot = await createTempDir("symphony-shutdown-test-");
     try {
       const tracker = new SequencedTracker({
@@ -3032,7 +3107,10 @@ describe("BootstrapOrchestrator", () => {
                   "abort",
                   () => {
                     reject(
-                      new RunnerAbortedError("Runner cancelled by shutdown"),
+                      new RunnerShutdownError(
+                        "Runner cancelled by shutdown",
+                        "graceful",
+                      ),
                     );
                   },
                   { once: true },
@@ -3050,16 +3128,148 @@ describe("BootstrapOrchestrator", () => {
       controller.abort();
       await loop;
 
-      expect(tracker.retried).toEqual([
-        {
-          issueNumber: 76,
-          reason: "Runner cancelled by shutdown",
-        },
-      ]);
+      const leaseManager = new LocalIssueLeaseManager(
+        tempRoot,
+        new NullLogger(),
+      );
+      const snapshot = await leaseManager.inspect(76);
+
+      expect(tracker.retried).toEqual([]);
       expect(tracker.failed).toEqual([]);
+      expect(snapshot.kind).toBe("shutdown-terminated");
+      expect(snapshot.record?.shutdown?.state).toBe("shutdown-terminated");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
+  });
+
+  it("records a shutdown-requested artifact event before shutdown termination", async () => {
+    const issue = createIssue(77);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(77, [
+      lifecycle("missing-target", "symphony/77"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const started = createDeferred<void>();
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(_session, options): Promise<RunnerExecutionResult> {
+          started.resolve();
+          return await new Promise<RunnerExecutionResult>(
+            (_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => {
+                  reject(
+                    new RunnerShutdownError(
+                      "Runner cancelled by shutdown",
+                      "graceful",
+                    ),
+                  );
+                },
+                { once: true },
+              );
+            },
+          );
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+    const controller = new AbortController();
+    const loop = orchestrator.runLoop(controller.signal);
+
+    await started.promise;
+    controller.abort();
+    await loop;
+
+    const shutdownEventKinds = artifactStore.observations.flatMap(
+      (observation) => observation.events?.map((event) => event.kind) ?? [],
+    );
+
+    expect(shutdownEventKinds).toContain("shutdown-requested");
+    expect(shutdownEventKinds).toContain("shutdown-terminated");
+    expect(shutdownEventKinds.indexOf("shutdown-requested")).toBeLessThan(
+      shutdownEventKinds.indexOf("shutdown-terminated"),
+    );
+  });
+
+  it("uses live session metadata when shutdown fires before the first turn completes", async () => {
+    const issue = createIssue(78);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(78, [
+      lifecycle("missing-target", "symphony/78"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const started = createDeferred<void>();
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("run should not be called when startSession is used");
+        },
+        async startSession(): Promise<LiveRunnerSession> {
+          const sessionDescription = {
+            ...createRunnerSessionDescription(),
+            backendSessionId: "backend-session-78",
+            backendThreadId: "thread-78",
+            latestTurnNumber: 0,
+          };
+          return {
+            describe() {
+              return sessionDescription;
+            },
+            async runTurn(_turn, options): Promise<RunnerTurnResult> {
+              started.resolve();
+              return await new Promise<RunnerTurnResult>((_resolve, reject) => {
+                options?.signal?.addEventListener(
+                  "abort",
+                  () => {
+                    reject(
+                      new RunnerShutdownError(
+                        "Runner cancelled by shutdown",
+                        "graceful",
+                      ),
+                    );
+                  },
+                  { once: true },
+                );
+              });
+            },
+            async close(): Promise<void> {},
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+    const controller = new AbortController();
+    const loop = orchestrator.runLoop(controller.signal);
+
+    await started.promise;
+    controller.abort();
+    await loop;
+
+    const shutdownRequestedEvent = artifactStore.observations
+      .flatMap((observation) => observation.events ?? [])
+      .find((event) => event.kind === "shutdown-requested");
+
+    expect(shutdownRequestedEvent?.details.backendSessionId).toBe(
+      "backend-session-78",
+    );
   });
 
   it("generates unique run session ids across orchestrator instances", async () => {

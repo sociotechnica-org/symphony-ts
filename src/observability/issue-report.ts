@@ -962,6 +962,35 @@ function buildTimelineEntry(
         sessionId: event.sessionId,
         details: formatEventDetails(event.details),
       };
+    case "shutdown-requested":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Shutdown requested",
+        summary: readEventSummary(
+          event.details,
+          "The local runtime requested an intentional shutdown for the active run.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
+    case "shutdown-terminated":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title:
+          event.details["forced"] === true
+            ? "Shutdown forced"
+            : "Shutdown completed",
+        summary: readEventSummary(
+          event.details,
+          "The active run stopped because the local runtime shut down intentionally.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
     case "pr-opened":
       return {
         kind: event.kind,
@@ -1413,22 +1442,26 @@ function timelineKindOrder(kind: string): number {
     case "runner-spawned":
     case "attempt-started":
       return 4;
-    case "pr-opened":
+    case "shutdown-requested":
       return 5;
-    case "landing-blocked":
+    case "shutdown-terminated":
       return 6;
-    case "landing-failed":
+    case "pr-opened":
       return 7;
-    case "landing-requested":
+    case "landing-blocked":
       return 8;
-    case "review-feedback":
+    case "landing-failed":
       return 9;
-    case "retry-scheduled":
+    case "landing-requested":
       return 10;
+    case "review-feedback":
+      return 11;
+    case "retry-scheduled":
+      return 12;
     case "succeeded":
     case "failed":
     case "terminal-outcome":
-      return 11;
+      return 13;
     default:
       return 99;
   }
@@ -1449,6 +1482,12 @@ function inferOutcomeFromEvents(
         return "failed";
       case "retry-scheduled":
         return "retry-scheduled";
+      case "shutdown-terminated": {
+        const forced = event.details["forced"] === true;
+        return forced ? "shutdown-forced" : "shutdown-terminated";
+      }
+      case "shutdown-requested":
+        return "running";
       case "review-feedback":
         return readLifecycleKindFromDetails(event.details) ?? "rework-required";
       case "pr-opened":
