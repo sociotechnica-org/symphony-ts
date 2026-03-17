@@ -67,6 +67,7 @@ interface TokenDelta {
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly costUsd: number;
+  readonly costObserved: boolean;
 }
 
 function extractTokenDelta(
@@ -209,7 +210,13 @@ function extractTokenDelta(
     reportedTotal === null &&
     reportedCost === null
   ) {
-    return { inputTokens: 0, outputTokens: 0, totalTokens: 0, costUsd: 0 };
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+      costObserved: false,
+    };
   }
 
   const delta = {
@@ -232,6 +239,7 @@ function extractTokenDelta(
             0,
             reportedCost - (entry.accountingLastReportedCostUsd ?? 0),
           ),
+    costObserved: reportedCost !== null,
   };
 
   // Update high-water marks using Math.max so they never decrease.
@@ -368,7 +376,7 @@ export function integrateCodexUpdate(
   entry.codexOutputTokens += tokenDelta.outputTokens;
   entry.codexTotalTokens += tokenDelta.totalTokens;
   entry.accountingCostUsd =
-    tokenDelta.costUsd > 0 || entry.accountingCostUsd !== null
+    tokenDelta.costObserved || entry.accountingCostUsd !== null
       ? (entry.accountingCostUsd ?? 0) + tokenDelta.costUsd
       : null;
   entry.accounting = createRunnerAccountingSnapshot({
