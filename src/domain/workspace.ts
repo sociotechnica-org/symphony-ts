@@ -11,3 +11,8 @@ export interface PreparedWorkspace {
   readonly branchName: string;
   readonly createdNow: boolean;
 }
+
+export interface WorkspaceCleanupResult {
+  readonly kind: "deleted" | "already-absent";
+  readonly workspacePath: string;
+}

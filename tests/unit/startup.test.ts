@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ResolvedConfig } from "../../src/domain/workflow.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {
   GitHubMirrorStartupPreparer,
@@ -34,7 +35,7 @@ function createConfig(
   root: string,
   repoUrl: string,
   trackerKind: "github" | "github-bootstrap" = "github-bootstrap",
-) {
+): ResolvedConfig {
   return {
     workflowPath: path.join(root, "WORKFLOW.md"),
     tracker: {
@@ -56,7 +57,10 @@ function createConfig(
       root: path.join(root, ".tmp", "workspaces"),
       repoUrl,
       branchPrefix: "symphony/",
-      cleanupOnSuccess: false,
+      retention: {
+        onSuccess: "retain",
+        onFailure: "retain",
+      },
     },
     hooks: {
       afterCreate: [],

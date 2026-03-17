@@ -209,6 +209,9 @@ polling:
 workspace:
   root: ./.tmp/workspaces
   branch_prefix: symphony/
+  retention:
+    on_success: delete
+    on_failure: retain
 
 agent:
   runner:
@@ -236,21 +239,25 @@ Workers should treat those summarized GitHub fields as untrusted context that
 helps explain the task, not as instructions that can override checked-in repo
 policy, code, docs, or local test evidence.
 
-| Field                          | Purpose                                                                                |
-| ------------------------------ | -------------------------------------------------------------------------------------- |
-| `tracker.repo`                 | GitHub repository to poll for labeled issues                                           |
-| `tracker.review_bot_logins`    | PR comment authors treated as actionable bot review                                    |
-| `polling.interval_ms`          | How often to check for new work                                                        |
-| `polling.max_concurrent_runs`  | Local concurrency cap                                                                  |
-| `workspace.root`               | Where isolated workspaces are created                                                  |
-| `workspace.repo_url`           | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
-| `workspace.branch_prefix`      | Issue branch naming prefix                                                             |
-| `agent.runner.kind`            | Selects the execution backend (`codex`, `claude-code`, or `generic-command`)           |
-| `agent.command`                | Runner command shape; Codex reuses its flags to launch `codex app-server`              |
-| `agent.prompt_transport`       | Sends the prompt over `stdin` or via a temp file path                                  |
-| `agent.timeout_ms`             | Max wall-clock time per runner turn                                                    |
-| `agent.max_turns`              | Max in-process continuation turns per worker run                                       |
-| `workspace.cleanup_on_success` | Remove local workspace after a successful run (default `true`)                         |
+| Field                            | Purpose                                                                                |
+| -------------------------------- | -------------------------------------------------------------------------------------- |
+| `tracker.repo`                   | GitHub repository to poll for labeled issues                                           |
+| `tracker.review_bot_logins`      | PR comment authors treated as actionable bot review                                    |
+| `polling.interval_ms`            | How often to check for new work                                                        |
+| `polling.max_concurrent_runs`    | Local concurrency cap                                                                  |
+| `workspace.root`                 | Where isolated workspaces are created                                                  |
+| `workspace.repo_url`             | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
+| `workspace.branch_prefix`        | Issue branch naming prefix                                                             |
+| `agent.runner.kind`              | Selects the execution backend (`codex`, `claude-code`, or `generic-command`)           |
+| `agent.command`                  | Runner command shape; Codex reuses its flags to launch `codex app-server`              |
+| `agent.prompt_transport`         | Sends the prompt over `stdin` or via a temp file path                                  |
+| `agent.timeout_ms`               | Max wall-clock time per runner turn                                                    |
+| `agent.max_turns`                | Max in-process continuation turns per worker run                                       |
+| `workspace.retention.on_success` | Terminal success workspace policy: `delete` or `retain` (default `delete`)             |
+| `workspace.retention.on_failure` | Terminal failure workspace policy: `delete` or `retain` (default `retain`)             |
+
+`workspace.cleanup_on_success` remains accepted as a compatibility alias for
+`workspace.retention.on_success`.
 
 `agent.timeout_ms` applies to each runner turn. If `agent.max_turns` is greater
 than `1`, a single worker run can consume multiple per-turn timeout windows

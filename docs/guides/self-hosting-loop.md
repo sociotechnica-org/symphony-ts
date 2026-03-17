@@ -170,7 +170,7 @@ That is the self-hosting loop:
 ## Practical Notes
 
 - Run only one local Symphony instance against this repo at a time (Phase 1.2 constraint).
-- If you want to inspect a failed run, set `workspace.cleanup_on_success: false` temporarily or inspect the workspace before the next retry.
+- If you want to inspect successful runs locally, set `workspace.retention.on_success: retain` temporarily or inspect the workspace before the next retry/reset.
 - Use `--once` when you want tight control over one issue at a time.
 - Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart|status|watch` over ad hoc `screen` and
   process cleanup when operating the detached runtime.

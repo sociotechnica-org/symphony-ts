@@ -27,7 +27,9 @@ polling:
 workspace:
   root: ./.tmp/workspaces
   branch_prefix: symphony/
-  cleanup_on_success: true
+  retention:
+    on_success: delete
+    on_failure: retain
 hooks:
   after_create: []
 agent:
