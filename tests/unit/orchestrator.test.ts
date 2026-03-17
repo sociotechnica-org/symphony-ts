@@ -3124,9 +3124,9 @@ describe("BootstrapOrchestrator", () => {
 
     expect(shutdownEventKinds).toContain("shutdown-requested");
     expect(shutdownEventKinds).toContain("shutdown-terminated");
-    expect(
-      shutdownEventKinds.indexOf("shutdown-requested"),
-    ).toBeLessThan(shutdownEventKinds.indexOf("shutdown-terminated"));
+    expect(shutdownEventKinds.indexOf("shutdown-requested")).toBeLessThan(
+      shutdownEventKinds.indexOf("shutdown-terminated"),
+    );
   });
 
   it("generates unique run session ids across orchestrator instances", async () => {
