@@ -1226,6 +1226,84 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("suppresses duplicate reruns when inherited running work is already awaiting review", async () => {
+    const tempRoot = await createTempDir("symphony-restart-suppressed-test-");
+    try {
+      const issue = createIssue(83, "symphony:running");
+      const tracker = new SequencedTracker({
+        running: [issue],
+      });
+      tracker.setLifecycleSequence(83, [
+        lifecycle("awaiting-human-review", "symphony/83"),
+      ]);
+      const lockDir = path.join(tempRoot, ".symphony-locks", "83");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+      await fs.writeFile(
+        path.join(lockDir, "run.json"),
+        JSON.stringify(
+          {
+            issueNumber: 83,
+            issueIdentifier: issue.identifier,
+            branchName: "symphony/83",
+            runSessionId: `${issue.identifier}/attempt-1/orphaned`,
+            attempt: 1,
+            ownerPid: 999999,
+            runnerPid: null,
+            runRecordedAt: new Date().toISOString(),
+            runnerStartedAt: null,
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+      const runner = new RecordingRunner();
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runner.sessionIds).toEqual([]);
+      expect(tracker.completed).toEqual([]);
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.restartRecovery?.state).toBe("ready");
+      expect(status.restartRecovery?.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            issueNumber: 83,
+            decision: "suppressed-terminal",
+            lifecycleKind: "awaiting-human-review",
+          }),
+        ]),
+      );
+      expect(
+        (
+          await new LocalIssueLeaseManager(tempRoot, new NullLogger()).inspect(
+            83,
+          )
+        ).kind,
+      ).toBe("missing");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps processing other work when one running-issue reconciliation fails", async () => {
     const tempRoot = await createTempDir("symphony-reconcile-failure-test-");
     const tracker = new SequencedTracker({
@@ -1240,17 +1318,17 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("handoff-ready", "symphony/78"),
     ]);
     const logger = new NullLogger();
-    const originalReconcile = LocalIssueLeaseManager.prototype.reconcile;
-    const reconcileSpy = vi
-      .spyOn(LocalIssueLeaseManager.prototype, "reconcile")
-      .mockImplementation(async function mockReconcile(
+    const originalInspect = LocalIssueLeaseManager.prototype.inspect;
+    const inspectSpy = vi
+      .spyOn(LocalIssueLeaseManager.prototype, "inspect")
+      .mockImplementation(async function mockInspect(
         this: LocalIssueLeaseManager,
         issueNumber,
       ) {
         if (issueNumber === 77) {
           throw new Error("simulated reconcile failure");
         }
-        return await originalReconcile.call(this, issueNumber);
+        return await originalInspect.call(this, issueNumber);
       });
 
     try {
@@ -1271,11 +1349,11 @@ describe("BootstrapOrchestrator", () => {
 
       await orchestrator.runOnce();
     } finally {
-      reconcileSpy.mockRestore();
+      inspectSpy.mockRestore();
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
 
-    expect(tracker.completed).toEqual(expect.arrayContaining([77, 78]));
+    expect(tracker.completed).toEqual([78]);
     expect(logger.errors).toContain(
       "Failed to reconcile running issue ownership",
     );
