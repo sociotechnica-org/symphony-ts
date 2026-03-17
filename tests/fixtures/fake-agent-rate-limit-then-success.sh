@@ -9,7 +9,7 @@ MARKER=".rate-limit-once"
 if [[ ! -f "$MARKER" ]]; then
   touch "$MARKER"
   cat <<'JSON'
-{"event":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"core","primary":{"used":100,"limit":100,"resetInMs":50},"secondary":{"used":1,"limit":10,"resetInMs":10},"credits":"$4.00"}}}
+{"event":"account/rateLimits/updated","params":{"rateLimits":{"limitId":"core","primary":{"used":100,"limit":100,"resetInMs":1000},"secondary":{"used":1,"limit":10,"resetInMs":10},"credits":"$4.00"}}}
 JSON
   echo "HTTP 429 rate limit exceeded" >&2
   exit 1

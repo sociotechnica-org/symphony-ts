@@ -507,7 +507,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     await orchestrator.runOnce();
     expect(server.getPullRequests()).toHaveLength(0);
 
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await new Promise((resolve) => setTimeout(resolve, 1100));
     await orchestrator.runOnce();
 
     expect(server.getPullRequests()).toHaveLength(1);

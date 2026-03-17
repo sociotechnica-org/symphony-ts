@@ -3541,13 +3541,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       backoffMs: this.#config.polling.retry.backoffMs,
     });
     if (
-      classified.retryClass === "run-failure" &&
       fallbackRetryClass !== undefined &&
-      fallbackRetryClass !== "run-failure"
+      fallbackRetryClass !== "run-failure" &&
+      classified.retryClass !== fallbackRetryClass
     ) {
       return {
         ...classified,
         retryClass: fallbackRetryClass,
+        dispatchPressure: null,
       };
     }
     return classified;

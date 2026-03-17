@@ -3926,6 +3926,89 @@ describe("BootstrapOrchestrator watchdog", () => {
     );
   });
 
+  it("keeps watchdog abort retries from inheriting turn-local rate-limit pressure", async () => {
+    const issue = createIssue(93);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(93, [
+      lifecycle("missing-target", "symphony/93"),
+    ]);
+
+    let abortCount = 0;
+
+    const stalledRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        options?.onUpdate?.({
+          event: "account/rateLimits/updated",
+          timestamp: "2026-03-17T12:00:00.000Z",
+          payload: {
+            params: {
+              rateLimits: {
+                limitId: "core",
+                primary: {
+                  used: 100,
+                  limit: 100,
+                  resetInMs: 60_000,
+                },
+                secondary: null,
+                credits: "$4.00",
+              },
+            },
+          },
+        });
+        return await new Promise<RunnerExecutionResult>((_resolve, reject) => {
+          const handleAbort = (): void => {
+            abortCount += 1;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        workspace: { ...baseConfig.workspace, root: tmpDir },
+        polling: {
+          ...baseConfig.polling,
+          watchdog: {
+            enabled: true,
+            checkIntervalMs: 0,
+            stallThresholdMs: 0,
+            maxRecoveryAttempts: 1,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      stalledRunner,
+      new NullLogger(),
+      undefined,
+      new NullLivenessProbe(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(abortCount).toBe(1);
+    expect(tracker.retried).toHaveLength(1);
+    expect(tracker.retried[0]?.reason).toContain("Stall detected (log-stall)");
+    expect(tracker.retried[0]?.reason).not.toContain("provider-rate-limit");
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(tmpDir),
+    );
+    expect(snapshot.dispatchPressure).toBeNull();
+  });
+
   it("does not recover beyond maxRecoveryAttempts across retries", async () => {
     const issue = createIssue(88);
     const tracker = new SequencedTracker({ ready: [issue] });
