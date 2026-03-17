@@ -302,4 +302,44 @@ describe("projectRecoveryPosture", () => {
       "1 issue currently reflects watchdog recovery or watchdog-driven retry posture.",
     );
   });
+
+  it("keeps waiting issues visible when retry backoff wins the factory summary", () => {
+    const posture = projectRecoveryPosture({
+      publication: { state: "current", detail: null },
+      restartRecovery,
+      activeIssues: [activeIssue],
+      retries: [
+        {
+          issueNumber: 167,
+          issueIdentifier: "sociotechnica-org/symphony-ts#167",
+          title: "Retry under provider pressure",
+          nextAttempt: 2,
+          retryClass: "provider-rate-limit",
+          scheduledAt: "2026-03-17T10:06:00.000Z",
+          backoffMs: 1000,
+          dueAt: "2026-03-17T10:06:01.000Z",
+          lastError: "HTTP 429 rate limit exceeded",
+        },
+      ],
+      watchdogIssues: new Map(),
+      terminalIssues: [],
+    });
+
+    expect(posture.summary.family).toBe("retry-backoff");
+    expect(posture.summary.issueCount).toBe(1);
+    expect(posture.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          family: "retry-backoff",
+          issueNumber: 167,
+          source: "retry-queue",
+        }),
+        expect.objectContaining({
+          family: "waiting-expected",
+          issueNumber: 166,
+          source: "active-issue",
+        }),
+      ]),
+    );
+  });
 });

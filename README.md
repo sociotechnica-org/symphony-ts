@@ -75,6 +75,10 @@ pnpm tsx bin/symphony.ts factory stop
 and surfaces startup preparation/failure details through `factory status`
 instead of relying on a separate wrapper command.
 
+For the canonical detached-runtime operating procedure and failure rehearsals,
+see [Operator Runbook](docs/guides/operator-runbook.md) and
+[Failure Drills](docs/guides/failure-drills.md).
+
 These commands target the checked-out runtime under `.tmp/factory-main`. Use
 `status` when you want the raw runtime snapshot for a specific workflow path,
 and use `factory status` when you want the detached runtime control state plus
@@ -468,6 +472,8 @@ What's planned:
 - [Architecture](docs/architecture.md) — layer boundaries and spec mapping
 - [Golden Principles](docs/golden-principles.md) — implementation rules
 - [AGENTS.md](AGENTS.md) — guidance for AI agents working in this repo
+- [Operator Runbook](docs/guides/operator-runbook.md) — daily detached factory operation
+- [Failure Drills](docs/guides/failure-drills.md) — restart, retry, watchdog, and stability rehearsal
 - [Self-Hosting Loop](docs/guides/self-hosting-loop.md) — how Symphony builds itself
 - [Plans](docs/plans/) — issue-specific implementation plans
 - [ADRs](docs/adrs/) — architecture decision records

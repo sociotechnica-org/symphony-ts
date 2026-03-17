@@ -7,6 +7,11 @@ description: Operate and maintain the local Symphony factory in this repository.
 
 Use this skill when acting as the operator for the local Symphony factory.
 
+Canonical procedure docs:
+
+- `docs/guides/operator-runbook.md` for the normal detached runtime workflow
+- `docs/guides/failure-drills.md` for repeatable recovery rehearsal and stability checks
+
 Supported repo-owned entry point:
 
 - `pnpm operator` for the continuous wake-up loop
@@ -49,6 +54,7 @@ scratchpad, status snapshots, logs, and loop lock files.
 
 - Do not act as a second scheduler.
 - Keep concurrency conservative.
+- Treat `docs/guides/operator-runbook.md` as the canonical daily-use procedure and keep this skill focused on operator policy, checkpoints, and escalation.
 - Treat the factory-control surface as the primary local runtime contract; use ad hoc `screen`, `ps`, or `pkill` inspection only when the control command is unavailable or inconsistent.
 - Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring; do not use raw `screen -r symphony-factory` as the normal watch path because `Ctrl-C` there can kill the worker.
 - Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
@@ -104,6 +110,7 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 - The TUI/watch surface is an operator view, not the source of truth. On each wake-up, compare it against `factory status --json`; if issue stage, checks, review counts, session/event text, or token display drift materially, treat that as a product bug rather than hand-waving it away.
 - A closed issue plus an open PR usually means the factory reached the PR stage; inspect the PR before restarting anything.
 - If the factory has no `symphony:ready` issues, idle is healthy.
+- Use the failure-drill guide to rehearse restart, retry, watchdog, and retained-workspace paths instead of encoding those procedures only in scratch notes.
 
 ## End-of-Cycle Check
 
