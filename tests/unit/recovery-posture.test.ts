@@ -134,7 +134,8 @@ describe("projectRecoveryPosture", () => {
         state: "degraded",
         startedAt: "2026-03-17T10:00:00.000Z",
         completedAt: "2026-03-17T10:02:00.000Z",
-        summary: "Restart reconciliation completed with degraded inherited-state decisions.",
+        summary:
+          "Restart reconciliation completed with degraded inherited-state decisions.",
         issues: [
           {
             issueNumber: 166,

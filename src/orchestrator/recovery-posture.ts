@@ -112,8 +112,7 @@ export function projectRecoveryPosture(input: {
 
   for (const issue of input.restartRecovery.issues) {
     upsertIssueEntry(issueEntries, {
-      family:
-        issue.decision === "degraded" ? "degraded" : "restart-recovery",
+      family: issue.decision === "degraded" ? "degraded" : "restart-recovery",
       issueNumber: issue.issueNumber,
       issueIdentifier: issue.issueIdentifier,
       title: null,
