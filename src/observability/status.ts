@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { RetryClass } from "../domain/retry.js";
 import { ObservabilityError } from "../domain/errors.js";
 import {
   parseFactoryRuntimeIdentity,
@@ -151,6 +152,9 @@ export interface FactoryRetrySnapshot {
   readonly issueIdentifier: string;
   readonly title: string;
   readonly nextAttempt: number;
+  readonly retryClass: RetryClass;
+  readonly scheduledAt: string;
+  readonly backoffMs: number;
   readonly dueAt: string;
   readonly lastError: string;
 }
@@ -447,8 +451,9 @@ export function renderFactoryStatusSnapshot(
   } else {
     for (const retry of snapshot.retries) {
       lines.push(
-        `  #${retry.issueNumber.toString()} ${retry.title} attempt ${retry.nextAttempt.toString()} at ${retry.dueAt}`,
+        `  #${retry.issueNumber.toString()} ${retry.title} attempt ${retry.nextAttempt.toString()} [${retry.retryClass}] at ${retry.dueAt}`,
       );
+      lines.push(`    Scheduled: ${retry.scheduledAt} (+${retry.backoffMs.toString()}ms)`);
       lines.push(`    Error: ${retry.lastError}`);
     }
   }
@@ -1197,9 +1202,40 @@ function parseRetry(
       filePath,
       `${field}.nextAttempt`,
     ),
+    retryClass: expectRetryClass(
+      retry.retryClass,
+      filePath,
+      `${field}.retryClass`,
+    ),
+    scheduledAt: expectString(
+      retry.scheduledAt,
+      filePath,
+      `${field}.scheduledAt`,
+    ),
+    backoffMs: expectInteger(retry.backoffMs, filePath, `${field}.backoffMs`),
     dueAt: expectString(retry.dueAt, filePath, `${field}.dueAt`),
     lastError: expectString(retry.lastError, filePath, `${field}.lastError`),
   };
+}
+
+function expectRetryClass(
+  value: unknown,
+  filePath: string,
+  field: string,
+): RetryClass {
+  const retryClass = expectString(value, filePath, field);
+  if (
+    retryClass !== "run-failure" &&
+    retryClass !== "missing-target" &&
+    retryClass !== "watchdog-abort" &&
+    retryClass !== "unexpected-orchestrator-failure"
+  ) {
+    throw invalidSnapshot(
+      filePath,
+      `expected ${field} to be a supported retry class`,
+    );
+  }
+  return retryClass;
 }
 
 function expectObject(

@@ -1,8 +1,11 @@
-import type { RetryState } from "../domain/retry.js";
 import {
   createFollowUpRuntimeState,
   type FollowUpRuntimeState,
 } from "./follow-up-state.js";
+import {
+  createRetryRuntimeState,
+  type RetryRuntimeState,
+} from "./retry-state.js";
 import type { RunningEntry } from "./running-entry.js";
 import {
   createLandingRuntimeState,
@@ -47,7 +50,7 @@ export interface PollingState {
 export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
   readonly runAbortControllers: Map<number, AbortController>;
-  readonly retries: Map<number, RetryState>;
+  readonly retries: RetryRuntimeState;
   readonly followUp: FollowUpRuntimeState;
   readonly landing: LandingRuntimeState;
   readonly status: RuntimeStatusState;
@@ -65,7 +68,7 @@ export function createOrchestratorState(
   return {
     runningIssueNumbers: new Set<number>(),
     runAbortControllers: new Map<number, AbortController>(),
-    retries: new Map<number, RetryState>(),
+    retries: createRetryRuntimeState(),
     followUp: createFollowUpRuntimeState(),
     landing: createLandingRuntimeState(),
     status: createRuntimeStatusState(),
