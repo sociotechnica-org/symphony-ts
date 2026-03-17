@@ -236,6 +236,13 @@ Allowed transitions:
 - `retry-retained -> terminal-retained`
 - `retry-retained -> cleanup-requested`
 
+Intentional omission in this slice:
+
+- `terminal-retained -> cleanup-requested` is deferred. This PR defines the
+  bounded retention states and terminal cleanup behavior for the current run
+  loop, but it does not add a later operator-driven prune/janitor path for
+  already-retained terminal workspaces.
+
 Decision notes:
 
 - `retry-retained` is intentional bounded retention, not historical accumulation. The runtime continues to use one deterministic workspace path per issue.
