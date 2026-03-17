@@ -746,7 +746,19 @@ function buildTokenUsage(
       : status === "estimated"
         ? `All ${sessions.length.toString()} session(s) supplied token totals, but ${estimatedCount.toString()} session(s) remained estimated.`
         : status === "partial"
-          ? `Canonical runner-event accounting was complete for ${completeCount.toString()} of ${sessions.length.toString()} session(s); ${estimatedCount.toString()} remained estimated, ${partialCount.toString()} remained partial, and ${unavailableCount.toString()} remained unavailable.`
+          ? `Canonical runner-event accounting was complete for ${completeCount.toString()} of ${sessions.length.toString()} session(s); ${[
+              estimatedCount > 0
+                ? `${estimatedCount.toString()} remained estimated`
+                : null,
+              partialCount > 0
+                ? `${partialCount.toString()} remained partial`
+                : null,
+              unavailableCount > 0
+                ? `${unavailableCount.toString()} remained unavailable`
+                : null,
+            ]
+              .filter((value): value is string => value !== null)
+              .join(", ")}.`
           : "Canonical runner-event accounting was unavailable for all recorded sessions.";
   const notes = [
     ...(sessions.some((session) => session.costUsd === null)

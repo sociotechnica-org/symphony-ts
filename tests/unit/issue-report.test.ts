@@ -99,6 +99,12 @@ describe("issue report generation", () => {
     expect(generated.report.tokenUsage.explanation).toContain(
       "Canonical runner-event accounting",
     );
+    expect(generated.report.tokenUsage.explanation).toContain(
+      "1 remained partial",
+    );
+    expect(generated.report.tokenUsage.explanation).not.toContain(
+      "remained estimated",
+    );
   });
 
   it("generates a partial report when issue and event artifacts are missing but session artifacts remain", async () => {
