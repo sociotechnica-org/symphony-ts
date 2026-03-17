@@ -262,8 +262,9 @@ function summarizeRecoveryPosture(
   const issueVerb = issueCount === 1 ? "is" : "are";
   const issueProgressVerb = issueCount === 1 ? "reflects" : "reflect";
   const activeIssueVerb = issueCount === 1 ? "is" : "are";
-  const factorySummary = entries.find((entry) => entry.issueNumber === null)
-    ?.summary;
+  const factorySummary = entries.find(
+    (entry) => entry.issueNumber === null,
+  )?.summary;
   switch (family) {
     case "degraded-observability":
       return entries[0]?.summary ?? "Observability is degraded.";
@@ -275,7 +276,7 @@ function summarizeRecoveryPosture(
       return `${issueLabel} currently ${issueProgressVerb} watchdog recovery or watchdog-driven retry posture.`;
     case "restart-recovery":
       return issueCount === 0
-        ? factorySummary ?? "Restart reconciliation posture is active."
+        ? (factorySummary ?? "Restart reconciliation posture is active.")
         : `${issueLabel} still ${issueProgressVerb} restart reconciliation posture.`;
     case "cleanup-terminal":
       return `${issueLabel} recently completed terminal cleanup or retention handling.`;
