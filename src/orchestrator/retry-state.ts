@@ -55,6 +55,15 @@ export function collectDueRetries(
   return due;
 }
 
+export function listDueRetries(
+  state: RetryRuntimeState,
+  now = Date.now(),
+): readonly RetryState[] {
+  return [...state.queueByIssueNumber.values()].filter(
+    (entry) => entry.dueAt <= now,
+  );
+}
+
 export function scheduleRetry(
   state: RetryRuntimeState,
   options: {

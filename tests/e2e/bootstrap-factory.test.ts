@@ -467,6 +467,57 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
   });
 
+  it("pauses dispatch on a structured rate-limit failure, then retries successfully after release", async () => {
+    server.seedIssue({
+      number: 84,
+      title: "Rate-limit pause and retry",
+      body: "Pause new dispatch until the provider-pressure window clears.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve(
+        "tests/fixtures/fake-agent-rate-limit-then-success.sh",
+      ),
+      retryBackoffMs: 0,
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    let status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.dispatchPressure).toMatchObject({
+      retryClass: "provider-rate-limit",
+    });
+    expect(status.counts.retries).toBe(1);
+    expect(server.getPullRequests()).toHaveLength(0);
+    expect(
+      server
+        .getIssue(84)
+        .comments.some((comment) =>
+          comment.includes("provider-rate-limit: Runner exited with 1"),
+        ),
+    ).toBe(true);
+
+    await orchestrator.runOnce();
+    expect(server.getPullRequests()).toHaveLength(0);
+
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await orchestrator.runOnce();
+
+    expect(server.getPullRequests()).toHaveLength(1);
+    status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.dispatchPressure).toBeNull();
+    expect(status.counts.retries).toBe(0);
+  });
+
   it("preserves the watchdog stall reason instead of flattening it to shutdown", async () => {
     server.seedIssue({
       number: 83,

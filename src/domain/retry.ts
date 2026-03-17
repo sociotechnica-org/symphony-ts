@@ -2,6 +2,8 @@ import type { RuntimeIssue } from "./issue.js";
 
 export type RetryClass =
   | "run-failure"
+  | "provider-rate-limit"
+  | "provider-account-pressure"
   | "missing-target"
   | "watchdog-abort"
   | "unexpected-orchestrator-failure";

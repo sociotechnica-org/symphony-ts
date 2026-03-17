@@ -10,6 +10,7 @@ import type {
   FactoryStatusSnapshot,
 } from "../observability/status.js";
 import type { FactoryRuntimeIdentity } from "../observability/runtime-identity.js";
+import type { DispatchPressureStateSnapshot } from "../domain/transient-failure.js";
 import type { RetryRuntimeState } from "./retry-state.js";
 import { listQueuedRetries } from "./retry-state.js";
 import {
@@ -290,6 +291,7 @@ export function buildFactoryStatusSnapshot(input: {
   readonly maxConcurrentRuns: number;
   readonly activeLocalRuns: number;
   readonly retries: RetryRuntimeState;
+  readonly dispatchPressure: DispatchPressureStateSnapshot | null;
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publicationState?: "current" | "initializing";
   readonly publicationDetail?: string | null;
@@ -319,6 +321,7 @@ export function buildFactoryStatusSnapshot(input: {
       state: input.publicationState ?? "current",
       detail: input.publicationDetail ?? null,
     },
+    dispatchPressure: input.dispatchPressure,
     restartRecovery: input.state.restartRecovery,
     recoveryPosture: projectRecoveryPosture({
       publication: {

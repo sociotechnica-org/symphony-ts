@@ -25,6 +25,7 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
       secondsRunning: 0,
     },
     rateLimits: null,
+    dispatchPressure: null,
     recoveryPosture: {
       summary: {
         family: "healthy",
@@ -115,6 +116,8 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("2m 5s");
     expect(output).toContain("Tokens:");
     expect(output).toContain("1,500"); // total
+    expect(output).toContain("Dispatch:");
+    expect(output).toContain("open");
   });
 
   it("renders header last-action details when present", () => {
@@ -904,6 +907,27 @@ describe("formatSnapshotContent", () => {
     // --- Structure ---
     expect(lines[0]).toContain("SYMPHONY STATUS");
     expect(lines[lines.length - 1]).toContain("╰─");
+  });
+
+  it("renders active dispatch pressure posture", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        dispatchPressure: {
+          retryClass: "provider-rate-limit",
+          reason: "Provider rate-limit pressure is active.",
+          observedAt: "2026-03-17T10:00:00.000Z",
+          resumeAt: "2026-03-17T10:01:00.000Z",
+        },
+      }),
+      0,
+      undefined,
+      undefined,
+      new Date("2026-03-17T10:00:30.000Z").getTime(),
+    );
+
+    expect(output).toContain("Dispatch:");
+    expect(output).toContain("provider-rate-limit");
+    expect(output).toContain("30s");
   });
 });
 

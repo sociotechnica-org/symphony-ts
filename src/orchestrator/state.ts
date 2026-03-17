@@ -1,7 +1,12 @@
+import type { RateLimits } from "../domain/transient-failure.js";
 import {
   createFollowUpRuntimeState,
   type FollowUpRuntimeState,
 } from "./follow-up-state.js";
+import {
+  createDispatchPressureState,
+  type DispatchPressureRuntimeState,
+} from "./dispatch-pressure-state.js";
 import {
   createRetryRuntimeState,
   type RetryRuntimeState,
@@ -26,21 +31,6 @@ export interface CodexTotals {
   totalTokens: number;
 }
 
-export interface RateLimits {
-  readonly limitId: string | null;
-  readonly primary: {
-    readonly used: number;
-    readonly limit: number;
-    readonly resetInMs: number;
-  } | null;
-  readonly secondary: {
-    readonly used: number;
-    readonly limit: number;
-    readonly resetInMs: number;
-  } | null;
-  readonly credits: string | null;
-}
-
 export interface PollingState {
   checkingNow: boolean;
   nextPollAtMs: number;
@@ -51,6 +41,7 @@ export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
   readonly runAbortControllers: Map<number, AbortController>;
   readonly retries: RetryRuntimeState;
+  readonly dispatchPressure: DispatchPressureRuntimeState;
   readonly followUp: FollowUpRuntimeState;
   readonly landing: LandingRuntimeState;
   readonly status: RuntimeStatusState;
@@ -69,6 +60,7 @@ export function createOrchestratorState(
     runningIssueNumbers: new Set<number>(),
     runAbortControllers: new Map<number, AbortController>(),
     retries: createRetryRuntimeState(),
+    dispatchPressure: createDispatchPressureState(),
     followUp: createFollowUpRuntimeState(),
     landing: createLandingRuntimeState(),
     status: createRuntimeStatusState(),

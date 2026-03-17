@@ -30,6 +30,7 @@ function createSnapshot(
       state: "current",
       detail: null,
     },
+    dispatchPressure: null,
     restartRecovery: {
       state: "ready",
       startedAt: "2026-03-06T11:59:10.000Z",
@@ -152,6 +153,7 @@ function createSnapshot(
         },
         blockedReason:
           "Waiting for PR checks to appear on https://example.test/pr/12",
+        runnerAccounting: undefined,
         runnerVisibility: {
           state: "waiting",
           phase: "awaiting-external",
@@ -235,6 +237,7 @@ describe("factory status helpers", () => {
   it("renders restart recovery posture and per-issue decisions", () => {
     const rendered = renderFactoryStatusSnapshot(createSnapshot());
 
+    expect(rendered).toContain("Dispatch pressure: open");
     expect(rendered).toContain("Restart recovery: ready");
     expect(rendered).toContain(
       "Restart recovery detail: Restart recovery completed successfully.",
@@ -249,6 +252,58 @@ describe("factory status helpers", () => {
     expect(rendered).toContain(
       "Scheduled: 2026-03-06T12:00:00.000Z (+300000ms)",
     );
+  });
+
+  it("round-trips dispatch pressure in the snapshot contract", async () => {
+    const tempDir = await createTempDir("symphony-status-dispatch-pressure-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      const snapshot = createSnapshot({
+        dispatchPressure: {
+          retryClass: "provider-rate-limit",
+          reason: "Provider rate-limit pressure is active.",
+          observedAt: "2026-03-06T12:00:00.000Z",
+          resumeAt: "2026-03-06T12:05:00.000Z",
+        },
+      });
+
+      await writeFactoryStatusSnapshot(filePath, snapshot);
+
+      expect(await readFactoryStatusSnapshot(filePath)).toEqual(snapshot);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails clearly when dispatch pressure carries a non-pressure retry class", async () => {
+    const tempDir = await createTempDir(
+      "symphony-status-invalid-dispatch-pressure-",
+    );
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      const invalidSnapshot = {
+        ...createSnapshot(),
+        dispatchPressure: {
+          retryClass: "run-failure",
+          reason: "not allowed",
+          observedAt: "2026-03-06T12:00:00.000Z",
+          resumeAt: "2026-03-06T12:05:00.000Z",
+        },
+      };
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(invalidSnapshot, null, 2)}\n`,
+        "utf8",
+      );
+
+      await expect(readFactoryStatusSnapshot(filePath)).rejects.toThrowError(
+        `Invalid factory status snapshot at ${filePath}: expected dispatchPressure.retryClass to be one of provider-rate-limit, provider-account-pressure`,
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("cleans up the temporary file when rename fails", async () => {
