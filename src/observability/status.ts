@@ -1421,11 +1421,7 @@ function parseRunnerTransportMetadata(
 
   const transport = expectObject(value, filePath, field);
   return {
-    kind: expectRunnerTransportKind(
-      transport.kind,
-      filePath,
-      `${field}.kind`,
-    ),
+    kind: expectRunnerTransportKind(transport.kind, filePath, `${field}.kind`),
     localProcess:
       transport.localProcess === null || transport.localProcess === undefined
         ? null

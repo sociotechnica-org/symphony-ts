@@ -197,17 +197,17 @@ This issue does not change the orchestrator retry or handoff state machine, but 
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized execution facts available | Expected decision |
-| --- | --- | --- | --- |
-| Local process runner launches successfully | local child pid | provider, `transport=local-process`, local control metadata | existing local lease/shutdown/watchdog behavior continues |
-| Local long-lived stdio runner launches successfully | local child pid, session startup state | provider, `transport=local-stdio-session`, local control metadata, backend ids when available | existing local behavior continues through transport-neutral fields |
-| Remote runner starts successfully with no local child pid | no local child process | provider, `transport=remote-task` or `remote-stdio-session`, remote execution identity | orchestrator records/renders execution state without trying local process inspection |
-| Remote runner emits progress/completion without any local pid | none | normalized visibility and result metadata | status/artifacts update normally; no lease runner-pid ownership is inferred |
-| Local transport spawn callback fails after child launch | local pid | partial local transport metadata | existing runner failure path; cleanup local child if owned |
-| Remote task creation succeeds but later status polling/stream fails | remote task/session id | remote transport metadata, failed visibility/result | treat as runner failure; no local kill attempt |
-| Continuation turn requested on a backend with reusable remote session identity | remote session/task/thread id | backend session identity, transport metadata | runner handles continuation behind the stable contract; orchestrator stays transport-neutral |
-| Shutdown arrives while runner has local controllable process | local pid | local transport metadata | existing termination path applies |
-| Shutdown arrives while runner has remote task but no local controllable process | no local pid | remote execution identity only | surface cancellation through runner contract; do not try local signal delivery |
+| Observed condition                                                              | Local facts available                  | Normalized execution facts available                                                          | Expected decision                                                                            |
+| ------------------------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Local process runner launches successfully                                      | local child pid                        | provider, `transport=local-process`, local control metadata                                   | existing local lease/shutdown/watchdog behavior continues                                    |
+| Local long-lived stdio runner launches successfully                             | local child pid, session startup state | provider, `transport=local-stdio-session`, local control metadata, backend ids when available | existing local behavior continues through transport-neutral fields                           |
+| Remote runner starts successfully with no local child pid                       | no local child process                 | provider, `transport=remote-task` or `remote-stdio-session`, remote execution identity        | orchestrator records/renders execution state without trying local process inspection         |
+| Remote runner emits progress/completion without any local pid                   | none                                   | normalized visibility and result metadata                                                     | status/artifacts update normally; no lease runner-pid ownership is inferred                  |
+| Local transport spawn callback fails after child launch                         | local pid                              | partial local transport metadata                                                              | existing runner failure path; cleanup local child if owned                                   |
+| Remote task creation succeeds but later status polling/stream fails             | remote task/session id                 | remote transport metadata, failed visibility/result                                           | treat as runner failure; no local kill attempt                                               |
+| Continuation turn requested on a backend with reusable remote session identity  | remote session/task/thread id          | backend session identity, transport metadata                                                  | runner handles continuation behind the stable contract; orchestrator stays transport-neutral |
+| Shutdown arrives while runner has local controllable process                    | local pid                              | local transport metadata                                                                      | existing termination path applies                                                            |
+| Shutdown arrives while runner has remote task but no local controllable process | no local pid                           | remote execution identity only                                                                | surface cancellation through runner contract; do not try local signal delivery               |
 
 ## Storage / Persistence Contract
 
