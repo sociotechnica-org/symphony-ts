@@ -434,6 +434,9 @@ export async function seedSessionAnchoredPartialArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: "codex-session-partial",
       latestTurnNumber: 1,
       startedAt: "2026-03-09T12:00:00.000Z",
@@ -513,6 +516,9 @@ export async function seedLateUnfinishedSessionArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: "codex-session-late",
       latestTurnNumber: 1,
       startedAt,

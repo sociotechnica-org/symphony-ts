@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
 import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
-import type { RunnerTransportMetadata } from "../runner/service.js";
+import {
+  createRunnerTransportMetadata,
+  type RunnerTransportMetadata,
+  withRunnerTransportLocalProcess,
+} from "../runner/service.js";
 import { writeJsonFileAtomic } from "./atomic-file.js";
 
 export const ISSUE_ARTIFACT_SCHEMA_VERSION = 1 as const;
@@ -135,6 +139,14 @@ export interface IssueArtifactSessionSnapshot {
   readonly branch: string | null;
   readonly accounting?: RunnerAccountingSnapshot | undefined;
   readonly logPointers: readonly IssueArtifactLogPointer[];
+}
+
+interface LegacyIssueArtifactSessionSnapshot extends Omit<
+  IssueArtifactSessionSnapshot,
+  "transport"
+> {
+  readonly transport?: RunnerTransportMetadata | undefined;
+  readonly appServerPid?: number | null | undefined;
 }
 
 export interface IssueArtifactLogPointerSessionEntry {
@@ -389,14 +401,14 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       paths.sessionsDir,
       `${encodeSessionFileName(sessionId)}.json`,
     );
-    const snapshot = await readJsonFile<IssueArtifactSessionSnapshot>(
-      sessionFile,
-    ).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return null;
-      }
-      throw error;
-    });
+    const snapshot = await readIssueArtifactSessionFile(sessionFile).catch(
+      (error) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return null;
+        }
+        throw error;
+      },
+    );
 
     return snapshot?.latestTurnNumber ?? null;
   }
@@ -497,7 +509,7 @@ export async function readIssueArtifactSession(
   issueNumber: number,
   sessionId: string,
 ): Promise<IssueArtifactSessionSnapshot> {
-  return await readJsonFile<IssueArtifactSessionSnapshot>(
+  return await readIssueArtifactSessionFile(
     path.join(
       deriveIssueArtifactPaths(workspaceRoot, issueNumber).sessionsDir,
       `${encodeSessionFileName(sessionId)}.json`,
@@ -530,6 +542,31 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
       },
     );
   }
+}
+
+async function readIssueArtifactSessionFile(
+  filePath: string,
+): Promise<IssueArtifactSessionSnapshot> {
+  const snapshot =
+    await readJsonFile<LegacyIssueArtifactSessionSnapshot>(filePath);
+  const { appServerPid, transport, ...session } = snapshot;
+
+  return {
+    ...session,
+    transport:
+      transport ??
+      withRunnerTransportLocalProcess(
+        createRunnerTransportMetadata(
+          appServerPid === null || appServerPid === undefined
+            ? "local-process"
+            : "local-stdio-session",
+          {
+            canTerminateLocalProcess: true,
+          },
+        ),
+        appServerPid ?? null,
+      ),
+  };
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
