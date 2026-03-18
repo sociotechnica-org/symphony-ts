@@ -371,4 +371,48 @@ describe("issue artifacts", () => {
       }),
     );
   });
+
+  it("does not invent a controllable local process for legacy sessions without appServerPid", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const sessionId = "legacy-session-no-pid";
+
+    await fs.mkdir(paths.sessionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(paths.sessionsDir, `${encodeURIComponent(sessionId)}.json`),
+      `${JSON.stringify(
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          issueNumber: 43,
+          attemptNumber: 1,
+          sessionId,
+          provider: "generic-command",
+          model: null,
+          backendSessionId: null,
+          backendThreadId: null,
+          latestTurnId: null,
+          appServerPid: null,
+          latestTurnNumber: 1,
+          startedAt: "2026-03-09T10:00:00.000Z",
+          finishedAt: "2026-03-09T10:01:00.000Z",
+          workspacePath: "/tmp/workspaces/43",
+          branch: "symphony/43",
+          logPointers: [],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const session = await readIssueArtifactSession(
+      workspaceRoot,
+      43,
+      sessionId,
+    );
+
+    expect(session.transport).toEqual(
+      createRunnerTransportMetadata("local-process"),
+    );
+  });
 });

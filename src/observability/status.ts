@@ -1409,10 +1409,12 @@ function parseRunnerTransportMetadata(
   field: string,
 ) {
   if (value === undefined) {
-    const legacyKind =
-      legacyAppServerPid === null ? "local-process" : "local-stdio-session";
+    if (legacyAppServerPid === null) {
+      return createRunnerTransportMetadata("local-process");
+    }
+
     return withRunnerTransportLocalProcess(
-      createRunnerTransportMetadata(legacyKind, {
+      createRunnerTransportMetadata("local-stdio-session", {
         canTerminateLocalProcess: true,
       }),
       legacyAppServerPid,

@@ -550,22 +550,23 @@ async function readIssueArtifactSessionFile(
   const snapshot =
     await readJsonFile<LegacyIssueArtifactSessionSnapshot>(filePath);
   const { appServerPid, transport, ...session } = snapshot;
+  const legacyTransportKind =
+    appServerPid === null || appServerPid === undefined
+      ? "local-process"
+      : "local-stdio-session";
 
   return {
     ...session,
     transport:
       transport ??
-      withRunnerTransportLocalProcess(
-        createRunnerTransportMetadata(
-          appServerPid === null || appServerPid === undefined
-            ? "local-process"
-            : "local-stdio-session",
-          {
-            canTerminateLocalProcess: true,
-          },
-        ),
-        appServerPid ?? null,
-      ),
+      (appServerPid === null || appServerPid === undefined
+        ? createRunnerTransportMetadata(legacyTransportKind)
+        : withRunnerTransportLocalProcess(
+            createRunnerTransportMetadata(legacyTransportKind, {
+              canTerminateLocalProcess: true,
+            }),
+            appServerPid,
+          )),
   };
 }
 

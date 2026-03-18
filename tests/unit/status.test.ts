@@ -295,6 +295,58 @@ describe("factory status helpers", () => {
     }
   });
 
+  it("does not invent a controllable local process for legacy snapshots without appServerPid", async () => {
+    const tempDir = await createTempDir("symphony-status-test-legacy-null-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      const snapshot = createSnapshot();
+      const activeIssue = snapshot.activeIssues[0];
+      if (activeIssue?.runnerVisibility === null || activeIssue === undefined) {
+        throw new Error(
+          "Expected fixture snapshot to include runner visibility",
+        );
+      }
+
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(
+          {
+            ...snapshot,
+            activeIssues: [
+              {
+                ...activeIssue,
+                runnerVisibility: {
+                  ...activeIssue.runnerVisibility,
+                  session: {
+                    provider: "generic-command",
+                    model: null,
+                    appServerPid: null,
+                    backendSessionId: null,
+                    backendThreadId: null,
+                    latestTurnId: null,
+                    latestTurnNumber: 2,
+                    logPointers: [],
+                  },
+                },
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+
+      const parsed = await readFactoryStatusSnapshot(filePath);
+      expect(
+        parsed.activeIssues[0]?.runnerVisibility?.session.transport,
+      ).toEqual(createRunnerTransportMetadata("local-process"));
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("renders restart recovery posture and per-issue decisions", () => {
     const rendered = renderFactoryStatusSnapshot(createSnapshot());
 
