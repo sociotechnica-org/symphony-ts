@@ -21,6 +21,7 @@ import {
   humanizeEvent,
 } from "../../src/observability/tui.js";
 import type { TuiSnapshot } from "../../src/orchestrator/service.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*m/g, "");
@@ -106,10 +107,13 @@ const activeSnapshot: TuiSnapshot = {
         session: {
           provider: "codex",
           model: "gpt-5.4",
+          transport: createRunnerTransportMetadata("local-stdio-session", {
+            localProcessPid: 12346,
+            canTerminateLocalProcess: true,
+          }),
           backendSessionId: "thread-live-123-turn-1",
           backendThreadId: "thread-live-123",
           latestTurnId: "turn-1",
-          appServerPid: 12346,
           latestTurnNumber: 1,
           logPointers: [],
         },

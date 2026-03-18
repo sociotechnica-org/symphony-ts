@@ -7,6 +7,7 @@ import {
   deriveIssueArtifactPaths,
 } from "../../src/observability/issue-artifacts.js";
 import type { IssueArtifactSessionSnapshot } from "../../src/observability/issue-artifacts.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import type {
   IssueReportDocument,
   LoadedIssueArtifacts,
@@ -319,10 +320,12 @@ describe("issue report enrichment", () => {
       sessionId: "issue-44-session-1",
       provider: "codex",
       model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: "codex-session-44-1",
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: 1,
       startedAt: "2026-03-09T10:05:00.000Z",
       finishedAt: "2026-03-09T10:10:00.000Z",

@@ -22,6 +22,7 @@ import { GenericCommandRunner } from "../../src/runner/generic-command.js";
 import { describeLocalRunnerBackend } from "../../src/runner/local-command.js";
 import {
   RUNNER_SHUTDOWN_GRACE_MS,
+  createRunnerTransportMetadata,
   type RunnerEvent,
 } from "../../src/runner/service.js";
 import { waitForExit } from "../support/process.js";
@@ -337,10 +338,12 @@ describe("runners", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "codex",
       model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -355,10 +358,12 @@ describe("runners", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "generic-command",
       model: null,
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -376,10 +381,12 @@ describe("runners", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "pi",
       model: "pi-pro",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -394,10 +401,12 @@ describe("runners", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "claude-code",
       model: "sonnet",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
@@ -508,7 +517,7 @@ describe("runners", () => {
       signal: abortController.signal,
       onEvent(event) {
         if (event.kind === "spawned") {
-          spawnedPid = event.pid;
+          spawnedPid = event.transport.localProcess?.pid ?? -1;
           abortController.abort();
         }
       },
@@ -532,7 +541,7 @@ describe("runners", () => {
         if (event.kind !== "spawned") {
           return;
         }
-        spawnedPid = event.pid;
+        spawnedPid = event.transport.localProcess?.pid ?? -1;
         throw new Error("persist failed");
       },
     });
@@ -767,7 +776,7 @@ describe("runners", () => {
         {
           onEvent(event) {
             if (event.kind === "spawned") {
-              spawnedPid = event.pid;
+              spawnedPid = event.transport.localProcess?.pid ?? -1;
             }
           },
         },
@@ -778,7 +787,12 @@ describe("runners", () => {
       });
 
       expect(spawnedPid).toBeGreaterThan(0);
-      expect(firstTurn.session.appServerPid).toBe(spawnedPid);
+      expect(firstTurn.session.transport).toEqual(
+        createRunnerTransportMetadata("local-stdio-session", {
+          localProcessPid: spawnedPid,
+          canTerminateLocalProcess: true,
+        }),
+      );
       expect(firstTurn.session.backendThreadId).toBe("thread-1");
       expect(firstTurn.session.latestTurnId).toBe("turn-1");
       expect(firstTurn.session.backendSessionId).toBe("thread-1-turn-1");
@@ -1169,7 +1183,7 @@ describe("runners", () => {
         {
           onEvent(event) {
             if (event.kind === "spawned") {
-              spawnedPid = event.pid;
+              spawnedPid = event.transport.localProcess?.pid ?? -1;
             }
           },
         },

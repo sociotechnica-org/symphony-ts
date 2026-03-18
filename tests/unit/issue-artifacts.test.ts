@@ -14,6 +14,7 @@ import {
   readIssueArtifactSession,
   readIssueArtifactSummary,
 } from "../../src/observability/issue-artifacts.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import { createTempDir } from "../support/git.js";
 
 const tempRoots: string[] = [];
@@ -192,10 +193,12 @@ describe("issue artifacts", () => {
         sessionId,
         provider: "local-runner",
         model: null,
+        transport: createRunnerTransportMetadata("local-process", {
+          canTerminateLocalProcess: true,
+        }),
         backendSessionId: null,
         backendThreadId: null,
         latestTurnId: null,
-        appServerPid: null,
         latestTurnNumber: 2,
         startedAt: "2026-03-09T10:00:00.000Z",
         finishedAt: observedAt,
@@ -287,10 +290,12 @@ describe("issue artifacts", () => {
         sessionId,
         provider: "codex",
         model: "gpt-5",
+        transport: createRunnerTransportMetadata("local-process", {
+          canTerminateLocalProcess: true,
+        }),
         backendSessionId: "backend-1",
         backendThreadId: null,
         latestTurnId: null,
-        appServerPid: null,
         latestTurnNumber: 3,
         startedAt: "2026-03-09T10:00:00.000Z",
         finishedAt: null,

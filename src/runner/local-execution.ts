@@ -7,6 +7,7 @@ import type { Logger } from "../observability/logger.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
 import {
   RUNNER_SHUTDOWN_GRACE_MS,
+  createRunnerTransportMetadata,
   type RunnerExecutionResult,
   type RunnerRunOptions,
 } from "./service.js";
@@ -145,7 +146,10 @@ export async function executeLocalRunnerCommand(
         spawnNotificationPromise = Promise.resolve(
           execution.options?.onEvent?.({
             kind: "spawned",
-            pid: child.pid,
+            transport: createRunnerTransportMetadata("local-process", {
+              localProcessPid: child.pid,
+              canTerminateLocalProcess: true,
+            }),
             spawnedAt: new Date().toISOString(),
           }),
         ).catch((error) => {

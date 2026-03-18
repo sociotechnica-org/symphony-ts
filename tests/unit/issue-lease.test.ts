@@ -6,6 +6,7 @@ import type { RunSession } from "../../src/domain/run.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import type { Logger } from "../../src/observability/logger.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import { createTempDir } from "../support/git.js";
 import { waitForExit } from "../support/process.js";
 
@@ -63,7 +64,10 @@ describe("LocalIssueLeaseManager", () => {
       await manager.recordRun(lockDir!, createSession(21, tempRoot));
       manager.recordRunnerSpawn(lockDir!, {
         kind: "spawned",
-        pid: process.pid,
+        transport: createRunnerTransportMetadata("local-process", {
+          localProcessPid: process.pid,
+          canTerminateLocalProcess: true,
+        }),
         spawnedAt: new Date().toISOString(),
       });
 
@@ -72,6 +76,32 @@ describe("LocalIssueLeaseManager", () => {
       expect(snapshot.ownerPid).toBe(process.pid);
       expect(snapshot.runnerPid).toBe(process.pid);
       expect(snapshot.record?.runSessionId).toContain("#21");
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not record a local runner pid for remote-only execution transport", async () => {
+    const tempRoot = await createTempDir("symphony-lease-remote-");
+    const manager = new LocalIssueLeaseManager(tempRoot, new JsonLogger());
+
+    try {
+      const lockDir = await manager.acquire(31);
+      expect(lockDir).not.toBeNull();
+
+      await manager.recordRun(lockDir!, createSession(31, tempRoot));
+      manager.recordRunnerSpawn(lockDir!, {
+        kind: "spawned",
+        transport: createRunnerTransportMetadata("remote-task", {
+          remoteTaskId: "task-31",
+        }),
+        spawnedAt: new Date().toISOString(),
+      });
+
+      const snapshot = await manager.inspect(31);
+      expect(snapshot.kind).toBe("active");
+      expect(snapshot.runnerPid).toBeNull();
+      expect(snapshot.record?.runnerPid).toBeNull();
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }

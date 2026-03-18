@@ -11,9 +11,27 @@ export interface RunnerExecutionResult {
   readonly finishedAt: string;
 }
 
+export type RunnerTransportKind =
+  | "local-process"
+  | "local-stdio-session"
+  | "remote-stdio-session"
+  | "remote-task";
+
+export interface RunnerLocalProcessMetadata {
+  readonly pid: number | null;
+  readonly canTerminate: boolean;
+}
+
+export interface RunnerTransportMetadata {
+  readonly kind: RunnerTransportKind;
+  readonly localProcess: RunnerLocalProcessMetadata | null;
+  readonly remoteSessionId: string | null;
+  readonly remoteTaskId: string | null;
+}
+
 export interface RunnerSpawnedEvent {
   readonly kind: "spawned";
-  readonly pid: number;
+  readonly transport: RunnerTransportMetadata;
   readonly spawnedAt: string;
 }
 
@@ -45,10 +63,10 @@ export interface RunnerLogPointer {
 export interface RunnerSessionDescription {
   readonly provider: string;
   readonly model: string | null;
+  readonly transport: RunnerTransportMetadata;
   readonly backendSessionId: string | null;
   readonly backendThreadId: string | null;
   readonly latestTurnId: string | null;
-  readonly appServerPid: number | null;
   readonly latestTurnNumber: number | null;
   readonly logPointers: readonly RunnerLogPointer[];
 }
@@ -101,6 +119,56 @@ export interface Runner extends RunnerSessionDescriber {
     options?: RunnerRunOptions,
   ): Promise<RunnerExecutionResult>;
   startSession?(session: RunSession): Promise<LiveRunnerSession>;
+}
+
+export function createRunnerTransportMetadata(
+  kind: RunnerTransportKind,
+  options?: {
+    readonly localProcessPid?: number | null;
+    readonly canTerminateLocalProcess?: boolean;
+    readonly remoteSessionId?: string | null;
+    readonly remoteTaskId?: string | null;
+  },
+): RunnerTransportMetadata {
+  const canTerminateLocalProcess = options?.canTerminateLocalProcess ?? false;
+  const localProcess =
+    options?.localProcessPid !== undefined || canTerminateLocalProcess
+      ? {
+          pid: options?.localProcessPid ?? null,
+          canTerminate: canTerminateLocalProcess,
+        }
+      : null;
+  return {
+    kind,
+    localProcess,
+    remoteSessionId: options?.remoteSessionId ?? null,
+    remoteTaskId: options?.remoteTaskId ?? null,
+  };
+}
+
+export function withRunnerTransportLocalProcess(
+  transport: RunnerTransportMetadata,
+  pid: number | null,
+): RunnerTransportMetadata {
+  return {
+    ...transport,
+    localProcess:
+      transport.localProcess === null
+        ? null
+        : {
+            ...transport.localProcess,
+            pid,
+          },
+  };
+}
+
+export function getRunnerControllableProcessId(
+  transport: RunnerTransportMetadata,
+): number | null {
+  if (transport.localProcess?.canTerminate !== true) {
+    return null;
+  }
+  return transport.localProcess.pid ?? null;
 }
 
 const SUMMARY_LIMIT = 160;

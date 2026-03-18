@@ -9,7 +9,12 @@ import {
   buildCodexAppServerCommand,
   type CodexAppServerCommand,
 } from "./codex-app-server-command.js";
-import { RUNNER_SHUTDOWN_GRACE_MS, summarizeRunnerText } from "./service.js";
+import {
+  RUNNER_SHUTDOWN_GRACE_MS,
+  summarizeRunnerText,
+  withRunnerTransportLocalProcess,
+  type RunnerTransportMetadata,
+} from "./service.js";
 import type {
   LiveRunnerSession,
   RunnerEvent,
@@ -71,7 +76,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
     this.#config = config;
     this.#logger = logger;
     this.#runSession = session;
-    this.#baseDescription = describeLocalRunnerSession(config.command);
+    this.#baseDescription = describeLocalRunnerSession(
+      config.command,
+      "local-stdio-session",
+    );
     this.#appServerCommand = buildCodexAppServerCommand(config.command);
   }
 
@@ -84,9 +92,16 @@ export class CodexAppServerSession implements LiveRunnerSession {
           : null,
       backendThreadId: this.#threadId,
       latestTurnId: this.#latestTurnId,
-      appServerPid: this.#appServerPid,
+      transport: this.#describeTransport(),
       latestTurnNumber: this.#latestTurnNumber,
     };
+  }
+
+  #describeTransport(): RunnerTransportMetadata {
+    return withRunnerTransportLocalProcess(
+      this.#baseDescription.transport,
+      this.#appServerPid,
+    );
   }
 
   async runTurn(
@@ -259,7 +274,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       Promise.resolve(
         onEvent?.({
           kind: "spawned",
-          pid: child.pid,
+          transport: this.#describeTransport(),
           spawnedAt,
         }),
       )

@@ -13,7 +13,7 @@ OpenAI released [the Symphony spec](https://github.com/openai/symphony) to addre
 **What makes symphony-ts different:**
 
 - **Runs locally.** Point it at a repo and it starts working issues. No servers to deploy, no accounts to create.
-- **Adapter pattern for everything.** Pluggable trackers (GitHub and Linear) and a provider-neutral runner contract with built-in `codex`, `claude-code`, and `generic-command` adapters today, remote workers planned. Swap any layer without touching the others.
+- **Adapter pattern for everything.** Pluggable trackers (GitHub and Linear) plus a runner contract that separates provider identity from execution transport. Built-in `codex`, `claude-code`, and `generic-command` adapters stay local today; remote workers can land against the same contract later. Swap any layer without touching the others.
 - **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in your tracker (GitHub Issues or Linear) instead of a separate control plane. Today's bootstrap runtime is designed for one local factory instance; broader multi-instance coordination is planned.
 - **Visibility.** The tracker gives you real-time visibility into the whole factory. A local status surface shows worker-level detail.
 - **It builds itself.** Symphony works `symphony-ts` issues and opens PRs back into this repo. The [self-hosting loop](docs/guides/self-hosting-loop.md) is how we develop it.
@@ -95,8 +95,9 @@ normal watch path. Attaching that way gives your terminal the worker's
 foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
 
 The status snapshot includes normalized runner visibility for active issues,
-including worker state, current phase, session identity, heartbeat/action
-timestamps, waiting reason, and condensed output/error summaries.
+including worker state, current phase, provider identity, execution transport,
+session identity, heartbeat/action timestamps, waiting reason, and condensed
+output/error summaries.
 Status surfaces now also publish a runtime checkout identity for the live
 factory code, including the runtime checkout path, `HEAD` commit SHA, commit
 timestamp, and dirty-state summary when git metadata is available. This
@@ -257,7 +258,7 @@ policy, code, docs, or local test evidence.
 | `workspace.root`                 | Where isolated workspaces are created                                                  |
 | `workspace.repo_url`             | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
 | `workspace.branch_prefix`        | Issue branch naming prefix                                                             |
-| `agent.runner.kind`              | Selects the execution backend (`codex`, `claude-code`, or `generic-command`)           |
+| `agent.runner.kind`              | Selects the logical runner provider (`codex`, `claude-code`, or `generic-command`)     |
 | `agent.command`                  | Runner command shape; Codex reuses its flags to launch `codex app-server`              |
 | `agent.prompt_transport`         | Sends the prompt over `stdin` or via a temp file path                                  |
 | `agent.timeout_ms`               | Max wall-clock time per runner turn                                                    |

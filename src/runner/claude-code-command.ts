@@ -3,6 +3,7 @@ import { RunnerError } from "../domain/errors.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import { parseLocalRunnerCommand, quoteShellToken } from "./local-command.js";
 import type { RunnerSessionDescription } from "./service.js";
+import { createRunnerTransportMetadata } from "./service.js";
 
 interface ParsedClaudeCodeResult {
   readonly sessionId: string | null;
@@ -56,10 +57,12 @@ export function describeClaudeCodeSession(
   return {
     provider: "claude-code",
     model: readOptionValue(command, ["--model"]),
+    transport: createRunnerTransportMetadata("local-process", {
+      canTerminateLocalProcess: true,
+    }),
     backendSessionId: null,
     backendThreadId: null,
     latestTurnId: null,
-    appServerPid: null,
     latestTurnNumber: null,
     logPointers: [],
   };

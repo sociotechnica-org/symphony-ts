@@ -10,6 +10,7 @@ import {
   writeFactoryStatusSnapshot,
   type FactoryStatusSnapshot,
 } from "../../src/observability/status.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import { createTempDir } from "../support/git.js";
 
 function createSnapshot(
@@ -160,10 +161,13 @@ function createSnapshot(
           session: {
             provider: "codex",
             model: "gpt-5.4",
+            transport: createRunnerTransportMetadata("local-stdio-session", {
+              localProcessPid: 4321,
+              canTerminateLocalProcess: true,
+            }),
             backendSessionId: "thread-12-turn-2",
             backendThreadId: "thread-12",
             latestTurnId: "turn-2",
-            appServerPid: 4321,
             latestTurnNumber: 2,
             logPointers: [],
           },

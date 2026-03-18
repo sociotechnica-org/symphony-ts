@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
 import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
+import type { RunnerTransportMetadata } from "../runner/service.js";
 import { writeJsonFileAtomic } from "./atomic-file.js";
 
 export const ISSUE_ARTIFACT_SCHEMA_VERSION = 1 as const;
@@ -123,10 +124,10 @@ export interface IssueArtifactSessionSnapshot {
   readonly sessionId: string;
   readonly provider: string;
   readonly model: string | null;
+  readonly transport: RunnerTransportMetadata;
   readonly backendSessionId: string | null;
   readonly backendThreadId: string | null;
   readonly latestTurnId: string | null;
-  readonly appServerPid: number | null;
   readonly latestTurnNumber: number | null;
   readonly startedAt: string | null;
   readonly finishedAt: string | null;

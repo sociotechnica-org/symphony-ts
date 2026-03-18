@@ -6,6 +6,7 @@ import {
   deriveIssueArtifactPaths,
 } from "../../src/observability/issue-artifacts.js";
 import type { RunnerAccountingSnapshot } from "../../src/runner/accounting.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 
 export async function writeReportWorkflow(rootDir: string): Promise<string> {
   const workflowPath = path.join(rootDir, "WORKFLOW.md");
@@ -172,10 +173,12 @@ export async function seedSuccessfulIssueArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: "codex-session-1",
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: 1,
       startedAt: attemptStartedAt,
       finishedAt: prOpenedAt,
@@ -344,10 +347,12 @@ export async function seedFailedIssueArtifacts(
       sessionId,
       provider: "codex",
       model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: "codex-session-2",
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: 1,
       startedAt: attemptStartedAt,
       finishedAt: retryScheduledAt,
