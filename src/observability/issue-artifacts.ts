@@ -549,7 +549,13 @@ async function readIssueArtifactSessionFile(
 ): Promise<IssueArtifactSessionSnapshot> {
   const snapshot =
     await readJsonFile<LegacyIssueArtifactSessionSnapshot>(filePath);
-  const { appServerPid, transport, ...session } = snapshot;
+  const {
+    appServerPid,
+    transport,
+    backendThreadId,
+    latestTurnId,
+    ...session
+  } = snapshot;
   const legacyTransportKind =
     appServerPid === null || appServerPid === undefined
       ? "local-process"
@@ -557,6 +563,8 @@ async function readIssueArtifactSessionFile(
 
   return {
     ...session,
+    backendThreadId: backendThreadId ?? null,
+    latestTurnId: latestTurnId ?? null,
     transport:
       transport ??
       (appServerPid === null || appServerPid === undefined
