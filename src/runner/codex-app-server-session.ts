@@ -5,6 +5,7 @@ import { getPreparedWorkspacePathHint } from "../domain/workspace.js";
 import type { AgentConfig, SshWorkerHostConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { quoteShellToken } from "./local-command.js";
+import { buildSshRemoteCommand } from "./ssh-command.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
 import { createRunnerEnvironment } from "./run-environment.js";
 import {
@@ -183,9 +184,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       [
         ...workerHost.sshOptions,
         workerHost.sshDestination,
-        "bash",
-        "-lc",
-        remoteCommand,
+        buildSshRemoteCommand(["bash", "-lc", remoteCommand]),
       ],
       {
         stdio: ["pipe", "pipe", "pipe"],

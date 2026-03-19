@@ -18,6 +18,7 @@ import type {
 } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { quoteShellToken } from "../runner/local-command.js";
+import { buildSshRemoteCommand } from "../runner/ssh-command.js";
 import type { WorkspaceManager } from "./service.js";
 
 const execFileAsync = promisify(execFile);
@@ -40,9 +41,7 @@ function buildSshArgs(
   return [
     ...workerHost.sshOptions,
     workerHost.sshDestination,
-    "bash",
-    "-lc",
-    command,
+    buildSshRemoteCommand(["bash", "-lc", command]),
   ];
 }
 

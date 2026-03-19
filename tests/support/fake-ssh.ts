@@ -22,7 +22,7 @@ if (commandArgs.length === 0) {
   process.exit(1);
 }
 
-const child = spawn(commandArgs[0], commandArgs.slice(1), {
+const child = spawn("sh", ["-lc", commandArgs.join(" ")], {
   stdio: "inherit",
   env: {
     ...process.env,
