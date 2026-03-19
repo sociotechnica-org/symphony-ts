@@ -665,16 +665,16 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     expect(new Set([hostByIssue.get(90), hostByIssue.get(91)])).toEqual(
       new Set(["builder-a", "builder-b"]),
     );
-    await expect(
-      fs.stat(
-        path.join(remoteWorkspaceRootA, "sociotechnica-org_symphony-ts_90"),
-      ),
-    ).resolves.toBeDefined();
-    await expect(
-      fs.stat(
-        path.join(remoteWorkspaceRootB, "sociotechnica-org_symphony-ts_91"),
-      ),
-    ).resolves.toBeDefined();
+    const hostAEntries = await fs.readdir(remoteWorkspaceRootA);
+    const hostBEntries = await fs.readdir(remoteWorkspaceRootB);
+    expect(hostAEntries).toHaveLength(1);
+    expect(hostBEntries).toHaveLength(1);
+    expect(new Set([...hostAEntries, ...hostBEntries])).toEqual(
+      new Set([
+        "sociotechnica-org_symphony-ts_90",
+        "sociotechnica-org_symphony-ts_91",
+      ]),
+    );
   });
 
   it("records configured provider and model metadata for generic command runs", async () => {
