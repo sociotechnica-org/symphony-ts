@@ -35,20 +35,21 @@ scratchpad, status snapshots, logs, and loop lock files.
 1. Read `.ralph/operator-scratchpad.md` first so the latest operator context survives session loss and compaction.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
-4. Compare the supported live watch/TUI surface against `factory status --json` whenever practical. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
-5. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
+4. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
+5. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
+6. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
    - any active issue waiting in `plan-ready` / `awaiting-human-handoff`
    - any PR or active issue waiting in `awaiting-landing-command`
-6. If the factory is unhealthy, fix the concrete problem and restart it.
-7. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-8. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
+7. If the factory is unhealthy, fix the concrete problem and restart it.
+8. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
+9. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
    - `Plan review: approved`
    - `Plan review: changes-requested`
    - `Plan review: waived` (record why in the comment)
-9. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
-10. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
-11. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
-12. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+10. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
+11. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
+12. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
+13. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
 
@@ -56,6 +57,7 @@ scratchpad, status snapshots, logs, and loop lock files.
 - Keep concurrency conservative.
 - Treat `docs/guides/operator-runbook.md` as the canonical daily-use procedure and keep this skill focused on operator policy, checkpoints, and escalation.
 - Treat the factory-control surface as the primary local runtime contract; use ad hoc `screen`, `ps`, or `pkill` inspection only when the control command is unavailable or inconsistent.
+- In a wake-up cycle, favor short, bounded inspection commands over long-running watchers. If a secondary GitHub or watch-surface probe is slow or non-terminal, stop and continue from the latest successful control-surface read instead of waiting indefinitely.
 - Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring; do not use raw `screen -r symphony-factory` as the normal watch path because `Ctrl-C` there can kill the worker.
 - Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
 - Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart` over manual `screen` and process cleanup.
