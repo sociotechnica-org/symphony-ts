@@ -100,6 +100,9 @@ The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, provider identity, execution transport,
 session identity, heartbeat/action timestamps, waiting reason, and condensed
 output/error summaries.
+It also projects the current ready-queue order with normalized queue-priority
+rank/label facts so operators can see which ready issue would dispatch next and
+when Symphony fell back to deterministic issue-number ordering.
 Status surfaces now also publish a runtime checkout identity for the live
 factory code, including the runtime checkout path, `HEAD` commit SHA, commit
 timestamp, and dirty-state summary when git metadata is available. This

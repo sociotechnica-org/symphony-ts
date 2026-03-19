@@ -171,6 +171,14 @@ export interface FactoryRetrySnapshot {
   readonly lastError: string;
 }
 
+export interface FactoryReadyQueueIssueSnapshot {
+  readonly issueNumber: number;
+  readonly issueIdentifier: string;
+  readonly title: string;
+  readonly queuePriorityRank: number | null;
+  readonly queuePriorityLabel: string | null;
+}
+
 export interface FactoryHostDispatchHostSnapshot {
   readonly name: string;
   readonly occupiedByIssueNumber: number | null;
@@ -232,6 +240,7 @@ export interface FactoryStatusSnapshot {
   readonly counts: FactoryStatusCounts;
   readonly lastAction: FactoryStatusAction | null;
   readonly activeIssues: readonly FactoryActiveIssueSnapshot[];
+  readonly readyQueue?: readonly FactoryReadyQueueIssueSnapshot[];
   readonly retries: readonly FactoryRetrySnapshot[];
 }
 
@@ -358,6 +367,7 @@ export function renderFactoryStatusSnapshot(
   const restartRecovery = getFactoryRestartRecovery(snapshot);
   const recoveryPosture = getFactoryRecoveryPosture(snapshot);
   const dispatchPressure = snapshot.dispatchPressure ?? null;
+  const readyQueue = snapshot.readyQueue ?? [];
   lines.push(`Restart recovery: ${restartRecovery.state}`);
   if (restartRecovery.summary !== null) {
     lines.push(`Restart recovery detail: ${restartRecovery.summary}`);
@@ -568,6 +578,36 @@ export function renderFactoryStatusSnapshot(
           lines.push(`    Runner timed out: ${visibility.timedOutAt}`);
         }
       }
+    }
+  }
+
+  lines.push("");
+  lines.push("Ready queue:");
+  if (readyQueue.length === 0) {
+    lines.push("  none");
+  } else {
+    for (const [index, issue] of readyQueue.entries()) {
+      lines.push(
+        `  ${String(index + 1)}. #${issue.issueNumber.toString()} ${issue.title}`,
+      );
+      lines.push(
+        `    Priority: ${
+          issue.queuePriorityRank === null
+            ? "none"
+            : `rank=${issue.queuePriorityRank.toString()}${
+                issue.queuePriorityLabel === null
+                  ? ""
+                  : ` label=${issue.queuePriorityLabel}`
+              }`
+        }`,
+      );
+      lines.push(
+        `    Order reason: ${
+          issue.queuePriorityRank === null
+            ? "issue-number fallback"
+            : "normalized queue priority"
+        }`,
+      );
     }
   }
 
@@ -807,6 +847,17 @@ function parseFactoryStatusSnapshot(
       (entry, index) =>
         parseActiveIssue(entry, filePath, `activeIssues[${index.toString()}]`),
     ),
+    readyQueue: expectArray(
+      snapshot.readyQueue ?? [],
+      filePath,
+      "readyQueue",
+      (entry, index) =>
+        parseReadyQueueIssue(
+          entry,
+          filePath,
+          `readyQueue[${index.toString()}]`,
+        ),
+    ),
     retries: expectArray(
       snapshot.retries,
       filePath,
@@ -836,6 +887,37 @@ function parseHostDispatch(
           filePath,
           `hostDispatch.hosts[${index.toString()}]`,
         ),
+    ),
+  };
+}
+
+function parseReadyQueueIssue(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryReadyQueueIssueSnapshot {
+  const issue = expectObject(value, filePath, field);
+  return {
+    issueNumber: expectInteger(
+      issue.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
+    issueIdentifier: expectString(
+      issue.issueIdentifier,
+      filePath,
+      `${field}.issueIdentifier`,
+    ),
+    title: expectString(issue.title, filePath, `${field}.title`),
+    queuePriorityRank: expectNullableInteger(
+      issue.queuePriorityRank,
+      filePath,
+      `${field}.queuePriorityRank`,
+    ),
+    queuePriorityLabel: expectNullableString(
+      issue.queuePriorityLabel,
+      filePath,
+      `${field}.queuePriorityLabel`,
     ),
   };
 }

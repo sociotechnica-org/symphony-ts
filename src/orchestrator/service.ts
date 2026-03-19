@@ -11,6 +11,7 @@ import {
 } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
+import { compareRuntimeIssuesByQueuePriority } from "../domain/queue-priority.js";
 import type { RetryClass, RetryState } from "../domain/retry.js";
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import type {
@@ -156,6 +157,7 @@ import {
   noteStatusAction,
   noteTerminalIssue,
   noteWatchdogIssue,
+  setReadyQueue,
   setRestartRecoveryState,
   setTrackerIssueCounts,
   upsertActiveIssue,
@@ -538,8 +540,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         dispatchPressure === null
           ? collectDueRetries(this.#state.retries)
           : listDueRetries(this.#state.retries);
+      const orderedReadyQueue = this.#orderReadyCandidates(
+        readyCandidates,
+        runningCandidates,
+        dueRetries,
+      );
+      setReadyQueue(this.#state.status, orderedReadyQueue);
       queue = this.#mergeQueue(
-        dispatchPressure === null ? readyCandidates : [],
+        dispatchPressure === null ? orderedReadyQueue : [],
         runningCandidates,
         dueRetries,
       );
@@ -645,43 +653,67 @@ export class BootstrapOrchestrator implements Orchestrator {
       retryAttempts.set(retry.issue.number, retry.nextAttempt);
     }
 
-    const merged = new Map<number, QueueEntry>();
-    for (const issue of runningCandidates) {
+    const running: QueueEntry[] = [];
+    for (const issue of [...runningCandidates].sort(
+      (left, right) => left.number - right.number,
+    )) {
       if (
         !retryAttempts.has(issue.number) &&
         hasQueuedRetry(this.#state.retries, issue.number)
       ) {
         continue;
       }
-      merged.set(issue.number, {
+      running.push({
         issue,
         attempt: this.#resolveAttemptNumber(issue.number, retryAttempts),
         source: "running",
       });
     }
+
+    const runningIssueNumbers = new Set(
+      running.map((entry) => entry.issue.number),
+    );
+    const ready: QueueEntry[] = [];
     for (const issue of readyCandidates) {
-      if (
-        !retryAttempts.has(issue.number) &&
-        hasQueuedRetry(this.#state.retries, issue.number)
-      ) {
+      if (runningIssueNumbers.has(issue.number)) {
         continue;
       }
-      if (merged.has(issue.number)) {
-        continue;
-      }
-      merged.set(issue.number, {
+      ready.push({
         issue,
         attempt: this.#resolveAttemptNumber(issue.number, retryAttempts),
         source: "ready",
       });
     }
 
-    return [...merged.values()].sort((left, right) => {
-      if (left.source !== right.source) {
-        return left.source === "running" ? -1 : 1;
-      }
-      return left.issue.number - right.issue.number;
-    });
+    return [...running, ...ready];
+  }
+
+  #orderReadyCandidates(
+    readyCandidates: readonly RuntimeIssue[],
+    runningCandidates: readonly RuntimeIssue[],
+    dueRetries: readonly RetryState[],
+  ): readonly RuntimeIssue[] {
+    const dueRetryIssueNumbers = new Set(
+      dueRetries.map((retry) => retry.issue.number),
+    );
+    const runningIssueNumbers = new Set(
+      runningCandidates.map((issue) => issue.number),
+    );
+
+    return [...readyCandidates]
+      .filter((issue) => {
+        if (runningIssueNumbers.has(issue.number)) {
+          return false;
+        }
+        if (
+          !dueRetryIssueNumbers.has(issue.number) &&
+          hasQueuedRetry(this.#state.retries, issue.number)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort(compareRuntimeIssuesByQueuePriority);
   }
 
   #resolveAttemptNumber(
