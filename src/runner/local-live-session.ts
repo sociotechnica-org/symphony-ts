@@ -7,6 +7,7 @@ import { findCodexSession } from "./codex-session-discovery.js";
 import {
   type LocalCommandExecutionOptions,
   executeLocalRunnerCommand,
+  requireLocalWorkspacePath,
 } from "./local-execution.js";
 import { describeLocalRunnerSession } from "./local-session-description.js";
 import type {
@@ -87,8 +88,12 @@ export class LocalRunnerSession implements LiveRunnerSession {
       this.#baseDescription.provider === "codex" &&
       this.#backendSessionId === null
     ) {
+      const workspacePath = requireLocalWorkspacePath(
+        this.#runSession,
+        "Codex session discovery",
+      );
       const matchedSession = await findCodexSession({
-        workspacePath: this.#runSession.workspace.path,
+        workspacePath,
         branchName: this.#runSession.workspace.branchName,
         startedAt: executionResult.startedAt,
         finishedAt: executionResult.finishedAt,

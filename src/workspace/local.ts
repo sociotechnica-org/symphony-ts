@@ -5,8 +5,14 @@ import { promisify } from "node:util";
 import { WorkspaceError } from "../domain/errors.js";
 import type {
   PreparedWorkspace,
+  WorkspaceSource,
   WorkspaceCleanupResult,
   WorkspacePreparationRequest,
+} from "../domain/workspace.js";
+import {
+  createConfiguredWorkspaceSource,
+  getPreparedWorkspacePath,
+  getWorkspaceSourceLocation,
 } from "../domain/workspace.js";
 import type { WorkspaceConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
@@ -112,15 +118,18 @@ export class LocalWorkspaceManager implements WorkspaceManager {
   readonly #config: WorkspaceConfig;
   readonly #afterCreate: readonly string[];
   readonly #logger: Logger;
+  readonly #sourceOverride: WorkspaceSource | null;
 
   constructor(
     config: WorkspaceConfig,
     afterCreate: readonly string[],
     logger: Logger,
+    sourceOverride?: WorkspaceSource | null,
   ) {
     this.#config = config;
     this.#afterCreate = afterCreate;
     this.#logger = logger;
+    this.#sourceOverride = sourceOverride ?? null;
   }
 
   async prepareWorkspace(
@@ -129,6 +138,11 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     const issue = request.issue;
     const workspacePath = this.#workspacePathForIssue(issue.identifier);
     const branchName = `${this.#config.branchPrefix}${issue.number}`;
+    const source =
+      request.sourceOverride ??
+      this.#sourceOverride ??
+      createConfiguredWorkspaceSource(this.#config.repoUrl);
+    const sourceLocation = getWorkspaceSourceLocation(source);
     const exists = await fs
       .stat(workspacePath)
       .then(() => true)
@@ -137,11 +151,7 @@ export class LocalWorkspaceManager implements WorkspaceManager {
     await fs.mkdir(this.#config.root, { recursive: true });
 
     if (!exists) {
-      await execFileAsync("git", [
-        "clone",
-        this.#config.repoUrl,
-        workspacePath,
-      ]);
+      await execFileAsync("git", ["clone", sourceLocation, workspacePath]);
       for (const command of this.#afterCreate) {
         await runShell(command, workspacePath);
       }
@@ -206,34 +216,45 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       workspacePath,
       issueIdentifier: issue.identifier,
       branchName,
-      repoUrl: this.#config.repoUrl,
+      workspaceSourceKind: source.kind,
+      workspaceSourceLocation: sourceLocation,
       defaultBranch,
       createdNow: !exists,
     });
 
     return {
       key: sanitize(issue.identifier),
-      path: workspacePath,
       branchName,
       createdNow: !exists,
+      source,
+      target: {
+        kind: "local",
+        path: workspacePath,
+      },
     };
   }
 
   async cleanupWorkspace(
     workspace: PreparedWorkspace,
   ): Promise<WorkspaceCleanupResult> {
+    const workspacePath = getPreparedWorkspacePath(workspace);
+    if (workspacePath === null) {
+      throw new WorkspaceError(
+        "Local workspace cleanup requires a local workspace target",
+      );
+    }
     const existed = await fs
-      .stat(workspace.path)
+      .stat(workspacePath)
       .then(() => true)
       .catch(() => false);
     this.#logger.info("Cleaning workspace", {
-      workspacePath: workspace.path,
+      workspacePath,
       existed,
     });
-    await fs.rm(workspace.path, { recursive: true, force: true });
+    await fs.rm(workspacePath, { recursive: true, force: true });
     return {
       kind: existed ? "deleted" : "already-absent",
-      workspacePath: workspace.path,
+      workspacePath,
     };
   }
 
@@ -242,9 +263,16 @@ export class LocalWorkspaceManager implements WorkspaceManager {
   ): Promise<WorkspaceCleanupResult> {
     return await this.cleanupWorkspace({
       key: sanitize(request.issue.identifier),
-      path: this.#workspacePathForIssue(request.issue.identifier),
       branchName: `${this.#config.branchPrefix}${request.issue.number}`,
       createdNow: false,
+      source:
+        request.sourceOverride ??
+        this.#sourceOverride ??
+        createConfiguredWorkspaceSource(this.#config.repoUrl),
+      target: {
+        kind: "local",
+        path: this.#workspacePathForIssue(request.issue.identifier),
+      },
     });
   }
 

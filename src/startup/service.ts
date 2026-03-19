@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { WorkspaceSource } from "../domain/workspace.js";
 import type { ResolvedConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import {
@@ -28,7 +29,7 @@ export interface StartupSnapshot {
 export interface StartupPreparationSuccess {
   readonly kind: "ready";
   readonly summary: string | null;
-  readonly workspaceRepoUrlOverride?: string | null;
+  readonly workspaceSourceOverride?: WorkspaceSource | null;
 }
 
 export interface StartupPreparationFailure {
@@ -53,7 +54,7 @@ export interface StartupPreparationOutcomeReady {
   readonly kind: "ready";
   readonly provider: string;
   readonly summary: string | null;
-  readonly workspaceRepoUrlOverride: string | null;
+  readonly workspaceSourceOverride: WorkspaceSource | null;
   readonly artifactPath: string;
   readonly runtimeIdentity: FactoryRuntimeIdentity;
 }
@@ -62,7 +63,7 @@ export interface StartupPreparationOutcomeFailed {
   readonly kind: "failed";
   readonly provider: string;
   readonly summary: string;
-  readonly workspaceRepoUrlOverride: null;
+  readonly workspaceSourceOverride: null;
   readonly artifactPath: string;
   readonly runtimeIdentity: FactoryRuntimeIdentity;
 }
@@ -209,7 +210,7 @@ export async function runStartupPreparation(options: {
         kind: "failed",
         provider: preparer.id,
         summary: result.summary,
-        workspaceRepoUrlOverride: null,
+        workspaceSourceOverride: null,
         artifactPath,
         runtimeIdentity,
       };
@@ -228,14 +229,14 @@ export async function runStartupPreparation(options: {
       provider: preparer.id,
       startupFilePath: artifactPath,
       summary: result.summary ?? null,
-      workspaceRepoUrlOverride: result.workspaceRepoUrlOverride ?? null,
+      workspaceSourceOverride: result.workspaceSourceOverride ?? null,
       ...factoryRuntimeIdentityLogFields(runtimeIdentity),
     });
     return {
       kind: "ready",
       provider: preparer.id,
       summary: result.summary ?? null,
-      workspaceRepoUrlOverride: result.workspaceRepoUrlOverride ?? null,
+      workspaceSourceOverride: result.workspaceSourceOverride ?? null,
       artifactPath,
       runtimeIdentity,
     };
@@ -264,7 +265,7 @@ export async function runStartupPreparation(options: {
       kind: "failed",
       provider: preparer.id,
       summary,
-      workspaceRepoUrlOverride: null,
+      workspaceSourceOverride: null,
       artifactPath,
       runtimeIdentity,
     };

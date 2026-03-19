@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { RunnerError, RunnerShutdownError } from "../domain/errors.js";
 import type { RunSession, RunUpdateEvent } from "../domain/run.js";
+import { getPreparedWorkspacePath } from "../domain/workspace.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
@@ -33,15 +35,35 @@ export interface LocalCommandExecutionOptions {
   readonly promptTransport: AgentConfig["promptTransport"];
 }
 
+export function requireLocalWorkspacePath(
+  session: RunSession,
+  consumer: string,
+): string {
+  const workspacePath = getPreparedWorkspacePath(session.workspace);
+  if (workspacePath === null) {
+    throw new RunnerError(
+      `${consumer} requires a local workspace target; received ${session.workspace.target.kind}`,
+    );
+  }
+  return workspacePath;
+}
+
 export async function executeLocalRunnerCommand(
   logger: Logger,
   config: AgentConfig,
   execution: LocalCommandExecutionOptions,
 ): Promise<RunnerExecutionResult> {
   const startedAt = new Date().toISOString();
+  const workspacePath = requireLocalWorkspacePath(
+    execution.session,
+    "Local runner execution",
+  );
   // Multi-turn runs keep per-turn prompt files distinct; older one-shot runs
   // used `.symphony-prompt.md`.
-  const promptFile = `${execution.session.workspace.path}/.symphony-prompt.turn-${execution.turnNumber.toString()}.md`;
+  const promptFile = path.join(
+    workspacePath,
+    `.symphony-prompt.turn-${execution.turnNumber.toString()}.md`,
+  );
 
   if (execution.promptTransport === "file") {
     await fs.writeFile(promptFile, execution.prompt, "utf8");
@@ -54,7 +76,7 @@ export async function executeLocalRunnerCommand(
 
   logger.info("Launching runner", {
     command,
-    workspacePath: execution.session.workspace.path,
+    workspacePath,
     issueIdentifier: execution.session.issue.identifier,
     attempt: execution.session.attempt.sequence,
     runSessionId: execution.session.id,
@@ -63,7 +85,7 @@ export async function executeLocalRunnerCommand(
 
   return await new Promise<RunnerExecutionResult>((resolve, reject) => {
     const child = spawn("bash", ["-lc", command], {
-      cwd: execution.session.workspace.path,
+      cwd: workspacePath,
       env: {
         ...process.env,
         ...config.env,
@@ -73,7 +95,7 @@ export async function executeLocalRunnerCommand(
         SYMPHONY_RUN_ATTEMPT: String(execution.session.attempt.sequence),
         SYMPHONY_RUN_TURN: String(execution.turnNumber),
         SYMPHONY_BRANCH_NAME: execution.session.workspace.branchName,
-        SYMPHONY_WORKSPACE_PATH: execution.session.workspace.path,
+        SYMPHONY_WORKSPACE_PATH: workspacePath,
         SYMPHONY_RUN_SESSION_ID: execution.session.id,
       },
       stdio: ["pipe", "pipe", "pipe"],

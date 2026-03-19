@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RunSession, RunTurn } from "../../src/domain/run.js";
+import { createConfiguredWorkspaceSource } from "../../src/domain/workspace.js";
 import type {
   LiveRunnerSession,
   Runner,
@@ -31,9 +32,13 @@ function createSession(): RunSession {
     },
     workspace: {
       key: "sociotechnica-org_symphony-ts_89",
-      path: "/tmp/symphony-89",
       branchName: "symphony/89",
       createdNow: false,
+      source: createConfiguredWorkspaceSource("/tmp/repo.git"),
+      target: {
+        kind: "local",
+        path: "/tmp/symphony-89",
+      },
     },
     prompt: "Initial prompt",
     startedAt: "2026-03-12T10:00:00.000Z",

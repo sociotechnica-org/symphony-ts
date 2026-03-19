@@ -16,6 +16,7 @@ import type {
   TransientFailureSignal,
 } from "../domain/transient-failure.js";
 import type { PreparedWorkspace } from "../domain/workspace.js";
+import { getPreparedWorkspacePath } from "../domain/workspace.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -1102,7 +1103,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       branchName: workspace.branchName,
       status: "running",
       summary: `Running ${issue.identifier}`,
-      workspacePath: workspace.path,
+      workspacePath: getPreparedWorkspacePath(workspace),
       runSessionId: session.id,
       ownerPid: process.pid,
       runnerPid: null,
@@ -2025,7 +2026,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber: runSession.issue.number,
       attempt,
       error: failure.message,
-      workspacePath: runSession.workspace.path,
+      workspacePath: getPreparedWorkspacePath(runSession.workspace),
       runSessionId: runSession.id,
     });
     noteStatusAction(this.#state.status, {
@@ -2317,7 +2318,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: issue.number,
         retentionState: outcome.state,
         terminalOutcome: options.terminalOutcome,
-        workspacePath: options.workspace?.path ?? null,
+        workspacePath:
+          options.workspace === undefined
+            ? null
+            : getPreparedWorkspacePath(options.workspace),
       });
       return outcome;
     }
@@ -2343,7 +2347,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: issue.number,
         retentionState: outcome.state,
         terminalOutcome: options.terminalOutcome,
-        workspacePath: options.workspace?.path ?? null,
+        workspacePath:
+          options.workspace === undefined
+            ? null
+            : getPreparedWorkspacePath(options.workspace),
         error: cleanupError,
       });
       return outcome;
@@ -3101,7 +3108,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       latestTurnNumber: session.latestTurnNumber,
       startedAt: session.runSession.startedAt,
       finishedAt: finishedAt ?? null,
-      workspacePath: session.runSession.workspace.path,
+      workspacePath: getPreparedWorkspacePath(session.runSession.workspace),
       branch: session.runSession.workspace.branchName,
       accounting: session.accounting,
       logPointers: session.description.logPointers.map((pointer) =>

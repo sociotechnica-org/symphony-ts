@@ -79,10 +79,13 @@ Responsible for:
 
 - deterministic workspace paths
 - workspace creation and reuse
+- execution-target metadata for prepared workspaces
 - lifecycle hooks such as `after_create`
 - cleanup policy
 
-This layer owns filesystem preparation, not tracker policy.
+This layer owns execution-workspace preparation, not tracker policy. Today that
+means local filesystem checkouts; future remote targets should extend this
+contract without pushing host/path logic up into runners or the orchestrator.
 
 ### Runner
 
