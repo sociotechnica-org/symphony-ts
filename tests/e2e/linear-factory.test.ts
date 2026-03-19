@@ -5,6 +5,7 @@ import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
+import { getCodexRemoteWorkerHost } from "../../src/domain/workflow.js";
 import {
   readIssueArtifactSummary,
   readIssueArtifactEvents,
@@ -16,6 +17,7 @@ import { createRunner } from "../../src/runner/factory.js";
 import { createTracker } from "../../src/tracker/factory.js";
 import { createTrackerToolService } from "../../src/tracker/tool-service.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
+import { RemoteSshWorkspaceManager } from "../../src/workspace/remote-ssh.js";
 import {
   countRemoteBranchCommits,
   createSeedRemote,
@@ -84,12 +86,22 @@ async function createOrchestrator(
   const logger = new JsonLogger();
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = createTracker(workflow.config.tracker, logger);
-  const workspace = new LocalWorkspaceManager(
-    workflow.config.workspace,
-    workflow.config.hooks.afterCreate,
-    logger,
-  );
+  const remoteWorkerHost = getCodexRemoteWorkerHost(workflow.config);
+  const workspace =
+    remoteWorkerHost === null
+      ? new LocalWorkspaceManager(
+          workflow.config.workspace,
+          workflow.config.hooks.afterCreate,
+          logger,
+        )
+      : new RemoteSshWorkspaceManager(
+          workflow.config.workspace,
+          remoteWorkerHost,
+          workflow.config.hooks.afterCreate,
+          logger,
+        );
   const runner = createRunner(workflow.config.agent, logger, {
+    remoteWorkerHost,
     trackerToolService: createTrackerToolService(
       tracker,
       workflow.config.tracker,

@@ -62,6 +62,7 @@ export interface WorkspaceConfig {
   readonly repoUrl: string;
   readonly branchPrefix: string;
   readonly retention: WorkspaceRetentionPolicy;
+  readonly workerHosts?: Readonly<Record<string, SshWorkerHostConfig>>;
 }
 
 export type WorkspaceRetentionMode = "delete" | "retain";
@@ -77,7 +78,24 @@ export interface HooksConfig {
 
 export interface CodexRunnerConfig {
   readonly kind: "codex";
+  readonly remoteExecution?: CodexRemoteExecutionConfig | undefined;
 }
+
+export interface SshWorkerHostConfig {
+  readonly name: string;
+  readonly sshDestination: string;
+  readonly sshExecutable: string;
+  readonly sshOptions: readonly string[];
+  readonly workspaceRoot: string;
+}
+
+export interface CodexSshRemoteExecutionConfig {
+  readonly kind: "ssh";
+  readonly workerHostName: string;
+  readonly workerHost: SshWorkerHostConfig;
+}
+
+export type CodexRemoteExecutionConfig = CodexSshRemoteExecutionConfig;
 
 export interface GenericCommandRunnerConfig {
   readonly kind: "generic-command";
@@ -122,6 +140,21 @@ export interface ResolvedConfig {
 export interface WorkflowDefinition {
   readonly config: ResolvedConfig;
   readonly promptTemplate: string;
+}
+
+export function getCodexRemoteWorkerHost(
+  config: ResolvedConfig,
+): SshWorkerHostConfig | null {
+  if (
+    typeof config.agent !== "object" ||
+    config.agent === null ||
+    typeof config.agent.runner !== "object" ||
+    config.agent.runner === null ||
+    config.agent.runner.kind !== "codex"
+  ) {
+    return null;
+  }
+  return config.agent.runner.remoteExecution?.workerHost ?? null;
 }
 
 export interface PromptBuilder {

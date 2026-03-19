@@ -6,6 +6,7 @@ import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
+import { getCodexRemoteWorkerHost } from "../../src/domain/workflow.js";
 import {
   deriveIssueArtifactPaths,
   readIssueArtifactAttempt,
@@ -23,6 +24,7 @@ import { createTracker } from "../../src/tracker/factory.js";
 import { createTrackerToolService } from "../../src/tracker/tool-service.js";
 import { parsePlanReadyCommentMetadata } from "../../src/tracker/plan-review-comment.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
+import { RemoteSshWorkspaceManager } from "../../src/workspace/remote-ssh.js";
 import {
   countRemoteBranchCommits,
   createSeedRemote,
@@ -32,6 +34,8 @@ import {
 import { MockGitHubServer } from "../support/mock-github-server.js";
 import { waitForExit } from "../support/process.js";
 import { StatusDashboard } from "../../src/observability/tui.js";
+import { createFakeCodexExecutable } from "../support/fake-codex.js";
+import { createFakeSshExecutable } from "../support/fake-ssh.js";
 
 const originalEnv = { ...process.env };
 
@@ -44,10 +48,19 @@ async function writeWorkflow(options: {
   runnerKind?: "codex" | "generic-command" | "claude-code";
   runnerProvider?: string;
   runnerModel?: string;
+  agentEnv?: Readonly<Record<string, string>>;
   retryBackoffMs?: number;
   maxAttempts?: number;
   maxTurns?: number;
   maxConcurrentRuns?: number;
+  remoteWorkerHost?:
+    | {
+        readonly name: string;
+        readonly sshDestination: string;
+        readonly sshExecutable: string;
+        readonly workspaceRoot: string;
+      }
+    | undefined;
   watchdog?:
     | {
         readonly enabled: boolean;
@@ -58,6 +71,28 @@ async function writeWorkflow(options: {
     | undefined;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
+  const workerHostsBlock =
+    options.remoteWorkerHost === undefined
+      ? ""
+      : `  worker_hosts:
+    ${options.remoteWorkerHost.name}:
+      ssh_destination: ${options.remoteWorkerHost.sshDestination}
+      ssh_executable: ${options.remoteWorkerHost.sshExecutable}
+      workspace_root: ${options.remoteWorkerHost.workspaceRoot}
+`;
+  const remoteExecutionBlock =
+    options.remoteWorkerHost === undefined
+      ? ""
+      : `    remote_execution:
+      kind: ssh
+      worker_host: ${options.remoteWorkerHost.name}
+`;
+  const agentEnvBlock =
+    Object.entries(options.agentEnv ?? {}).length === 0
+      ? "    {}\n"
+      : Object.entries(options.agentEnv ?? {})
+          .map(([key, value]) => `    ${key}: ${JSON.stringify(value)}\n`)
+          .join("");
   await fs.writeFile(
     workflowPath,
     `---
@@ -93,29 +128,28 @@ workspace:
   repo_url: ${options.remotePath}
   branch_prefix: symphony/
   cleanup_on_success: true
-hooks:
+${workerHostsBlock}hooks:
   after_create: []
 agent:
   runner:
     kind: ${options.runnerKind ?? "generic-command"}
-${
-  options.runnerProvider === undefined
-    ? ""
-    : `    provider: ${options.runnerProvider}
+${remoteExecutionBlock}${
+      options.runnerProvider === undefined
+        ? ""
+        : `    provider: ${options.runnerProvider}
 `
-}
-${
-  options.runnerModel === undefined
-    ? ""
-    : `    model: ${options.runnerModel}
+    }${
+      options.runnerModel === undefined
+        ? ""
+        : `    model: ${options.runnerModel}
 `
-}
+    }
   command: ${options.agentCommand}
   prompt_transport: stdin
   timeout_ms: 30000
   max_turns: ${options.maxTurns ?? 3}
-  env: {}
----
+  env:
+${agentEnvBlock}---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 Issue summary: {{ issue.summary }}
 {% if pull_request %}
@@ -147,12 +181,22 @@ async function createOrchestrator(
   const logger = new JsonLogger();
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = createTracker(workflow.config.tracker, logger);
-  const workspace = new LocalWorkspaceManager(
-    workflow.config.workspace,
-    workflow.config.hooks.afterCreate,
-    logger,
-  );
+  const remoteWorkerHost = getCodexRemoteWorkerHost(workflow.config);
+  const workspace =
+    remoteWorkerHost === null
+      ? new LocalWorkspaceManager(
+          workflow.config.workspace,
+          workflow.config.hooks.afterCreate,
+          logger,
+        )
+      : new RemoteSshWorkspaceManager(
+          workflow.config.workspace,
+          remoteWorkerHost,
+          workflow.config.hooks.afterCreate,
+          logger,
+        );
   const runner = createRunner(workflow.config.agent, logger, {
+    remoteWorkerHost,
     trackerToolService: createTrackerToolService(
       tracker,
       workflow.config.tracker,
@@ -364,6 +408,85 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("sociotechnica-org/symphony-ts#1");
+  });
+
+  it("runs a Codex app-server session over SSH and publishes remote execution identity", async () => {
+    server.seedIssue({
+      number: 7,
+      title: "Remote Codex execution",
+      body: "Use the SSH worker host",
+      labels: ["symphony:ready"],
+    });
+
+    const fakeCodex = await createFakeCodexExecutable();
+    const fakeSsh = await createFakeSshExecutable();
+    const remoteWorkspaceRoot = path.join(tempDir, "remote-workers");
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath: `file://${remotePath}`,
+      apiUrl: server.baseUrl,
+      runnerKind: "codex",
+      agentCommand: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -`,
+      remoteWorkerHost: {
+        name: "builder",
+        sshDestination: "builder@example.test",
+        sshExecutable: fakeSsh,
+        workspaceRoot: remoteWorkspaceRoot,
+      },
+      agentEnv: {
+        FAKE_CODEX_AGENT_COMMAND: path.resolve(
+          "tests/fixtures/fake-agent-success-unique.sh",
+        ),
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.activeIssues[0]).toMatchObject({
+      workspacePath: path.join(
+        remoteWorkspaceRoot,
+        "sociotechnica-org_symphony-ts_7",
+      ),
+      executionOwner: {
+        transport: {
+          kind: "remote-stdio-session",
+          remoteSessionId: expect.stringContaining(
+            "builder:sociotechnica-org/symphony-ts#7/attempt-1",
+          ),
+        },
+        endpoint: {
+          workspaceTargetKind: "remote",
+          workspaceHost: "builder",
+          workspaceId: "builder:sociotechnica-org_symphony-ts_7",
+        },
+      },
+    });
+
+    const summary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      7,
+    );
+    const session = await readIssueArtifactSession(
+      path.join(tempDir, ".tmp", "workspaces"),
+      7,
+      summary.latestSessionId!,
+    );
+    expect(session.transport).toMatchObject({
+      kind: "remote-stdio-session",
+      remoteSessionId: expect.stringContaining(
+        "builder:sociotechnica-org/symphony-ts#7/attempt-1",
+      ),
+    });
+    expect(session.executionOwner?.endpoint).toMatchObject({
+      workspaceTargetKind: "remote",
+      workspaceHost: "builder",
+      workspaceId: "builder:sociotechnica-org_symphony-ts_7",
+    });
+    expect(await countRemoteBranchCommits(remotePath, "symphony/7")).toBe(1);
   });
 
   it("records configured provider and model metadata for generic command runs", async () => {

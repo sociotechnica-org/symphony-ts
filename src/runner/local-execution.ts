@@ -7,6 +7,7 @@ import { getPreparedWorkspacePath } from "../domain/workspace.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
+import { createRunnerEnvironment } from "./run-environment.js";
 import {
   RUNNER_SHUTDOWN_GRACE_MS,
   createRunnerTransportMetadata,
@@ -88,15 +89,12 @@ export async function executeLocalRunnerCommand(
       cwd: workspacePath,
       env: {
         ...process.env,
-        ...config.env,
-        SYMPHONY_ISSUE_ID: execution.session.issue.id,
-        SYMPHONY_ISSUE_IDENTIFIER: execution.session.issue.identifier,
-        SYMPHONY_ISSUE_NUMBER: String(execution.session.issue.number),
-        SYMPHONY_RUN_ATTEMPT: String(execution.session.attempt.sequence),
-        SYMPHONY_RUN_TURN: String(execution.turnNumber),
-        SYMPHONY_BRANCH_NAME: execution.session.workspace.branchName,
-        SYMPHONY_WORKSPACE_PATH: workspacePath,
-        SYMPHONY_RUN_SESSION_ID: execution.session.id,
+        ...createRunnerEnvironment(
+          execution.session,
+          execution.turnNumber,
+          workspacePath,
+          config.env,
+        ),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });

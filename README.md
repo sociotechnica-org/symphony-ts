@@ -224,10 +224,17 @@ workspace:
   retention:
     on_success: delete
     on_failure: retain
+  worker_hosts:
+    builder:
+      ssh_destination: symphony@builder.example.com
+      workspace_root: /var/tmp/symphony/workspaces
 
 agent:
   runner:
     kind: codex
+    remote_execution:
+      kind: ssh
+      worker_host: builder
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   prompt_transport: stdin
   timeout_ms: 1800000
@@ -260,7 +267,9 @@ policy, code, docs, or local test evidence.
 | `workspace.root`                 | Where isolated workspaces are created                                                  |
 | `workspace.repo_url`             | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
 | `workspace.branch_prefix`        | Issue branch naming prefix                                                             |
+| `workspace.worker_hosts.<name>` | Optional SSH worker-host definitions for remote Codex execution                        |
 | `agent.runner.kind`              | Selects the logical runner provider (`codex`, `claude-code`, or `generic-command`)     |
+| `agent.runner.remote_execution`  | Optional remote execution selection for Codex (`kind: ssh`, `worker_host: <name>`)     |
 | `agent.command`                  | Runner command shape; Codex reuses its flags to launch `codex app-server`              |
 | `agent.prompt_transport`         | Sends the prompt over `stdin` or via a temp file path                                  |
 | `agent.timeout_ms`               | Max wall-clock time per runner turn                                                    |
@@ -308,6 +317,40 @@ subprocess per worker run and reuses a single Codex thread across continuation
 turns. Keep `agent.command` in the familiar `codex exec ...` shape; Symphony
 derives the app-server launch plus thread defaults such as model, sandbox, and
 approval policy from that command instead of shelling out with `codex exec resume`.
+
+When `agent.runner.remote_execution.kind: ssh` is set, Symphony keeps the
+orchestrator local but prepares the issue workspace on the selected
+`workspace.worker_hosts.<name>` target and launches `codex app-server` through
+one local `ssh` subprocess bound to that remote workspace. Remote Codex runs
+currently require:
+
+- `workspace.repo_url` to be a remote clone URL reachable from the worker host
+- `agent.prompt_transport: stdin`
+- one explicit `worker_host` selection per worker run
+
+Example:
+
+```yaml
+workspace:
+  root: ./.tmp/workspaces
+  repo_url: git@github.com:your-org/your-repo.git
+  branch_prefix: symphony/
+  worker_hosts:
+    builder:
+      ssh_destination: symphony@builder.example.com
+      workspace_root: /var/tmp/symphony/workspaces
+
+agent:
+  runner:
+    kind: codex
+    remote_execution:
+      kind: ssh
+      worker_host: builder
+  command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -
+  prompt_transport: stdin
+  timeout_ms: 1800000
+  max_turns: 20
+```
 
 The Claude Code adapter expects a headless JSON command shape so Symphony can
 capture `session_id` for continuation turns and status artifacts. Keep these

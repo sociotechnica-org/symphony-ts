@@ -428,7 +428,7 @@ export function renderFactoryStatusSnapshot(
       );
       if (issue.executionOwner !== null) {
         lines.push(
-          `    Execution: transport=${issue.executionOwner.transport.kind} factory=${issue.executionOwner.factory.host}/${issue.executionOwner.factory.instanceId} session=${issue.executionOwner.runSessionId}`,
+          `    Execution: transport=${issue.executionOwner.transport.kind} factory=${issue.executionOwner.factory.host}/${issue.executionOwner.factory.instanceId} session=${issue.executionOwner.runSessionId} remote=${issue.executionOwner.transport.remoteSessionId ?? "n/a"} host=${issue.executionOwner.endpoint.workspaceHost ?? "n/a"} workspace=${issue.executionOwner.endpoint.workspaceId ?? "n/a"}`,
         );
       }
       lines.push(
@@ -460,7 +460,7 @@ export function renderFactoryStatusSnapshot(
       );
       if (issue.executionOwner !== null) {
         lines.push(
-          `    Execution: transport=${issue.executionOwner.transport.kind} factory=${issue.executionOwner.factory.host}/${issue.executionOwner.factory.instanceId}`,
+          `    Execution: transport=${issue.executionOwner.transport.kind} factory=${issue.executionOwner.factory.host}/${issue.executionOwner.factory.instanceId} remote=${issue.executionOwner.transport.remoteSessionId ?? "n/a"} host=${issue.executionOwner.endpoint.workspaceHost ?? "n/a"} workspace=${issue.executionOwner.endpoint.workspaceId ?? "n/a"}`,
         );
       }
       lines.push(
