@@ -20,6 +20,7 @@ export function createIssue(
     url: `https://example.test/issues/${number}`,
     createdAt: timestamp,
     updatedAt: timestamp,
+    queuePriority: null,
   };
 }
 

@@ -1,3 +1,12 @@
+export interface QueuePriority {
+  /**
+   * Lower ranks are higher priority. Trackers normalize native priority
+   * semantics into this ascending integer scale at the boundary.
+   */
+  readonly rank: number;
+  readonly label: string | null;
+}
+
 export interface RuntimeIssue {
   readonly id: string;
   readonly identifier: string;
@@ -9,4 +18,5 @@ export interface RuntimeIssue {
   readonly url: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly queuePriority: QueuePriority | null;
 }

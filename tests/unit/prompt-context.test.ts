@@ -26,6 +26,7 @@ function createIssue(description: string): RuntimeIssue {
     url: "https://example.test/issues/1",
     createdAt: "2026-03-14T00:00:00.000Z",
     updatedAt: "2026-03-14T00:00:00.000Z",
+    queuePriority: null,
   };
 }
 

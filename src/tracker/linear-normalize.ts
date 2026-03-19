@@ -221,6 +221,7 @@ export function normalizeLinearIssueSnapshot(
     url: requireString(record["url"], `${field}.url`),
     createdAt: requireString(record["createdAt"], `${field}.createdAt`),
     updatedAt: requireString(record["updatedAt"], `${field}.updatedAt`),
+    queuePriority: null,
   };
 
   return {

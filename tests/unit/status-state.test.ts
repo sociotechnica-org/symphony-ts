@@ -19,6 +19,7 @@ const issue: RuntimeIssue = {
   url: "https://example.test/issues/12",
   createdAt: "2026-03-06T11:00:00.000Z",
   updatedAt: "2026-03-06T11:00:00.000Z",
+  queuePriority: null,
 };
 
 describe("upsertActiveIssue", () => {

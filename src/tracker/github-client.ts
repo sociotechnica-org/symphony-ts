@@ -383,6 +383,7 @@ export function toRuntimeIssue(
     url: issue.html_url,
     createdAt: issue.created_at,
     updatedAt: issue.updated_at,
+    queuePriority: null,
   };
 }
 

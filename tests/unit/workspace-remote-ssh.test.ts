@@ -26,6 +26,7 @@ function createIssue(number: number) {
     url: `https://example.test/issues/${number.toString()}`,
     createdAt: "2026-03-19T12:00:00.000Z",
     updatedAt: "2026-03-19T12:00:00.000Z",
+    queuePriority: null,
   };
 }
 

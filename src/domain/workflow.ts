@@ -1,6 +1,10 @@
 import type { RuntimeIssue } from "./issue.js";
 import type { HandoffLifecycle } from "./handoff.js";
 
+export interface QueuePriorityConfig {
+  readonly enabled: boolean;
+}
+
 export interface WatchdogConfig {
   readonly enabled: boolean;
   readonly checkIntervalMs: number;
@@ -21,6 +25,7 @@ interface BaseGitHubTrackerConfig {
   readonly failedLabel: string;
   readonly successComment: string;
   readonly reviewBotLogins: readonly string[];
+  readonly queuePriority?: QueuePriorityConfig | undefined;
 }
 
 export interface GitHubTrackerConfig extends BaseGitHubTrackerConfig {
@@ -43,6 +48,7 @@ export interface LinearTrackerConfig {
   readonly assignee: string | null;
   readonly activeStates: readonly string[];
   readonly terminalStates: readonly string[];
+  readonly queuePriority?: QueuePriorityConfig | undefined;
 }
 
 export type TrackerConfig =

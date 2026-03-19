@@ -106,6 +106,7 @@ ${buildSharedWorkflowSections()}`,
         url: "https://example.test/issues/1",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
+        queuePriority: null,
       },
       attempt: null,
       pullRequest: null,
@@ -144,6 +145,110 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.workspace.repoUrl).toBe("git@example.com:repo.git");
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
       "sociotechnica-org/symphony-ts",
+    );
+  });
+
+  it("loads optional tracker queue-priority config for github", async () => {
+    const dir = await createTempDir("workflow-github-queue-priority-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: github
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  queue_priority:
+    enabled: true
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.tracker.queuePriority).toEqual({
+      enabled: true,
+    });
+  });
+
+  it("loads optional tracker queue-priority config for linear", async () => {
+    const dir = await createTempDir("workflow-linear-queue-priority-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  api_key: linear-token
+  project_slug: team-project
+  queue_priority:
+    enabled: false
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.tracker.kind).toBe("linear");
+    if (workflow.config.tracker.kind === "linear") {
+      expect(workflow.config.tracker.queuePriority).toEqual({
+        enabled: false,
+      });
+    }
+  });
+
+  it("fails clearly when tracker.queue_priority is malformed", async () => {
+    const dir = await createTempDir("workflow-queue-priority-invalid-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  queue_priority: true
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected object for tracker.queue_priority",
+    );
+  });
+
+  it("fails clearly when tracker.queue_priority.enabled is not a boolean", async () => {
+    const dir = await createTempDir("workflow-queue-priority-enabled-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  queue_priority:
+    enabled: yes
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected boolean for tracker.queue_priority.enabled",
     );
   });
 
@@ -251,6 +356,7 @@ agent:
         url: "https://example.test/issues/1",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
+        queuePriority: null,
       },
       turnNumber: 2,
       maxTurns: workflow.config.agent.maxTurns,
@@ -311,6 +417,7 @@ ${buildSharedWorkflowSections()}`,
         url: "https://example.test/issues/1",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
+        queuePriority: null,
       },
       attempt: null,
       pullRequest: {
@@ -389,6 +496,7 @@ ${buildSharedWorkflowSections()}`,
           url: "https://example.test/issues/1",
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:00:00.000Z",
+          queuePriority: null,
         },
         attempt: null,
         pullRequest: null,
@@ -431,6 +539,7 @@ ${buildSharedWorkflowSections()}`,
           url: "https://example.test/issues/1",
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:00:00.000Z",
+          queuePriority: null,
         },
         attempt: null,
         pullRequest: {
@@ -1523,6 +1632,7 @@ ${buildSharedWorkflowSections()}`,
         url: "https://example.test/issues/1",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
+        queuePriority: null,
       },
       attempt: null,
       pullRequest: null,

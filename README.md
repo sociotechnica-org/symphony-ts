@@ -213,6 +213,8 @@ tracker:
   ready_label: symphony:ready
   running_label: symphony:running
   failed_label: symphony:failed
+  queue_priority:
+    enabled: true
 
 polling:
   interval_ms: 30000
@@ -242,6 +244,12 @@ agent:
   timeout_ms: 1800000
   max_turns: 20
 ```
+
+`tracker.queue_priority` reserves a tracker-boundary contract for normalized
+ready-work ordering metadata. In this slice it only enables the config seam and
+normalized `issue.queuePriority` field; current GitHub and Linear adapters do
+not populate tracker-native priority yet, so missing or unset priority still
+falls back to deterministic issue-number ordering.
 
 When multiple remote Codex worker hosts are configured, Symphony selects a host
 at dispatch time, keeps continuation turns on that same host, and prefers the

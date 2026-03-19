@@ -29,6 +29,7 @@ function createSession(): RunSession {
       url: "https://example.test/issues/89",
       createdAt: "2026-03-12T10:00:00.000Z",
       updatedAt: "2026-03-12T10:00:00.000Z",
+      queuePriority: null,
     },
     workspace: {
       key: "sociotechnica-org_symphony-ts_89",
