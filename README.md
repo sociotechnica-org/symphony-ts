@@ -198,7 +198,7 @@ from existing issue reports. They are written under:
 
 If a run fails, Symphony retries. After retries are exhausted, it marks the issue `symphony:failed`.
 
-Active run ownership is persisted locally. On restart, Symphony reconciles `symphony:running` issues against local state, recovers orphaned runs, and resumes or fails them cleanly. Per-issue reporting artifacts are written to `.var/factory/issues/` so they survive workspace cleanup. Generated per-issue reports are written under `.var/reports/issues/<issue-number>/` when the report command is run.
+Active run ownership is persisted locally as a transport-aware execution-owner record. On restart, Symphony reconciles `symphony:running` issues against local state, recovers orphaned runs, and resumes or fails them cleanly without assuming every execution owns a local runner PID. Per-issue reporting artifacts are written to `.var/factory/issues/` so they survive workspace cleanup. Generated per-issue reports are written under `.var/reports/issues/<issue-number>/` when the report command is run.
 
 ## Configuration
 

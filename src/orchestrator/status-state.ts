@@ -140,6 +140,10 @@ export function upsertActiveIssue(
       update.runSessionId === undefined
         ? (existing?.runSessionId ?? null)
         : update.runSessionId,
+    executionOwner:
+      update.executionOwner === undefined
+        ? (existing?.executionOwner ?? null)
+        : update.executionOwner,
     ownerPid:
       update.ownerPid === undefined
         ? (existing?.ownerPid ?? null)

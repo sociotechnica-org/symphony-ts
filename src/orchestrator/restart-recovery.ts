@@ -37,6 +37,13 @@ export function decideRestartRecovery(input: {
   readonly lifecycle: HandoffLifecycle | null;
 }): RestartRecoveryDecision {
   const { issue, branchName, snapshot, lifecycle } = input;
+  const transportKind = snapshot.executionOwner?.transport.kind ?? null;
+  const remoteOnlyExecution =
+    snapshot.executionOwner !== null &&
+    snapshot.executionOwner.localControl === null &&
+    (snapshot.executionOwner.transport.remoteSessionId !== null ||
+      snapshot.executionOwner.transport.remoteTaskId !== null ||
+      snapshot.executionOwner.transport.kind.startsWith("remote-"));
 
   if (snapshot.kind === "active") {
     return {
@@ -90,7 +97,9 @@ export function decideRestartRecovery(input: {
     summary:
       snapshot.kind === "missing"
         ? `Recovered ${issue.identifier} with no inherited local ownership.`
-        : `Recovered stale inherited ownership for ${issue.identifier}.`,
+        : remoteOnlyExecution
+          ? `Recovered stale inherited ${transportKind ?? "remote"} execution ownership for ${issue.identifier} without local kill semantics.`
+          : `Recovered stale inherited ownership for ${issue.identifier}.`,
     shouldDispatch: true,
   };
 }

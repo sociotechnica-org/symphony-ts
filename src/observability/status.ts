@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { RetryClass } from "../domain/retry.js";
 import { ObservabilityError } from "../domain/errors.js";
+import type { ActiveRunExecutionOwner } from "../domain/execution-owner.js";
 import type { DispatchPressureStateSnapshot } from "../domain/transient-failure.js";
 import {
   parseFactoryRuntimeIdentity,
@@ -99,6 +100,7 @@ export interface FactoryRestartRecoveryIssueSnapshot {
     | "rework-required"
     | "handoff-ready"
     | null;
+  readonly executionOwner: ActiveRunExecutionOwner | null;
   readonly ownerPid: number | null;
   readonly ownerAlive: boolean | null;
   readonly runnerPid: number | null;
@@ -143,6 +145,7 @@ export interface FactoryActiveIssueSnapshot {
   readonly workspacePath: string | null;
   readonly branchName: string;
   readonly runSessionId: string | null;
+  readonly executionOwner: ActiveRunExecutionOwner | null;
   readonly ownerPid: number | null;
   readonly runnerPid: number | null;
   readonly startedAt: string | null;
@@ -423,6 +426,11 @@ export function renderFactoryStatusSnapshot(
       lines.push(
         `    Lease: ${issue.leaseState}  Lifecycle: ${issue.lifecycleKind ?? "n/a"}`,
       );
+      if (issue.executionOwner !== null) {
+        lines.push(
+          `    Execution: transport=${issue.executionOwner.transport.kind} factory=${issue.executionOwner.factory.host}/${issue.executionOwner.factory.instanceId} session=${issue.executionOwner.runSessionId}`,
+        );
+      }
       lines.push(
         `    PIDs: owner=${issue.ownerPid?.toString() ?? "n/a"} runner=${issue.runnerPid?.toString() ?? "n/a"}`,
       );
@@ -450,6 +458,11 @@ export function renderFactoryStatusSnapshot(
       lines.push(
         `    Workspace: ${issue.workspacePath ?? "n/a"}  Session: ${issue.runSessionId ?? "n/a"}`,
       );
+      if (issue.executionOwner !== null) {
+        lines.push(
+          `    Execution: transport=${issue.executionOwner.transport.kind} factory=${issue.executionOwner.factory.host}/${issue.executionOwner.factory.instanceId}`,
+        );
+      }
       lines.push(
         `    PIDs: owner=${issue.ownerPid?.toString() ?? "n/a"} runner=${issue.runnerPid?.toString() ?? "n/a"}`,
       );
@@ -1013,6 +1026,11 @@ function parseRestartRecoveryIssue(
       filePath,
       `${field}.lifecycleKind`,
     ),
+    executionOwner: parseExecutionOwner(
+      issue.executionOwner,
+      filePath,
+      `${field}.executionOwner`,
+    ),
     ownerPid: expectNullableInteger(
       issue.ownerPid,
       filePath,
@@ -1158,6 +1176,11 @@ function parseActiveIssue(
       filePath,
       `${field}.runSessionId`,
     ),
+    executionOwner: parseExecutionOwner(
+      issue.executionOwner,
+      filePath,
+      `${field}.executionOwner`,
+    ),
     ownerPid: expectNullableInteger(
       issue.ownerPid,
       filePath,
@@ -1196,6 +1219,109 @@ function parseActiveIssue(
       filePath,
       `${field}.runnerVisibility`,
     ),
+  };
+}
+
+function parseExecutionOwner(
+  value: unknown,
+  filePath: string,
+  field: string,
+): ActiveRunExecutionOwner | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const owner = expectObject(value, filePath, field);
+  const factory = expectObject(owner.factory, filePath, `${field}.factory`);
+  const transport = parseRunnerTransportMetadata(
+    owner.transport,
+    null,
+    filePath,
+    `${field}.transport`,
+  );
+  const localControl =
+    owner.localControl === null || owner.localControl === undefined
+      ? null
+      : {
+          host: expectString(
+            expectObject(owner.localControl, filePath, `${field}.localControl`)
+              .host,
+            filePath,
+            `${field}.localControl.host`,
+          ),
+          pid: expectNullableInteger(
+            expectObject(owner.localControl, filePath, `${field}.localControl`)
+              .pid,
+            filePath,
+            `${field}.localControl.pid`,
+          ),
+          canTerminate: expectNullableBoolean(
+            expectObject(owner.localControl, filePath, `${field}.localControl`)
+              .canTerminate,
+            filePath,
+            `${field}.localControl.canTerminate`,
+          ) ?? false,
+        };
+  const endpoint = expectObject(owner.endpoint, filePath, `${field}.endpoint`);
+  return {
+    factory: {
+      host: expectString(factory.host, filePath, `${field}.factory.host`),
+      instanceId: expectString(
+        factory.instanceId,
+        filePath,
+        `${field}.factory.instanceId`,
+      ),
+      pid: expectNullableInteger(factory.pid, filePath, `${field}.factory.pid`),
+    },
+    runSessionId: expectString(
+      owner.runSessionId,
+      filePath,
+      `${field}.runSessionId`,
+    ),
+    transport,
+    localControl,
+    endpoint: {
+      workspaceTargetKind: expectEnum(
+        endpoint.workspaceTargetKind,
+        ["local", "remote"],
+        filePath,
+        `${field}.endpoint.workspaceTargetKind`,
+      ),
+      workspaceHost: expectNullableString(
+        endpoint.workspaceHost,
+        filePath,
+        `${field}.endpoint.workspaceHost`,
+      ),
+      workspacePath: expectNullableString(
+        endpoint.workspacePath,
+        filePath,
+        `${field}.endpoint.workspacePath`,
+      ),
+      workspaceId: expectNullableString(
+        endpoint.workspaceId,
+        filePath,
+        `${field}.endpoint.workspaceId`,
+      ),
+      provider: expectNullableString(
+        endpoint.provider,
+        filePath,
+        `${field}.endpoint.provider`,
+      ),
+      model: expectNullableString(
+        endpoint.model,
+        filePath,
+        `${field}.endpoint.model`,
+      ),
+      backendSessionId: expectNullableString(
+        endpoint.backendSessionId,
+        filePath,
+        `${field}.endpoint.backendSessionId`,
+      ),
+      backendThreadId: expectNullableString(
+        endpoint.backendThreadId,
+        filePath,
+        `${field}.endpoint.backendThreadId`,
+      ),
+    },
   };
 }
 
