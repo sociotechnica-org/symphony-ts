@@ -128,11 +128,16 @@ type FakeCodexMode =
   | "success"
   | "hang"
   | "token-count-event-msg"
+  | "command-approval"
+  | "command-approval-requires-input"
+  | "malformed-command-approval"
+  | "unsupported-request"
   | "turn-failed"
   | "turn-failed-null-params"
   | "turn-failed-without-params"
   | "completed-null-params"
   | "completed-without-params"
+  | "completed-malformed-params"
   | "malformed-stream"
   | "startup-stderr-exit"
   | "malformed-thread"
@@ -152,6 +157,9 @@ const mode = process.env.FAKE_CODEX_MODE ?? "success";
 const logFile = process.env.FAKE_CODEX_LOG_FILE ?? null;
 let turnCount = 0;
 const threadId = "thread-1";
+let pendingTurnId = null;
+let pendingServerRequestId = null;
+let pendingServerRequestKind = null;
 
 function log(entry) {
   if (!logFile) return;
@@ -253,6 +261,33 @@ rl.on("line", (line) => {
   }
   log(payload);
 
+  if (payload.id !== undefined && payload.method === undefined) {
+    if (payload.id === pendingServerRequestId) {
+      const requestKind = pendingServerRequestKind;
+      const turnId = pendingTurnId;
+      pendingServerRequestId = null;
+      pendingServerRequestKind = null;
+      pendingTurnId = null;
+
+      if (requestKind === "command-approval" && turnId !== null) {
+        setTimeout(() => completeTurn(turnId), 5);
+        return;
+      }
+      if (requestKind === "unsupported-request" && turnId !== null) {
+        send({
+          method: "turn/failed",
+          params: {
+            threadId,
+            turn: { id: turnId },
+            message: "unsupported request rejected",
+          },
+        });
+        return;
+      }
+    }
+    return;
+  }
+
   if (payload.method === "initialize") {
     send({ id: payload.id, result: { userAgent: "fake-codex" } });
     return;
@@ -299,6 +334,49 @@ rl.on("line", (line) => {
         turn: { id: turnId },
       },
     });
+    if (mode === "command-approval" || mode === "command-approval-requires-input") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9000 + turnCount;
+      pendingServerRequestKind = "command-approval";
+      send({
+        id: pendingServerRequestId,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          command: "rm -rf /",
+        },
+      });
+      return;
+    }
+    if (mode === "malformed-command-approval") {
+      send({
+        id: 9100 + turnCount,
+        method: "item/commandExecution/requestApproval",
+        params: {
+          command: 7,
+        },
+      });
+      return;
+    }
+    if (mode === "unsupported-request") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9200 + turnCount;
+      pendingServerRequestKind = "unsupported-request";
+      send({
+        id: pendingServerRequestId,
+        method: "item/tool/call",
+        params: {
+          tool: "unknown",
+        },
+      });
+      return;
+    }
+    if (mode === "completed-malformed-params") {
+      send({
+        method: "turn/completed",
+        params: [],
+      });
+      return;
+    }
     setTimeout(() => completeTurn(turnId), 5);
   }
 });
@@ -1072,6 +1150,188 @@ describe("runners", () => {
     expect(entry.codexTotalTokens).toBe(168);
   });
 
+  it("auto-approves supported Codex command approval requests", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const events: RunnerEvent[] = [];
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "command-approval",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn(
+          {
+            turnNumber: 1,
+            prompt: "first",
+          },
+          {
+            onEvent(event) {
+              events.push(event);
+            },
+          },
+        ),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close();
+    }
+
+    const waitingEvent = events.find(
+      (event) =>
+        event.kind === "visibility" &&
+        event.visibility.state === "waiting" &&
+        event.visibility.waitingReason?.includes("rm -rf /") === true,
+    );
+    expect(waitingEvent).toBeDefined();
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9001,
+        result: {
+          decision: "approved",
+        },
+      }),
+    );
+  });
+
+  it("fails explicitly when Codex requests interactive approval", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --ask-for-approval on-request -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "command-approval-requires-input",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError(/Codex app-server requested approval/);
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9001,
+        error: expect.objectContaining({
+          code: -32602,
+        }),
+      }),
+    );
+  });
+
+  it("fails explicitly when Codex sends a malformed approval request", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "malformed-command-approval",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError(
+        /Codex app-server sent a malformed command approval request/,
+      );
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9101,
+        error: expect.objectContaining({
+          code: -32602,
+        }),
+      }),
+    );
+  });
+
+  it("responds explicitly to unsupported Codex server requests", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "unsupported-request",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError(
+        /Codex app-server requested unsupported method 'item\/tool\/call'/,
+      );
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9201,
+        error: expect.objectContaining({
+          code: -32601,
+        }),
+      }),
+    );
+  });
+
   it("completes a Codex turn when turn/completed omits params", async () => {
     const fakeCodex = await createFakeCodexExecutable();
     const runner = createCodexRunnerForMode(
@@ -1091,6 +1351,28 @@ describe("runners", () => {
       });
     } finally {
       await liveSession.close();
+    }
+  });
+
+  it("fails clearly when turn/completed sends malformed params", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const runner = createCodexRunnerForMode(
+      fakeCodex,
+      "completed-malformed-params",
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError(
+        /Codex app-server returned a malformed turn\/completed payload/,
+      );
+    } finally {
+      await liveSession.close().catch(() => {});
     }
   });
 

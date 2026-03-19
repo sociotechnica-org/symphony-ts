@@ -14,6 +14,7 @@ OpenAI released [the Symphony spec](https://github.com/openai/symphony) to addre
 
 - **Runs locally.** Point it at a repo and it starts working issues. No servers to deploy, no accounts to create.
 - **Adapter pattern for everything.** Pluggable trackers (GitHub and Linear) plus a runner contract that separates provider identity from execution transport. Built-in `codex`, `claude-code`, and `generic-command` adapters stay local today; remote workers can land against the same contract later. Swap any layer without touching the others.
+  The `codex` adapter now treats `codex app-server` as its primary structured transport boundary for startup, continuation turns, approvals, streaming events, and shutdown.
 - **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in your tracker (GitHub Issues or Linear) instead of a separate control plane. Today's bootstrap runtime is designed for one local factory instance; broader multi-instance coordination is planned.
 - **Visibility.** The tracker gives you real-time visibility into the whole factory. A local status surface shows worker-level detail.
 - **It builds itself.** Symphony works `symphony-ts` issues and opens PRs back into this repo. The [self-hosting loop](docs/guides/self-hosting-loop.md) is how we develop it.

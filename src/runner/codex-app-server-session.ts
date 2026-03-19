@@ -11,6 +11,18 @@ import {
   type CodexAppServerCommand,
 } from "./codex-app-server-command.js";
 import {
+  CodexAppServerTransportError,
+  classifyCodexAppServerMessage,
+  createCodexApprovalResponse,
+  createCodexInvalidParamsResponse,
+  createCodexUnsupportedRequestResponse,
+  extractCodexApprovalRequest,
+  formatCodexTransportError,
+  type CodexAppServerFailureClass,
+  type CodexAppServerRequestMessage,
+  type CodexAppServerSessionState,
+} from "./codex-app-server-protocol.js";
+import {
   RUNNER_SHUTDOWN_GRACE_MS,
   summarizeRunnerText,
   withRunnerTransportLocalProcess,
@@ -66,6 +78,8 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #appServerPid: number | null = null;
   #loggedDroppedArgs = false;
   #closingReason: "timeout" | "aborted" | null = null;
+  #sessionState: CodexAppServerSessionState = "idle";
+  #transportFailureClass: CodexAppServerFailureClass | null = null;
   #forcedShutdown = false;
   #closeTimersScheduled = false;
   #nextTurnStartRequestId = TURN_START_FIRST_REQUEST_ID;
@@ -170,8 +184,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
   async close(): Promise<void> {
     const child = this.#child;
     if (child === null) {
+      this.#sessionState = "closed";
       return;
     }
+    this.#sessionState = "closing";
     if (this.#closePromise === null) {
       this.#closePromise = new Promise<void>((resolve, reject) => {
         this.#closeResolve = resolve;
@@ -197,7 +213,8 @@ export class CodexAppServerSession implements LiveRunnerSession {
       setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
           this.#closeReject?.(
-            new RunnerError(
+            this.#createTransportError(
+              "startup-transport-failure",
               `Codex app-server did not exit after ${CLOSE_TIMEOUT_MS}ms`,
             ),
           );
@@ -213,6 +230,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
 
   async #ensureStarted(options?: RunnerRunOptions): Promise<void> {
     if (this.#threadId !== null) {
+      this.#sessionState = "ready";
       return;
     }
     if (this.#activeTurn !== null || this.#pendingResponse !== null) {
@@ -224,11 +242,18 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     try {
+      this.#sessionState = "initializing";
       await this.#sendInitialize();
       await this.#sendNotification({ method: "initialized", params: {} });
+      this.#sessionState = "starting-thread";
       await this.#startThread();
     } catch (error) {
-      throw this.#withStartupStderr(asError(error));
+      throw this.#withStartupStderr(
+        this.#normalizeTransportError(
+          asError(error),
+          "startup-transport-failure",
+        ),
+      );
     }
   }
 
@@ -269,6 +294,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
 
     this.#child = child;
     this.#appServerPid = child.pid ?? null;
+    this.#sessionState = "starting-process";
     this.#closePromise = new Promise<void>((resolve, reject) => {
       this.#closeResolve = resolve;
       this.#closeReject = reject;
@@ -341,9 +367,12 @@ export class CodexAppServerSession implements LiveRunnerSession {
     child.on("error", (error) => {
       this.#rejectActiveState(
         this.#withStartupStderr(
-          new RunnerError(`Failed to launch codex app-server`, {
-            cause: error,
-          }),
+          this.#normalizeTransportError(
+            new RunnerError(`Failed to launch codex app-server`, {
+              cause: error,
+            }),
+            "startup-transport-failure",
+          ),
         ),
       );
     });
@@ -352,10 +381,15 @@ export class CodexAppServerSession implements LiveRunnerSession {
         this.#closingReason === null &&
         (this.#activeTurn !== null || this.#pendingResponse !== null)
           ? this.#withStartupStderr(
-              new RunnerError(
-                `Codex app-server exited before the active request completed (exit=${String(
-                  exitCode,
-                )}, signal=${String(signalCode)})`,
+              this.#normalizeTransportError(
+                new RunnerError(
+                  `Codex app-server exited before the active request completed (exit=${String(
+                    exitCode,
+                  )}, signal=${String(signalCode)})`,
+                ),
+                this.#activeTurn === null
+                  ? "startup-transport-failure"
+                  : "active-turn-transport-failure",
               ),
             )
           : null;
@@ -364,6 +398,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       }
       this.#child = null;
       this.#closeTimersScheduled = false;
+      this.#sessionState = "closed";
       this.#closeResolve?.();
       this.#closeResolve = null;
       this.#closeReject = null;
@@ -408,11 +443,13 @@ export class CodexAppServerSession implements LiveRunnerSession {
     const thread = asRecord(result["thread"]);
     const threadId = typeof thread?.["id"] === "string" ? thread["id"] : null;
     if (threadId === null) {
-      throw new RunnerError(
+      throw new CodexAppServerTransportError(
+        "thread-start-transport-failure",
         "Codex app-server returned an invalid thread/start response",
       );
     }
     this.#threadId = threadId;
+    this.#sessionState = "ready";
     await this.#emitVisibility({
       state: "starting",
       phase: "session-start",
@@ -438,6 +475,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       this.#runSession,
       "Codex app-server turn execution",
     );
+    this.#sessionState = "starting-turn";
     await this.#emitVisibility({
       state: "running",
       phase: "turn-execution",
@@ -474,13 +512,15 @@ export class CodexAppServerSession implements LiveRunnerSession {
             typeof turnPayload?.["id"] === "string" ? turnPayload["id"] : null;
           if (turnId === null) {
             this.#rejectActiveTurn(
-              new RunnerError(
+              new CodexAppServerTransportError(
+                "turn-start-transport-failure",
                 "Codex app-server returned an invalid turn/start response",
               ),
             );
             return;
           }
           this.#latestTurnId = turnId;
+          this.#sessionState = "streaming-turn";
         })
         .catch((error) => {
           this.#rejectActiveTurn(error);
@@ -588,11 +628,6 @@ export class CodexAppServerSession implements LiveRunnerSession {
       return;
     }
 
-    const message = asRecord(payload);
-    if (message === null) {
-      return;
-    }
-
     const update = parseRunUpdateEvent(payload);
     if (update !== undefined) {
       try {
@@ -606,45 +641,66 @@ export class CodexAppServerSession implements LiveRunnerSession {
       }
     }
 
-    if (message["id"] !== undefined) {
-      this.#handleResponse(message);
+    const message = classifyCodexAppServerMessage(payload);
+    if (message === null) {
       return;
     }
-    this.#handleNotification(message);
+
+    switch (message.kind) {
+      case "response":
+        this.#handleResponse(message);
+        return;
+      case "request":
+        void this.#handleRequest(message);
+        return;
+      case "notification":
+        this.#handleNotification(
+          message.method,
+          message.params,
+          message.rawParams,
+        );
+        return;
+    }
   }
 
-  #handleResponse(message: Record<string, unknown>): void {
+  #handleResponse(message: {
+    readonly id: unknown;
+    readonly result: Record<string, unknown> | null;
+    readonly error: unknown;
+  }): void {
     const pending = this.#pendingResponse;
     if (pending === null) {
       return;
     }
-    if (message["id"] !== pending.id) {
+    if (message.id !== pending.id) {
       this.#logger.warn(
         "Codex app-server returned a response with an unexpected id",
         {
           runSessionId: this.#runSession.id,
           expectedId: pending.id,
-          receivedId: message["id"],
+          receivedId: message.id,
           method: pending.method,
         },
       );
       return;
     }
     this.#pendingResponse = null;
-    if (message["error"] !== undefined) {
+    if (message.error !== undefined) {
       pending.reject(
-        new RunnerError(
+        this.#createTransportError(
+          failureClassForPendingMethod(pending.method),
           `Codex app-server request '${pending.method}' failed: ${JSON.stringify(
-            message["error"],
+            message.error,
           )}`,
         ),
       );
       return;
     }
-    const result = asRecord(message["result"]);
+    const result = message.result;
     if (result === null) {
       pending.reject(
-        new RunnerError(
+        this.#createTransportError(
+          failureClassForPendingMethod(pending.method),
           `Codex app-server request '${pending.method}' returned an invalid result payload`,
         ),
       );
@@ -653,15 +709,85 @@ export class CodexAppServerSession implements LiveRunnerSession {
     pending.resolve(result);
   }
 
-  #handleNotification(message: Record<string, unknown>): void {
-    const method =
-      typeof message["method"] === "string" ? message["method"] : null;
-    if (method === null) {
-      return;
-    }
+  async #handleRequest(message: CodexAppServerRequestMessage): Promise<void> {
+    try {
+      const approval = extractCodexApprovalRequest(message);
+      if (approval === null) {
+        await this.#writeMessage(
+          createCodexUnsupportedRequestResponse(message.id, message.method),
+        );
+        this.#rejectActiveTurn(
+          this.#createTransportError(
+            "unsupported-request-failure",
+            `Codex app-server requested unsupported method '${message.method}'`,
+          ),
+        );
+        return;
+      }
 
+      this.#sessionState = "awaiting-approval";
+      const observedAt = new Date().toISOString();
+      await this.#emitVisibility({
+        state: "waiting",
+        phase: "awaiting-external",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary: `Codex approval requested (${approval.kind})`,
+        waitingReason: `Waiting on Codex ${approval.kind} approval for ${approval.summary}`,
+      });
+
+      if (this.#appServerCommand.approvalPolicy !== "never") {
+        await this.#writeMessage(
+          createCodexInvalidParamsResponse(
+            message.id,
+            message.method,
+            "Symphony cannot satisfy interactive approvals unless the Codex runner is configured with approvalPolicy=never",
+          ),
+        );
+        this.#rejectActiveTurn(
+          this.#createTransportError(
+            "approval-transport-failure",
+            `Codex app-server requested approval for ${approval.summary}, but the runner is not configured for non-interactive approval`,
+          ),
+        );
+        return;
+      }
+
+      await this.#writeMessage(createCodexApprovalResponse(message.id));
+      this.#sessionState = "streaming-turn";
+      await this.#emitVisibility({
+        state: "running",
+        phase: "turn-execution",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary: `Codex approval granted (${approval.kind})`,
+        stdoutSummary: summarizeRunnerText(this.#activeTurn?.stdout ?? ""),
+        stderrSummary: summarizeRunnerText(this.#activeTurn?.stderr ?? ""),
+      });
+    } catch (error) {
+      const resolvedError = this.#normalizeTransportError(
+        asError(error),
+        "approval-transport-failure",
+      );
+      try {
+        await this.#writeMessage(
+          createCodexInvalidParamsResponse(
+            message.id,
+            message.method,
+            resolvedError.message,
+          ),
+        );
+      } catch {}
+      this.#rejectActiveTurn(resolvedError);
+    }
+  }
+
+  #handleNotification(
+    method: string,
+    params: Record<string, unknown> | null,
+    rawParams: unknown,
+  ): void {
     if (method === "turn/started") {
-      const params = asRecord(message["params"]);
       if (params === null) {
         return;
       }
@@ -671,6 +797,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       if (turnId !== null) {
         this.#latestTurnId = turnId;
       }
+      this.#sessionState = "streaming-turn";
       void this.#emitVisibility({
         state: "running",
         phase: "turn-execution",
@@ -684,13 +811,43 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     if (method === "turn/completed") {
+      if (rawParams !== undefined && rawParams !== null && params === null) {
+        this.#rejectActiveTurn(
+          this.#createTransportError(
+            "malformed-terminal-payload",
+            "Codex app-server returned a malformed turn/completed payload",
+          ),
+        );
+        return;
+      }
+      if (params !== null) {
+        const turnPayload = asRecord(params["turn"]);
+        if (turnPayload === null) {
+          this.#rejectActiveTurn(
+            this.#createTransportError(
+              "malformed-terminal-payload",
+              "Codex app-server returned a malformed turn/completed payload",
+            ),
+          );
+          return;
+        }
+      }
       this.#resolveActiveTurn();
       return;
     }
 
     if (method === "turn/failed" || method === "turn/cancelled") {
-      const params = asRecord(message["params"]);
+      if (rawParams !== undefined && rawParams !== null && params === null) {
+        this.#rejectActiveTurn(
+          this.#createTransportError(
+            "malformed-terminal-payload",
+            `Codex app-server returned a malformed ${method} payload`,
+          ),
+        );
+        return;
+      }
       const observedAt = new Date().toISOString();
+      this.#sessionState = "turn-failed";
       void this.#emitVisibility({
         state: method === "turn/cancelled" ? "cancelled" : "failed",
         phase: method === "turn/cancelled" ? "shutdown" : "turn-finished",
@@ -718,6 +875,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       return;
     }
     this.#latestTurnNumber = activeTurn.turnNumber;
+    this.#sessionState = "turn-succeeded";
     this.#activeTurn = null;
     void this.#emitVisibility({
       state: "completed",
@@ -740,13 +898,19 @@ export class CodexAppServerSession implements LiveRunnerSession {
 
   #rejectActiveTurn(error: unknown): void {
     const activeTurn = this.#activeTurn;
+    const resolvedError = this.#normalizeTransportError(
+      asError(error),
+      this.#closingReason === "timeout"
+        ? "turn-timeout"
+        : "active-turn-transport-failure",
+    );
     if (activeTurn === null) {
-      this.#rejectActiveState(asError(error));
+      this.#rejectActiveState(resolvedError);
       return;
     }
     this.#activeTurn = null;
+    this.#sessionState = "turn-failed";
     const observedAt = new Date().toISOString();
-    const resolvedError = asError(error);
     void this.#emitVisibility({
       state:
         this.#closingReason === "aborted"
@@ -765,7 +929,12 @@ export class CodexAppServerSession implements LiveRunnerSession {
             : "Runner failed",
       stdoutSummary: summarizeRunnerText(activeTurn.stdout),
       stderrSummary: summarizeRunnerText(activeTurn.stderr),
-      errorSummary: summarizeRunnerText(resolvedError.message),
+      errorSummary: summarizeRunnerText(
+        formatCodexTransportError(
+          resolvedError,
+          this.#transportFailureClass ?? "active-turn-transport-failure",
+        ),
+      ),
       cancelledAt: this.#closingReason === "aborted" ? observedAt : null,
       timedOutAt: this.#closingReason === "timeout" ? observedAt : null,
     });
@@ -773,6 +942,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   #rejectActiveState(error: Error): void {
+    this.#sessionState = "turn-failed";
     if (this.#pendingResponse !== null) {
       const pending = this.#pendingResponse;
       this.#pendingResponse = null;
@@ -799,7 +969,38 @@ export class CodexAppServerSession implements LiveRunnerSession {
     if (stderr.length === 0 || this.#latestTurnNumber !== null) {
       return error;
     }
+    if (error instanceof CodexAppServerTransportError) {
+      return new CodexAppServerTransportError(
+        error.failureClass,
+        `${error.message}\nStartup stderr:\n${stderr}`,
+        {
+          cause: error,
+        },
+      );
+    }
     return new RunnerError(`${error.message}\nStartup stderr:\n${stderr}`, {
+      cause: error,
+    });
+  }
+
+  #createTransportError(
+    failureClass: CodexAppServerFailureClass,
+    message: string,
+    options?: ErrorOptions,
+  ): CodexAppServerTransportError {
+    this.#transportFailureClass = failureClass;
+    return new CodexAppServerTransportError(failureClass, message, options);
+  }
+
+  #normalizeTransportError(
+    error: Error,
+    fallbackClass: CodexAppServerFailureClass,
+  ): Error {
+    if (error instanceof CodexAppServerTransportError) {
+      this.#transportFailureClass = error.failureClass;
+      return error;
+    }
+    return this.#createTransportError(fallbackClass, error.message, {
       cause: error,
     });
   }
@@ -868,4 +1069,19 @@ function omitNullValues(
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== null),
   );
+}
+
+function failureClassForPendingMethod(
+  method: string,
+): CodexAppServerFailureClass {
+  switch (method) {
+    case "initialize":
+      return "initialize-transport-failure";
+    case "thread/start":
+      return "thread-start-transport-failure";
+    case "turn/start":
+      return "turn-start-transport-failure";
+    default:
+      return "startup-transport-failure";
+  }
 }
