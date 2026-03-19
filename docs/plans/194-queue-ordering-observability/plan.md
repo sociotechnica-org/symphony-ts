@@ -152,16 +152,16 @@ Allowed ordering transitions in the merged queue:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected behavior |
-| --- | --- | --- | --- |
-| Two ready issues both have populated normalized priority | ready candidate list | both `queuePriority` values populated | lower rank sorts first; issue-number fallback used only on ties |
-| One ready issue has priority and another does not | ready candidate list | one populated `queuePriority`, one `null` | prioritized issue sorts first; unprioritized issue remains eligible |
-| All ready issues have `queuePriority: null` | ready candidate list | all priorities absent | preserve deterministic issue-number ordering |
-| Running candidate and ready candidate are both present | merged queue inputs | ready issue may have high priority | running candidate remains ahead; queue priority only reorders ready-vs-ready |
-| Due retry exists while ready issues are available | retry queue plus ready candidate list | ready issues may have priority | existing due-retry precedence remains unchanged |
-| Dispatch pressure is active | dispatch-pressure state | ready issues may carry normalized priority | do not dispatch fresh ready work; status stays explicit about pause posture and queue facts if projected |
-| Status snapshot written during a poll with ready candidates | runtime status state | normalized queue priorities on ready issues | snapshot projects ready order deterministically without tracker-specific fields |
-| Status snapshot is read from disk after the poll | persisted JSON snapshot | projected ready-order facts only | operators can see which ready issue would win and why without reconstructing tracker order manually |
+| Observed condition                                          | Local facts available                 | Normalized tracker facts available          | Expected behavior                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Two ready issues both have populated normalized priority    | ready candidate list                  | both `queuePriority` values populated       | lower rank sorts first; issue-number fallback used only on ties                                          |
+| One ready issue has priority and another does not           | ready candidate list                  | one populated `queuePriority`, one `null`   | prioritized issue sorts first; unprioritized issue remains eligible                                      |
+| All ready issues have `queuePriority: null`                 | ready candidate list                  | all priorities absent                       | preserve deterministic issue-number ordering                                                             |
+| Running candidate and ready candidate are both present      | merged queue inputs                   | ready issue may have high priority          | running candidate remains ahead; queue priority only reorders ready-vs-ready                             |
+| Due retry exists while ready issues are available           | retry queue plus ready candidate list | ready issues may have priority              | existing due-retry precedence remains unchanged                                                          |
+| Dispatch pressure is active                                 | dispatch-pressure state               | ready issues may carry normalized priority  | do not dispatch fresh ready work; status stays explicit about pause posture and queue facts if projected |
+| Status snapshot written during a poll with ready candidates | runtime status state                  | normalized queue priorities on ready issues | snapshot projects ready order deterministically without tracker-specific fields                          |
+| Status snapshot is read from disk after the poll            | persisted JSON snapshot               | projected ready-order facts only            | operators can see which ready issue would win and why without reconstructing tracker order manually      |
 
 ## Storage / Persistence Contract
 
