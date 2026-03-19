@@ -199,16 +199,16 @@ This issue does not change runtime behavior, but the assessment needs an explici
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Public Niteshift facts available | Assessment question / expected conclusion |
-| --- | --- | --- | --- |
-| Symphony wants to start a remote run | issue, branch, prompt, remote workspace contract | `run` command, branch/base flags, watch option | decide whether task creation can represent one Symphony run without hiding required workspace/branch facts |
-| Symphony wants a continuation turn on an existing run | persisted task/session identity | `prompt <taskId>` command | decide whether `taskId` is a sufficient durable continuation handle |
-| Symphony wants live operator visibility | stored run identity | `watch <taskId>` with optional `--json` | decide whether watch output is stable enough for observability or only human-facing |
-| Factory restarts with an active hosted run | persisted issue/run state, maybe task id | `pickup [taskId]`, `list`, `sync` | decide whether restart recovery can reconnect deterministically without manual intervention |
-| Symphony wants to stop an in-flight run | shutdown/retry policy, persisted task identity | no clearly documented cancel/stop command in public README/changelog | likely blocker or open question unless a non-interactive cancellation path is found |
-| Hosted backend already opened a PR or changed branch state | tracker facts, local repo facts | changelog mentions PR links and merge-ready workflows | decide whether Symphony can remain the source of truth instead of ceding PR lifecycle control |
-| Hosted task is still healthy but local CLI/runtime is gone | task id, tracker state | watch/pickup/sync surfaces | decide whether the backend supports inspectable reattachment versus opaque eventual consistency |
-| Public CLI/package surface is unstable or environment-sensitive | local Node/runtime evidence | npm package metadata, local `npx` failure | capture toolchain/operability risk separately from architectural fit |
+| Observed condition                                              | Local facts available                            | Public Niteshift facts available                                     | Assessment question / expected conclusion                                                                  |
+| --------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Symphony wants to start a remote run                            | issue, branch, prompt, remote workspace contract | `run` command, branch/base flags, watch option                       | decide whether task creation can represent one Symphony run without hiding required workspace/branch facts |
+| Symphony wants a continuation turn on an existing run           | persisted task/session identity                  | `prompt <taskId>` command                                            | decide whether `taskId` is a sufficient durable continuation handle                                        |
+| Symphony wants live operator visibility                         | stored run identity                              | `watch <taskId>` with optional `--json`                              | decide whether watch output is stable enough for observability or only human-facing                        |
+| Factory restarts with an active hosted run                      | persisted issue/run state, maybe task id         | `pickup [taskId]`, `list`, `sync`                                    | decide whether restart recovery can reconnect deterministically without manual intervention                |
+| Symphony wants to stop an in-flight run                         | shutdown/retry policy, persisted task identity   | no clearly documented cancel/stop command in public README/changelog | likely blocker or open question unless a non-interactive cancellation path is found                        |
+| Hosted backend already opened a PR or changed branch state      | tracker facts, local repo facts                  | changelog mentions PR links and merge-ready workflows                | decide whether Symphony can remain the source of truth instead of ceding PR lifecycle control              |
+| Hosted task is still healthy but local CLI/runtime is gone      | task id, tracker state                           | watch/pickup/sync surfaces                                           | decide whether the backend supports inspectable reattachment versus opaque eventual consistency            |
+| Public CLI/package surface is unstable or environment-sensitive | local Node/runtime evidence                      | npm package metadata, local `npx` failure                            | capture toolchain/operability risk separately from architectural fit                                       |
 
 ## Storage / Persistence Contract
 
