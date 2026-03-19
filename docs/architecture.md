@@ -89,12 +89,13 @@ This layer owns filesystem preparation, not tracker policy.
 Responsible for:
 
 - launching coding agents
-- reporting provider-neutral execution events and final results
+- reporting provider identity, execution transport, and final results through a stable execution contract
 - timeout and cancellation behavior
 
 The runner should not own prompt construction or tracker mutations. Codex is the
 current local adapter behind that contract, not a shape the orchestrator should
-depend on.
+depend on. Local subprocess facts such as a controllable `pid` belong in
+transport metadata, not as universal runner-session state.
 
 ### Orchestrator
 

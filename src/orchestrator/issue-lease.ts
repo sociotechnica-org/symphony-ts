@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { RunSession } from "../domain/run.js";
 import type { Logger } from "../observability/logger.js";
-import type { RunnerSpawnedEvent } from "../runner/service.js";
+import {
+  getRunnerControllableProcessId,
+  type RunnerSpawnedEvent,
+} from "../runner/service.js";
 
 function isStaleLeaseError(code: string | undefined): boolean {
   return code === "ENOENT" || code === "ENOTDIR" || code === "ESRCH";
@@ -144,9 +147,10 @@ export class LocalIssueLeaseManager {
     if (record === null) {
       return;
     }
+    const runnerPid = getRunnerControllableProcessId(event.transport);
     const nextRecord: ActiveRunLeaseRecord = {
       ...record,
-      runnerPid: event.pid,
+      runnerPid,
       runnerStartedAt: event.spawnedAt,
       updatedAt: event.spawnedAt,
     };

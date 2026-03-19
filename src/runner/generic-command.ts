@@ -12,6 +12,7 @@ import type {
   RunnerRunOptions,
   RunnerSessionDescription,
 } from "./service.js";
+import { createRunnerTransportMetadata } from "./service.js";
 
 function describeGenericCommandSession(
   config: GenericCommandRunnerConfig,
@@ -19,10 +20,12 @@ function describeGenericCommandSession(
   return {
     provider: config.provider ?? "generic-command",
     model: config.model ?? null,
+    transport: createRunnerTransportMetadata("local-process", {
+      canTerminateLocalProcess: true,
+    }),
     backendSessionId: null,
     backendThreadId: null,
     latestTurnId: null,
-    appServerPid: null,
     latestTurnNumber: null,
     logPointers: [],
   };

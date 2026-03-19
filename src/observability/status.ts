@@ -10,9 +10,14 @@ import {
 } from "./runtime-identity.js";
 import type {
   RunnerSessionDescription,
+  RunnerTransportKind,
   RunnerVisibilityPhase,
   RunnerVisibilitySnapshot,
   RunnerVisibilityState,
+} from "../runner/service.js";
+import {
+  createRunnerTransportMetadata,
+  withRunnerTransportLocalProcess,
 } from "../runner/service.js";
 import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
 
@@ -1331,9 +1336,20 @@ function parseRunnerSessionDescription(
   field: string,
 ): RunnerSessionDescription {
   const session = expectObject(value, filePath, field);
+  const legacyAppServerPid = expectNullableInteger(
+    session.appServerPid,
+    filePath,
+    `${field}.appServerPid`,
+  );
   return {
     provider: expectString(session.provider, filePath, `${field}.provider`),
     model: expectNullableString(session.model, filePath, `${field}.model`),
+    transport: parseRunnerTransportMetadata(
+      session.transport,
+      legacyAppServerPid,
+      filePath,
+      `${field}.transport`,
+    ),
     backendSessionId: expectNullableString(
       session.backendSessionId,
       filePath,
@@ -1348,11 +1364,6 @@ function parseRunnerSessionDescription(
       session.latestTurnId,
       filePath,
       `${field}.latestTurnId`,
-    ),
-    appServerPid: expectNullableInteger(
-      session.appServerPid,
-      filePath,
-      `${field}.appServerPid`,
     ),
     latestTurnNumber: expectNullableInteger(
       session.latestTurnNumber,
@@ -1389,6 +1400,85 @@ function parseRunnerSessionDescription(
       },
     ),
   };
+}
+
+function parseRunnerTransportMetadata(
+  value: unknown,
+  legacyAppServerPid: number | null,
+  filePath: string,
+  field: string,
+) {
+  if (value === undefined) {
+    return withRunnerTransportLocalProcess(
+      createRunnerTransportMetadata(
+        legacyAppServerPid === null ? "local-process" : "local-stdio-session",
+        {
+          canTerminateLocalProcess: true,
+        },
+      ),
+      legacyAppServerPid,
+    );
+  }
+
+  const transport = expectObject(value, filePath, field);
+  return {
+    kind: expectRunnerTransportKind(transport.kind, filePath, `${field}.kind`),
+    localProcess:
+      transport.localProcess === null || transport.localProcess === undefined
+        ? null
+        : parseRunnerLocalProcessMetadata(
+            transport.localProcess,
+            filePath,
+            `${field}.localProcess`,
+          ),
+    remoteSessionId: expectNullableString(
+      transport.remoteSessionId,
+      filePath,
+      `${field}.remoteSessionId`,
+    ),
+    remoteTaskId: expectNullableString(
+      transport.remoteTaskId,
+      filePath,
+      `${field}.remoteTaskId`,
+    ),
+  };
+}
+
+function parseRunnerLocalProcessMetadata(
+  value: unknown,
+  filePath: string,
+  field: string,
+) {
+  const localProcess = expectObject(value, filePath, field);
+  const canTerminate = localProcess.canTerminate;
+  if (typeof canTerminate !== "boolean") {
+    throw new ObservabilityError(
+      `Expected ${field}.canTerminate in ${filePath} to be a boolean`,
+    );
+  }
+  return {
+    pid: expectNullableInteger(localProcess.pid, filePath, `${field}.pid`),
+    canTerminate,
+  };
+}
+
+function expectRunnerTransportKind(
+  value: unknown,
+  filePath: string,
+  field: string,
+): RunnerTransportKind {
+  const kind = expectString(value, filePath, field);
+  switch (kind) {
+    case "local-process":
+    case "local-stdio-session":
+    case "remote-stdio-session":
+    case "remote-task":
+      return kind;
+    default:
+      throw new ObservabilityError(
+        `Expected ${field} in ${filePath} to be a supported runner transport kind`,
+      );
+  }
 }
 
 function parsePullRequest(

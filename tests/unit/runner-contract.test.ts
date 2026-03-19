@@ -9,7 +9,10 @@ import type {
   RunnerTurnResult,
   RunnerVisibilitySnapshot,
 } from "../../src/runner/service.js";
-import { summarizeRunnerText } from "../../src/runner/service.js";
+import {
+  createRunnerTransportMetadata,
+  summarizeRunnerText,
+} from "../../src/runner/service.js";
 
 function createSession(): RunSession {
   return {
@@ -40,6 +43,19 @@ function createSession(): RunSession {
   };
 }
 
+function createLocalProcessTransport(pid: number | null) {
+  return createRunnerTransportMetadata("local-process", {
+    localProcessPid: pid,
+    canTerminateLocalProcess: true,
+  });
+}
+
+function createRemoteTaskTransport(taskId: string) {
+  return createRunnerTransportMetadata("remote-task", {
+    remoteTaskId: taskId,
+  });
+}
+
 class FakeProviderLiveSession implements LiveRunnerSession {
   #latestTurnNumber: number | null = null;
 
@@ -47,10 +63,10 @@ class FakeProviderLiveSession implements LiveRunnerSession {
     return {
       provider: "fake-provider",
       model: "fake-model",
+      transport: createRemoteTaskTransport("remote-task-77"),
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: this.#latestTurnNumber,
       logPointers: [
         {
@@ -69,7 +85,7 @@ class FakeProviderLiveSession implements LiveRunnerSession {
     this.#latestTurnNumber = turn.turnNumber;
     await options?.onEvent?.({
       kind: "spawned",
-      pid: 31337,
+      transport: createRemoteTaskTransport("remote-task-77"),
       spawnedAt: "2026-03-12T10:00:00.000Z",
     });
     return {
@@ -90,10 +106,10 @@ class FakeProviderRunner implements Runner {
     return {
       provider: "fake-provider",
       model: "fake-model",
+      transport: createLocalProcessTransport(null),
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     } as const;
@@ -105,7 +121,7 @@ class FakeProviderRunner implements Runner {
   ): Promise<RunnerExecutionResult> {
     await options?.onEvent?.({
       kind: "spawned",
-      pid: 4242,
+      transport: createLocalProcessTransport(4242),
       spawnedAt: session.startedAt,
     });
     return {
@@ -137,17 +153,17 @@ describe("runner contract", () => {
     expect(runner.describeSession(session)).toEqual({
       provider: "fake-provider",
       model: "fake-model",
+      transport: createLocalProcessTransport(null),
       backendSessionId: null,
       backendThreadId: null,
       latestTurnId: null,
-      appServerPid: null,
       latestTurnNumber: null,
       logPointers: [],
     });
     expect(events).toEqual([
       {
         kind: "spawned",
-        pid: 4242,
+        transport: createLocalProcessTransport(4242),
         spawnedAt: "2026-03-12T10:00:00.000Z",
       },
     ]);
@@ -181,7 +197,7 @@ describe("runner contract", () => {
     expect(events).toEqual([
       {
         kind: "spawned",
-        pid: 31337,
+        transport: createRemoteTaskTransport("remote-task-77"),
         spawnedAt: "2026-03-12T10:00:00.000Z",
       },
     ]);
@@ -194,10 +210,10 @@ describe("runner contract", () => {
       session: {
         provider: "fake-provider",
         model: "fake-model",
+        transport: createRemoteTaskTransport("remote-task-77"),
         backendSessionId: null,
         backendThreadId: null,
         latestTurnId: null,
-        appServerPid: null,
         latestTurnNumber: 2,
         logPointers: [
           {
@@ -217,10 +233,10 @@ describe("runner contract", () => {
       session: {
         provider: "fake-provider",
         model: null,
+        transport: createRemoteTaskTransport("remote-task-19"),
         backendSessionId: null,
         backendThreadId: null,
         latestTurnId: null,
-        appServerPid: null,
         latestTurnNumber: 2,
         logPointers: [],
       },
@@ -241,10 +257,10 @@ describe("runner contract", () => {
       session: {
         provider: "fake-provider",
         model: null,
+        transport: createRemoteTaskTransport("remote-task-19"),
         backendSessionId: null,
         backendThreadId: null,
         latestTurnId: null,
-        appServerPid: null,
         latestTurnNumber: 2,
         logPointers: [],
       },

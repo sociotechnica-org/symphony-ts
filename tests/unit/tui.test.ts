@@ -9,7 +9,10 @@ import {
 } from "../../src/observability/tui.js";
 import type { TuiSnapshot } from "../../src/orchestrator/service.js";
 import type { ObservabilityConfig } from "../../src/domain/workflow.js";
-import type { RunnerVisibilitySnapshot } from "../../src/runner/service.js";
+import {
+  createRunnerTransportMetadata,
+  type RunnerVisibilitySnapshot,
+} from "../../src/runner/service.js";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -67,10 +70,13 @@ function makeRunnerVisibility(
     session: {
       provider: "codex",
       model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-stdio-session", {
+        localProcessPid: 12345,
+        canTerminateLocalProcess: true,
+      }),
       backendSessionId: "thread-abc-turn-1",
       backendThreadId: "thread-abc",
       latestTurnId: "turn-1",
-      appServerPid: 12345,
       latestTurnNumber: 1,
       logPointers: [],
     },
@@ -1726,7 +1732,10 @@ describe("StatusDashboard", () => {
             session: {
               ...makeRunnerVisibility().session,
               model: "gpt-5.4",
-              appServerPid: 12345,
+              transport: createRunnerTransportMetadata("local-stdio-session", {
+                localProcessPid: 12345,
+                canTerminateLocalProcess: true,
+              }),
               latestTurnNumber: 1,
             },
             stdoutSummary: JSON.stringify({
@@ -1759,7 +1768,10 @@ describe("StatusDashboard", () => {
             session: {
               ...makeRunnerVisibility().session,
               model: "gpt-5.4",
-              appServerPid: 54321,
+              transport: createRunnerTransportMetadata("local-stdio-session", {
+                localProcessPid: 54321,
+                canTerminateLocalProcess: true,
+              }),
               latestTurnNumber: 1,
             },
             stdoutSummary: JSON.stringify({

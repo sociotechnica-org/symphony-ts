@@ -10,6 +10,7 @@ import {
   writeFactoryStatusSnapshot,
   type FactoryStatusSnapshot,
 } from "../../src/observability/status.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import { createTempDir } from "../support/git.js";
 
 function createSnapshot(
@@ -160,10 +161,13 @@ function createSnapshot(
           session: {
             provider: "codex",
             model: "gpt-5.4",
+            transport: createRunnerTransportMetadata("local-stdio-session", {
+              localProcessPid: 4321,
+              canTerminateLocalProcess: true,
+            }),
             backendSessionId: "thread-12-turn-2",
             backendThreadId: "thread-12",
             latestTurnId: "turn-2",
-            appServerPid: 4321,
             latestTurnNumber: 2,
             logPointers: [],
           },
@@ -229,6 +233,119 @@ describe("factory status helpers", () => {
       });
       await writeFactoryStatusSnapshot(filePath, second);
       expect(await readFactoryStatusSnapshot(filePath)).toEqual(second);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("backfills legacy appServerPid snapshots as local stdio sessions", async () => {
+    const tempDir = await createTempDir("symphony-status-test-legacy-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      const snapshot = createSnapshot();
+      const activeIssue = snapshot.activeIssues[0];
+      if (activeIssue?.runnerVisibility === null || activeIssue === undefined) {
+        throw new Error(
+          "Expected fixture snapshot to include runner visibility",
+        );
+      }
+
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(
+          {
+            ...snapshot,
+            activeIssues: [
+              {
+                ...activeIssue,
+                runnerVisibility: {
+                  ...activeIssue.runnerVisibility,
+                  session: {
+                    provider: "codex",
+                    model: "gpt-5.4",
+                    appServerPid: 4321,
+                    backendSessionId: "thread-12-turn-2",
+                    backendThreadId: "thread-12",
+                    latestTurnId: "turn-2",
+                    latestTurnNumber: 2,
+                    logPointers: [],
+                  },
+                },
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+
+      const parsed = await readFactoryStatusSnapshot(filePath);
+      expect(
+        parsed.activeIssues[0]?.runnerVisibility?.session.transport,
+      ).toEqual(
+        createRunnerTransportMetadata("local-stdio-session", {
+          localProcessPid: 4321,
+          canTerminateLocalProcess: true,
+        }),
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not invent a controllable local process for legacy snapshots without appServerPid", async () => {
+    const tempDir = await createTempDir("symphony-status-test-legacy-null-");
+    const filePath = path.join(tempDir, "status.json");
+
+    try {
+      const snapshot = createSnapshot();
+      const activeIssue = snapshot.activeIssues[0];
+      if (activeIssue?.runnerVisibility === null || activeIssue === undefined) {
+        throw new Error(
+          "Expected fixture snapshot to include runner visibility",
+        );
+      }
+
+      await fs.writeFile(
+        filePath,
+        `${JSON.stringify(
+          {
+            ...snapshot,
+            activeIssues: [
+              {
+                ...activeIssue,
+                runnerVisibility: {
+                  ...activeIssue.runnerVisibility,
+                  session: {
+                    provider: "generic-command",
+                    model: null,
+                    appServerPid: null,
+                    backendSessionId: null,
+                    backendThreadId: null,
+                    latestTurnId: null,
+                    latestTurnNumber: 2,
+                    logPointers: [],
+                  },
+                },
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+
+      const parsed = await readFactoryStatusSnapshot(filePath);
+      expect(
+        parsed.activeIssues[0]?.runnerVisibility?.session.transport,
+      ).toEqual(
+        createRunnerTransportMetadata("local-process", {
+          canTerminateLocalProcess: true,
+        }),
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

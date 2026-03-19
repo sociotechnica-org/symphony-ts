@@ -398,6 +398,46 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
   });
 
+  it("ignores Cursor taking-a-look acknowledgement comments", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "cursor[bot]" },
+              body: `Taking a look!
+
+<div><a href="https://cursor.com/agents/example">Open in Web</a>&nbsp;<a href="https://cursor.com/background-agent?bcId=example">Open in Cursor</a></div>`,
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor", "cursor[bot]"],
+    });
+
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+  });
+
   it("ignores Greptile summary comments as actionable bot feedback", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

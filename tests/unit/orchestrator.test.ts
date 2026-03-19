@@ -37,6 +37,7 @@ import type {
   RunnerExecutionResult,
   RunnerTurnResult,
 } from "../../src/runner/service.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
 import type { LandingExecutionResult } from "../../src/tracker/service.js";
 import type { WorkspaceManager } from "../../src/workspace/service.js";
@@ -52,10 +53,12 @@ function createRunnerSessionDescription() {
   return {
     provider: "test-runner",
     model: null,
+    transport: createRunnerTransportMetadata("local-process", {
+      canTerminateLocalProcess: true,
+    }),
     backendSessionId: null,
     backendThreadId: null,
     latestTurnId: null,
-    appServerPid: null,
     latestTurnNumber: null,
     logPointers: [],
   } as const;
@@ -2388,7 +2391,10 @@ describe("BootstrapOrchestrator", () => {
           const timestamp = "2026-03-09T16:30:00.000Z";
           await options?.onEvent?.({
             kind: "spawned",
-            pid: runnerPid,
+            transport: createRunnerTransportMetadata("local-process", {
+              localProcessPid: runnerPid,
+              canTerminateLocalProcess: true,
+            }),
             spawnedAt: timestamp,
           });
           return {
@@ -2466,7 +2472,10 @@ describe("BootstrapOrchestrator", () => {
         async run(_session, options): Promise<RunnerExecutionResult> {
           await options?.onEvent?.({
             kind: "spawned",
-            pid: runnerPid,
+            transport: createRunnerTransportMetadata("local-process", {
+              localProcessPid: runnerPid,
+              canTerminateLocalProcess: true,
+            }),
             spawnedAt: "2026-03-09T16:35:00.000Z",
           });
           throw new Error("runner crashed after spawn");

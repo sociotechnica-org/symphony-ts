@@ -14,6 +14,7 @@ import {
   readIssueArtifactSession,
   readIssueArtifactSummary,
 } from "../../src/observability/issue-artifacts.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import { createTempDir } from "../support/git.js";
 
 const tempRoots: string[] = [];
@@ -192,10 +193,12 @@ describe("issue artifacts", () => {
         sessionId,
         provider: "local-runner",
         model: null,
+        transport: createRunnerTransportMetadata("local-process", {
+          canTerminateLocalProcess: true,
+        }),
         backendSessionId: null,
         backendThreadId: null,
         latestTurnId: null,
-        appServerPid: null,
         latestTurnNumber: 2,
         startedAt: "2026-03-09T10:00:00.000Z",
         finishedAt: observedAt,
@@ -287,10 +290,12 @@ describe("issue artifacts", () => {
         sessionId,
         provider: "codex",
         model: "gpt-5",
+        transport: createRunnerTransportMetadata("local-process", {
+          canTerminateLocalProcess: true,
+        }),
         backendSessionId: "backend-1",
         backendThreadId: null,
         latestTurnId: null,
-        appServerPid: null,
         latestTurnNumber: 3,
         startedAt: "2026-03-09T10:00:00.000Z",
         finishedAt: null,
@@ -318,5 +323,145 @@ describe("issue artifacts", () => {
 
     const attempt = await readIssueArtifactAttempt(workspaceRoot, 43, 1);
     expect(attempt.latestTurnNumber).toBe(3);
+  });
+
+  it("backfills transport metadata for legacy session snapshots", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const sessionId = "legacy-session";
+
+    await fs.mkdir(paths.sessionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(paths.sessionsDir, `${encodeURIComponent(sessionId)}.json`),
+      `${JSON.stringify(
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          issueNumber: 43,
+          attemptNumber: 1,
+          sessionId,
+          provider: "codex",
+          model: "gpt-5.4",
+          backendSessionId: "backend-1",
+          backendThreadId: null,
+          latestTurnId: null,
+          appServerPid: 4242,
+          latestTurnNumber: 1,
+          startedAt: "2026-03-09T10:00:00.000Z",
+          finishedAt: null,
+          workspacePath: "/tmp/workspaces/43",
+          branch: "symphony/43",
+          logPointers: [],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const session = await readIssueArtifactSession(
+      workspaceRoot,
+      43,
+      sessionId,
+    );
+
+    expect(session.transport).toEqual(
+      createRunnerTransportMetadata("local-stdio-session", {
+        localProcessPid: 4242,
+        canTerminateLocalProcess: true,
+      }),
+    );
+  });
+
+  it("does not invent a controllable local process for legacy sessions without appServerPid", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const sessionId = "legacy-session-no-pid";
+
+    await fs.mkdir(paths.sessionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(paths.sessionsDir, `${encodeURIComponent(sessionId)}.json`),
+      `${JSON.stringify(
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          issueNumber: 43,
+          attemptNumber: 1,
+          sessionId,
+          provider: "generic-command",
+          model: null,
+          backendSessionId: null,
+          backendThreadId: null,
+          latestTurnId: null,
+          appServerPid: null,
+          latestTurnNumber: 1,
+          startedAt: "2026-03-09T10:00:00.000Z",
+          finishedAt: "2026-03-09T10:01:00.000Z",
+          workspacePath: "/tmp/workspaces/43",
+          branch: "symphony/43",
+          logPointers: [],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const session = await readIssueArtifactSession(
+      workspaceRoot,
+      43,
+      sessionId,
+    );
+
+    expect(session.transport).toEqual(
+      createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
+    );
+  });
+
+  it("normalizes missing legacy backend thread fields to null", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const sessionId = "legacy-session-missing-thread-fields";
+
+    await fs.mkdir(paths.sessionsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(paths.sessionsDir, `${encodeURIComponent(sessionId)}.json`),
+      `${JSON.stringify(
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          issueNumber: 43,
+          attemptNumber: 1,
+          sessionId,
+          provider: "codex",
+          model: "gpt-5.4",
+          backendSessionId: "backend-1",
+          appServerPid: 4242,
+          latestTurnNumber: 1,
+          startedAt: "2026-03-09T10:00:00.000Z",
+          finishedAt: null,
+          workspacePath: "/tmp/workspaces/43",
+          branch: "symphony/43",
+          logPointers: [],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const session = await readIssueArtifactSession(
+      workspaceRoot,
+      43,
+      sessionId,
+    );
+
+    expect(session.backendThreadId).toBeNull();
+    expect(session.latestTurnId).toBeNull();
+    expect(session.transport).toEqual(
+      createRunnerTransportMetadata("local-stdio-session", {
+        localProcessPid: 4242,
+        canTerminateLocalProcess: true,
+      }),
+    );
   });
 });

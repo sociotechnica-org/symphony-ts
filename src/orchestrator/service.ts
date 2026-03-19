@@ -59,6 +59,7 @@ import type {
 } from "../observability/status.js";
 import {
   RUNNER_SHUTDOWN_GRACE_MS,
+  getRunnerControllableProcessId,
   type LiveRunnerSession,
   type Runner,
   type RunnerEvent,
@@ -2808,6 +2809,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     turnNumber: number,
   ): IssueArtifactObservation {
     const sessionArtifacts = this.#createSessionObservationArtifacts(session);
+    const runnerPid = getRunnerControllableProcessId(event.transport);
     return {
       issue: this.#createIssueArtifactUpdate(session.runSession.issue, {
         observedAt: event.spawnedAt,
@@ -2823,7 +2825,12 @@ export class BootstrapOrchestrator implements Orchestrator {
           attemptNumber: session.runSession.attempt.sequence,
           sessionId: session.runSession.id,
           details: {
-            pid: event.pid,
+            pid: runnerPid,
+            runnerPid,
+            transportKind: event.transport.kind,
+            localProcessPid: event.transport.localProcess?.pid ?? null,
+            remoteSessionId: event.transport.remoteSessionId,
+            remoteTaskId: event.transport.remoteTaskId,
             turnNumber,
             backendSessionId: session.description.backendSessionId,
           },
@@ -2838,7 +2845,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           branchName: session.runSession.workspace.branchName,
           sessionId: session.runSession.id,
           startedAt: session.runSession.startedAt,
-          runnerPid: event.pid,
+          runnerPid,
           latestTurnNumber: session.latestTurnNumber,
         },
       ),
@@ -3087,10 +3094,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       sessionId: session.runSession.id,
       provider: session.description.provider,
       model: session.description.model,
+      transport: session.description.transport,
       backendSessionId: session.description.backendSessionId,
       backendThreadId: session.description.backendThreadId,
       latestTurnId: session.description.latestTurnId,
-      appServerPid: session.description.appServerPid,
       latestTurnNumber: session.latestTurnNumber,
       startedAt: session.runSession.startedAt,
       finishedAt: finishedAt ?? null,
@@ -3389,18 +3396,19 @@ export class BootstrapOrchestrator implements Orchestrator {
     turnNumber: number,
   ): Promise<void> {
     const issueNumber = session.runSession.issue.number;
+    const runnerPid = getRunnerControllableProcessId(event.transport);
     this.#leaseManager.recordRunnerSpawn(lockDir, event);
     const entry = this.#state.status.activeIssues.get(issueNumber);
     if (entry) {
       this.#state.status.activeIssues.set(issueNumber, {
         ...entry,
-        runnerPid: event.pid,
+        runnerPid,
         updatedAt: event.spawnedAt,
         runnerAccounting: session.accounting,
         runnerVisibility: this.#buildRunnerVisibility(
           {
             ...(entry.runnerVisibility?.session ?? session.description),
-            appServerPid: event.pid,
+            transport: event.transport,
           },
           {
             ...(entry.runnerVisibility === null
@@ -3415,7 +3423,10 @@ export class BootstrapOrchestrator implements Orchestrator {
             lastHeartbeatAt:
               entry.runnerVisibility?.lastHeartbeatAt ?? event.spawnedAt,
             lastActionAt: event.spawnedAt,
-            lastActionSummary: `Runner process spawned for turn ${turnNumber.toString()}`,
+            lastActionSummary:
+              runnerPid === null
+                ? `Runner transport ${event.transport.kind} started for turn ${turnNumber.toString()}`
+                : `Runner process spawned for turn ${turnNumber.toString()}`,
             waitingReason: entry.runnerVisibility?.waitingReason ?? null,
             stdoutSummary: entry.runnerVisibility?.stdoutSummary ?? null,
             stderrSummary: entry.runnerVisibility?.stderrSummary ?? null,
@@ -3428,7 +3439,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     noteStatusAction(this.#state.status, {
       kind: "runner-spawned",
-      summary: `Runner PID ${event.pid.toString()} attached for turn ${turnNumber.toString()}`,
+      summary:
+        runnerPid === null
+          ? `Runner transport ${event.transport.kind} attached for turn ${turnNumber.toString()}`
+          : `Runner PID ${runnerPid.toString()} attached for turn ${turnNumber.toString()}`,
       issueNumber,
       at: event.spawnedAt,
     });
@@ -3438,7 +3452,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     );
     this.#logger.info("Runner process attached to active issue", {
       issueNumber,
-      runnerPid: event.pid,
+      runnerPid,
+      transportKind: event.transport.kind,
       spawnedAt: event.spawnedAt,
       turnNumber,
     });

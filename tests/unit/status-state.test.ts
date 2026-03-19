@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import {
   adjustTrackerIssueCounts,
   createRuntimeStatusState,
@@ -72,10 +73,12 @@ describe("upsertActiveIssue", () => {
         session: {
           provider: "codex",
           model: "gpt-5.4",
+          transport: createRunnerTransportMetadata("local-stdio-session", {
+            canTerminateLocalProcess: true,
+          }),
           backendSessionId: null,
           backendThreadId: null,
           latestTurnId: null,
-          appServerPid: null,
           latestTurnNumber: 1,
           logPointers: [],
         },
