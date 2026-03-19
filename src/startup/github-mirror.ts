@@ -81,7 +81,9 @@ export function deriveGitHubMirrorPath(workspaceRoot: string): string {
   return path.join(path.dirname(workspaceRoot), "github", "upstream");
 }
 
-function createMirrorWorkspaceSource(mirrorPath: string): LocalPathWorkspaceSource {
+function createMirrorWorkspaceSource(
+  mirrorPath: string,
+): LocalPathWorkspaceSource {
   return {
     kind: "local-path",
     path: mirrorPath,

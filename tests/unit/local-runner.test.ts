@@ -6,9 +6,7 @@ import type {
   AgentConfig,
   GenericCommandRunnerConfig,
 } from "../../src/domain/workflow.js";
-import {
-  RunnerShutdownError,
-} from "../../src/domain/errors.js";
+import { RunnerShutdownError } from "../../src/domain/errors.js";
 import { createConfiguredWorkspaceSource } from "../../src/domain/workspace.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {

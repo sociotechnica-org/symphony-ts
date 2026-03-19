@@ -74,9 +74,7 @@ export function getWorkspaceSourceLocation(source: WorkspaceSource): string {
   }
 }
 
-export function getWorkspaceTargetPath(
-  target: WorkspaceTarget,
-): string | null {
+export function getWorkspaceTargetPath(target: WorkspaceTarget): string | null {
   if (target.kind !== "local") {
     return null;
   }

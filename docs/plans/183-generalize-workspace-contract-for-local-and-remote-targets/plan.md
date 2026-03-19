@@ -211,14 +211,14 @@ This issue does not change orchestrator retry or handoff state. The stateful sur
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized workspace facts available | Expected decision |
-| --- | --- | --- | --- |
-| Startup returns no override and workflow uses the configured local repo source | resolved config | source kind is configured/local | workspace manager prepares the local workspace exactly as today |
-| Startup returns a local mirror path | resolved config, mirror path | source kind is startup-prepared/local-path | workspace manager clones/fetches from the prepared source without mutating `workspace.repoUrl` |
-| Runner receives a local prepared workspace | local path, branch name | target kind is `local` | runner uses the local path as `cwd`, prompt-file location, and session-discovery root |
-| Runner receives a future non-local prepared workspace on the current local runner path | target metadata only | target kind is not `local` | fail clearly at the execution boundary instead of silently assuming a local path |
-| Cleanup is requested for a retained or already-absent local workspace | workspace identity, local path | target kind is `local` | cleanup reports `deleted` or `already-absent` just as today |
-| Startup-prepared source metadata is malformed or unsupported | raw startup result | no valid normalized source | fail loudly before workspace preparation starts |
+| Observed condition                                                                     | Local facts available          | Normalized workspace facts available       | Expected decision                                                                              |
+| -------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Startup returns no override and workflow uses the configured local repo source         | resolved config                | source kind is configured/local            | workspace manager prepares the local workspace exactly as today                                |
+| Startup returns a local mirror path                                                    | resolved config, mirror path   | source kind is startup-prepared/local-path | workspace manager clones/fetches from the prepared source without mutating `workspace.repoUrl` |
+| Runner receives a local prepared workspace                                             | local path, branch name        | target kind is `local`                     | runner uses the local path as `cwd`, prompt-file location, and session-discovery root          |
+| Runner receives a future non-local prepared workspace on the current local runner path | target metadata only           | target kind is not `local`                 | fail clearly at the execution boundary instead of silently assuming a local path               |
+| Cleanup is requested for a retained or already-absent local workspace                  | workspace identity, local path | target kind is `local`                     | cleanup reports `deleted` or `already-absent` just as today                                    |
+| Startup-prepared source metadata is malformed or unsupported                           | raw startup result             | no valid normalized source                 | fail loudly before workspace preparation starts                                                |
 
 ## Storage / Persistence Contract
 
