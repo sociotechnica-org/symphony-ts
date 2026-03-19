@@ -1945,4 +1945,52 @@ agent:
       /workspace.repo_url must be a remote clone URL/,
     );
   });
+
+  it("rejects file URLs for SSH remote Codex execution", async () => {
+    const dir = await createTempDir("workflow-remote-codex-file-url-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: file:///tmp/repo.git
+  branch_prefix: symphony/
+  worker_hosts:
+    builder:
+      ssh_destination: symphony@example.test
+      workspace_root: /srv/symphony/workspaces
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+    remote_execution:
+      kind: ssh
+      worker_host: builder
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      /workspace.repo_url must be a remote clone URL/,
+    );
+  });
 });

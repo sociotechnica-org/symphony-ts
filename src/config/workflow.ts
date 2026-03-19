@@ -370,9 +370,31 @@ function resolveWorkspaceRepoUrl(
 }
 
 function isRemoteRepoUrl(repoUrl: string): boolean {
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(repoUrl)) {
+  if (hasUrlScheme(repoUrl)) {
     return true;
   }
+  return isScpStyleRepoUrl(repoUrl);
+}
+
+function isRemoteExecutionRepoUrl(repoUrl: string): boolean {
+  if (isScpStyleRepoUrl(repoUrl)) {
+    return true;
+  }
+  if (!hasUrlScheme(repoUrl)) {
+    return false;
+  }
+  try {
+    return new URL(repoUrl).protocol !== "file:";
+  } catch {
+    return true;
+  }
+}
+
+function hasUrlScheme(repoUrl: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(repoUrl);
+}
+
+function isScpStyleRepoUrl(repoUrl: string): boolean {
   return /^[^/\\\s]+@[^:/\\\s]+:.+$/.test(repoUrl);
 }
 
@@ -780,7 +802,7 @@ function validateRemoteExecutionConfig(config: ResolvedConfig): void {
     return;
   }
 
-  if (!isRemoteRepoUrl(config.workspace.repoUrl)) {
+  if (!isRemoteExecutionRepoUrl(config.workspace.repoUrl)) {
     throw new ConfigError(
       "workspace.repo_url must be a remote clone URL when agent.runner.remote_execution is enabled",
     );

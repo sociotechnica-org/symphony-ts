@@ -11,7 +11,44 @@ export async function createFakeSshExecutable(): Promise<string> {
 const { spawn } = require("node:child_process");
 
 const args = process.argv.slice(2);
-let destinationIndex = args.findIndex((arg) => !arg.startsWith("-"));
+const optionsWithValues = new Set([
+  "-B",
+  "-b",
+  "-c",
+  "-D",
+  "-E",
+  "-e",
+  "-F",
+  "-I",
+  "-i",
+  "-J",
+  "-L",
+  "-l",
+  "-m",
+  "-O",
+  "-o",
+  "-p",
+  "-Q",
+  "-R",
+  "-S",
+  "-W",
+  "-w",
+]);
+let destinationIndex = -1;
+for (let index = 0; index < args.length; index += 1) {
+  const arg = args[index];
+  if (arg === "--") {
+    destinationIndex = index + 1;
+    break;
+  }
+  if (!arg.startsWith("-")) {
+    destinationIndex = index;
+    break;
+  }
+  if (optionsWithValues.has(arg)) {
+    index += 1;
+  }
+}
 if (destinationIndex < 0) {
   process.stderr.write("fake ssh expected a destination\\n");
   process.exit(1);

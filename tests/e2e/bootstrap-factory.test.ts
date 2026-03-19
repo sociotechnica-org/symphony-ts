@@ -421,9 +421,10 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     const fakeCodex = await createFakeCodexExecutable();
     const fakeSsh = await createFakeSshExecutable();
     const remoteWorkspaceRoot = path.join(tempDir, "remote-workers");
+    process.env["GIT_SSH"] = fakeSsh;
     const workflowPath = await writeWorkflow({
       rootDir: tempDir,
-      remotePath: `file://${remotePath}`,
+      remotePath: `builder@example.test:${remotePath}`,
       apiUrl: server.baseUrl,
       runnerKind: "codex",
       agentCommand: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -`,
