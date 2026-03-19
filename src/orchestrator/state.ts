@@ -1,4 +1,5 @@
 import type { RateLimits } from "../domain/transient-failure.js";
+import type { SshWorkerHostConfig } from "../domain/workflow.js";
 import {
   createFollowUpRuntimeState,
   type FollowUpRuntimeState,
@@ -11,6 +12,10 @@ import {
   createRetryRuntimeState,
   type RetryRuntimeState,
 } from "./retry-state.js";
+import {
+  createHostDispatchState,
+  type HostDispatchRuntimeState,
+} from "./host-dispatch-state.js";
 import type { RunningEntry } from "./running-entry.js";
 import {
   createLandingRuntimeState,
@@ -41,6 +46,7 @@ export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
   readonly runAbortControllers: Map<number, AbortController>;
   readonly retries: RetryRuntimeState;
+  readonly hostDispatch: HostDispatchRuntimeState;
   readonly dispatchPressure: DispatchPressureRuntimeState;
   readonly followUp: FollowUpRuntimeState;
   readonly landing: LandingRuntimeState;
@@ -55,11 +61,13 @@ export interface OrchestratorState {
 
 export function createOrchestratorState(
   pollingIntervalMs: number,
+  hostDispatchWorkerHosts: readonly SshWorkerHostConfig[] = [],
 ): OrchestratorState {
   return {
     runningIssueNumbers: new Set<number>(),
     runAbortControllers: new Map<number, AbortController>(),
     retries: createRetryRuntimeState(),
+    hostDispatch: createHostDispatchState(hostDispatchWorkerHosts),
     dispatchPressure: createDispatchPressureState(),
     followUp: createFollowUpRuntimeState(),
     landing: createLandingRuntimeState(),

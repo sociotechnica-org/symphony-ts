@@ -152,22 +152,37 @@ fi
 `;
 }
 
+function isWorkerHostRecord(
+  workerHosts:
+    | Readonly<Record<string, SshWorkerHostConfig>>
+    | SshWorkerHostConfig,
+): workerHosts is Readonly<Record<string, SshWorkerHostConfig>> {
+  return !("sshDestination" in workerHosts);
+}
+
 export class RemoteSshWorkspaceManager implements WorkspaceManager {
   readonly #config: WorkspaceConfig;
-  readonly #workerHost: SshWorkerHostConfig;
+  readonly #workerHosts: Readonly<Record<string, SshWorkerHostConfig>>;
   readonly #afterCreate: readonly string[];
   readonly #logger: Logger;
   readonly #sourceOverride: WorkspaceSource | null;
 
   constructor(
     config: WorkspaceConfig,
-    workerHost: SshWorkerHostConfig,
+    workerHosts:
+      | Readonly<Record<string, SshWorkerHostConfig>>
+      | SshWorkerHostConfig,
     afterCreate: readonly string[],
     logger: Logger,
     sourceOverride?: WorkspaceSource | null,
   ) {
     this.#config = config;
-    this.#workerHost = workerHost;
+    this.#workerHosts =
+      isWorkerHostRecord(workerHosts)
+        ? workerHosts
+        : {
+            [workerHosts.name]: workerHosts,
+          };
     this.#afterCreate = afterCreate;
     this.#logger = logger;
     this.#sourceOverride = sourceOverride ?? null;
@@ -177,15 +192,19 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     request: WorkspacePreparationRequest,
   ): Promise<PreparedWorkspace> {
     const issue = request.issue;
+    const workerHost = this.#resolveWorkerHost(request.workerHost);
     const branchName = `${this.#config.branchPrefix}${issue.number}`;
-    const workspacePath = this.#workspacePathForIssue(issue.identifier);
+    const workspacePath = this.#workspacePathForIssue(
+      workerHost,
+      issue.identifier,
+    );
     const effectiveSource =
-      this.#resolveWorkspaceSource(request.sourceOverride) ??
+      this.#resolveWorkspaceSource(workerHost, request.sourceOverride) ??
       createConfiguredWorkspaceSource(this.#config.repoUrl);
     const sourceLocation = getWorkspaceSourceLocation(effectiveSource);
 
     await runRemoteCommand(
-      this.#workerHost,
+      workerHost,
       buildPrepareWorkspaceCommand({
         workspacePath,
         branchName,
@@ -195,7 +214,7 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     );
 
     this.#logger.info("Remote workspace ready", {
-      workerHost: this.#workerHost.name,
+      workerHost: workerHost.name,
       workspacePath,
       issueIdentifier: issue.identifier,
       branchName,
@@ -210,8 +229,8 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
       source: effectiveSource,
       target: {
         kind: "remote",
-        host: this.#workerHost.name,
-        workspaceId: `${this.#workerHost.name}:${sanitize(issue.identifier)}`,
+        host: workerHost.name,
+        workspaceId: `${workerHost.name}:${sanitize(issue.identifier)}`,
         pathHint: workspacePath,
       },
     };
@@ -220,6 +239,7 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
   async cleanupWorkspace(
     workspace: PreparedWorkspace,
   ): Promise<WorkspaceCleanupResult> {
+    const workerHost = this.#resolveWorkerHostFromWorkspace(workspace);
     const workspacePath =
       workspace.target.kind === "remote"
         ? (workspace.target.pathHint ?? null)
@@ -230,40 +250,39 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
       );
     }
     const result = await execFileAsync(
-      this.#workerHost.sshExecutable,
-      buildSshArgs(
-        this.#workerHost,
-        buildCleanupWorkspaceCommand(workspacePath),
-      ),
+      workerHost.sshExecutable,
+      buildSshArgs(workerHost, buildCleanupWorkspaceCommand(workspacePath)),
     );
     const kind =
       result.stdout.trim() === "deleted" ? "deleted" : "already-absent";
     return {
       kind,
-      workspacePath: renderRemotePath(this.#workerHost, workspacePath),
+      workspacePath: renderRemotePath(workerHost, workspacePath),
     };
   }
 
   async cleanupWorkspaceForIssue(
     request: WorkspacePreparationRequest,
   ): Promise<WorkspaceCleanupResult> {
+    const workerHost = this.#resolveWorkerHost(request.workerHost);
     return await this.cleanupWorkspace({
       key: sanitize(request.issue.identifier),
       branchName: `${this.#config.branchPrefix}${request.issue.number}`,
       createdNow: false,
       source:
-        this.#resolveWorkspaceSource(request.sourceOverride) ??
+        this.#resolveWorkspaceSource(workerHost, request.sourceOverride) ??
         createConfiguredWorkspaceSource(this.#config.repoUrl),
       target: {
         kind: "remote",
-        host: this.#workerHost.name,
-        workspaceId: `${this.#workerHost.name}:${sanitize(request.issue.identifier)}`,
-        pathHint: this.#workspacePathForIssue(request.issue.identifier),
+        host: workerHost.name,
+        workspaceId: `${workerHost.name}:${sanitize(request.issue.identifier)}`,
+        pathHint: this.#workspacePathForIssue(workerHost, request.issue.identifier),
       },
     });
   }
 
   #resolveWorkspaceSource(
+    workerHost: SshWorkerHostConfig,
     sourceOverride?: WorkspaceSource | null,
   ): WorkspaceSource | null {
     const source =
@@ -273,16 +292,13 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     if (source.kind === "configured-repo") {
       return source;
     }
-    if (
-      source.kind === "remote-path" &&
-      source.host === this.#workerHost.name
-    ) {
+    if (source.kind === "remote-path" && source.host === workerHost.name) {
       return source;
     }
     this.#logger.warn(
       "Ignoring local-only workspace source override for remote SSH workspace",
       {
-        workerHost: this.#workerHost.name,
+        workerHost: workerHost.name,
         sourceKind: source.kind,
         sourceLocation: getWorkspaceSourceLocation(source),
       },
@@ -290,9 +306,44 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     return createConfiguredWorkspaceSource(this.#config.repoUrl);
   }
 
-  #workspacePathForIssue(issueIdentifier: string): string {
+  #resolveWorkerHost(
+    workerHost: SshWorkerHostConfig | null | undefined,
+  ): SshWorkerHostConfig {
+    if (workerHost !== null && workerHost !== undefined) {
+      return workerHost;
+    }
+    const configuredHosts = Object.values(this.#workerHosts);
+    if (configuredHosts.length === 1) {
+      return configuredHosts[0]!;
+    }
+    throw new WorkspaceError(
+      "Remote SSH workspace preparation requires an explicit worker host when multiple worker hosts are configured",
+    );
+  }
+
+  #resolveWorkerHostFromWorkspace(
+    workspace: PreparedWorkspace,
+  ): SshWorkerHostConfig {
+    if (workspace.target.kind !== "remote") {
+      throw new WorkspaceError(
+        `Remote SSH workspace cleanup requires a remote workspace target, received ${workspace.target.kind}`,
+      );
+    }
+    const workerHost = this.#workerHosts[workspace.target.host];
+    if (workerHost === undefined) {
+      throw new WorkspaceError(
+        `Remote SSH workspace cleanup received unknown worker host '${workspace.target.host}'`,
+      );
+    }
+    return workerHost;
+  }
+
+  #workspacePathForIssue(
+    workerHost: SshWorkerHostConfig,
+    issueIdentifier: string,
+  ): string {
     return path.posix.join(
-      this.#workerHost.workspaceRoot,
+      workerHost.workspaceRoot,
       sanitize(issueIdentifier),
     );
   }

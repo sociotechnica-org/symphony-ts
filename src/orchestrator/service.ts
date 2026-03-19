@@ -24,8 +24,10 @@ import { getPreparedWorkspacePathHint } from "../domain/workspace.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
+  SshWorkerHostConfig,
   WatchdogConfig,
 } from "../domain/workflow.js";
+import { getCodexRemoteWorkerHosts } from "../domain/workflow.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -109,6 +111,15 @@ import {
   clearDispatchPressure,
   getActiveDispatchPressure,
 } from "./dispatch-pressure-state.js";
+import {
+  bindHostReservationToRunSession,
+  clearPreferredHost,
+  hasHostDispatchCapacity,
+  notePreferredHost,
+  readPreferredHost,
+  releaseHostForIssue,
+  reserveHostForIssue,
+} from "./host-dispatch-state.js";
 import {
   clearRetryState,
   collectDueRetries,
@@ -207,6 +218,7 @@ export interface TuiRetryEntry {
   readonly issueNumber: number;
   readonly identifier: string;
   readonly nextAttempt: number;
+  readonly preferredHost: string | null;
   readonly retryClass: RetryClass;
   readonly dueInMs: number;
   readonly lastError: string;
@@ -302,7 +314,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#workspaceManager = workspaceManager;
     this.#runner = runner;
     this.#logger = logger;
-    this.#state = createOrchestratorState(config.polling.intervalMs);
+    this.#state = createOrchestratorState(
+      config.polling.intervalMs,
+      getCodexRemoteWorkerHosts(config),
+    );
     this.#leaseManager = new LocalIssueLeaseManager(
       config.workspace.root,
       logger,
@@ -374,6 +389,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         issueNumber: retry.issue.number,
         identifier: retry.issue.identifier,
         nextAttempt: retry.nextAttempt,
+        preferredHost: retry.preferredHost,
         retryClass: retry.retryClass,
         dueInMs: Math.max(0, retry.dueAt - now),
         lastError: retry.lastError,
@@ -407,6 +423,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           issueIdentifier: retry.issue.identifier,
           title: retry.issue.title,
           nextAttempt: retry.nextAttempt,
+          preferredHost: retry.preferredHost,
           retryClass: retry.retryClass,
           scheduledAt: new Date(retry.scheduledAt).toISOString(),
           backoffMs: retry.backoffMs,
@@ -1049,6 +1066,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     source: "ready" | "running",
     pullRequest: HandoffLifecycle | null,
   ): Promise<boolean> {
+    let selectedWorkerHost: SshWorkerHostConfig | null = null;
     const dispatchPressure = getActiveDispatchPressure(
       this.#state.dispatchPressure,
     );
@@ -1072,12 +1090,55 @@ export class BootstrapOrchestrator implements Orchestrator {
       await this.#persistStatusSnapshot();
       return false;
     }
+    if (hasHostDispatchCapacity(this.#state.hostDispatch)) {
+      const reservation = reserveHostForIssue(
+        this.#state.hostDispatch,
+        issue.number,
+      );
+      if (reservation.kind === "blocked") {
+        const occupiedHosts =
+          reservation.occupiedHosts.length === 0
+            ? "none"
+            : reservation.occupiedHosts.join(", ");
+        const continuity =
+          reservation.preferredHost === null
+            ? ""
+            : ` preferred host=${reservation.preferredHost}.`;
+        const summary = `No remote worker host is currently available for ${issue.identifier}; occupied hosts: ${occupiedHosts}.${continuity}`;
+        upsertActiveIssue(this.#state.status, issue, {
+          source,
+          runSequence: attempt,
+          branchName: this.#branchName(issue.number),
+          status: "queued",
+          summary,
+          executionOwner: null,
+          ownerPid: process.pid,
+          blockedReason: summary,
+        });
+        noteStatusAction(this.#state.status, {
+          kind: "dispatch-blocked-no-host",
+          summary,
+          issueNumber: issue.number,
+        });
+        await this.#persistStatusSnapshot();
+        return false;
+      }
+      selectedWorkerHost = reservation.workerHost;
+      notePreferredHost(
+        this.#state.hostDispatch,
+        issue.number,
+        selectedWorkerHost.name,
+      );
+    }
     upsertActiveIssue(this.#state.status, issue, {
       source,
       runSequence: attempt,
       branchName: this.#branchName(issue.number),
       status: "preparing",
-      summary: `Preparing workspace for ${issue.identifier}`,
+      summary:
+        selectedWorkerHost === null
+          ? `Preparing workspace for ${issue.identifier}`
+          : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
       executionOwner: null,
       ownerPid: process.pid,
       runnerPid: null,
@@ -1086,11 +1147,17 @@ export class BootstrapOrchestrator implements Orchestrator {
     });
     noteStatusAction(this.#state.status, {
       kind: "run-preparing",
-      summary: `Preparing workspace for ${issue.identifier}`,
+      summary:
+        selectedWorkerHost === null
+          ? `Preparing workspace for ${issue.identifier}`
+          : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
       issueNumber: issue.number,
     });
     await this.#persistStatusSnapshot();
-    const workspace = await this.#workspaceManager.prepareWorkspace({ issue });
+    const workspace = await this.#workspaceManager.prepareWorkspace({
+      issue,
+      workerHost: selectedWorkerHost,
+    });
     const initialPrompt = await this.#promptBuilder.build({
       issue,
       attempt: attempt > 1 ? attempt : null,
@@ -1102,6 +1169,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       initialPrompt,
       attempt,
     );
+    if (selectedWorkerHost !== null) {
+      bindHostReservationToRunSession(
+        this.#state.hostDispatch,
+        selectedWorkerHost.name,
+        issue.number,
+        session.id,
+      );
+    }
     let sessionState: RunSessionArtifactsState = {
       runSession: session,
       description: this.#runner.describeSession(session),
@@ -1465,6 +1540,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       await stopWatchdog();
       shutdownSignal?.removeEventListener("abort", handleShutdown);
       this.#state.runAbortControllers.delete(issue.number);
+      releaseHostForIssue(this.#state.hostDispatch, issue.number);
       clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
       this.#state.runningEntries.delete(issue.number);
       this.#notifyDashboard();
@@ -1721,6 +1797,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const observedAt = options?.finishedAt ?? new Date().toISOString();
     await this.#tracker.completeIssue(issue.number);
     clearRetryState(this.#state.retries, issue.number);
+    clearPreferredHost(this.#state.hostDispatch, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearWatchdogIssue(this.#state.status, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
@@ -2175,6 +2252,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       const retryEntry = scheduleRetry(this.#state.retries, {
         issue,
         runSequence,
+        preferredHost: readPreferredHost(this.#state.hostDispatch, issue.number),
         retryClass: failure.retryClass,
         backoffMs: this.#config.polling.retry.backoffMs,
         message: failure.message,
@@ -2289,6 +2367,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const observedAt = options?.finishedAt ?? new Date().toISOString();
     await this.#tracker.markIssueFailed(issue.number, message);
     clearRetryState(this.#state.retries, issue.number);
+    clearPreferredHost(this.#state.hostDispatch, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
     clearWatchdogIssue(this.#state.status, issue.number);
     clearFollowUpRuntimeState(this.#state.followUp, issue.number);
@@ -3756,6 +3835,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
           activeLocalRuns: this.#state.runningIssueNumbers.size,
           retries: this.#state.retries,
+          hostDispatch: this.#state.hostDispatch,
           dispatchPressure: getActiveDispatchPressure(
             this.#state.dispatchPressure,
           ),
@@ -3805,6 +3885,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
           activeLocalRuns: this.#state.runningIssueNumbers.size,
           retries: this.#state.retries,
+          hostDispatch: this.#state.hostDispatch,
           dispatchPressure: getActiveDispatchPressure(
             this.#state.dispatchPressure,
           ),

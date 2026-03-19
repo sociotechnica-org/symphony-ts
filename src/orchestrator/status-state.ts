@@ -2,6 +2,7 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type {
   FactoryActiveIssueSnapshot,
+  FactoryHostDispatchSnapshot,
   FactoryIssueStatus,
   FactoryRestartRecoveryIssueSnapshot,
   FactoryRestartRecoveryState,
@@ -13,6 +14,8 @@ import type { FactoryRuntimeIdentity } from "../observability/runtime-identity.j
 import type { DispatchPressureStateSnapshot } from "../domain/transient-failure.js";
 import type { RetryRuntimeState } from "./retry-state.js";
 import { listQueuedRetries } from "./retry-state.js";
+import type { HostDispatchRuntimeState } from "./host-dispatch-state.js";
+import { listHostDispatchSnapshots } from "./host-dispatch-state.js";
 import {
   noteTerminalCleanupPosture,
   projectRecoveryPosture,
@@ -295,6 +298,7 @@ export function buildFactoryStatusSnapshot(input: {
   readonly maxConcurrentRuns: number;
   readonly activeLocalRuns: number;
   readonly retries: RetryRuntimeState;
+  readonly hostDispatch: HostDispatchRuntimeState;
   readonly dispatchPressure: DispatchPressureStateSnapshot | null;
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publicationState?: "current" | "initializing";
@@ -310,12 +314,19 @@ export function buildFactoryStatusSnapshot(input: {
       issueIdentifier: retry.issue.identifier,
       title: retry.issue.title,
       nextAttempt: retry.nextAttempt,
+      preferredHost: retry.preferredHost,
       retryClass: retry.retryClass,
       scheduledAt: new Date(retry.scheduledAt).toISOString(),
       backoffMs: retry.backoffMs,
       dueAt: new Date(retry.dueAt).toISOString(),
       lastError: retry.lastError,
     }));
+  const hostDispatch: FactoryHostDispatchSnapshot | null =
+    input.hostDispatch.hostOrder.length === 0
+      ? null
+      : {
+          hosts: listHostDispatchSnapshots(input.hostDispatch),
+        };
 
   return {
     version: 1,
@@ -326,6 +337,7 @@ export function buildFactoryStatusSnapshot(input: {
       detail: input.publicationDetail ?? null,
     },
     dispatchPressure: input.dispatchPressure,
+    hostDispatch,
     restartRecovery: input.state.restartRecovery,
     recoveryPosture: projectRecoveryPosture({
       publication: {

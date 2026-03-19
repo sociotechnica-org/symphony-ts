@@ -54,14 +54,16 @@ function createConfig(
       kind: "codex",
       remoteExecution: {
         kind: "ssh",
-        workerHostName: "builder",
-        workerHost: {
-          name: "builder",
-          sshDestination: "builder@example.test",
-          sshExecutable: "/tmp/fake-ssh",
-          sshOptions: [],
-          workspaceRoot: "/tmp/remote-workspaces",
-        },
+        workerHostNames: ["builder"],
+        workerHosts: [
+          {
+            name: "builder",
+            sshDestination: "builder@example.test",
+            sshExecutable: "/tmp/fake-ssh",
+            sshOptions: [],
+            workspaceRoot: "/tmp/remote-workspaces",
+          },
+        ],
       },
     },
     command,
@@ -85,11 +87,13 @@ describe("CodexRunner remote SSH transport", () => {
       new JsonLogger(),
       null,
       {
-        name: "builder",
-        sshDestination: "builder@example.test",
-        sshExecutable: fakeSsh,
-        sshOptions: [],
-        workspaceRoot: "/tmp/remote-workspaces",
+        builder: {
+          name: "builder",
+          sshDestination: "builder@example.test",
+          sshExecutable: fakeSsh,
+          sshOptions: [],
+          workspaceRoot: "/tmp/remote-workspaces",
+        },
       },
     );
 
@@ -147,11 +151,13 @@ describe("CodexRunner remote SSH transport", () => {
       new JsonLogger(),
       null,
       {
-        name: "builder",
-        sshDestination: "builder@example.test",
-        sshExecutable: fakeSsh,
-        sshOptions: [],
-        workspaceRoot: "/tmp/remote-workspaces",
+        builder: {
+          name: "builder",
+          sshDestination: "builder@example.test",
+          sshExecutable: fakeSsh,
+          sshOptions: [],
+          workspaceRoot: "/tmp/remote-workspaces",
+        },
       },
     );
 

@@ -19,13 +19,13 @@ export class CodexRunner implements Runner {
   readonly #config: AgentConfig;
   readonly #logger: Logger;
   readonly #dynamicToolExecutor: RunnerDynamicToolExecutor;
-  readonly #remoteWorkerHost: SshWorkerHostConfig | null;
+  readonly #remoteWorkerHosts: Readonly<Record<string, SshWorkerHostConfig>>;
 
   constructor(
     config: AgentConfig,
     logger: Logger,
     trackerToolService: TrackerToolService | null = null,
-    remoteWorkerHost: SshWorkerHostConfig | null = null,
+    remoteWorkerHosts: Readonly<Record<string, SshWorkerHostConfig>> | null = null,
   ) {
     if (config.runner.kind !== "codex") {
       throw new RunnerError(
@@ -45,7 +45,7 @@ export class CodexRunner implements Runner {
     this.#dynamicToolExecutor = new RunnerDynamicToolExecutor(
       trackerToolService,
     );
-    this.#remoteWorkerHost = remoteWorkerHost;
+    this.#remoteWorkerHosts = remoteWorkerHosts ?? {};
   }
 
   describeSession(session: RunSession): RunnerSessionDescription {
@@ -87,7 +87,7 @@ export class CodexRunner implements Runner {
           this.#logger,
           session,
           this.#dynamicToolExecutor,
-          this.#remoteWorkerHost,
+          this.#remoteWorkerHosts,
         ),
       );
     } catch (error) {

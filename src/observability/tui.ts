@@ -754,6 +754,10 @@ function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
   return retrying.map((entry) => {
     const dueStr = formatDueIn(entry.dueInMs);
     const classPart = " " + colorize(`class=${entry.retryClass}`, DIM);
+    const hostPart =
+      entry.preferredHost === null
+        ? ""
+        : " " + colorize(`host=${entry.preferredHost}`, DIM);
     const errorPart =
       entry.lastError.trim() !== ""
         ? " " + colorize(`error=${sanitizeRetryError(entry.lastError)}`, DIM)
@@ -766,6 +770,7 @@ function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
       " " +
       colorize(`attempt=${String(entry.nextAttempt)}`, YELLOW) +
       classPart +
+      hostPart +
       colorize(" in ", DIM) +
       colorize(dueStr, CYAN) +
       errorPart
@@ -954,6 +959,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       issueNumber: r.issueNumber,
       identifier: r.identifier,
       nextAttempt: r.nextAttempt,
+      preferredHost: r.preferredHost,
       retryClass: r.retryClass,
       lastError: r.lastError,
     })),

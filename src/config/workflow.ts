@@ -721,21 +721,53 @@ function resolveCodexRemoteExecutionConfig(
     ["ssh"],
     "agent.runner.remote_execution.kind",
   );
+  const workerHostNames = resolveRemoteExecutionWorkerHostNames(
+    remoteExecution,
+    workerHosts,
+  );
+  return {
+    kind,
+    workerHostNames,
+    workerHosts: workerHostNames.map((workerHostName) => workerHosts[workerHostName]!),
+  };
+}
+
+function resolveRemoteExecutionWorkerHostNames(
+  remoteExecution: Readonly<Record<string, unknown>>,
+  workerHosts: Readonly<Record<string, SshWorkerHostConfig>>,
+): readonly string[] {
+  const workerHostNamesRaw = remoteExecution["worker_hosts"];
+  if (workerHostNamesRaw !== undefined) {
+    const workerHostNames = requireStringArray(
+      workerHostNamesRaw,
+      "agent.runner.remote_execution.worker_hosts",
+    );
+    if (workerHostNames.length === 0) {
+      throw new ConfigError(
+        "agent.runner.remote_execution.worker_hosts must contain at least one worker host",
+      );
+    }
+    const uniqueWorkerHostNames = [...new Set(workerHostNames)];
+    for (const workerHostName of uniqueWorkerHostNames) {
+      if (workerHosts[workerHostName] === undefined) {
+        throw new ConfigError(
+          `agent.runner.remote_execution.worker_hosts contains undefined worker host '${workerHostName}'`,
+        );
+      }
+    }
+    return uniqueWorkerHostNames;
+  }
+
   const workerHostName = requireString(
     remoteExecution["worker_host"],
     "agent.runner.remote_execution.worker_host",
   );
-  const workerHost = workerHosts[workerHostName];
-  if (workerHost === undefined) {
+  if (workerHosts[workerHostName] === undefined) {
     throw new ConfigError(
       `agent.runner.remote_execution.worker_host '${workerHostName}' is not defined in workspace.worker_hosts`,
     );
   }
-  return {
-    kind,
-    workerHostName,
-    workerHost,
-  };
+  return [workerHostName];
 }
 
 function inferAgentRunnerConfig(command: string): AgentRunnerConfig {

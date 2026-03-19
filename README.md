@@ -234,12 +234,20 @@ agent:
     kind: codex
     remote_execution:
       kind: ssh
-      worker_host: builder
+      worker_hosts:
+        - builder
+        - builder-b
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   prompt_transport: stdin
   timeout_ms: 1800000
   max_turns: 20
 ```
+
+When multiple remote Codex worker hosts are configured, Symphony selects a host
+at dispatch time, keeps continuation turns on that same host, and prefers the
+previous host again on retry while it remains available. Status surfaces now
+publish per-host occupancy plus preferred retry-host hints so no-host bottlenecks
+are inspectable instead of looking like generic retry noise.
 
 For the checked-in GitHub workflow prompt, tracker content is not passed
 through uniformly. The prompt contract is:
