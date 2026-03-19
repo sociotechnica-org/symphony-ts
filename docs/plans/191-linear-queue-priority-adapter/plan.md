@@ -131,16 +131,16 @@ Not applicable for this slice. The issue changes tracker-boundary normalization,
 
 ## Failure-Class Matrix
 
-| Observed condition                                                   | Local facts available                        | Normalized tracker facts available     | Expected behavior                                                                 |
-| -------------------------------------------------------------------- | -------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------- |
-| Linear queue-priority config is absent                               | resolved tracker config                      | native priority may exist              | preserve current behavior; normalize `queuePriority: null`                        |
-| Linear queue-priority config is present with `enabled: false`        | resolved tracker config                      | native priority may exist              | normalize `queuePriority: null`                                                   |
-| Linear queue-priority config is present with `enabled: true`         | resolved tracker config                      | native priority integer or null        | map supported native priority into normalized `QueuePriority`                     |
-| Linear issue priority is `0` or `null`                              | resolved tracker config                      | native priority unset                  | normalize `queuePriority: null`                                                   |
-| Linear issue priority is in the supported `1-4` range               | resolved tracker config                      | native priority integer                | normalize to a stable `rank` and human-readable `label` inside the tracker layer  |
-| Linear issue priority is outside the supported range or not integer | normalization field path                     | malformed raw Linear payload           | fail at the Linear normalization boundary; do not leak malformed priority upward   |
-| Two issues have different normalized Linear-derived priorities       | normalized runtime issues                    | populated `queuePriority` values       | shared queue-priority comparator can order them without Linear-specific knowledge  |
-| Linear issue is otherwise readable but priority mapping is disabled  | tracker config, issue identity               | native priority ignored by policy seam | issue remains readable; no lifecycle or eligibility behavior changes              |
+| Observed condition                                                  | Local facts available          | Normalized tracker facts available     | Expected behavior                                                                 |
+| ------------------------------------------------------------------- | ------------------------------ | -------------------------------------- | --------------------------------------------------------------------------------- |
+| Linear queue-priority config is absent                              | resolved tracker config        | native priority may exist              | preserve current behavior; normalize `queuePriority: null`                        |
+| Linear queue-priority config is present with `enabled: false`       | resolved tracker config        | native priority may exist              | normalize `queuePriority: null`                                                   |
+| Linear queue-priority config is present with `enabled: true`        | resolved tracker config        | native priority integer or null        | map supported native priority into normalized `QueuePriority`                     |
+| Linear issue priority is `0` or `null`                              | resolved tracker config        | native priority unset                  | normalize `queuePriority: null`                                                   |
+| Linear issue priority is in the supported `1-4` range               | resolved tracker config        | native priority integer                | normalize to a stable `rank` and human-readable `label` inside the tracker layer  |
+| Linear issue priority is outside the supported range or not integer | normalization field path       | malformed raw Linear payload           | fail at the Linear normalization boundary; do not leak malformed priority upward  |
+| Two issues have different normalized Linear-derived priorities      | normalized runtime issues      | populated `queuePriority` values       | shared queue-priority comparator can order them without Linear-specific knowledge |
+| Linear issue is otherwise readable but priority mapping is disabled | tracker config, issue identity | native priority ignored by policy seam | issue remains readable; no lifecycle or eligibility behavior changes              |
 
 ## Storage / Persistence Contract
 

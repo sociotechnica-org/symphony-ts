@@ -14,6 +14,8 @@ tracker:
     - cursor
     - devin-ai-integration
   # Optional tracker-owned ready-work ordering seam.
+  # GitHub requires project_number / field_name configuration.
+  # Linear only uses enabled: true and maps native issue priority when present.
   # queue_priority:
   #   enabled: true
   #   project_number: 12

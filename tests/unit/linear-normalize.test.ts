@@ -91,6 +91,7 @@ describe("normalizeLinearIssueSnapshot", () => {
     expect(snapshot.assignedToWorker).toBe(true);
     expect(snapshot.labels).toEqual(["backend", "needs review"]);
     expect(snapshot.runtimeIssue.labels).toEqual(["backend", "needs review"]);
+    expect(snapshot.runtimeIssue.queuePriority).toBeNull();
     expect(snapshot.blockedBy).toEqual([
       {
         id: "issue-0",
@@ -99,6 +100,37 @@ describe("normalizeLinearIssueSnapshot", () => {
         state: "In Progress",
       },
     ]);
+  });
+
+  it("normalizes enabled Linear priority into queue priority metadata", () => {
+    const snapshot = normalizeLinearIssueSnapshot(
+      createIssuePayload({ priority: 1 }),
+      "issue",
+      {
+        configuredAssignee: null,
+        queuePriority: { enabled: true },
+      },
+    );
+
+    expect(snapshot.priority).toBe(1);
+    expect(snapshot.runtimeIssue.queuePriority).toEqual({
+      rank: 1,
+      label: "Urgent",
+    });
+  });
+
+  it("keeps queue priority null when Linear queue priority is disabled", () => {
+    const snapshot = normalizeLinearIssueSnapshot(
+      createIssuePayload({ priority: 2 }),
+      "issue",
+      {
+        configuredAssignee: null,
+        queuePriority: { enabled: false },
+      },
+    );
+
+    expect(snapshot.priority).toBe(2);
+    expect(snapshot.runtimeIssue.queuePriority).toBeNull();
   });
 
   it("tolerates missing optional assignee, labels, relations, and branch metadata", () => {
@@ -117,6 +149,7 @@ describe("normalizeLinearIssueSnapshot", () => {
 
     expect(snapshot.description).toBe("");
     expect(snapshot.priority).toBeNull();
+    expect(snapshot.runtimeIssue.queuePriority).toBeNull();
     expect(snapshot.branchName).toBeNull();
     expect(snapshot.assignee).toBeNull();
     expect(snapshot.assignedToWorker).toBe(true);
@@ -131,6 +164,7 @@ describe("normalizeLinearIssueSnapshot", () => {
     );
 
     expect(snapshot.priority).toBeNull();
+    expect(snapshot.runtimeIssue.queuePriority).toBeNull();
   });
 
   it("silently skips a 'blocks' relation whose issue is null", () => {

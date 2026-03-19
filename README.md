@@ -256,7 +256,10 @@ Projects V2 field, normalize supported values into `issue.queuePriority`, and
 keep missing, unset, unmapped, or unsupported project data as `null` so ready
 work still falls back to deterministic issue-number ordering. The current
 GitHub slice supports integer number fields directly plus single-select or text
-fields when `option_rank_map` provides the rank mapping.
+fields when `option_rank_map` provides the rank mapping. For Linear, Symphony
+can optionally normalize the native issue `priority` field into the same
+contract when `tracker.queue_priority.enabled: true`; native `priority: 0`,
+`null`, or disabled config still fall back to `queuePriority: null`.
 
 When multiple remote Codex worker hosts are configured, Symphony selects a host
 at dispatch time, keeps continuation turns on that same host, and prefers the
