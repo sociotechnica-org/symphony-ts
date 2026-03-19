@@ -889,10 +889,7 @@ function resolveQueuePriorityConfig(
 
   const config = value as Record<string, unknown>;
   return {
-    enabled:
-      config["enabled"] === undefined
-        ? true
-        : requireBoolean(config["enabled"], `${field}.enabled`),
+    enabled: requireBoolean(config["enabled"], `${field}.enabled`),
   };
 }
 

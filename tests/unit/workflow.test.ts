@@ -227,6 +227,30 @@ ${buildSharedWorkflowSections()}`,
     );
   });
 
+  it("fails clearly when tracker.queue_priority.enabled is omitted", async () => {
+    const dir = await createTempDir("workflow-queue-priority-missing-enabled-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  queue_priority: {}
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected boolean for tracker.queue_priority.enabled",
+    );
+  });
+
   it("fails clearly when tracker.queue_priority.enabled is not a boolean", async () => {
     const dir = await createTempDir("workflow-queue-priority-enabled-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
