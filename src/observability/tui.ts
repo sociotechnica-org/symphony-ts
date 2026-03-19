@@ -1242,7 +1242,19 @@ function formatRunnerLabel(
   }
   const model =
     visibility.session.model === null ? null : visibility.session.model.trim();
-  return model === null || model === "" ? provider : `${provider}/${model}`;
+  const base =
+    model === null || model === "" ? provider : `${provider}/${model}`;
+  const remoteSessionId = visibility.session.transport.remoteSessionId;
+  if (
+    visibility.session.transport.kind === "remote-stdio-session" &&
+    remoteSessionId !== null
+  ) {
+    const host = remoteSessionId.split(":")[0]?.trim() ?? "";
+    if (host !== "") {
+      return `${base}@${host}`;
+    }
+  }
+  return base;
 }
 
 function describeLifecycleContext(

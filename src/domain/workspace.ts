@@ -81,8 +81,25 @@ export function getWorkspaceTargetPath(target: WorkspaceTarget): string | null {
   return target.path;
 }
 
+export function getWorkspaceTargetPathHint(
+  target: WorkspaceTarget,
+): string | null {
+  switch (target.kind) {
+    case "local":
+      return target.path;
+    case "remote":
+      return target.pathHint ?? null;
+  }
+}
+
 export function getPreparedWorkspacePath(
   workspace: PreparedWorkspace,
 ): string | null {
   return getWorkspaceTargetPath(workspace.target);
+}
+
+export function getPreparedWorkspacePathHint(
+  workspace: PreparedWorkspace,
+): string | null {
+  return getWorkspaceTargetPathHint(workspace.target);
 }

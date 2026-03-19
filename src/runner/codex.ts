@@ -1,5 +1,5 @@
 import type { RunSession } from "../domain/run.js";
-import type { AgentConfig } from "../domain/workflow.js";
+import type { AgentConfig, SshWorkerHostConfig } from "../domain/workflow.js";
 import { RunnerError } from "../domain/errors.js";
 import type { Logger } from "../observability/logger.js";
 import type { TrackerToolService } from "../tracker/tool-service.js";
@@ -7,23 +7,25 @@ import { describeLocalRunnerBackend } from "./local-command.js";
 import { executeLocalRunnerCommand } from "./local-execution.js";
 import { CodexAppServerSession } from "./codex-app-server-session.js";
 import { RunnerDynamicToolExecutor } from "./dynamic-tool-executor.js";
-import { describeLocalRunnerSession } from "./local-session-description.js";
 import type {
   Runner,
   RunnerExecutionResult,
   RunnerRunOptions,
   RunnerSessionDescription,
 } from "./service.js";
+import { createRunnerTransportMetadata } from "./service.js";
 
 export class CodexRunner implements Runner {
   readonly #config: AgentConfig;
   readonly #logger: Logger;
   readonly #dynamicToolExecutor: RunnerDynamicToolExecutor;
+  readonly #remoteWorkerHost: SshWorkerHostConfig | null;
 
   constructor(
     config: AgentConfig,
     logger: Logger,
     trackerToolService: TrackerToolService | null = null,
+    remoteWorkerHost: SshWorkerHostConfig | null = null,
   ) {
     if (config.runner.kind !== "codex") {
       throw new RunnerError(
@@ -43,13 +45,38 @@ export class CodexRunner implements Runner {
     this.#dynamicToolExecutor = new RunnerDynamicToolExecutor(
       trackerToolService,
     );
+    this.#remoteWorkerHost = remoteWorkerHost;
   }
 
-  describeSession(_session: RunSession): RunnerSessionDescription {
-    return describeLocalRunnerSession(
-      this.#config.command,
-      "local-stdio-session",
-    );
+  describeSession(session: RunSession): RunnerSessionDescription {
+    const backend = describeLocalRunnerBackend(this.#config.command);
+    const remoteTransport =
+      session.workspace.target.kind === "remote"
+        ? {
+            kind: "remote-stdio-session" as const,
+            remoteSessionId: `${session.workspace.target.host}:${session.id}`,
+          }
+        : null;
+    return {
+      provider: backend.provider,
+      model: backend.model,
+      transport: createRunnerTransportMetadata(
+        remoteTransport?.kind ?? "local-stdio-session",
+        remoteTransport === null
+          ? {
+              canTerminateLocalProcess: true,
+            }
+          : {
+              canTerminateLocalProcess: true,
+              remoteSessionId: remoteTransport.remoteSessionId,
+            },
+      ),
+      backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      latestTurnNumber: null,
+      logPointers: [],
+    };
   }
 
   startSession(session: RunSession): Promise<CodexAppServerSession> {
@@ -60,6 +87,7 @@ export class CodexRunner implements Runner {
           this.#logger,
           session,
           this.#dynamicToolExecutor,
+          this.#remoteWorkerHost,
         ),
       );
     } catch (error) {
@@ -71,6 +99,21 @@ export class CodexRunner implements Runner {
     session: RunSession,
     options?: RunnerRunOptions,
   ): Promise<RunnerExecutionResult> {
+    if (session.workspace.target.kind === "remote") {
+      const liveSession = await this.startSession(session);
+      try {
+        const result = await liveSession.runTurn(
+          {
+            prompt: session.prompt,
+            turnNumber: 1,
+          },
+          options,
+        );
+        return result;
+      } finally {
+        await liveSession.close();
+      }
+    }
     return await CodexRunner.executeCommand(this.#logger, this.#config, {
       command: this.#config.command,
       prompt: session.prompt,

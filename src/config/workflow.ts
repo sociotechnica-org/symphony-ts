@@ -12,11 +12,13 @@ import {
 } from "../tracker/prompt-context.js";
 import type {
   AgentRunnerConfig,
+  CodexRemoteExecutionConfig,
   GitHubCompatibleTrackerConfig,
   LinearTrackerConfig,
   ObservabilityConfig,
   PromptBuilder,
   ResolvedConfig,
+  SshWorkerHostConfig,
   TrackerConfig,
   WorkspaceRetentionMode,
   WatchdogConfig,
@@ -368,9 +370,31 @@ function resolveWorkspaceRepoUrl(
 }
 
 function isRemoteRepoUrl(repoUrl: string): boolean {
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(repoUrl)) {
+  if (hasUrlScheme(repoUrl)) {
     return true;
   }
+  return isScpStyleRepoUrl(repoUrl);
+}
+
+function isRemoteExecutionRepoUrl(repoUrl: string): boolean {
+  if (isScpStyleRepoUrl(repoUrl)) {
+    return true;
+  }
+  if (!hasUrlScheme(repoUrl)) {
+    return false;
+  }
+  try {
+    return new URL(repoUrl).protocol !== "file:";
+  } catch {
+    return true;
+  }
+}
+
+function hasUrlScheme(repoUrl: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(repoUrl);
+}
+
+function isScpStyleRepoUrl(repoUrl: string): boolean {
   return /^[^/\\\s]+@[^:/\\\s]+:.+$/.test(repoUrl);
 }
 
@@ -465,6 +489,29 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   };
   const resolvedWatchdog = resolveWatchdogConfig(polling["watchdog"]);
   const agentCommand = requireString(agent["command"], "agent.command");
+  const resolvedWorkspace = {
+    root: path.resolve(
+      path.dirname(workflowPath),
+      requireString(workspace["root"], "workspace.root"),
+    ),
+    repoUrl: resolveRepoUrl(
+      workspace["repo_url"],
+      derivedRepoUrl,
+      repoOverride !== undefined,
+      workflowPath,
+    ),
+    branchPrefix: requireString(
+      workspace["branch_prefix"],
+      "workspace.branch_prefix",
+    ),
+    retention: resolveWorkspaceRetentionPolicy(workspace),
+    workerHosts: resolveWorkerHostsConfig(workspace["worker_hosts"]),
+  } as const;
+  const resolvedRunner = resolveAgentRunnerConfig(
+    agent,
+    agentCommand,
+    resolvedWorkspace.workerHosts,
+  );
 
   const resolved: ResolvedConfig = {
     workflowPath,
@@ -476,23 +523,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
             ...resolvedPolling,
             watchdog: resolvedWatchdog,
           },
-    workspace: {
-      root: path.resolve(
-        path.dirname(workflowPath),
-        requireString(workspace["root"], "workspace.root"),
-      ),
-      repoUrl: resolveRepoUrl(
-        workspace["repo_url"],
-        derivedRepoUrl,
-        repoOverride !== undefined,
-        workflowPath,
-      ),
-      branchPrefix: requireString(
-        workspace["branch_prefix"],
-        "workspace.branch_prefix",
-      ),
-      retention: resolveWorkspaceRetentionPolicy(workspace),
-    },
+    workspace: resolvedWorkspace,
     hooks: {
       afterCreate:
         hooks["after_create"] === undefined
@@ -500,7 +531,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
           : requireStringArray(hooks["after_create"], "hooks.after_create"),
     },
     agent: {
-      runner: resolveAgentRunnerConfig(agent, agentCommand),
+      runner: resolvedRunner,
       command: agentCommand,
       promptTransport: requireString(
         agent["prompt_transport"],
@@ -540,6 +571,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   if (resolved.polling.retry.maxAttempts < 1) {
     throw new ConfigError("polling.retry.max_attempts must be >= 1");
   }
+  validateRemoteExecutionConfig(resolved);
   return resolved;
 }
 
@@ -578,9 +610,54 @@ function resolveWorkspaceRetentionPolicy(
   } as const;
 }
 
+function resolveWorkerHostsConfig(
+  raw: unknown,
+): Readonly<Record<string, SshWorkerHostConfig>> {
+  if (raw === undefined) {
+    return {};
+  }
+
+  const workerHosts = coerceOptionalObject(raw, "workspace.worker_hosts");
+  const resolved = Object.entries(workerHosts).map(([name, value]) => {
+    const workerHost = coerceOptionalObject(
+      value,
+      `workspace.worker_hosts.${name}`,
+    );
+    return [
+      name,
+      {
+        name,
+        sshDestination: requireString(
+          workerHost["ssh_destination"],
+          `workspace.worker_hosts.${name}.ssh_destination`,
+        ),
+        sshExecutable:
+          requireOptionalString(
+            workerHost["ssh_executable"],
+            `workspace.worker_hosts.${name}.ssh_executable`,
+          ) ?? "ssh",
+        sshOptions:
+          workerHost["ssh_options"] === undefined
+            ? []
+            : requireStringArray(
+                workerHost["ssh_options"],
+                `workspace.worker_hosts.${name}.ssh_options`,
+              ),
+        workspaceRoot: requireString(
+          workerHost["workspace_root"],
+          `workspace.worker_hosts.${name}.workspace_root`,
+        ),
+      } satisfies SshWorkerHostConfig,
+    ] as const;
+  });
+
+  return Object.fromEntries(resolved);
+}
+
 function resolveAgentRunnerConfig(
   agent: Readonly<Record<string, unknown>>,
   command: string,
+  workerHosts: Readonly<Record<string, SshWorkerHostConfig>>,
 ): AgentRunnerConfig {
   const rawRunner = agent["runner"];
 
@@ -600,7 +677,7 @@ function resolveAgentRunnerConfig(
 
   switch (kind) {
     case "codex":
-      return { kind: "codex" };
+      return resolveCodexRunnerConfig(runner, workerHosts);
     case "generic-command":
       return resolveGenericCommandRunnerConfig(runner);
     case "claude-code":
@@ -608,6 +685,57 @@ function resolveAgentRunnerConfig(
     default:
       return exhaustiveAgentRunnerKind(kind);
   }
+}
+
+function resolveCodexRunnerConfig(
+  runner: Readonly<Record<string, unknown>>,
+  workerHosts: Readonly<Record<string, SshWorkerHostConfig>>,
+): AgentRunnerConfig {
+  const remoteExecution = resolveCodexRemoteExecutionConfig(
+    runner["remote_execution"],
+    workerHosts,
+  );
+  if (remoteExecution === undefined) {
+    return { kind: "codex" };
+  }
+  return {
+    kind: "codex",
+    remoteExecution,
+  };
+}
+
+function resolveCodexRemoteExecutionConfig(
+  raw: unknown,
+  workerHosts: Readonly<Record<string, SshWorkerHostConfig>>,
+): CodexRemoteExecutionConfig | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const remoteExecution = coerceOptionalObject(
+    raw,
+    "agent.runner.remote_execution",
+  );
+  const kind = requireEnum(
+    remoteExecution["kind"],
+    ["ssh"],
+    "agent.runner.remote_execution.kind",
+  );
+  const workerHostName = requireString(
+    remoteExecution["worker_host"],
+    "agent.runner.remote_execution.worker_host",
+  );
+  const workerHost = workerHosts[workerHostName];
+  if (workerHost === undefined) {
+    throw new ConfigError(
+      `agent.runner.remote_execution.worker_host '${workerHostName}' is not defined in workspace.worker_hosts`,
+    );
+  }
+  return {
+    kind,
+    workerHostName,
+    workerHost,
+  };
 }
 
 function inferAgentRunnerConfig(command: string): AgentRunnerConfig {
@@ -662,6 +790,29 @@ function validateExplicitAgentRunnerKind(
   throw new ConfigError(
     `agent.runner.kind '${kind}' requires agent.command to invoke the ${requiredExecutable} CLI`,
   );
+}
+
+function validateRemoteExecutionConfig(config: ResolvedConfig): void {
+  if (config.agent.runner.kind !== "codex") {
+    return;
+  }
+
+  const remoteExecution = config.agent.runner.remoteExecution;
+  if (remoteExecution === undefined) {
+    return;
+  }
+
+  if (!isRemoteExecutionRepoUrl(config.workspace.repoUrl)) {
+    throw new ConfigError(
+      "workspace.repo_url must be a remote clone URL when agent.runner.remote_execution is enabled",
+    );
+  }
+
+  if (config.agent.promptTransport !== "stdin") {
+    throw new ConfigError(
+      "agent.prompt_transport must be 'stdin' for Codex SSH remote execution",
+    );
+  }
 }
 
 function exhaustiveAgentRunnerKind(value: never): never {

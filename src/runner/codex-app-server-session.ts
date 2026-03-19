@@ -1,11 +1,16 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { RunnerError, RunnerShutdownError } from "../domain/errors.js";
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
-import type { AgentConfig } from "../domain/workflow.js";
+import { getPreparedWorkspacePathHint } from "../domain/workspace.js";
+import type { AgentConfig, SshWorkerHostConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import { describeLocalRunnerSession } from "./local-session-description.js";
-import { requireLocalWorkspacePath } from "./local-execution.js";
+import {
+  formatShellEnvironmentEntry,
+  quoteShellToken,
+} from "./local-command.js";
+import { buildSshRemoteCommand } from "./ssh-command.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
+import { createRunnerEnvironment } from "./run-environment.js";
 import {
   buildCodexAppServerCommand,
   type CodexAppServerCommand,
@@ -28,6 +33,7 @@ import {
 import type { DynamicToolExecutor } from "./dynamic-tool-executor.js";
 import {
   RUNNER_SHUTDOWN_GRACE_MS,
+  createRunnerTransportMetadata,
   summarizeRunnerText,
   withRunnerTransportLocalProcess,
   type RunnerTransportMetadata,
@@ -70,6 +76,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   readonly #baseDescription: RunnerSessionDescription;
   readonly #appServerCommand: CodexAppServerCommand;
   readonly #dynamicToolExecutor: DynamicToolExecutor;
+  readonly #remoteWorkerHost: SshWorkerHostConfig | null;
   #child: ChildProcessWithoutNullStreams | null = null;
   #closePromise: Promise<void> | null = null;
   #closeResolve: (() => void) | null = null;
@@ -102,16 +109,36 @@ export class CodexAppServerSession implements LiveRunnerSession {
     logger: Logger,
     session: RunSession,
     dynamicToolExecutor: DynamicToolExecutor,
+    remoteWorkerHost: SshWorkerHostConfig | null = null,
   ) {
+    const appServerCommand = buildCodexAppServerCommand(config.command);
     this.#config = config;
     this.#logger = logger;
     this.#runSession = session;
     this.#dynamicToolExecutor = dynamicToolExecutor;
-    this.#baseDescription = describeLocalRunnerSession(
-      config.command,
-      "local-stdio-session",
-    );
-    this.#appServerCommand = buildCodexAppServerCommand(config.command);
+    this.#remoteWorkerHost = remoteWorkerHost;
+    this.#baseDescription = {
+      provider: "codex",
+      model: appServerCommand.model,
+      transport: createRunnerTransportMetadata(
+        this.#runSession.workspace.target.kind === "remote"
+          ? "remote-stdio-session"
+          : "local-stdio-session",
+        {
+          canTerminateLocalProcess: true,
+          remoteSessionId:
+            this.#runSession.workspace.target.kind === "remote"
+              ? `${this.#runSession.workspace.target.host}:${this.#runSession.id}`
+              : null,
+        },
+      ),
+      backendSessionId: null,
+      backendThreadId: null,
+      latestTurnId: null,
+      latestTurnNumber: null,
+      logPointers: [],
+    };
+    this.#appServerCommand = appServerCommand;
   }
 
   describe(): RunnerSessionDescription {
@@ -133,6 +160,52 @@ export class CodexAppServerSession implements LiveRunnerSession {
       this.#baseDescription.transport,
       this.#appServerPid,
     );
+  }
+
+  #requireWorkspacePathHint(consumer: string): string {
+    const workspacePath = getPreparedWorkspacePathHint(
+      this.#runSession.workspace,
+    );
+    if (workspacePath === null) {
+      throw new RunnerError(
+        `${consumer} requires a prepared workspace path; received ${this.#runSession.workspace.target.kind}`,
+      );
+    }
+    return workspacePath;
+  }
+
+  #spawnRemoteProcess(workspacePath: string): ChildProcessWithoutNullStreams {
+    const workerHost = this.#remoteWorkerHost;
+    if (workerHost === null) {
+      throw new RunnerError(
+        "Codex SSH remote execution requires a configured worker host",
+      );
+    }
+    const remoteCommand = this.#buildRemoteLaunchCommand(workspacePath);
+    return spawn(
+      workerHost.sshExecutable,
+      [
+        ...workerHost.sshOptions,
+        workerHost.sshDestination,
+        buildSshRemoteCommand(["bash", "-lc", remoteCommand]),
+      ],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+  }
+
+  #buildRemoteLaunchCommand(workspacePath: string): string {
+    const env = createRunnerEnvironment(
+      this.#runSession,
+      1,
+      workspacePath,
+      this.#config.env,
+    );
+    const envAssignments = Object.entries(env)
+      .map(([key, value]) => formatShellEnvironmentEntry(key, String(value)))
+      .join(" ");
+    return `set -euo pipefail\ncd ${quoteShellToken(workspacePath)}\nexec env ${envAssignments} ${this.#appServerCommand.launchCommand}`;
   }
 
   async runTurn(
@@ -274,8 +347,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   #spawnProcess(onEvent?: (event: RunnerEvent) => void | Promise<void>): void {
-    const workspacePath = requireLocalWorkspacePath(
-      this.#runSession,
+    const workspacePath = this.#requireWorkspacePathHint(
       "Codex app-server runner",
     );
     if (
@@ -292,21 +364,22 @@ export class CodexAppServerSession implements LiveRunnerSession {
       this.#loggedDroppedArgs = true;
     }
 
-    const child = spawn("bash", ["-lc", this.#appServerCommand.launchCommand], {
-      cwd: workspacePath,
-      env: {
-        ...process.env,
-        ...this.#config.env,
-        SYMPHONY_ISSUE_ID: this.#runSession.issue.id,
-        SYMPHONY_ISSUE_IDENTIFIER: this.#runSession.issue.identifier,
-        SYMPHONY_ISSUE_NUMBER: String(this.#runSession.issue.number),
-        SYMPHONY_RUN_ATTEMPT: String(this.#runSession.attempt.sequence),
-        SYMPHONY_BRANCH_NAME: this.#runSession.workspace.branchName,
-        SYMPHONY_WORKSPACE_PATH: workspacePath,
-        SYMPHONY_RUN_SESSION_ID: this.#runSession.id,
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const child =
+      this.#runSession.workspace.target.kind === "remote"
+        ? this.#spawnRemoteProcess(workspacePath)
+        : spawn("bash", ["-lc", this.#appServerCommand.launchCommand], {
+            cwd: workspacePath,
+            env: {
+              ...process.env,
+              ...createRunnerEnvironment(
+                this.#runSession,
+                1,
+                workspacePath,
+                this.#config.env,
+              ),
+            },
+            stdio: ["pipe", "pipe", "pipe"],
+          });
 
     this.#child = child;
     this.#appServerPid = child.pid ?? null;
@@ -441,8 +514,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   async #startThread(): Promise<void> {
-    const workspacePath = requireLocalWorkspacePath(
-      this.#runSession,
+    const workspacePath = this.#requireWorkspacePathHint(
       "Codex app-server thread startup",
     );
     const result = await this.#sendRequest({
@@ -494,8 +566,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     const startedAt = new Date().toISOString();
-    const workspacePath = requireLocalWorkspacePath(
-      this.#runSession,
+    const workspacePath = this.#requireWorkspacePathHint(
       "Codex app-server turn execution",
     );
     this.#sessionState = "starting-turn";

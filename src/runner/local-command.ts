@@ -146,3 +146,15 @@ export function quoteShellToken(token: string): string {
   }
   return `'${token.replace(/'/gu, `'\"'\"'`)}'`;
 }
+
+export function formatShellEnvironmentEntry(
+  key: string,
+  value: string,
+): string {
+  if (key.includes("=") || key.includes("\u0000")) {
+    throw new Error(
+      `Invalid environment variable name: ${JSON.stringify(key)}`,
+    );
+  }
+  return quoteShellToken(`${key}=${value}`);
+}

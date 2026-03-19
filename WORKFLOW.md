@@ -30,11 +30,22 @@ workspace:
   retention:
     on_success: delete
     on_failure: retain
+  # Optional remote Codex worker hosts:
+  # worker_hosts:
+  #   builder:
+  #     ssh_destination: symphony@builder.example.com
+  #     workspace_root: /var/tmp/symphony/workspaces
 hooks:
   after_create: []
 agent:
   runner:
     kind: codex
+  # Optional remote Codex execution:
+  # runner:
+  #   kind: codex
+  #   remote_execution:
+  #     kind: ssh
+  #     worker_host: builder
   command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
   # For runner.kind: codex, Symphony derives a long-lived `codex app-server`
   # session from this exec-style command and reuses one Codex thread per worker run.

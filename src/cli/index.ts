@@ -5,6 +5,7 @@ import {
   loadWorkflow,
   loadWorkflowWorkspaceRoot,
 } from "../config/workflow.js";
+import { getCodexRemoteWorkerHost } from "../domain/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
 import {
   assessFactoryStatusSnapshot,
@@ -22,6 +23,7 @@ import { isAbortError } from "../support/abort.js";
 import { createTracker } from "../tracker/factory.js";
 import { createTrackerToolService } from "../tracker/tool-service.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
+import { RemoteSshWorkspaceManager } from "../workspace/remote-ssh.js";
 import {
   type FactoryControlStatusSnapshot,
   inspectFactoryControl,
@@ -354,13 +356,24 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = createTracker(workflow.config.tracker, logger);
-  const workspace = new LocalWorkspaceManager(
-    workflow.config.workspace,
-    workflow.config.hooks.afterCreate,
-    logger,
-    startup.workspaceSourceOverride,
-  );
+  const remoteWorkerHost = getCodexRemoteWorkerHost(workflow.config);
+  const workspace =
+    remoteWorkerHost === null
+      ? new LocalWorkspaceManager(
+          workflow.config.workspace,
+          workflow.config.hooks.afterCreate,
+          logger,
+          startup.workspaceSourceOverride,
+        )
+      : new RemoteSshWorkspaceManager(
+          workflow.config.workspace,
+          remoteWorkerHost,
+          workflow.config.hooks.afterCreate,
+          logger,
+          startup.workspaceSourceOverride,
+        );
   const runner = createRunner(workflow.config.agent, logger, {
+    remoteWorkerHost,
     trackerToolService: createTrackerToolService(
       tracker,
       workflow.config.tracker,

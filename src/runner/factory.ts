@@ -1,4 +1,4 @@
-import type { AgentConfig } from "../domain/workflow.js";
+import type { AgentConfig, SshWorkerHostConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { TrackerToolService } from "../tracker/tool-service.js";
 import { ClaudeCodeRunner } from "./claude-code.js";
@@ -10,6 +10,7 @@ export function createRunner(
   config: AgentConfig,
   logger: Logger,
   options?: {
+    readonly remoteWorkerHost?: SshWorkerHostConfig | null;
     readonly trackerToolService?: TrackerToolService | null;
   },
 ): Runner {
@@ -19,6 +20,7 @@ export function createRunner(
         config,
         logger,
         options?.trackerToolService ?? null,
+        options?.remoteWorkerHost ?? null,
       );
     case "generic-command":
       return new GenericCommandRunner(config, logger);

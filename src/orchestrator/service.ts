@@ -20,7 +20,7 @@ import type {
   TransientFailureSignal,
 } from "../domain/transient-failure.js";
 import type { PreparedWorkspace } from "../domain/workspace.js";
-import { getPreparedWorkspacePath } from "../domain/workspace.js";
+import { getPreparedWorkspacePathHint } from "../domain/workspace.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -1118,7 +1118,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       branchName: workspace.branchName,
       status: "running",
       summary: `Running ${issue.identifier}`,
-      workspacePath: getPreparedWorkspacePath(workspace),
+      workspacePath: getPreparedWorkspacePathHint(workspace),
       runSessionId: session.id,
       executionOwner: initialExecutionOwner,
       ownerPid: process.pid,
@@ -2055,7 +2055,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber: runSession.issue.number,
       attempt,
       error: failure.message,
-      workspacePath: getPreparedWorkspacePath(runSession.workspace),
+      workspacePath: getPreparedWorkspacePathHint(runSession.workspace),
       runSessionId: runSession.id,
     });
     noteStatusAction(this.#state.status, {
@@ -2350,7 +2350,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspacePath:
           options.workspace === undefined
             ? null
-            : getPreparedWorkspacePath(options.workspace),
+            : getPreparedWorkspacePathHint(options.workspace),
       });
       return outcome;
     }
@@ -2379,7 +2379,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspacePath:
           options.workspace === undefined
             ? null
-            : getPreparedWorkspacePath(options.workspace),
+            : getPreparedWorkspacePathHint(options.workspace),
         error: cleanupError,
       });
       return outcome;
@@ -3176,7 +3176,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       latestTurnNumber: session.latestTurnNumber,
       startedAt: session.runSession.startedAt,
       finishedAt: finishedAt ?? null,
-      workspacePath: getPreparedWorkspacePath(session.runSession.workspace),
+      workspacePath: getPreparedWorkspacePathHint(session.runSession.workspace),
       branch: session.runSession.workspace.branchName,
       accounting: session.accounting,
       logPointers: session.description.logPointers.map((pointer) =>
