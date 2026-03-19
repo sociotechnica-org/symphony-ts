@@ -349,7 +349,10 @@ rl.on("line", (line) => {
         turn: { id: turnId },
       },
     });
-    if (mode === "command-approval" || mode === "command-approval-requires-input") {
+    if (
+      mode === "command-approval" ||
+      mode === "command-approval-requires-input"
+    ) {
       pendingTurnId = turnId;
       pendingServerRequestId = 9000 + turnCount;
       pendingServerRequestKind = "command-approval";
@@ -1542,8 +1545,14 @@ describe("runners", () => {
     expect(payloads).toContainEqual(
       expect.objectContaining({
         id: 9311,
-        error: expect.objectContaining({
-          code: -32601,
+        result: expect.objectContaining({
+          success: false,
+          contentItems: [
+            expect.objectContaining({
+              type: "inputText",
+              text: expect.stringContaining('"code": "unsupported_tool"'),
+            }),
+          ],
         }),
       }),
     );
