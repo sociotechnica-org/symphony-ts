@@ -161,15 +161,15 @@ This issue does not add a brand-new top-level lifecycle family, but it does tigh
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Checks green, no configured required bot has produced output on current head | no landing attempt active | required-bot-review presence = missing; actionable feedback count = 0 | remain non-landing; summarize missing bot review |
-| Required bot produced non-actionable summary/comment on current head | no landing attempt active | required-bot-review presence = satisfied; actionable feedback count = 0 | allow `awaiting-landing-command` when other gates pass |
-| Required bot produced actionable feedback on current head | no landing attempt active | required-bot-review presence = satisfied; actionable feedback count > 0 | enter `rework-required` |
-| Required bot reviewed an older head, then Symphony pushed a new head | no landing attempt active or stale `/land` exists | required-bot-review presence = missing for current head | block landing until bot reviews current head again |
-| `/land` exists, checks green, but guarded landing re-check finds no required bot review on current head | landing approval recorded | required-bot-review presence = missing | guarded landing returns blocked; lifecycle falls back to waiting for review |
-| Required bot list is empty in workflow config | no landing attempt active | no required-bot-review policy configured | preserve current behavior; do not invent a gate |
-| Required bot leaves only non-qualifying noise comment/template | no landing attempt active | bot feedback present but qualifying-review-presence = false | keep waiting; do not count noise as required review completion |
+| Observed condition                                                                                      | Local facts available                             | Normalized tracker facts available                                      | Expected decision                                                           |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Checks green, no configured required bot has produced output on current head                            | no landing attempt active                         | required-bot-review presence = missing; actionable feedback count = 0   | remain non-landing; summarize missing bot review                            |
+| Required bot produced non-actionable summary/comment on current head                                    | no landing attempt active                         | required-bot-review presence = satisfied; actionable feedback count = 0 | allow `awaiting-landing-command` when other gates pass                      |
+| Required bot produced actionable feedback on current head                                               | no landing attempt active                         | required-bot-review presence = satisfied; actionable feedback count > 0 | enter `rework-required`                                                     |
+| Required bot reviewed an older head, then Symphony pushed a new head                                    | no landing attempt active or stale `/land` exists | required-bot-review presence = missing for current head                 | block landing until bot reviews current head again                          |
+| `/land` exists, checks green, but guarded landing re-check finds no required bot review on current head | landing approval recorded                         | required-bot-review presence = missing                                  | guarded landing returns blocked; lifecycle falls back to waiting for review |
+| Required bot list is empty in workflow config                                                           | no landing attempt active                         | no required-bot-review policy configured                                | preserve current behavior; do not invent a gate                             |
+| Required bot leaves only non-qualifying noise comment/template                                          | no landing attempt active                         | bot feedback present but qualifying-review-presence = false             | keep waiting; do not count noise as required review completion              |
 
 ## Storage / Persistence Contract
 

@@ -134,9 +134,13 @@ tracker:
   review_bot_logins:
     - greptile[bot]
     - bugbot[bot]
-${(options.approvedReviewBotLogins ?? []).length === 0 ? "" : `  approved_review_bot_logins:
+${
+  (options.approvedReviewBotLogins ?? []).length === 0
+    ? ""
+    : `  approved_review_bot_logins:
 ${options.approvedReviewBotLogins!.map((login) => `    - ${login}`).join("\n")}
-`}
+`
+}
 polling:
   interval_ms: 5
   max_concurrent_runs: ${options.maxConcurrentRuns ?? 1}

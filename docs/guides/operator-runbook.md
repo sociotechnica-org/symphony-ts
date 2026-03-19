@@ -106,14 +106,14 @@ Intervene directly only when the runtime contract is impaired or an explicit hum
 
 Use this table:
 
-| Situation                                              | Operator action                                                                                                             |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `awaiting-human-handoff`                               | Review the plan and post `Plan review: approved`, `Plan review: changes-requested`, or `Plan review: waived`                |
-| `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                    |
-| Detached runtime stopped or degraded                   | Use `factory status`, then `factory start` or `factory restart`                                                             |
-| `restart-recovery` visible after startup               | Inspect the recovery summary and per-issue decisions before manual reruns                                                   |
-| `retry-backoff` or `watchdog-recovery`                 | Prefer waiting for the queue/recovery path unless the factory is degraded or the posture stops progressing                  |
-| Failed issue with retained workspace                   | Inspect artifacts and retained workspace, fix the underlying problem, then relabel or rerun through the normal tracker path |
+| Situation                                                                                        | Operator action                                                                                                             |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `awaiting-human-handoff`                                                                         | Review the plan and post `Plan review: approved`, `Plan review: changes-requested`, or `Plan review: waived`                |
+| `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                                                      |
+| Detached runtime stopped or degraded                                                             | Use `factory status`, then `factory start` or `factory restart`                                                             |
+| `restart-recovery` visible after startup                                                         | Inspect the recovery summary and per-issue decisions before manual reruns                                                   |
+| `retry-backoff` or `watchdog-recovery`                                                           | Prefer waiting for the queue/recovery path unless the factory is degraded or the posture stops progressing                  |
+| Failed issue with retained workspace                                                             | Inspect artifacts and retained workspace, fix the underlying problem, then relabel or rerun through the normal tracker path |
 
 Avoid manual branch takeovers while the factory is healthy. If the runtime missed CI or review follow-up, treat that as a product problem first.
 

@@ -230,7 +230,7 @@ describe("createPullRequestSnapshot", () => {
               id: "comment-1",
               authorAssociation: "NONE",
               author: { login: "greptile-apps" },
-              body: "<h3 class=\"summary\">Greptile Summary</h3>\n\nThis PR is safe to merge.",
+              body: '<h3 class="summary">Greptile Summary</h3>\n\nThis PR is safe to merge.',
               createdAt: "2026-03-06T01:00:00.000Z",
               url: "https://example.test/pr/24#comment-1",
             },
@@ -245,9 +245,7 @@ describe("createPullRequestSnapshot", () => {
     });
 
     expect(snapshot.requiredApprovedReviewSatisfied).toBe(true);
-    expect(snapshot.observedApprovedReviewBotLogins).toEqual([
-      "greptile-apps",
-    ]);
+    expect(snapshot.observedApprovedReviewBotLogins).toEqual(["greptile-apps"]);
   });
 
   it("ignores stale required approved bot review from before the current head commit", () => {
