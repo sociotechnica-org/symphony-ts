@@ -45,7 +45,10 @@ function createSession(remotePath: string): RunSession {
   };
 }
 
-function createConfig(command: string): AgentConfig {
+function createConfig(
+  command: string,
+  env: Readonly<Record<string, string>> = {},
+): AgentConfig {
   return {
     runner: {
       kind: "codex",
@@ -65,7 +68,7 @@ function createConfig(command: string): AgentConfig {
     promptTransport: "stdin",
     timeoutMs: 5_000,
     maxTurns: 2,
-    env: {},
+    env,
   };
 }
 
@@ -121,6 +124,52 @@ describe("CodexRunner remote SSH transport", () => {
       expect(turn.session.backendThreadId).toBe("thread-1");
       expect(turn.session.latestTurnId).toBe("turn-1");
       expect(turn.session.backendSessionId).toBe("thread-1-turn-1");
+    } finally {
+      await liveSession.close();
+      await fs.rm(remoteDir, { recursive: true, force: true });
+    }
+  });
+
+  it("quotes full remote env entries so keys with spaces survive the SSH shell", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const fakeSsh = await createFakeSshExecutable();
+    const remoteDir = await createTempDir("codex-remote-env-workspace-");
+    const session = createSession(remoteDir);
+    const runner = new CodexRunner(
+      createConfig(
+        `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -`,
+        {
+          "MY VAR": "hello remote env",
+          FAKE_CODEX_AGENT_COMMAND:
+            'node -e \'if (process.env["MY VAR"] !== "hello remote env") { console.error("missing spaced env key"); process.exit(1); }\'',
+        },
+      ),
+      new JsonLogger(),
+      null,
+      {
+        name: "builder",
+        sshDestination: "builder@example.test",
+        sshExecutable: fakeSsh,
+        sshOptions: [],
+        workspaceRoot: "/tmp/remote-workspaces",
+      },
+    );
+
+    const liveSession = await runner.startSession(session);
+
+    try {
+      const turn = await liveSession.runTurn(
+        {
+          turnNumber: 1,
+          prompt: "first",
+        },
+        {
+          onUpdate() {},
+        },
+      );
+
+      expect(turn.exitCode).toBe(0);
+      expect(turn.stderr).toBe("");
     } finally {
       await liveSession.close();
       await fs.rm(remoteDir, { recursive: true, force: true });

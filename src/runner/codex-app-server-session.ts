@@ -4,7 +4,10 @@ import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import { getPreparedWorkspacePathHint } from "../domain/workspace.js";
 import type { AgentConfig, SshWorkerHostConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
-import { quoteShellToken } from "./local-command.js";
+import {
+  formatShellEnvironmentEntry,
+  quoteShellToken,
+} from "./local-command.js";
 import { buildSshRemoteCommand } from "./ssh-command.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
 import { createRunnerEnvironment } from "./run-environment.js";
@@ -200,7 +203,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       this.#config.env,
     );
     const envAssignments = Object.entries(env)
-      .map(([key, value]) => `${key}=${quoteShellToken(String(value))}`)
+      .map(([key, value]) => formatShellEnvironmentEntry(key, String(value)))
       .join(" ");
     return `set -euo pipefail\ncd ${quoteShellToken(workspacePath)}\nexec env ${envAssignments} ${this.#appServerCommand.launchCommand}`;
   }
