@@ -1493,7 +1493,9 @@ describe("runners", () => {
           contentItems: [
             expect.objectContaining({
               type: "inputText",
-              text: expect.stringContaining('"tool": "tracker_current_context"'),
+              text: expect.stringContaining(
+                '"tool": "tracker_current_context"',
+              ),
             }),
           ],
         }),

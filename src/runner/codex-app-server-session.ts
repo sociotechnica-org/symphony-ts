@@ -91,13 +91,11 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #startupStderr = "";
   #currentOnEvent: ((event: RunnerEvent) => void | Promise<void>) | null = null;
   #currentOnUpdate: ((event: RunUpdateEvent) => void) | null = null;
-  #activeToolCall:
-    | {
-        readonly requestId: string | number;
-        readonly tool: string;
-        readonly callId: string;
-      }
-    | null = null;
+  #activeToolCall: {
+    readonly requestId: string | number;
+    readonly tool: string;
+    readonly callId: string;
+  } | null = null;
 
   constructor(
     config: AgentConfig,

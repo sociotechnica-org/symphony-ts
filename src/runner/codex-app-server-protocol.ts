@@ -222,12 +222,20 @@ export function extractCodexDynamicToolCallRequest(
   }
 
   const params = request.params;
-  const threadId = typeof params?.["threadId"] === "string" ? params["threadId"] : null;
-  const turnId = typeof params?.["turnId"] === "string" ? params["turnId"] : null;
-  const callId = typeof params?.["callId"] === "string" ? params["callId"] : null;
+  const threadId =
+    typeof params?.["threadId"] === "string" ? params["threadId"] : null;
+  const turnId =
+    typeof params?.["turnId"] === "string" ? params["turnId"] : null;
+  const callId =
+    typeof params?.["callId"] === "string" ? params["callId"] : null;
   const tool = typeof params?.["tool"] === "string" ? params["tool"] : null;
 
-  if (threadId === null || turnId === null || callId === null || tool === null) {
+  if (
+    threadId === null ||
+    turnId === null ||
+    callId === null ||
+    tool === null
+  ) {
     throw new CodexAppServerTransportError(
       "unsupported-request-failure",
       "Codex app-server sent a malformed dynamic tool request",

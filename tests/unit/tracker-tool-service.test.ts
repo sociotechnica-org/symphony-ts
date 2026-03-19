@@ -139,17 +139,11 @@ class StubTracker implements Tracker {
     };
   }
 
-  async recordRetry(
-    _issueNumber: number,
-    _reason: string,
-  ): Promise<void> {}
+  async recordRetry(_issueNumber: number, _reason: string): Promise<void> {}
 
   async completeIssue(_issueNumber: number): Promise<void> {}
 
-  async markIssueFailed(
-    _issueNumber: number,
-    _reason: string,
-  ): Promise<void> {}
+  async markIssueFailed(_issueNumber: number, _reason: string): Promise<void> {}
 }
 
 describe("tracker tool service", () => {

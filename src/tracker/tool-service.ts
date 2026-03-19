@@ -4,7 +4,10 @@ import type {
   PromptPullRequestContext,
 } from "../domain/prompt-context.js";
 import type { TrackerConfig } from "../domain/workflow.js";
-import { buildPromptIssueContext, buildPromptPullRequestContext } from "./prompt-context.js";
+import {
+  buildPromptIssueContext,
+  buildPromptPullRequestContext,
+} from "./prompt-context.js";
 import type { Tracker } from "./service.js";
 
 export interface TrackerCurrentContextToolResult {

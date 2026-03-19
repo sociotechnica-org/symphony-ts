@@ -195,16 +195,16 @@ This issue changes stateful live-session behavior inside an active Codex turn, s
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| `item/tool/call` arrives for a supported tool with valid arguments | thread id, turn id, call id, tool name, parsed args | current issue and PR context available through tracker tool service | execute tool, serialize normalized success payload, continue turn |
-| `item/tool/call` arrives for an unknown tool | thread id, turn id, call id, tool name | none needed | return explicit unsupported-tool response, classify as tool request failure, do not hang |
-| tool-call payload is malformed | request id, raw params | none needed | return invalid-params response, classify as malformed-tool-request failure |
-| tracker tool service fails to read current tracker state | request id, tool name, local error | tracker fetch error only | return normalized tool failure payload or explicit request failure, preserving clear operator visibility |
-| tracker tool service returns output that violates the advertised schema | request id, tool name, normalized output candidate | tool result candidate | classify as tool-result-normalization failure and fail the tool call clearly |
-| `item/tool/requestUserInput` arrives in the first non-interactive slice | request id, raw params | none needed | return explicit unsupported/invalid-params response and fail the active tool request without stalling |
-| response write to app-server stdin fails after tool execution | request id, tool name, result payload | tracker result already computed | classify as active-turn transport/tool failure and fail the turn |
-| tool succeeds but observability emission fails | request id, tool name, result payload | normalized tracker result | fail the turn using the existing visibility-failure path; do not silently ignore |
+| Observed condition                                                      | Local facts available                               | Normalized tracker facts available                                  | Expected decision                                                                                        |
+| ----------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `item/tool/call` arrives for a supported tool with valid arguments      | thread id, turn id, call id, tool name, parsed args | current issue and PR context available through tracker tool service | execute tool, serialize normalized success payload, continue turn                                        |
+| `item/tool/call` arrives for an unknown tool                            | thread id, turn id, call id, tool name              | none needed                                                         | return explicit unsupported-tool response, classify as tool request failure, do not hang                 |
+| tool-call payload is malformed                                          | request id, raw params                              | none needed                                                         | return invalid-params response, classify as malformed-tool-request failure                               |
+| tracker tool service fails to read current tracker state                | request id, tool name, local error                  | tracker fetch error only                                            | return normalized tool failure payload or explicit request failure, preserving clear operator visibility |
+| tracker tool service returns output that violates the advertised schema | request id, tool name, normalized output candidate  | tool result candidate                                               | classify as tool-result-normalization failure and fail the tool call clearly                             |
+| `item/tool/requestUserInput` arrives in the first non-interactive slice | request id, raw params                              | none needed                                                         | return explicit unsupported/invalid-params response and fail the active tool request without stalling    |
+| response write to app-server stdin fails after tool execution           | request id, tool name, result payload               | tracker result already computed                                     | classify as active-turn transport/tool failure and fail the turn                                         |
+| tool succeeds but observability emission fails                          | request id, tool name, result payload               | normalized tracker result                                           | fail the turn using the existing visibility-failure path; do not silently ignore                         |
 
 ## Storage Or Persistence Contract
 
