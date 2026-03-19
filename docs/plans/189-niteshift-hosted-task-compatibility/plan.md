@@ -43,13 +43,20 @@ Produce a narrow, checked-in compatibility assessment that evaluates whether Nit
 - Public Niteshift signals indicate a hosted task model rather than an SSH-like stdio transport:
   - the npm package `niteshift@0.6.5` describes itself as the official CLI for `niteshift.dev`
   - the published README exposes `run`, `watch`, `prompt`, `pickup`, `handoff`, `terminal`, and `sync` commands
-  - the public changelog advertises follow-up prompting, task watching, local pickup, background terminals, and PR/CI workflows
+  - local validation on 2026-03-19 confirmed the published CLI help for:
+    - `niteshift --help`
+    - `niteshift run --help`
+    - `niteshift watch --help`
+    - `niteshift prompt --help`
+    - `niteshift pickup --help`
+    - `niteshift handoff --help`
+    - `niteshift terminal --help`
+  - the public changelog advertises follow-up prompting, task watching, local pickup, persistent terminal sessions, and PR/CI workflows
 - Critical hosted-backend details remain unclear from the public contract surface:
   - non-interactive cancellation / shutdown semantics
   - whether watch output is a stable event schema or only user-facing stream text
   - restart recovery hooks for reconnecting to existing tasks without local agent state
   - task ownership semantics when Symphony, not a human, is the orchestrator
-- In local validation on 2026-03-19, `npx -y niteshift --help` failed in this environment due a `better-sqlite3` native binding load error on Node `20.13.1`, so CLI help could not be treated as directly runnable evidence here.
 
 ## Evidence Sources
 
@@ -66,6 +73,7 @@ Produce a narrow, checked-in compatibility assessment that evaluates whether Nit
   - status / ownership readers for `remote-task`
 - public Niteshift evidence gathered during this issue:
   - npm package metadata and published README for `niteshift`
+  - published CLI help from `npx -y niteshift@0.6.5 ... --help`
   - the public Niteshift changelog on `niteshift.dev/changelog`
 - anything beyond those public surfaces should be treated as unknown unless a later implementation spike validates it directly
 
