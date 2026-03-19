@@ -124,6 +124,28 @@ describe("pull-request-policy", () => {
     expect(lifecycle.summary).toMatch(/required approved bot review/i);
   });
 
+  it("preserves no-check stabilization while required approved bot review is missing", () => {
+    const snapshot = createSnapshot({
+      requiredApprovedReviewSatisfied: false,
+    });
+
+    const first = evaluatePullRequestLifecycle(snapshot, undefined);
+    const second = evaluatePullRequestLifecycle(
+      snapshot,
+      first.nextNoCheckObservation ?? undefined,
+    );
+    const third = evaluatePullRequestLifecycle(
+      snapshot,
+      second.nextNoCheckObservation ?? undefined,
+    );
+
+    expect(first.lifecycle.kind).toBe("awaiting-system-checks");
+    expect(second.lifecycle.kind).toBe("awaiting-human-review");
+    expect(second.nextNoCheckObservation).toEqual(first.nextNoCheckObservation);
+    expect(third.lifecycle.kind).toBe("awaiting-human-review");
+    expect(third.nextNoCheckObservation).toEqual(first.nextNoCheckObservation);
+  });
+
   it("requires rework for failing checks or bot feedback", () => {
     const lifecycle = evaluatePullRequestLifecycle(
       createSnapshot({

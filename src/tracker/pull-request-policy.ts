@@ -203,7 +203,7 @@ export function evaluatePullRequestLifecycle(
         unresolvedThreadIds: [],
         summary: `Waiting for required approved bot review on ${snapshot.pullRequest.url}`,
       },
-      nextNoCheckObservation: null,
+      nextNoCheckObservation: previousNoCheckObservation ?? null,
     };
   }
 
