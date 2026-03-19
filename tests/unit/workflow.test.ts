@@ -1975,6 +1975,60 @@ agent:
     });
   });
 
+  it("rejects ambiguous SSH remote Codex worker_host and worker_hosts config", async () => {
+    const dir = await createTempDir("workflow-remote-codex-ambiguous-hosts-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  worker_hosts:
+    builder-a:
+      ssh_destination: symphony-a@example.test
+      workspace_root: /srv/symphony/a
+    builder-b:
+      ssh_destination: symphony-b@example.test
+      workspace_root: /srv/symphony/b
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+    remote_execution:
+      kind: ssh
+      worker_host: builder-a
+      worker_hosts:
+        - builder-a
+        - builder-b
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      /may not define both worker_hosts and worker_host/,
+    );
+  });
+
   it("rejects local workspace sources for SSH remote Codex execution", async () => {
     const dir = await createTempDir("workflow-remote-codex-invalid-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

@@ -739,6 +739,12 @@ function resolveRemoteExecutionWorkerHostNames(
   workerHosts: Readonly<Record<string, SshWorkerHostConfig>>,
 ): readonly string[] {
   const workerHostNamesRaw = remoteExecution["worker_hosts"];
+  const workerHostNameRaw = remoteExecution["worker_host"];
+  if (workerHostNamesRaw !== undefined && workerHostNameRaw !== undefined) {
+    throw new ConfigError(
+      "agent.runner.remote_execution may not define both worker_hosts and worker_host",
+    );
+  }
   if (workerHostNamesRaw !== undefined) {
     const workerHostNames = requireStringArray(
       workerHostNamesRaw,
@@ -761,7 +767,7 @@ function resolveRemoteExecutionWorkerHostNames(
   }
 
   const workerHostName = requireString(
-    remoteExecution["worker_host"],
+    workerHostNameRaw,
     "agent.runner.remote_execution.worker_host",
   );
   if (workerHosts[workerHostName] === undefined) {

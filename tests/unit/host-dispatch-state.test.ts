@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimHostForIssue,
   clearPreferredHost,
   createHostDispatchState,
   listHostDispatchSnapshots,
@@ -96,5 +97,36 @@ describe("host-dispatch-state", () => {
         preferredIssueNumbers: [],
       },
     ]);
+  });
+
+  it("claims an inherited host reservation for restart recovery", () => {
+    const state = createHostDispatchState(workerHosts);
+
+    expect(claimHostForIssue(state, "builder-b", 188, "session-188")).toEqual({
+      kind: "claimed",
+      alreadyOwned: false,
+    });
+    expect(listHostDispatchSnapshots(state)).toEqual([
+      {
+        name: "builder-a",
+        occupiedByIssueNumber: null,
+        preferredIssueNumbers: [],
+      },
+      {
+        name: "builder-b",
+        occupiedByIssueNumber: 188,
+        preferredIssueNumbers: [],
+      },
+    ]);
+  });
+
+  it("rejects inherited reservations on occupied configured hosts", () => {
+    const state = createHostDispatchState(workerHosts);
+    reserveHostForIssue(state, 77);
+
+    expect(claimHostForIssue(state, "builder-a", 188, "session-188")).toEqual({
+      kind: "occupied",
+      occupiedByIssueNumber: 77,
+    });
   });
 });

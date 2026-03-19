@@ -117,6 +117,52 @@ export function bindHostReservationToRunSession(
   });
 }
 
+export type ClaimHostForIssueResult =
+  | {
+      readonly kind: "claimed";
+      readonly alreadyOwned: boolean;
+    }
+  | {
+      readonly kind: "unknown-host";
+    }
+  | {
+      readonly kind: "occupied";
+      readonly occupiedByIssueNumber: number;
+    };
+
+export function claimHostForIssue(
+  state: HostDispatchRuntimeState,
+  hostName: string,
+  issueNumber: number,
+  runSessionId: string | null,
+): ClaimHostForIssueResult {
+  if (state.workerHostsByName[hostName] === undefined) {
+    return {
+      kind: "unknown-host",
+    };
+  }
+
+  const existingReservation = state.occupancyByHost.get(hostName);
+  if (
+    existingReservation !== undefined &&
+    existingReservation.issueNumber !== issueNumber
+  ) {
+    return {
+      kind: "occupied",
+      occupiedByIssueNumber: existingReservation.issueNumber,
+    };
+  }
+
+  state.occupancyByHost.set(hostName, {
+    issueNumber,
+    runSessionId,
+  });
+  return {
+    kind: "claimed",
+    alreadyOwned: existingReservation?.issueNumber === issueNumber,
+  };
+}
+
 export function notePreferredHost(
   state: HostDispatchRuntimeState,
   issueNumber: number,

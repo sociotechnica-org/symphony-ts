@@ -113,6 +113,7 @@ import {
 } from "./dispatch-pressure-state.js";
 import {
   bindHostReservationToRunSession,
+  claimHostForIssue,
   clearPreferredHost,
   hasHostDispatchCapacity,
   notePreferredHost,
@@ -1130,295 +1131,374 @@ export class BootstrapOrchestrator implements Orchestrator {
         selectedWorkerHost.name,
       );
     }
-    upsertActiveIssue(this.#state.status, issue, {
-      source,
-      runSequence: attempt,
-      branchName: this.#branchName(issue.number),
-      status: "preparing",
-      summary:
-        selectedWorkerHost === null
-          ? `Preparing workspace for ${issue.identifier}`
-          : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
-      executionOwner: null,
-      ownerPid: process.pid,
-      runnerPid: null,
-      blockedReason: null,
-      runnerVisibility: null,
-    });
-    noteStatusAction(this.#state.status, {
-      kind: "run-preparing",
-      summary:
-        selectedWorkerHost === null
-          ? `Preparing workspace for ${issue.identifier}`
-          : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
-      issueNumber: issue.number,
-    });
-    await this.#persistStatusSnapshot();
-    const workspace = await this.#workspaceManager.prepareWorkspace({
-      issue,
-      workerHost: selectedWorkerHost,
-    });
-    const initialPrompt = await this.#promptBuilder.build({
-      issue,
-      attempt: attempt > 1 ? attempt : null,
-      pullRequest,
-    });
-    const session = this.#createRunSession(
-      issue,
-      workspace,
-      initialPrompt,
-      attempt,
-    );
-    if (selectedWorkerHost !== null) {
-      bindHostReservationToRunSession(
-        this.#state.hostDispatch,
-        selectedWorkerHost.name,
-        issue.number,
-        session.id,
-      );
-    }
-    let sessionState: RunSessionArtifactsState = {
-      runSession: session,
-      description: this.#runner.describeSession(session),
-      latestTurnNumber: null,
-      accounting: createRunnerAccountingSnapshot(),
-    };
-    const initialExecutionOwner = this.#createExecutionOwner(
-      session,
-      sessionState.description,
-    );
-    upsertActiveIssue(this.#state.status, issue, {
-      source,
-      runSequence: attempt,
-      branchName: workspace.branchName,
-      status: "running",
-      summary: `Running ${issue.identifier}`,
-      workspacePath: getPreparedWorkspacePathHint(workspace),
-      runSessionId: session.id,
-      executionOwner: initialExecutionOwner,
-      ownerPid: process.pid,
-      runnerPid: null,
-      startedAt: new Date().toISOString(),
-      pullRequest:
-        pullRequest?.pullRequest === undefined ||
-        pullRequest.pullRequest === null
-          ? null
-          : {
-              number: pullRequest.pullRequest.number,
-              url: pullRequest.pullRequest.url,
-              headSha: pullRequest.pullRequest.headSha,
-              latestCommitAt: pullRequest.pullRequest.latestCommitAt,
-            },
-      checks: {
-        pendingNames: pullRequest?.pendingCheckNames ?? [],
-        failingNames: pullRequest?.failingCheckNames ?? [],
-      },
-      review: {
-        actionableCount: pullRequest?.actionableReviewFeedback.length ?? 0,
-        unresolvedThreadCount: pullRequest?.unresolvedThreadIds.length ?? 0,
-      },
-      blockedReason: null,
-      runnerAccounting: sessionState.accounting,
-      runnerVisibility: this.#buildRunnerVisibility(sessionState.description, {
-        state: "starting",
-        phase: "boot",
-        lastHeartbeatAt: session.startedAt,
-        lastActionAt: session.startedAt,
-        lastActionSummary: "Runner session created",
-      }),
-    });
-    noteStatusAction(this.#state.status, {
-      kind: "run-started",
-      summary: `Started agent run for ${issue.identifier}`,
-      issueNumber: issue.number,
-    });
-    await this.#persistStatusSnapshot();
-    await this.#recordIssueArtifact(
-      this.#createRunStartedObservation(
-        issue,
-        attempt,
-        sessionState,
-        pullRequest,
-      ),
-    );
-    await this.#leaseManager.recordRun(
-      lockDir,
-      session,
-      sessionState.description,
-      {
-        factoryInstanceId: this.#instanceId,
-        factoryPid: process.pid,
-      },
-    );
-    const abortController = new AbortController();
-    const shutdownSignal = this.#shutdownSignal;
-    const shutdownContext: ActiveRunShutdownContext = {
-      requestedAt: null,
-      gracefulDeadlineAt: null,
-      writePromise: Promise.resolve(),
-    };
-    let liveRunnerSession: LiveRunnerSession | undefined;
-    const currentSessionState = (): RunSessionArtifactsState =>
-      this.#captureLiveSessionState(sessionState, liveRunnerSession);
-    const handleShutdown = (): void => {
-      this.#beginActiveRunShutdown(
-        issue,
-        attempt,
-        workspace.branchName,
-        currentSessionState(),
-        lockDir,
-        shutdownContext,
-      );
-      abortController.abort();
-    };
-    if (shutdownSignal?.aborted) {
-      handleShutdown();
-    } else if (shutdownSignal) {
-      shutdownSignal.addEventListener("abort", handleShutdown, { once: true });
-    }
-    this.#state.runAbortControllers.set(issue.number, abortController);
-    this.#initWatchdogEntry(issue.number);
-    let transientFailureSignal: TransientFailureSignal | null = null;
-
-    const watchdogStop = new AbortController();
-    const watchdogPromise = this.#runWatchdogLoop(
-      issue.number,
-      watchdogStop.signal,
-    );
-    let watchdogStopped = false;
-    const stopWatchdog = async (): Promise<void> => {
-      if (watchdogStopped) {
-        return;
-      }
-      watchdogStopped = true;
-      watchdogStop.abort();
-      await watchdogPromise;
-    };
-    const runEntry = createRunningEntry(
-      issue.number,
-      issue.identifier,
-      issue.state,
-      attempt,
-    );
-    this.#state.runningEntries.set(issue.number, runEntry);
-    this.#notifyDashboard();
-
     try {
-      liveRunnerSession = await this.#runner.startSession?.(session);
-      sessionState = currentSessionState();
-      this.#warnIfContinuationSessionUnavailable(
-        issue,
-        workspace.branchName,
-        session,
-        liveRunnerSession,
-      );
-      let currentLifecycle = pullRequest;
-      let turnNumber = 1;
+      let hostReservationHeld = selectedWorkerHost !== null;
+      const releaseReservedHost = (): void => {
+        if (!hostReservationHeld) {
+          return;
+        }
+        releaseHostForIssue(this.#state.hostDispatch, issue.number);
+        hostReservationHeld = false;
+      };
 
-      while (true) {
-        transientFailureSignal = null;
-        const turn = await this.#createRunTurn(
-          session.prompt,
-          issue,
-          currentLifecycle,
-          turnNumber,
-        );
-        this.#setIssueRunnerVisibility(
+      upsertActiveIssue(this.#state.status, issue, {
+        source,
+        runSequence: attempt,
+        branchName: this.#branchName(issue.number),
+        status: "preparing",
+        summary:
+          selectedWorkerHost === null
+            ? `Preparing workspace for ${issue.identifier}`
+            : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
+        executionOwner: null,
+        ownerPid: process.pid,
+        runnerPid: null,
+        blockedReason: null,
+        runnerVisibility: null,
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "run-preparing",
+        summary:
+          selectedWorkerHost === null
+            ? `Preparing workspace for ${issue.identifier}`
+            : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
+      const workspace = await this.#workspaceManager.prepareWorkspace({
+        issue,
+        workerHost: selectedWorkerHost,
+      });
+      const initialPrompt = await this.#promptBuilder.build({
+        issue,
+        attempt: attempt > 1 ? attempt : null,
+        pullRequest,
+      });
+      const session = this.#createRunSession(
+        issue,
+        workspace,
+        initialPrompt,
+        attempt,
+      );
+      if (selectedWorkerHost !== null) {
+        bindHostReservationToRunSession(
+          this.#state.hostDispatch,
+          selectedWorkerHost.name,
           issue.number,
-          this.#buildRunnerVisibility(sessionState.description, {
-            state: "running",
-            phase: "turn-execution",
-            lastHeartbeatAt: new Date().toISOString(),
-            lastActionAt: new Date().toISOString(),
-            lastActionSummary: `Starting turn ${turn.turnNumber.toString()}`,
-          }),
+          session.id,
         );
-        await this.#persistStatusSnapshot();
-        const result = await this.#runRunnerTurn(
+      }
+      let sessionState: RunSessionArtifactsState = {
+        runSession: session,
+        description: this.#runner.describeSession(session),
+        latestTurnNumber: null,
+        accounting: createRunnerAccountingSnapshot(),
+      };
+      const initialExecutionOwner = this.#createExecutionOwner(
+        session,
+        sessionState.description,
+      );
+      upsertActiveIssue(this.#state.status, issue, {
+        source,
+        runSequence: attempt,
+        branchName: workspace.branchName,
+        status: "running",
+        summary: `Running ${issue.identifier}`,
+        workspacePath: getPreparedWorkspacePathHint(workspace),
+        runSessionId: session.id,
+        executionOwner: initialExecutionOwner,
+        ownerPid: process.pid,
+        runnerPid: null,
+        startedAt: new Date().toISOString(),
+        pullRequest:
+          pullRequest?.pullRequest === undefined ||
+          pullRequest.pullRequest === null
+            ? null
+            : {
+                number: pullRequest.pullRequest.number,
+                url: pullRequest.pullRequest.url,
+                headSha: pullRequest.pullRequest.headSha,
+                latestCommitAt: pullRequest.pullRequest.latestCommitAt,
+              },
+        checks: {
+          pendingNames: pullRequest?.pendingCheckNames ?? [],
+          failingNames: pullRequest?.failingCheckNames ?? [],
+        },
+        review: {
+          actionableCount: pullRequest?.actionableReviewFeedback.length ?? 0,
+          unresolvedThreadCount: pullRequest?.unresolvedThreadIds.length ?? 0,
+        },
+        blockedReason: null,
+        runnerAccounting: sessionState.accounting,
+        runnerVisibility: this.#buildRunnerVisibility(sessionState.description, {
+          state: "starting",
+          phase: "boot",
+          lastHeartbeatAt: session.startedAt,
+          lastActionAt: session.startedAt,
+          lastActionSummary: "Runner session created",
+        }),
+      });
+      noteStatusAction(this.#state.status, {
+        kind: "run-started",
+        summary: `Started agent run for ${issue.identifier}`,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
+      await this.#recordIssueArtifact(
+        this.#createRunStartedObservation(
+          issue,
+          attempt,
+          sessionState,
+          pullRequest,
+        ),
+      );
+      await this.#leaseManager.recordRun(
+        lockDir,
+        session,
+        sessionState.description,
+        {
+          factoryInstanceId: this.#instanceId,
+          factoryPid: process.pid,
+        },
+      );
+      const abortController = new AbortController();
+      const shutdownSignal = this.#shutdownSignal;
+      const shutdownContext: ActiveRunShutdownContext = {
+        requestedAt: null,
+        gracefulDeadlineAt: null,
+        writePromise: Promise.resolve(),
+      };
+      let liveRunnerSession: LiveRunnerSession | undefined;
+      const currentSessionState = (): RunSessionArtifactsState =>
+        this.#captureLiveSessionState(sessionState, liveRunnerSession);
+      const handleShutdown = (): void => {
+        this.#beginActiveRunShutdown(
+          issue,
+          attempt,
+          workspace.branchName,
+          currentSessionState(),
+          lockDir,
+          shutdownContext,
+        );
+        abortController.abort();
+      };
+      if (shutdownSignal?.aborted) {
+        handleShutdown();
+      } else if (shutdownSignal) {
+        shutdownSignal.addEventListener("abort", handleShutdown, { once: true });
+      }
+      this.#state.runAbortControllers.set(issue.number, abortController);
+      this.#initWatchdogEntry(issue.number);
+      let transientFailureSignal: TransientFailureSignal | null = null;
+
+      const watchdogStop = new AbortController();
+      const watchdogPromise = this.#runWatchdogLoop(
+        issue.number,
+        watchdogStop.signal,
+      );
+      let watchdogStopped = false;
+      const stopWatchdog = async (): Promise<void> => {
+        if (watchdogStopped) {
+          return;
+        }
+        watchdogStopped = true;
+        watchdogStop.abort();
+        await watchdogPromise;
+      };
+      const runEntry = createRunningEntry(
+        issue.number,
+        issue.identifier,
+        issue.state,
+        attempt,
+      );
+      this.#state.runningEntries.set(issue.number, runEntry);
+      this.#notifyDashboard();
+
+      try {
+        liveRunnerSession = await this.#runner.startSession?.(session);
+        sessionState = currentSessionState();
+        this.#warnIfContinuationSessionUnavailable(
+          issue,
+          workspace.branchName,
           session,
           liveRunnerSession,
-          turn,
-          lockDir,
-          abortController.signal,
-          {
-            onRateLimits: (rateLimits) => {
-              this.#state.rateLimits = rateLimits;
-            },
-            onTransientFailureSignal: (signal) => {
-              transientFailureSignal = signal;
-            },
-          },
         );
-        sessionState = {
-          runSession: session,
-          description: result.session,
-          latestTurnNumber: turn.turnNumber,
-          accounting:
-            this.#state.runningEntries.get(issue.number)?.accounting ??
-            sessionState.accounting,
-        };
+        let currentLifecycle = pullRequest;
+        let turnNumber = 1;
 
-        if (result.exitCode !== 0) {
-          await stopWatchdog();
+        while (true) {
+          transientFailureSignal = null;
+          const turn = await this.#createRunTurn(
+            session.prompt,
+            issue,
+            currentLifecycle,
+            turnNumber,
+          );
+          this.#setIssueRunnerVisibility(
+            issue.number,
+            this.#buildRunnerVisibility(sessionState.description, {
+              state: "running",
+              phase: "turn-execution",
+              lastHeartbeatAt: new Date().toISOString(),
+              lastActionAt: new Date().toISOString(),
+              lastActionSummary: `Starting turn ${turn.turnNumber.toString()}`,
+            }),
+          );
+          await this.#persistStatusSnapshot();
+          const result = await this.#runRunnerTurn(
+            session,
+            liveRunnerSession,
+            turn,
+            lockDir,
+            abortController.signal,
+            {
+              onRateLimits: (rateLimits) => {
+                this.#state.rateLimits = rateLimits;
+              },
+              onTransientFailureSignal: (signal) => {
+                transientFailureSignal = signal;
+              },
+            },
+          );
+          sessionState = {
+            runSession: session,
+            description: result.session,
+            latestTurnNumber: turn.turnNumber,
+            accounting:
+              this.#state.runningEntries.get(issue.number)?.accounting ??
+              sessionState.accounting,
+          };
+
+          if (result.exitCode !== 0) {
+            await stopWatchdog();
+            this.#setIssueRunnerVisibility(
+              issue.number,
+              this.#buildRunnerVisibility(result.session, {
+                state: "failed",
+                phase: "turn-finished",
+                lastHeartbeatAt: result.finishedAt,
+                lastActionAt: result.finishedAt,
+                lastActionSummary: `Turn ${turn.turnNumber.toString()} failed`,
+                stdoutSummary: summarizeRunnerText(result.stdout),
+                stderrSummary: summarizeRunnerText(result.stderr),
+                errorSummary: summarizeRunnerText(
+                  `Runner exited with ${result.exitCode}\n${result.stderr}`,
+                ),
+              }),
+            );
+            await this.#handleFailure(
+              sessionState,
+              attempt,
+              this.#classifyFailure(
+                `Runner exited with ${result.exitCode}\n${result.stderr}`,
+                transientFailureSignal,
+                result.finishedAt,
+              ),
+              result.finishedAt,
+            );
+            return false;
+          }
+          transientFailureSignal = null;
+
           this.#setIssueRunnerVisibility(
             issue.number,
             this.#buildRunnerVisibility(result.session, {
-              state: "failed",
+              state: "completed",
               phase: "turn-finished",
               lastHeartbeatAt: result.finishedAt,
               lastActionAt: result.finishedAt,
-              lastActionSummary: `Turn ${turn.turnNumber.toString()} failed`,
+              lastActionSummary: `Turn ${turn.turnNumber.toString()} completed`,
               stdoutSummary: summarizeRunnerText(result.stdout),
               stderrSummary: summarizeRunnerText(result.stderr),
-              errorSummary: summarizeRunnerText(
-                `Runner exited with ${result.exitCode}\n${result.stderr}`,
-              ),
             }),
           );
-          await this.#handleFailure(
-            sessionState,
-            attempt,
-            this.#classifyFailure(
-              `Runner exited with ${result.exitCode}\n${result.stderr}`,
-              transientFailureSignal,
+
+          this.#setIssueRunnerVisibility(
+            issue.number,
+            this.#buildRunnerVisibility(result.session, {
+              state: "waiting",
+              phase: "handoff-reconciliation",
+              lastHeartbeatAt: result.finishedAt,
+              lastActionAt: result.finishedAt,
+              lastActionSummary: `Reconciling handoff after turn ${turn.turnNumber.toString()}`,
+              waitingReason: "Waiting for tracker reconciliation",
+              stdoutSummary: summarizeRunnerText(result.stdout),
+              stderrSummary: summarizeRunnerText(result.stderr),
+            }),
+            result.finishedAt,
+          );
+          await this.#persistStatusSnapshot();
+          if (shutdownContext.requestedAt !== null) {
+            await stopWatchdog();
+            await this.#finalizeActiveRunShutdown(
+              issue,
+              attempt,
+              lockDir,
+              workspace.branchName,
+              currentSessionState(),
+              shutdownContext,
               result.finishedAt,
-            ),
+              "shutdown-terminated",
+              "Runner exited during coordinated shutdown",
+            );
+            return true;
+          }
+          const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
+            workspace.branchName,
+            currentLifecycle,
+          );
+
+          if (nextLifecycle.kind === "handoff-ready") {
+            await stopWatchdog();
+            await this.#completeIssue(issue, {
+              attemptNumber: attempt,
+              branchName: workspace.branchName,
+              workspace,
+              session: sessionState,
+              finishedAt: result.finishedAt,
+            });
+            return false;
+          }
+
+          if (
+            shouldContinueTurnLoop(
+              nextLifecycle,
+              turn.turnNumber,
+              this.#config.agent.maxTurns,
+            )
+          ) {
+            this.#logger.info("Continuing agent turn on live session", {
+              issueNumber: issue.number,
+              branchName: workspace.branchName,
+              runSessionId: session.id,
+              backendSessionId: result.session.backendSessionId,
+              lifecycle: nextLifecycle.kind,
+              turnNumber: turn.turnNumber + 1,
+              maxTurns: this.#config.agent.maxTurns,
+            });
+            currentLifecycle = nextLifecycle;
+            turnNumber += 1;
+            continue;
+          }
+
+          await stopWatchdog();
+          await this.#handleTurnLifecycleExit(
+            issue,
+            attempt,
+            source,
+            workspace.branchName,
+            nextLifecycle,
+            sessionState,
             result.finishedAt,
           );
           return false;
         }
-        transientFailureSignal = null;
-
-        this.#setIssueRunnerVisibility(
-          issue.number,
-          this.#buildRunnerVisibility(result.session, {
-            state: "completed",
-            phase: "turn-finished",
-            lastHeartbeatAt: result.finishedAt,
-            lastActionAt: result.finishedAt,
-            lastActionSummary: `Turn ${turn.turnNumber.toString()} completed`,
-            stdoutSummary: summarizeRunnerText(result.stdout),
-            stderrSummary: summarizeRunnerText(result.stderr),
-          }),
-        );
-
-        this.#setIssueRunnerVisibility(
-          issue.number,
-          this.#buildRunnerVisibility(result.session, {
-            state: "waiting",
-            phase: "handoff-reconciliation",
-            lastHeartbeatAt: result.finishedAt,
-            lastActionAt: result.finishedAt,
-            lastActionSummary: `Reconciling handoff after turn ${turn.turnNumber.toString()}`,
-            waitingReason: "Waiting for tracker reconciliation",
-            stdoutSummary: summarizeRunnerText(result.stdout),
-            stderrSummary: summarizeRunnerText(result.stderr),
-          }),
-          result.finishedAt,
-        );
-        await this.#persistStatusSnapshot();
-        if (shutdownContext.requestedAt !== null) {
-          await stopWatchdog();
+      } catch (error) {
+        await stopWatchdog();
+        if (
+          error instanceof RunnerShutdownError &&
+          shutdownContext.requestedAt !== null
+        ) {
           await this.#finalizeActiveRunShutdown(
             issue,
             attempt,
@@ -1426,124 +1506,60 @@ export class BootstrapOrchestrator implements Orchestrator {
             workspace.branchName,
             currentSessionState(),
             shutdownContext,
-            result.finishedAt,
-            "shutdown-terminated",
-            "Runner exited during coordinated shutdown",
+            new Date().toISOString(),
+            error.termination === "forced"
+              ? "shutdown-forced"
+              : "shutdown-terminated",
+            error.message,
           );
           return true;
         }
-        const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
-          workspace.branchName,
-          currentLifecycle,
+        const normalizedFailure = this.#resolveRunFailureMessage(
+          sessionState.runSession.issue.number,
+          error as Error,
         );
-
-        if (nextLifecycle.kind === "handoff-ready") {
-          await stopWatchdog();
-          await this.#completeIssue(issue, {
-            attemptNumber: attempt,
-            branchName: workspace.branchName,
-            workspace,
-            session: sessionState,
-            finishedAt: result.finishedAt,
-          });
-          return false;
-        }
-
-        if (
-          shouldContinueTurnLoop(
-            nextLifecycle,
-            turn.turnNumber,
-            this.#config.agent.maxTurns,
-          )
-        ) {
-          this.#logger.info("Continuing agent turn on live session", {
+        this.#setIssueFailureVisibility(
+          sessionState.runSession.issue.number,
+          sessionState.description,
+          error as Error,
+          normalizedFailure,
+        );
+        await this.#handleFailure(
+          sessionState,
+          attempt,
+          this.#classifyFailure(
+            normalizedFailure,
+            transientFailureSignal,
+            new Date().toISOString(),
+            this.#resolveRetryClass(
+              sessionState.runSession.issue.number,
+              error as Error,
+            ),
+          ),
+          new Date().toISOString(),
+        );
+        return false;
+      } finally {
+        await liveRunnerSession?.close().catch((error) => {
+          this.#logger.warn("Failed to close live runner session cleanly", {
             issueNumber: issue.number,
             branchName: workspace.branchName,
             runSessionId: session.id,
-            backendSessionId: result.session.backendSessionId,
-            lifecycle: nextLifecycle.kind,
-            turnNumber: turn.turnNumber + 1,
-            maxTurns: this.#config.agent.maxTurns,
+            error: error instanceof Error ? error.message : String(error),
           });
-          currentLifecycle = nextLifecycle;
-          turnNumber += 1;
-          continue;
-        }
-
-        await stopWatchdog();
-        await this.#handleTurnLifecycleExit(
-          issue,
-          attempt,
-          source,
-          workspace.branchName,
-          nextLifecycle,
-          sessionState,
-          result.finishedAt,
-        );
-        return false;
-      }
-    } catch (error) {
-      await stopWatchdog();
-      if (
-        error instanceof RunnerShutdownError &&
-        shutdownContext.requestedAt !== null
-      ) {
-        await this.#finalizeActiveRunShutdown(
-          issue,
-          attempt,
-          lockDir,
-          workspace.branchName,
-          currentSessionState(),
-          shutdownContext,
-          new Date().toISOString(),
-          error.termination === "forced"
-            ? "shutdown-forced"
-            : "shutdown-terminated",
-          error.message,
-        );
-        return true;
-      }
-      const normalizedFailure = this.#resolveRunFailureMessage(
-        sessionState.runSession.issue.number,
-        error as Error,
-      );
-      this.#setIssueFailureVisibility(
-        sessionState.runSession.issue.number,
-        sessionState.description,
-        error as Error,
-        normalizedFailure,
-      );
-      await this.#handleFailure(
-        sessionState,
-        attempt,
-        this.#classifyFailure(
-          normalizedFailure,
-          transientFailureSignal,
-          new Date().toISOString(),
-          this.#resolveRetryClass(
-            sessionState.runSession.issue.number,
-            error as Error,
-          ),
-        ),
-        new Date().toISOString(),
-      );
-      return false;
-    } finally {
-      await liveRunnerSession?.close().catch((error) => {
-        this.#logger.warn("Failed to close live runner session cleanly", {
-          issueNumber: issue.number,
-          branchName: workspace.branchName,
-          runSessionId: session.id,
-          error: error instanceof Error ? error.message : String(error),
         });
-      });
-      await stopWatchdog();
-      shutdownSignal?.removeEventListener("abort", handleShutdown);
-      this.#state.runAbortControllers.delete(issue.number);
-      releaseHostForIssue(this.#state.hostDispatch, issue.number);
-      clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
-      this.#state.runningEntries.delete(issue.number);
-      this.#notifyDashboard();
+        await stopWatchdog();
+        shutdownSignal?.removeEventListener("abort", handleShutdown);
+        this.#state.runAbortControllers.delete(issue.number);
+        releaseReservedHost();
+        clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
+        this.#state.runningEntries.delete(issue.number);
+        this.#notifyDashboard();
+      }
+    } finally {
+      if (selectedWorkerHost !== null) {
+        releaseHostForIssue(this.#state.hostDispatch, issue.number);
+      }
     }
   }
 
@@ -1964,6 +1980,49 @@ export class BootstrapOrchestrator implements Orchestrator {
     decision: ReturnType<typeof decideRestartRecovery>,
   ): Promise<void> {
     if (decision.decision === "adopted") {
+      const adoptedRemoteHost =
+        snapshot.executionOwner?.endpoint.workspaceHost ?? null;
+      if (adoptedRemoteHost !== null) {
+        notePreferredHost(
+          this.#state.hostDispatch,
+          issue.number,
+          adoptedRemoteHost,
+        );
+        const hostClaim = claimHostForIssue(
+          this.#state.hostDispatch,
+          adoptedRemoteHost,
+          issue.number,
+          snapshot.executionOwner?.runSessionId ??
+            snapshot.record?.runSessionId ??
+            null,
+        );
+        if (hostClaim.kind === "unknown-host") {
+          this.#logger.warn(
+            "Inherited remote run uses an unconfigured worker host",
+            {
+              issueNumber: issue.number,
+              workerHost: adoptedRemoteHost,
+              runSessionId:
+                snapshot.executionOwner?.runSessionId ??
+                snapshot.record?.runSessionId ??
+                null,
+            },
+          );
+        } else if (hostClaim.kind === "occupied") {
+          this.#logger.warn(
+            "Inherited remote run could not reclaim occupied worker host",
+            {
+              issueNumber: issue.number,
+              workerHost: adoptedRemoteHost,
+              occupiedByIssueNumber: hostClaim.occupiedByIssueNumber,
+              runSessionId:
+                snapshot.executionOwner?.runSessionId ??
+                snapshot.record?.runSessionId ??
+                null,
+            },
+          );
+        }
+      }
       this.#logger.info("Adopted healthy inherited ownership", {
         issueNumber: issue.number,
         ownershipState: snapshot.kind,
