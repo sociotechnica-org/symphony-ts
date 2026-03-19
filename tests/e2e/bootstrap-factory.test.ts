@@ -77,6 +77,7 @@ async function writeWorkflow(options: {
         readonly maxRecoveryAttempts: number;
       }
     | undefined;
+  approvedReviewBotLogins?: readonly string[] | undefined;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   const workerHostsBlock =
@@ -133,6 +134,13 @@ tracker:
   review_bot_logins:
     - greptile[bot]
     - bugbot[bot]
+${
+  (options.approvedReviewBotLogins ?? []).length === 0
+    ? ""
+    : `  approved_review_bot_logins:
+${options.approvedReviewBotLogins!.map((login) => `    - ${login}`).join("\n")}
+`
+}
 polling:
   interval_ms: 5
   max_concurrent_runs: ${options.maxConcurrentRuns ?? 1}
@@ -1062,6 +1070,59 @@ describe("Phase 1.2 PR lifecycle factory", () => {
         }),
       }),
     );
+  });
+
+  it("waits for required approved bot review before allowing landing", async () => {
+    server.seedIssue({
+      number: 207,
+      title: "Require approved bot review before landing PRs",
+      body: "Do not land when required bots never reviewed the current head.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+      approvedReviewBotLogins: ["greptile[bot]"],
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/207", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    await orchestrator.runOnce();
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.activeIssues[0]).toMatchObject({
+      issueNumber: 207,
+      status: "awaiting-human-review",
+    });
+    expect(status.activeIssues[0]?.summary).toMatch(
+      /required approved bot review/i,
+    );
+
+    server.addPullRequestComment({
+      head: "symphony/207",
+      authorLogin: "greptile[bot]",
+      body: "<h3>Greptile Summary</h3>\n\nThis PR is safe to merge.",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    await orchestrator.runOnce();
+
+    const refreshed = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(refreshed.activeIssues[0]).toMatchObject({
+      issueNumber: 207,
+      status: "awaiting-landing-command",
+    });
   });
 
   it("records landing-failed when the merge request throws before dispatch completes", async () => {

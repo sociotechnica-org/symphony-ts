@@ -1009,6 +1009,13 @@ function resolveGitHubTrackerConfig<
             tracker["review_bot_logins"],
             "tracker.review_bot_logins",
           ),
+    approvedReviewBotLogins:
+      tracker["approved_review_bot_logins"] === undefined
+        ? []
+        : requireStringArray(
+            tracker["approved_review_bot_logins"],
+            "tracker.approved_review_bot_logins",
+          ),
     queuePriority: resolveGitHubQueuePriorityConfig(
       tracker["queue_priority"],
       "tracker.queue_priority",

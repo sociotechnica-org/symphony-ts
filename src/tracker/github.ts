@@ -154,6 +154,7 @@ export class GitHubTracker implements Tracker {
       checks,
       reviewState: reviewStateData,
       reviewBotLogins: this.#config.reviewBotLogins,
+      approvedReviewBotLogins: this.#config.approvedReviewBotLogins ?? [],
     });
     const result = evaluatePullRequestLifecycle(
       snapshot,
@@ -201,6 +202,7 @@ export class GitHubTracker implements Tracker {
       checks,
       reviewState,
       reviewBotLogins: this.#config.reviewBotLogins,
+      approvedReviewBotLogins: this.#config.approvedReviewBotLogins ?? [],
     });
     const gateSnapshot: GuardedLandingSnapshot = {
       approvedHeadSha: pullRequest.headSha,
@@ -218,6 +220,7 @@ export class GitHubTracker implements Tracker {
           feedback.kind === "review-thread" &&
           !this.#isBotReviewFeedback(feedback.authorLogin),
       ).length,
+      requiredApprovedReviewSatisfied: snapshot.requiredApprovedReviewSatisfied,
     };
     const decision = evaluateGuardedLanding(gateSnapshot);
     if (decision.kind === "blocked") {

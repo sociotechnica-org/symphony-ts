@@ -24,6 +24,7 @@ function createSnapshot(
     failingCheckNames: [],
     botActionableReviewFeedback: [],
     unresolvedReviewThreadCount: 0,
+    requiredApprovedReviewSatisfied: true,
     ...overrides,
   };
 }
@@ -174,6 +175,20 @@ describe("evaluateGuardedLanding", () => {
       kind: "blocked",
       reason: "actionable-review-feedback",
       lifecycleKind: "rework-required",
+    });
+  });
+
+  it("rejects landing when required approved bot review is missing", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        requiredApprovedReviewSatisfied: false,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "required-bot-review-missing",
+      lifecycleKind: "awaiting-human-review",
     });
   });
 

@@ -7,6 +7,7 @@ export type LandingBlockedReason =
   | "pull-request-not-mergeable"
   | "checks-not-green"
   | "review-threads-unresolved"
+  | "required-bot-review-missing"
   | "actionable-review-feedback"
   | "merge-request-refused";
 

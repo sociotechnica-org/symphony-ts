@@ -39,7 +39,7 @@ Run this sequence at the start of each operator pass:
    - active issues in `awaiting-human-handoff`
    - active issues or PRs in `awaiting-landing-command`
 4. If the detached runtime is stopped or degraded, repair that first.
-5. If a PR is green and review-clean, post `/land`.
+5. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`.
 6. After a merge, fast-forward the root checkout and `.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
@@ -97,7 +97,7 @@ Issue-level lifecycle checkpoints:
 - `awaiting-human-handoff`: review the technical plan and reply with an accepted plan-review marker
 - `awaiting-system-checks`: wait for CI or automated review follow-up unless a check is obviously stuck
 - `awaiting-human-review` or `rework-required`: inspect the PR review state and let the factory push follow-up if it is already responding
-- `awaiting-landing-command`: post `/land` when the PR is green and review-clean
+- `awaiting-landing-command`: post `/land` when the PR is green, review-clean, and required approved bot review has been observed on the current head
 - `awaiting-landing`: the landing request was issued; wait for merge observation or a clear landing failure
 
 ## Intervention Rules
@@ -106,14 +106,14 @@ Intervene directly only when the runtime contract is impaired or an explicit hum
 
 Use this table:
 
-| Situation                                              | Operator action                                                                                                             |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `awaiting-human-handoff`                               | Review the plan and post `Plan review: approved`, `Plan review: changes-requested`, or `Plan review: waived`                |
-| `awaiting-landing-command` with green, review-clean PR | Post `/land` on the PR                                                                                                      |
-| Detached runtime stopped or degraded                   | Use `factory status`, then `factory start` or `factory restart`                                                             |
-| `restart-recovery` visible after startup               | Inspect the recovery summary and per-issue decisions before manual reruns                                                   |
-| `retry-backoff` or `watchdog-recovery`                 | Prefer waiting for the queue/recovery path unless the factory is degraded or the posture stops progressing                  |
-| Failed issue with retained workspace                   | Inspect artifacts and retained workspace, fix the underlying problem, then relabel or rerun through the normal tracker path |
+| Situation                                                                                        | Operator action                                                                                                             |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `awaiting-human-handoff`                                                                         | Review the plan and post `Plan review: approved`, `Plan review: changes-requested`, or `Plan review: waived`                |
+| `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                                                      |
+| Detached runtime stopped or degraded                                                             | Use `factory status`, then `factory start` or `factory restart`                                                             |
+| `restart-recovery` visible after startup                                                         | Inspect the recovery summary and per-issue decisions before manual reruns                                                   |
+| `retry-backoff` or `watchdog-recovery`                                                           | Prefer waiting for the queue/recovery path unless the factory is degraded or the posture stops progressing                  |
+| Failed issue with retained workspace                                                             | Inspect artifacts and retained workspace, fix the underlying problem, then relabel or rerun through the normal tracker path |
 
 Avoid manual branch takeovers while the factory is healthy. If the runtime missed CI or review follow-up, treat that as a product problem first.
 
@@ -133,7 +133,7 @@ Workspace retention is config-driven. By default, failures stay inspectable and 
 Two human checkpoints remain explicit even when the factory is otherwise autonomous:
 
 1. Technical plan review before substantial implementation unless the review is explicitly waived.
-2. Landing approval through `/land` on a review-clean PR.
+2. Landing approval through `/land` on a review-clean PR whose current head already has required approved bot review.
 
 If either checkpoint is waiting, treat that as normal `waiting-expected` posture, not a runtime failure.
 

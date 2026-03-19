@@ -190,6 +190,23 @@ export function evaluatePullRequestLifecycle(
     }
   }
 
+  if (!snapshot.requiredApprovedReviewSatisfied) {
+    return {
+      lifecycle: {
+        kind: "awaiting-human-review",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        checks: snapshot.checks,
+        pendingCheckNames: snapshot.pendingCheckNames,
+        failingCheckNames: snapshot.failingCheckNames,
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: `Waiting for required approved bot review on ${snapshot.pullRequest.url}`,
+      },
+      nextNoCheckObservation: previousNoCheckObservation ?? null,
+    };
+  }
+
   return {
     lifecycle: {
       kind: snapshot.hasLandingCommand

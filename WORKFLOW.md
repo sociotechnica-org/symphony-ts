@@ -13,6 +13,11 @@ tracker:
     - greptile-apps
     - cursor
     - devin-ai-integration
+  approved_review_bot_logins:
+    - greptile[bot]
+    - bugbot[bot]
+    - greptile-apps
+    - devin-ai-integration
   # Optional tracker-owned ready-work ordering seam.
   # GitHub requires project_number / field_name configuration.
   # Linear only uses enabled: true and maps native issue priority when present.

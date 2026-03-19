@@ -71,6 +71,8 @@ describe("workflow config", () => {
   success_comment: done
   review_bot_logins:
     - greptile[bot]
+  approved_review_bot_logins:
+    - greptile[bot]
 ${buildSharedWorkflowSections()}`,
         "Issue {{ issue.identifier }} / {{ issue.summary }} / {{ config.tracker.repo }}",
       ),
@@ -93,6 +95,14 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
       "sociotechnica-org/symphony-ts",
     );
+    if (
+      workflow.config.tracker.kind === "github" ||
+      workflow.config.tracker.kind === "github-bootstrap"
+    ) {
+      expect(workflow.config.tracker.approvedReviewBotLogins).toEqual([
+        "greptile[bot]",
+      ]);
+    }
     const promptBuilder = createPromptBuilder(workflow);
     const rendered = await promptBuilder.build({
       issue: {
@@ -185,6 +195,41 @@ ${buildSharedWorkflowSections()}`,
         P1: 1,
       },
     });
+  });
+
+  it("loads optional approved review bot config for github trackers", async () => {
+    const dir = await createTempDir("workflow-github-approved-review-bots-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: github
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  approved_review_bot_logins:
+    - bugbot[bot]
+    - devin-ai-integration
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    if (
+      workflow.config.tracker.kind === "github" ||
+      workflow.config.tracker.kind === "github-bootstrap"
+    ) {
+      expect(workflow.config.tracker.approvedReviewBotLogins).toEqual([
+        "bugbot[bot]",
+        "devin-ai-integration",
+      ]);
+    }
   });
 
   it("loads optional tracker queue-priority config for linear", async () => {
