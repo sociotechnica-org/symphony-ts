@@ -5,7 +5,7 @@ import {
   loadWorkflow,
   loadWorkflowWorkspaceRoot,
 } from "../config/workflow.js";
-import { getCodexRemoteWorkerHost } from "../domain/workflow.js";
+import { getCodexRemoteWorkerHosts } from "../domain/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
 import {
   assessFactoryStatusSnapshot,
@@ -356,9 +356,14 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = createTracker(workflow.config.tracker, logger);
-  const remoteWorkerHost = getCodexRemoteWorkerHost(workflow.config);
+  const remoteWorkerHosts = getCodexRemoteWorkerHosts(workflow.config);
+  const remoteWorkerHostEntries = Object.fromEntries(
+    remoteWorkerHosts.map(
+      (workerHost) => [workerHost.name, workerHost] as const,
+    ),
+  );
   const workspace =
-    remoteWorkerHost === null
+    remoteWorkerHosts.length === 0
       ? new LocalWorkspaceManager(
           workflow.config.workspace,
           workflow.config.hooks.afterCreate,
@@ -367,13 +372,13 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         )
       : new RemoteSshWorkspaceManager(
           workflow.config.workspace,
-          remoteWorkerHost,
+          remoteWorkerHostEntries,
           workflow.config.hooks.afterCreate,
           logger,
           startup.workspaceSourceOverride,
         );
   const runner = createRunner(workflow.config.agent, logger, {
-    remoteWorkerHost,
+    remoteWorkerHosts: remoteWorkerHostEntries,
     trackerToolService: createTrackerToolService(
       tracker,
       workflow.config.tracker,

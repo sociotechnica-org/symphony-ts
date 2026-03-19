@@ -163,11 +163,22 @@ export interface FactoryRetrySnapshot {
   readonly issueIdentifier: string;
   readonly title: string;
   readonly nextAttempt: number;
+  readonly preferredHost: string | null;
   readonly retryClass: RetryClass;
   readonly scheduledAt: string;
   readonly backoffMs: number;
   readonly dueAt: string;
   readonly lastError: string;
+}
+
+export interface FactoryHostDispatchHostSnapshot {
+  readonly name: string;
+  readonly occupiedByIssueNumber: number | null;
+  readonly preferredIssueNumbers: readonly number[];
+}
+
+export interface FactoryHostDispatchSnapshot {
+  readonly hosts: readonly FactoryHostDispatchHostSnapshot[];
 }
 
 export type FactoryRecoveryPostureFamily =
@@ -213,6 +224,7 @@ export interface FactoryStatusSnapshot {
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publication?: FactoryStatusPublication;
   readonly dispatchPressure?: DispatchPressureStateSnapshot | null;
+  readonly hostDispatch?: FactoryHostDispatchSnapshot | null;
   readonly restartRecovery?: FactoryRestartRecoverySnapshot;
   readonly recoveryPosture?: FactoryRecoveryPostureSnapshot;
   readonly factoryState: FactoryState;
@@ -360,6 +372,23 @@ export function renderFactoryStatusSnapshot(
   if (dispatchPressure !== null) {
     lines.push(`Dispatch pressure detail: ${dispatchPressure.reason}`);
   }
+  const hostDispatch = snapshot.hostDispatch ?? null;
+  lines.push(
+    `Host dispatch: ${
+      hostDispatch === null
+        ? "not configured"
+        : hostDispatch.hosts
+            .map(
+              (host) =>
+                `${host.name}=${
+                  host.occupiedByIssueNumber === null
+                    ? "free"
+                    : `issue-${host.occupiedByIssueNumber.toString()}`
+                }`,
+            )
+            .join(", ")
+    }`,
+  );
   lines.push(`Recovery posture: ${recoveryPosture.summary.family}`);
   lines.push(`Recovery detail: ${recoveryPosture.summary.summary}`);
   lines.push(
@@ -543,6 +572,27 @@ export function renderFactoryStatusSnapshot(
   }
 
   lines.push("");
+  lines.push("Host dispatch:");
+  if (hostDispatch === null || hostDispatch.hosts.length === 0) {
+    lines.push("  none");
+  } else {
+    for (const host of hostDispatch.hosts) {
+      lines.push(
+        `  ${host.name} occupied_by=${host.occupiedByIssueNumber?.toString() ?? "none"}`,
+      );
+      lines.push(
+        `    Preferred retries: ${
+          host.preferredIssueNumbers.length === 0
+            ? "none"
+            : host.preferredIssueNumbers
+                .map((issueNumber) => `#${issueNumber.toString()}`)
+                .join(", ")
+        }`,
+      );
+    }
+  }
+
+  lines.push("");
   lines.push("Retries:");
   if (snapshot.retries.length === 0) {
     lines.push("  none");
@@ -554,6 +604,7 @@ export function renderFactoryStatusSnapshot(
       lines.push(
         `    Scheduled: ${retry.scheduledAt} (+${retry.backoffMs.toString()}ms)`,
       );
+      lines.push(`    Preferred host: ${retry.preferredHost ?? "none"}`);
       lines.push(`    Error: ${retry.lastError}`);
     }
   }
@@ -737,6 +788,7 @@ function parseFactoryStatusSnapshot(
       filePath,
       "dispatchPressure",
     ),
+    hostDispatch: parseHostDispatch(snapshot.hostDispatch, filePath),
     restartRecovery: parseRestartRecovery(snapshot.restartRecovery, filePath),
     recoveryPosture: parseRecoveryPosture(snapshot.recoveryPosture, filePath),
     factoryState: expectEnum(
@@ -761,6 +813,50 @@ function parseFactoryStatusSnapshot(
       "retries",
       (entry, index) =>
         parseRetry(entry, filePath, `retries[${index.toString()}]`),
+    ),
+  };
+}
+
+function parseHostDispatch(
+  value: unknown,
+  filePath: string,
+): FactoryHostDispatchSnapshot | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const hostDispatch = expectObject(value, filePath, "hostDispatch");
+  return {
+    hosts: expectArray(
+      hostDispatch.hosts,
+      filePath,
+      "hostDispatch.hosts",
+      (entry, index) =>
+        parseHostDispatchHost(
+          entry,
+          filePath,
+          `hostDispatch.hosts[${index.toString()}]`,
+        ),
+    ),
+  };
+}
+
+function parseHostDispatchHost(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryHostDispatchHostSnapshot {
+  const host = expectObject(value, filePath, field);
+  return {
+    name: expectString(host.name, filePath, `${field}.name`),
+    occupiedByIssueNumber: expectNullableInteger(
+      host.occupiedByIssueNumber,
+      filePath,
+      `${field}.occupiedByIssueNumber`,
+    ),
+    preferredIssueNumbers: expectIntegerArray(
+      host.preferredIssueNumbers,
+      filePath,
+      `${field}.preferredIssueNumbers`,
     ),
   };
 }
@@ -1699,6 +1795,11 @@ function parseRetry(
       filePath,
       `${field}.nextAttempt`,
     ),
+    preferredHost: expectNullableString(
+      retry.preferredHost,
+      filePath,
+      `${field}.preferredHost`,
+    ),
     retryClass: expectRetryClass(
       retry.retryClass,
       filePath,
@@ -1823,6 +1924,16 @@ function expectNullableInteger(
     return null;
   }
   return expectInteger(value, filePath, field);
+}
+
+function expectIntegerArray(
+  value: unknown,
+  filePath: string,
+  field: string,
+): readonly number[] {
+  return expectArray(value, filePath, field, (entry, index) =>
+    expectInteger(entry, filePath, `${field}[${index.toString()}]`),
+  );
 }
 
 function expectNullableNumber(

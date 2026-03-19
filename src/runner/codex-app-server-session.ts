@@ -76,7 +76,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   readonly #baseDescription: RunnerSessionDescription;
   readonly #appServerCommand: CodexAppServerCommand;
   readonly #dynamicToolExecutor: DynamicToolExecutor;
-  readonly #remoteWorkerHost: SshWorkerHostConfig | null;
+  readonly #remoteWorkerHosts: Readonly<Record<string, SshWorkerHostConfig>>;
   #child: ChildProcessWithoutNullStreams | null = null;
   #closePromise: Promise<void> | null = null;
   #closeResolve: (() => void) | null = null;
@@ -109,14 +109,14 @@ export class CodexAppServerSession implements LiveRunnerSession {
     logger: Logger,
     session: RunSession,
     dynamicToolExecutor: DynamicToolExecutor,
-    remoteWorkerHost: SshWorkerHostConfig | null = null,
+    remoteWorkerHosts: Readonly<Record<string, SshWorkerHostConfig>> = {},
   ) {
     const appServerCommand = buildCodexAppServerCommand(config.command);
     this.#config = config;
     this.#logger = logger;
     this.#runSession = session;
     this.#dynamicToolExecutor = dynamicToolExecutor;
-    this.#remoteWorkerHost = remoteWorkerHost;
+    this.#remoteWorkerHosts = remoteWorkerHosts;
     this.#baseDescription = {
       provider: "codex",
       model: appServerCommand.model,
@@ -175,10 +175,19 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   #spawnRemoteProcess(workspacePath: string): ChildProcessWithoutNullStreams {
-    const workerHost = this.#remoteWorkerHost;
-    if (workerHost === null) {
+    const workerHostName =
+      this.#runSession.workspace.target.kind === "remote"
+        ? this.#runSession.workspace.target.host
+        : null;
+    if (workerHostName === null) {
       throw new RunnerError(
-        "Codex SSH remote execution requires a configured worker host",
+        "Codex SSH remote execution requires a remote workspace target",
+      );
+    }
+    const workerHost = this.#remoteWorkerHosts[workerHostName];
+    if (workerHost === undefined) {
+      throw new RunnerError(
+        `Codex SSH remote execution requires configured worker host '${workerHostName}'`,
       );
     }
     const remoteCommand = this.#buildRemoteLaunchCommand(workspacePath);

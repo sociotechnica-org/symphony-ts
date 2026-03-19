@@ -1,4 +1,5 @@
 import type { RuntimeIssue } from "./issue.js";
+import type { SshWorkerHostConfig } from "./workflow.js";
 
 export interface ConfiguredWorkspaceSource {
   readonly kind: "configured-repo";
@@ -24,6 +25,7 @@ export type WorkspaceSource =
 export interface WorkspacePreparationRequest {
   readonly issue: RuntimeIssue;
   readonly sourceOverride?: WorkspaceSource | null;
+  readonly workerHost?: SshWorkerHostConfig | null;
 }
 
 export interface LocalWorkspaceTarget {

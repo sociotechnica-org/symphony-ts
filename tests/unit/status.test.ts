@@ -32,6 +32,7 @@ function createSnapshot(
       detail: null,
     },
     dispatchPressure: null,
+    hostDispatch: null,
     restartRecovery: {
       state: "ready",
       startedAt: "2026-03-06T11:59:10.000Z",
@@ -192,6 +193,7 @@ function createSnapshot(
         issueIdentifier: "sociotechnica-org/symphony-ts#9",
         title: "Retry a failed run",
         nextAttempt: 2,
+        preferredHost: null,
         retryClass: "run-failure",
         scheduledAt: "2026-03-06T12:00:00.000Z",
         backoffMs: 300000,

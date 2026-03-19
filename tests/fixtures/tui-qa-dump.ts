@@ -167,6 +167,7 @@ const activeSnapshot: TuiSnapshot = {
       issueNumber: 7,
       identifier: "#7",
       nextAttempt: 2,
+      preferredHost: "builder-a",
       retryClass: "run-failure",
       dueInMs: 8_000,
       lastError: "Runner exited with 1",

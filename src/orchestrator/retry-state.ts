@@ -69,6 +69,7 @@ export function scheduleRetry(
   options: {
     readonly issue: RuntimeIssue;
     readonly runSequence: number;
+    readonly preferredHost?: string | null;
     readonly retryClass: RetryClass;
     readonly backoffMs: number;
     readonly message: string;
@@ -85,6 +86,7 @@ export function scheduleRetry(
     runSequence: options.runSequence,
     failureRetryAttempt,
     nextAttempt: options.runSequence + 1,
+    preferredHost: options.preferredHost ?? null,
     retryClass: options.retryClass,
     scheduledAt,
     backoffMs: options.backoffMs,

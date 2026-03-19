@@ -10,7 +10,9 @@ export function createRunner(
   config: AgentConfig,
   logger: Logger,
   options?: {
-    readonly remoteWorkerHost?: SshWorkerHostConfig | null;
+    readonly remoteWorkerHosts?: Readonly<
+      Record<string, SshWorkerHostConfig>
+    > | null;
     readonly trackerToolService?: TrackerToolService | null;
   },
 ): Runner {
@@ -20,7 +22,7 @@ export function createRunner(
         config,
         logger,
         options?.trackerToolService ?? null,
-        options?.remoteWorkerHost ?? null,
+        options?.remoteWorkerHosts ?? null,
       );
     case "generic-command":
       return new GenericCommandRunner(config, logger);

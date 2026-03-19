@@ -171,6 +171,50 @@ const baseConfig: ResolvedConfig = {
   },
 };
 
+function createRemoteConfig(
+  workspaceRoot: string,
+  workerHostNames: readonly string[] = ["builder-a"],
+): ResolvedConfig {
+  const workerHosts = {
+    "builder-a": {
+      name: "builder-a",
+      sshDestination: "builder-a@example.test",
+      sshExecutable: "ssh",
+      sshOptions: [],
+      workspaceRoot: "/srv/symphony/a",
+    },
+    "builder-b": {
+      name: "builder-b",
+      sshDestination: "builder-b@example.test",
+      sshExecutable: "ssh",
+      sshOptions: [],
+      workspaceRoot: "/srv/symphony/b",
+    },
+  } as const;
+
+  return {
+    ...baseConfig,
+    workspace: {
+      ...baseConfig.workspace,
+      root: workspaceRoot,
+      workerHosts,
+    },
+    agent: {
+      ...baseConfig.agent,
+      runner: {
+        kind: "codex",
+        remoteExecution: {
+          kind: "ssh",
+          workerHostNames,
+          workerHosts: workerHostNames.map((workerHostName) => {
+            return workerHosts[workerHostName as keyof typeof workerHosts];
+          }),
+        },
+      },
+    },
+  };
+}
+
 const staticPromptBuilder: PromptBuilder = {
   async build({ issue, attempt, pullRequest }): Promise<string> {
     return JSON.stringify({
@@ -543,6 +587,13 @@ class PrepareFailingWorkspaceManager extends TrackingWorkspaceManager {
     throw new Error("workspace prepare crashed");
   }
 }
+
+const failingPromptBuilder: PromptBuilder = {
+  ...staticPromptBuilder,
+  async build(): Promise<string> {
+    throw new Error("prompt build crashed");
+  },
+};
 
 class ConcurrencyRunner implements Runner {
   readonly #startBarrier = createDeferred<void>();
@@ -1458,6 +1509,105 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("repopulates host occupancy from adopted inherited remote runs", async () => {
+    const tempRoot = await createTempDir("symphony-remote-restart-host-test-");
+    try {
+      const inheritedIssue = createIssue(84, "symphony:running");
+      const readyIssue = createIssue(85);
+      const tracker = new SequencedTracker({
+        ready: [readyIssue],
+        running: [inheritedIssue],
+      });
+      const lockDir = path.join(tempRoot, ".symphony-locks", "84");
+      await fs.mkdir(lockDir, { recursive: true });
+      await fs.writeFile(path.join(lockDir, "pid"), `${process.pid}\n`, "utf8");
+      await fs.writeFile(
+        path.join(lockDir, "run.json"),
+        JSON.stringify(
+          {
+            issueNumber: 84,
+            issueIdentifier: inheritedIssue.identifier,
+            branchName: "symphony/84",
+            runSessionId: `${inheritedIssue.identifier}/attempt-1/remote`,
+            attempt: 1,
+            executionOwner: {
+              factory: {
+                host: "factory-host",
+                instanceId: "factory-instance",
+                pid: process.pid,
+              },
+              runSessionId: `${inheritedIssue.identifier}/attempt-1/remote`,
+              transport: {
+                kind: "remote-stdio-session",
+                localProcess: null,
+                remoteSessionId: "remote-session-84",
+                remoteTaskId: null,
+              },
+              localControl: null,
+              endpoint: {
+                workspaceTargetKind: "remote",
+                workspaceHost: "builder-a",
+                workspacePath: null,
+                workspaceId: "builder-a:sociotechnica-org_symphony-ts_84",
+                provider: "codex",
+                model: null,
+                backendSessionId: "remote-session-84",
+                backendThreadId: null,
+              },
+            },
+            ownerPid: process.pid,
+            runnerPid: null,
+            runRecordedAt: new Date().toISOString(),
+            runnerStartedAt: new Date().toISOString(),
+            shutdown: null,
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+      const runner = new RecordingRunner();
+      const orchestrator = new BootstrapOrchestrator(
+        createRemoteConfig(tempRoot),
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runner.sessionIds).toEqual([]);
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.hostDispatch).toEqual({
+        hosts: [
+          {
+            name: "builder-a",
+            occupiedByIssueNumber: 84,
+            preferredIssueNumbers: [84],
+          },
+        ],
+      });
+      expect(status.activeIssues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            issueNumber: 85,
+            status: "queued",
+            blockedReason: expect.stringContaining(
+              "No remote worker host is currently available",
+            ),
+          }),
+        ]),
+      );
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps processing other work when one running-issue reconciliation fails", async () => {
     const tempRoot = await createTempDir("symphony-reconcile-failure-test-");
     const tracker = new SequencedTracker({
@@ -1512,6 +1662,42 @@ describe("BootstrapOrchestrator", () => {
       "Failed to reconcile running issue ownership",
     );
     expect(logger.errors).not.toContain("Poll cycle failed");
+  });
+
+  it("releases reserved remote worker hosts when prompt building fails before run startup", async () => {
+    const tempRoot = await createTempDir(
+      "symphony-remote-prompt-failure-test-",
+    );
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(86)],
+      });
+      const orchestrator = new BootstrapOrchestrator(
+        createRemoteConfig(tempRoot),
+        failingPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        new RecordingRunner(),
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      const status = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(status.hostDispatch).toEqual({
+        hosts: [
+          {
+            name: "builder-a",
+            occupiedByIssueNumber: null,
+            preferredIssueNumbers: [86],
+          },
+        ],
+      });
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it("prunes stale active issues that no longer appear in tracker state", async () => {

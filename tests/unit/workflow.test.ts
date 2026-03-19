@@ -1887,15 +1887,146 @@ agent:
     }
     expect(workflow.config.agent.runner.remoteExecution).toEqual({
       kind: "ssh",
-      workerHostName: "builder",
-      workerHost: {
-        name: "builder",
-        sshDestination: "symphony@example.test",
-        sshExecutable: "/tmp/fake-ssh",
-        sshOptions: ["-p", "2222"],
-        workspaceRoot: "/srv/symphony/workspaces",
-      },
+      workerHostNames: ["builder"],
+      workerHosts: [
+        {
+          name: "builder",
+          sshDestination: "symphony@example.test",
+          sshExecutable: "/tmp/fake-ssh",
+          sshOptions: ["-p", "2222"],
+          workspaceRoot: "/srv/symphony/workspaces",
+        },
+      ],
     });
+  });
+
+  it("accepts multiple SSH worker hosts for remote Codex execution", async () => {
+    const dir = await createTempDir("workflow-remote-codex-host-pool-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  worker_hosts:
+    builder-a:
+      ssh_destination: symphony-a@example.test
+      workspace_root: /srv/symphony/a
+    builder-b:
+      ssh_destination: symphony-b@example.test
+      workspace_root: /srv/symphony/b
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+    remote_execution:
+      kind: ssh
+      worker_hosts:
+        - builder-a
+        - builder-b
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.agent.runner.kind).toBe("codex");
+    if (workflow.config.agent.runner.kind !== "codex") {
+      throw new Error("expected codex runner config");
+    }
+    expect(workflow.config.agent.runner.remoteExecution).toEqual({
+      kind: "ssh",
+      workerHostNames: ["builder-a", "builder-b"],
+      workerHosts: [
+        {
+          name: "builder-a",
+          sshDestination: "symphony-a@example.test",
+          sshExecutable: "ssh",
+          sshOptions: [],
+          workspaceRoot: "/srv/symphony/a",
+        },
+        {
+          name: "builder-b",
+          sshDestination: "symphony-b@example.test",
+          sshExecutable: "ssh",
+          sshOptions: [],
+          workspaceRoot: "/srv/symphony/b",
+        },
+      ],
+    });
+  });
+
+  it("rejects ambiguous SSH remote Codex worker_host and worker_hosts config", async () => {
+    const dir = await createTempDir("workflow-remote-codex-ambiguous-hosts-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  worker_hosts:
+    builder-a:
+      ssh_destination: symphony-a@example.test
+      workspace_root: /srv/symphony/a
+    builder-b:
+      ssh_destination: symphony-b@example.test
+      workspace_root: /srv/symphony/b
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+    remote_execution:
+      kind: ssh
+      worker_host: builder-a
+      worker_hosts:
+        - builder-a
+        - builder-b
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      /may not define both worker_hosts and worker_host/,
+    );
   });
 
   it("rejects local workspace sources for SSH remote Codex execution", async () => {

@@ -6,7 +6,7 @@ import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
-import { getCodexRemoteWorkerHost } from "../../src/domain/workflow.js";
+import { getCodexRemoteWorkerHosts } from "../../src/domain/workflow.js";
 import {
   deriveIssueArtifactPaths,
   readIssueArtifactAttempt,
@@ -61,6 +61,14 @@ async function writeWorkflow(options: {
         readonly workspaceRoot: string;
       }
     | undefined;
+  remoteWorkerHosts?:
+    | readonly {
+        readonly name: string;
+        readonly sshDestination: string;
+        readonly sshExecutable: string;
+        readonly workspaceRoot: string;
+      }[]
+    | undefined;
   watchdog?:
     | {
         readonly enabled: boolean;
@@ -72,21 +80,39 @@ async function writeWorkflow(options: {
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   const workerHostsBlock =
-    options.remoteWorkerHost === undefined
+    (options.remoteWorkerHosts ??
+      (options.remoteWorkerHost === undefined
+        ? undefined
+        : [options.remoteWorkerHost])) === undefined
       ? ""
       : `  worker_hosts:
-    ${options.remoteWorkerHost.name}:
-      ssh_destination: ${options.remoteWorkerHost.sshDestination}
-      ssh_executable: ${options.remoteWorkerHost.sshExecutable}
-      workspace_root: ${options.remoteWorkerHost.workspaceRoot}
+${(options.remoteWorkerHosts ?? [options.remoteWorkerHost!])
+  .map(
+    (workerHost) => `    ${workerHost.name}:
+      ssh_destination: ${workerHost.sshDestination}
+      ssh_executable: ${workerHost.sshExecutable}
+      workspace_root: ${workerHost.workspaceRoot}`,
+  )
+  .join("\n")}
 `;
   const remoteExecutionBlock =
-    options.remoteWorkerHost === undefined
+    (options.remoteWorkerHosts ??
+      (options.remoteWorkerHost === undefined
+        ? undefined
+        : [options.remoteWorkerHost])) === undefined
       ? ""
       : `    remote_execution:
       kind: ssh
-      worker_host: ${options.remoteWorkerHost.name}
-`;
+${
+  (options.remoteWorkerHosts ?? [options.remoteWorkerHost!]).length === 1
+    ? `      worker_host: ${(options.remoteWorkerHosts ?? [options.remoteWorkerHost!])[0]!.name}
+`
+    : `      worker_hosts:
+${(options.remoteWorkerHosts ?? [options.remoteWorkerHost!])
+  .map((workerHost) => `        - ${workerHost.name}`)
+  .join("\n")}
+`
+}`;
   const agentEnvBlock =
     Object.entries(options.agentEnv ?? {}).length === 0
       ? "    {}\n"
@@ -181,9 +207,14 @@ async function createOrchestrator(
   const logger = new JsonLogger();
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = createTracker(workflow.config.tracker, logger);
-  const remoteWorkerHost = getCodexRemoteWorkerHost(workflow.config);
+  const remoteWorkerHosts = getCodexRemoteWorkerHosts(workflow.config);
+  const remoteWorkerHostEntries = Object.fromEntries(
+    remoteWorkerHosts.map(
+      (workerHost) => [workerHost.name, workerHost] as const,
+    ),
+  );
   const workspace =
-    remoteWorkerHost === null
+    remoteWorkerHosts.length === 0
       ? new LocalWorkspaceManager(
           workflow.config.workspace,
           workflow.config.hooks.afterCreate,
@@ -191,12 +222,12 @@ async function createOrchestrator(
         )
       : new RemoteSshWorkspaceManager(
           workflow.config.workspace,
-          remoteWorkerHost,
+          remoteWorkerHostEntries,
           workflow.config.hooks.afterCreate,
           logger,
         );
   const runner = createRunner(workflow.config.agent, logger, {
-    remoteWorkerHost,
+    remoteWorkerHosts: remoteWorkerHostEntries,
     trackerToolService: createTrackerToolService(
       tracker,
       workflow.config.tracker,
@@ -488,6 +519,162 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       workspaceId: "builder:sociotechnica-org_symphony-ts_7",
     });
     expect(await countRemoteBranchCommits(remotePath, "symphony/7")).toBe(1);
+  });
+
+  it("preserves same-host retry continuity for remote Codex retries", async () => {
+    server.seedIssue({
+      number: 71,
+      title: "Remote retry continuity",
+      body: "Retry on the same remote host when it remains available",
+      labels: ["symphony:ready"],
+    });
+
+    const fakeCodex = await createFakeCodexExecutable();
+    const fakeSsh = await createFakeSshExecutable();
+    const remoteWorkspaceRootA = path.join(tempDir, "remote-workers-a");
+    const remoteWorkspaceRootB = path.join(tempDir, "remote-workers-b");
+    process.env["GIT_SSH"] = fakeSsh;
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath: `builder-a@example.test:${remotePath}`,
+      apiUrl: server.baseUrl,
+      runnerKind: "codex",
+      agentCommand: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -`,
+      remoteWorkerHosts: [
+        {
+          name: "builder-a",
+          sshDestination: "builder-a@example.test",
+          sshExecutable: fakeSsh,
+          workspaceRoot: remoteWorkspaceRootA,
+        },
+        {
+          name: "builder-b",
+          sshDestination: "builder-b@example.test",
+          sshExecutable: fakeSsh,
+          workspaceRoot: remoteWorkspaceRootB,
+        },
+      ],
+      agentEnv: {
+        FAKE_CODEX_AGENT_COMMAND: path.resolve(
+          "tests/fixtures/fake-agent-flaky.sh",
+        ),
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const retryStatus = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(retryStatus.retries).toHaveLength(1);
+    expect(retryStatus.retries[0]?.preferredHost).toBe("builder-a");
+
+    await orchestrator.runOnce();
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.activeIssues[0]?.executionOwner?.endpoint.workspaceHost).toBe(
+      "builder-a",
+    );
+    expect(await countRemoteBranchCommits(remotePath, "symphony/71")).toBe(1);
+    expect(
+      await fs.stat(
+        path.join(
+          remoteWorkspaceRootA,
+          "sociotechnica-org_symphony-ts_71",
+          ".flaky-attempt",
+        ),
+      ),
+    ).toBeDefined();
+    await expect(
+      fs.stat(
+        path.join(remoteWorkspaceRootB, "sociotechnica-org_symphony-ts_71"),
+      ),
+    ).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const implemented = await readRemoteBranchFile(
+      remotePath,
+      "symphony/71",
+      "IMPLEMENTED.txt",
+    );
+    expect(implemented).toContain("after retry");
+  });
+
+  it("dispatches concurrent remote Codex runs across multiple worker hosts", async () => {
+    server.seedIssue({
+      number: 90,
+      title: "Remote host A",
+      body: "Use the first available host",
+      labels: ["symphony:ready"],
+    });
+    server.seedIssue({
+      number: 91,
+      title: "Remote host B",
+      body: "Use the second available host when the first is occupied",
+      labels: ["symphony:ready"],
+    });
+
+    const fakeCodex = await createFakeCodexExecutable();
+    const fakeSsh = await createFakeSshExecutable();
+    const remoteWorkspaceRootA = path.join(tempDir, "multi-remote-workers-a");
+    const remoteWorkspaceRootB = path.join(tempDir, "multi-remote-workers-b");
+    process.env["GIT_SSH"] = fakeSsh;
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath: `builder-a@example.test:${remotePath}`,
+      apiUrl: server.baseUrl,
+      runnerKind: "codex",
+      maxConcurrentRuns: 2,
+      agentCommand: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -`,
+      remoteWorkerHosts: [
+        {
+          name: "builder-a",
+          sshDestination: "builder-a@example.test",
+          sshExecutable: fakeSsh,
+          workspaceRoot: remoteWorkspaceRootA,
+        },
+        {
+          name: "builder-b",
+          sshDestination: "builder-b@example.test",
+          sshExecutable: fakeSsh,
+          workspaceRoot: remoteWorkspaceRootB,
+        },
+      ],
+      agentEnv: {
+        FAKE_CODEX_AGENT_COMMAND: path.resolve(
+          "tests/fixtures/fake-agent-success-unique.sh",
+        ),
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    const hostByIssue = new Map(
+      status.activeIssues.map((issue) => [
+        issue.issueNumber,
+        issue.executionOwner?.endpoint.workspaceHost ?? null,
+      ]),
+    );
+    expect(new Set([hostByIssue.get(90), hostByIssue.get(91)])).toEqual(
+      new Set(["builder-a", "builder-b"]),
+    );
+    const hostAEntries = await fs.readdir(remoteWorkspaceRootA);
+    const hostBEntries = await fs.readdir(remoteWorkspaceRootB);
+    expect(hostAEntries).toHaveLength(1);
+    expect(hostBEntries).toHaveLength(1);
+    expect(new Set([...hostAEntries, ...hostBEntries])).toEqual(
+      new Set([
+        "sociotechnica-org_symphony-ts_90",
+        "sociotechnica-org_symphony-ts_91",
+      ]),
+    );
   });
 
   it("records configured provider and model metadata for generic command runs", async () => {

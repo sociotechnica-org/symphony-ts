@@ -91,8 +91,8 @@ export interface SshWorkerHostConfig {
 
 export interface CodexSshRemoteExecutionConfig {
   readonly kind: "ssh";
-  readonly workerHostName: string;
-  readonly workerHost: SshWorkerHostConfig;
+  readonly workerHostNames: readonly string[];
+  readonly workerHosts: readonly SshWorkerHostConfig[];
 }
 
 export type CodexRemoteExecutionConfig = CodexSshRemoteExecutionConfig;
@@ -142,9 +142,9 @@ export interface WorkflowDefinition {
   readonly promptTemplate: string;
 }
 
-export function getCodexRemoteWorkerHost(
+export function getCodexRemoteWorkerHosts(
   config: ResolvedConfig,
-): SshWorkerHostConfig | null {
+): readonly SshWorkerHostConfig[] {
   const agent = (config as { agent?: unknown }).agent;
   if (
     typeof agent !== "object" ||
@@ -155,14 +155,20 @@ export function getCodexRemoteWorkerHost(
     !("kind" in agent.runner) ||
     agent.runner.kind !== "codex"
   ) {
-    return null;
+    return [];
   }
   const runner = agent.runner as {
-    remoteExecution?: { workerHost?: SshWorkerHostConfig };
+    remoteExecution?: { workerHosts?: readonly SshWorkerHostConfig[] };
   };
   return "remoteExecution" in agent.runner
-    ? (runner.remoteExecution?.workerHost ?? null)
-    : null;
+    ? (runner.remoteExecution?.workerHosts ?? [])
+    : [];
+}
+
+export function getCodexRemoteWorkerHost(
+  config: ResolvedConfig,
+): SshWorkerHostConfig | null {
+  return getCodexRemoteWorkerHosts(config)[0] ?? null;
 }
 
 export interface PromptBuilder {

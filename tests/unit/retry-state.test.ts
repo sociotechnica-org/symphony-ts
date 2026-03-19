@@ -17,6 +17,7 @@ describe("retry-state", () => {
     const retry = scheduleRetry(state, {
       issue,
       runSequence: 3,
+      preferredHost: "builder-a",
       retryClass: "run-failure",
       backoffMs: 5_000,
       message: "Runner exited with 1",
@@ -25,6 +26,7 @@ describe("retry-state", () => {
 
     expect(retry.nextAttempt).toBe(4);
     expect(retry.failureRetryAttempt).toBe(1);
+    expect(retry.preferredHost).toBe("builder-a");
     expect(retry.retryClass).toBe("run-failure");
     expect(retry.scheduledAt).toBe(1_000);
     expect(retry.dueAt).toBe(6_000);
