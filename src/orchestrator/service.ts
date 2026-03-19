@@ -1166,10 +1166,15 @@ export class BootstrapOrchestrator implements Orchestrator {
         pullRequest,
       ),
     );
-    await this.#leaseManager.recordRun(lockDir, session, sessionState.description, {
-      factoryInstanceId: this.#instanceId,
-      factoryPid: process.pid,
-    });
+    await this.#leaseManager.recordRun(
+      lockDir,
+      session,
+      sessionState.description,
+      {
+        factoryInstanceId: this.#instanceId,
+        factoryPid: process.pid,
+      },
+    );
     const abortController = new AbortController();
     const shutdownSignal = this.#shutdownSignal;
     const shutdownContext: ActiveRunShutdownContext = {

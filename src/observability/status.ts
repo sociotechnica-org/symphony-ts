@@ -1254,12 +1254,16 @@ function parseExecutionOwner(
             filePath,
             `${field}.localControl.pid`,
           ),
-          canTerminate: expectNullableBoolean(
-            expectObject(owner.localControl, filePath, `${field}.localControl`)
-              .canTerminate,
-            filePath,
-            `${field}.localControl.canTerminate`,
-          ) ?? false,
+          canTerminate:
+            expectNullableBoolean(
+              expectObject(
+                owner.localControl,
+                filePath,
+                `${field}.localControl`,
+              ).canTerminate,
+              filePath,
+              `${field}.localControl.canTerminate`,
+            ) ?? false,
         };
   const endpoint = expectObject(owner.endpoint, filePath, `${field}.endpoint`);
   return {
