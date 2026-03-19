@@ -4,6 +4,7 @@ import type {
   FactoryActiveIssueSnapshot,
   FactoryHostDispatchSnapshot,
   FactoryIssueStatus,
+  FactoryReadyQueueIssueSnapshot,
   FactoryRestartRecoveryIssueSnapshot,
   FactoryRestartRecoveryState,
   FactoryState,
@@ -36,6 +37,7 @@ export interface RuntimeStatusState {
   readonly workerStartedAt: string;
   trackerCounts: TrackerIssueCounts;
   readonly activeIssues: Map<number, RuntimeActiveIssueState>;
+  readyQueue: readonly FactoryReadyQueueIssueSnapshot[];
   readonly watchdogIssues: Map<number, RuntimeWatchdogPosture>;
   terminalIssues: readonly RuntimeTerminalCleanupPosture[];
   restartRecovery: {
@@ -57,6 +59,7 @@ export function createRuntimeStatusState(): RuntimeStatusState {
       failed: 0,
     },
     activeIssues: new Map<number, RuntimeActiveIssueState>(),
+    readyQueue: [],
     watchdogIssues: new Map<number, RuntimeWatchdogPosture>(),
     terminalIssues: [],
     restartRecovery: {
@@ -246,6 +249,19 @@ export function clearActiveIssue(
   state.activeIssues.delete(issueNumber);
 }
 
+export function setReadyQueue(
+  state: RuntimeStatusState,
+  issues: readonly RuntimeIssue[],
+): void {
+  state.readyQueue = issues.map((issue) => ({
+    issueNumber: issue.number,
+    issueIdentifier: issue.identifier,
+    title: issue.title,
+    queuePriorityRank: issue.queuePriority?.rank ?? null,
+    queuePriorityLabel: issue.queuePriority?.label ?? null,
+  }));
+}
+
 export function noteWatchdogIssue(
   state: RuntimeStatusState,
   update: RuntimeWatchdogPosture,
@@ -371,6 +387,7 @@ export function buildFactoryStatusSnapshot(input: {
     },
     lastAction: input.state.lastAction,
     activeIssues,
+    readyQueue: input.state.readyQueue,
     retries,
   };
 }

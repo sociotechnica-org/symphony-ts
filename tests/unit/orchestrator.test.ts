@@ -967,6 +967,184 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("starts the highest-priority ready issue first when capacity is constrained", async () => {
+    const tempRoot = await createTempDir("symphony-ready-priority-test-");
+    try {
+      const lowPriorityIssue = {
+        ...createIssue(1),
+        title: "Low priority",
+        queuePriority: { rank: 2, label: "P2" },
+      };
+      const highestPriorityIssue = {
+        ...createIssue(2),
+        title: "Highest priority",
+        queuePriority: { rank: 0, label: "P0" },
+      };
+      const fallbackIssue = {
+        ...createIssue(3),
+        title: "Fallback issue",
+      };
+      const tracker = new SequencedTracker({
+        ready: [lowPriorityIssue, fallbackIssue, highestPriorityIssue],
+      });
+      tracker.setLifecycleSequence(2, [
+        lifecycle("missing-target", "symphony/2"),
+        lifecycle("handoff-ready", "symphony/2"),
+      ]);
+
+      const runnerIssues: number[] = [];
+      const runner: Runner = {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(session): Promise<RunnerExecutionResult> {
+          runnerIssues.push(session.issue.number);
+          const timestamp = new Date().toISOString();
+          return {
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      };
+
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            maxConcurrentRuns: 1,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runnerIssues).toEqual([2]);
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.readyQueue).toEqual([
+        {
+          issueNumber: 2,
+          issueIdentifier: "sociotechnica-org/symphony-ts#2",
+          title: "Highest priority",
+          queuePriorityRank: 0,
+          queuePriorityLabel: "P0",
+        },
+        {
+          issueNumber: 1,
+          issueIdentifier: "sociotechnica-org/symphony-ts#1",
+          title: "Low priority",
+          queuePriorityRank: 2,
+          queuePriorityLabel: "P2",
+        },
+        {
+          issueNumber: 3,
+          issueIdentifier: "sociotechnica-org/symphony-ts#3",
+          title: "Fallback issue",
+          queuePriorityRank: null,
+          queuePriorityLabel: null,
+        },
+      ]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps running-issue precedence ahead of higher-priority ready work", async () => {
+    const tempRoot = await createTempDir("symphony-running-precedence-test-");
+    try {
+      const runningIssue = createIssue(10, "symphony:running");
+      const readyIssue = {
+        ...createIssue(11),
+        title: "Urgent ready issue",
+        queuePriority: { rank: 0, label: "P0" },
+      };
+      const tracker = new SequencedTracker({
+        ready: [readyIssue],
+        running: [runningIssue],
+      });
+      tracker.setLifecycleSequence(10, [
+        lifecycle("awaiting-human-review", "symphony/10"),
+      ]);
+
+      const runnerIssues: number[] = [];
+      const runner: Runner = {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(session): Promise<RunnerExecutionResult> {
+          runnerIssues.push(session.issue.number);
+          const timestamp = new Date().toISOString();
+          return {
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      };
+
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...baseConfig,
+          workspace: {
+            ...baseConfig.workspace,
+            root: tempRoot,
+          },
+          polling: {
+            ...baseConfig.polling,
+            maxConcurrentRuns: 1,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
+
+      await orchestrator.runOnce();
+
+      expect(runnerIssues).toEqual([]);
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(tempRoot),
+      );
+      expect(snapshot.activeIssues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            issueNumber: 10,
+            status: "awaiting-human-review",
+          }),
+        ]),
+      );
+      expect(snapshot.readyQueue).toEqual([
+        {
+          issueNumber: 11,
+          issueIdentifier: "sociotechnica-org/symphony-ts#11",
+          title: "Urgent ready issue",
+          queuePriorityRank: 0,
+          queuePriorityLabel: "P0",
+        },
+      ]);
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps polling after a transient poll-level failure", async () => {
     const tempRoot = await createTempDir("symphony-loop-test-");
     try {

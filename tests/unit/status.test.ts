@@ -187,6 +187,22 @@ function createSnapshot(
         },
       },
     ],
+    readyQueue: [
+      {
+        issueNumber: 7,
+        issueIdentifier: "sociotechnica-org/symphony-ts#7",
+        title: "Highest ready priority",
+        queuePriorityRank: 0,
+        queuePriorityLabel: "P0",
+      },
+      {
+        issueNumber: 8,
+        issueIdentifier: "sociotechnica-org/symphony-ts#8",
+        title: "Fallback ready order",
+        queuePriorityRank: null,
+        queuePriorityLabel: null,
+      },
+    ],
     retries: [
       {
         issueNumber: 9,
@@ -373,6 +389,10 @@ describe("factory status helpers", () => {
     expect(rendered).toContain(
       "Scheduled: 2026-03-06T12:00:00.000Z (+300000ms)",
     );
+    expect(rendered).toContain("Ready queue:");
+    expect(rendered).toContain("1. #7 Highest ready priority");
+    expect(rendered).toContain("Priority: rank=0 label=P0");
+    expect(rendered).toContain("Order reason: normalized queue priority");
   });
 
   it("round-trips dispatch pressure in the snapshot contract", async () => {
@@ -595,6 +615,9 @@ describe("factory status helpers", () => {
     );
     expect(output).toContain("Runner action: Waiting for PR checks");
     expect(output).toContain("Pending checks: CI");
+    expect(output).toContain("Ready queue:");
+    expect(output).toContain("2. #8 Fallback ready order");
+    expect(output).toContain("Order reason: issue-number fallback");
     expect(output).toContain("Retries:");
     expect(output).toContain("#9 Retry a failed run attempt 2");
   });
