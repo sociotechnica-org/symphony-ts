@@ -145,16 +145,24 @@ export interface WorkflowDefinition {
 export function getCodexRemoteWorkerHost(
   config: ResolvedConfig,
 ): SshWorkerHostConfig | null {
+  const agent = (config as { agent?: unknown }).agent;
   if (
-    typeof config.agent !== "object" ||
-    config.agent === null ||
-    typeof config.agent.runner !== "object" ||
-    config.agent.runner === null ||
-    config.agent.runner.kind !== "codex"
+    typeof agent !== "object" ||
+    agent === null ||
+    !("runner" in agent) ||
+    typeof agent.runner !== "object" ||
+    agent.runner === null ||
+    !("kind" in agent.runner) ||
+    agent.runner.kind !== "codex"
   ) {
     return null;
   }
-  return config.agent.runner.remoteExecution?.workerHost ?? null;
+  const runner = agent.runner as {
+    remoteExecution?: { workerHost?: SshWorkerHostConfig };
+  };
+  return "remoteExecution" in agent.runner
+    ? (runner.remoteExecution?.workerHost ?? null)
+    : null;
 }
 
 export interface PromptBuilder {

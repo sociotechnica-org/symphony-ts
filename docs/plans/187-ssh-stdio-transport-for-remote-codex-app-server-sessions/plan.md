@@ -224,11 +224,16 @@ This issue adds stateful remote execution behavior that depends on continuation 
 9. `turn-complete`
    - a turn completed successfully and the same host/workspace/thread remain available
 10. `failed`
-   - remote workspace preparation, SSH transport, or Codex app-server failed
+
+- remote workspace preparation, SSH transport, or Codex app-server failed
+
 11. `closing`
-   - the live session is shutting down and cleanup is running
+
+- the live session is shutting down and cleanup is running
+
 12. `closed`
-   - no reusable remote session remains for the run
+
+- no reusable remote session remains for the run
 
 ### Allowed transitions
 
@@ -263,17 +268,17 @@ This issue adds stateful remote execution behavior that depends on continuation 
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized execution facts available | Expected decision |
-| --- | --- | --- | --- |
-| Remote worker host config is missing or malformed | resolved workflow config | no valid host selection | fail config resolution before dispatch |
-| Selected host is valid but remote workspace bootstrap command fails | selected host, SSH stderr | remote workspace target not ready | fail the run before runner startup; existing retry policy handles the attempt outcome |
-| Remote workspace prepares successfully | selected host, remote path/workspace id | `workspace.target.kind=remote` with host/workspace identity | continue into SSH app-server startup |
-| SSH subprocess starts but cannot connect/authenticate | local SSH pid, stderr | `transport=remote-stdio-session` may be partial or absent | classify as runner startup failure; no local workspace fallback |
-| SSH stdio comes up and Codex initializes/thread-start succeeds | local SSH pid | `transport=remote-stdio-session`, remote host, backend thread id | persist remote execution-owner metadata and run the turn |
-| Turn completes and continuation is required | same selected host, same remote workspace target, live session state | same remote target and backend thread id | reuse the existing live session for the next turn |
-| SSH transport dies during an active turn | local SSH pid exited, stderr | remote host and backend thread may already be known | fail the turn and let existing retry policy decide; do not silently cold-start on another host within the same run |
-| Restart recovery sees remote execution ownership with no local remote process control | persisted execution owner | `transport=remote-stdio-session`, remote host/workspace/session facts | use existing remote-capable recovery path; do not invent local kill semantics |
-| Status/artifact readers load a remote run snapshot | snapshot JSON | remote workspace target and `remote-stdio-session` transport facts | render remote host/session identity cleanly without assuming local workspace path or runner pid |
+| Observed condition                                                                    | Local facts available                                                | Normalized execution facts available                                  | Expected decision                                                                                                  |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Remote worker host config is missing or malformed                                     | resolved workflow config                                             | no valid host selection                                               | fail config resolution before dispatch                                                                             |
+| Selected host is valid but remote workspace bootstrap command fails                   | selected host, SSH stderr                                            | remote workspace target not ready                                     | fail the run before runner startup; existing retry policy handles the attempt outcome                              |
+| Remote workspace prepares successfully                                                | selected host, remote path/workspace id                              | `workspace.target.kind=remote` with host/workspace identity           | continue into SSH app-server startup                                                                               |
+| SSH subprocess starts but cannot connect/authenticate                                 | local SSH pid, stderr                                                | `transport=remote-stdio-session` may be partial or absent             | classify as runner startup failure; no local workspace fallback                                                    |
+| SSH stdio comes up and Codex initializes/thread-start succeeds                        | local SSH pid                                                        | `transport=remote-stdio-session`, remote host, backend thread id      | persist remote execution-owner metadata and run the turn                                                           |
+| Turn completes and continuation is required                                           | same selected host, same remote workspace target, live session state | same remote target and backend thread id                              | reuse the existing live session for the next turn                                                                  |
+| SSH transport dies during an active turn                                              | local SSH pid exited, stderr                                         | remote host and backend thread may already be known                   | fail the turn and let existing retry policy decide; do not silently cold-start on another host within the same run |
+| Restart recovery sees remote execution ownership with no local remote process control | persisted execution owner                                            | `transport=remote-stdio-session`, remote host/workspace/session facts | use existing remote-capable recovery path; do not invent local kill semantics                                      |
+| Status/artifact readers load a remote run snapshot                                    | snapshot JSON                                                        | remote workspace target and `remote-stdio-session` transport facts    | render remote host/session identity cleanly without assuming local workspace path or runner pid                    |
 
 ## Storage / Persistence Contract
 

@@ -81,7 +81,9 @@ export function getWorkspaceTargetPath(target: WorkspaceTarget): string | null {
   return target.path;
 }
 
-export function getWorkspaceTargetPathHint(target: WorkspaceTarget): string | null {
+export function getWorkspaceTargetPathHint(
+  target: WorkspaceTarget,
+): string | null {
   switch (target.kind) {
     case "local":
       return target.path;

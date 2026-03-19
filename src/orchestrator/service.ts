@@ -20,9 +20,7 @@ import type {
   TransientFailureSignal,
 } from "../domain/transient-failure.js";
 import type { PreparedWorkspace } from "../domain/workspace.js";
-import {
-  getPreparedWorkspacePathHint,
-} from "../domain/workspace.js";
+import { getPreparedWorkspacePathHint } from "../domain/workspace.js";
 import type {
   PromptBuilder,
   ResolvedConfig,

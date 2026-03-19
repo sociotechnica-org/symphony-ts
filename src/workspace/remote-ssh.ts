@@ -26,11 +26,17 @@ function sanitize(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
-function renderRemotePath(workerHost: SshWorkerHostConfig, workspacePath: string): string {
+function renderRemotePath(
+  workerHost: SshWorkerHostConfig,
+  workspacePath: string,
+): string {
   return `${workerHost.name}:${workspacePath}`;
 }
 
-function buildSshArgs(workerHost: SshWorkerHostConfig, command: string): string[] {
+function buildSshArgs(
+  workerHost: SshWorkerHostConfig,
+  command: string,
+): string[] {
   return [
     ...workerHost.sshOptions,
     workerHost.sshDestination,
@@ -70,9 +76,7 @@ function buildPrepareWorkspaceCommand(input: {
   const branchName = quoteShellToken(input.branchName);
   const sourceLocation = quoteShellToken(input.sourceLocation);
   const afterCreate =
-    input.afterCreate.length === 0
-      ? ""
-      : `${input.afterCreate.join("\n")}\n`;
+    input.afterCreate.length === 0 ? "" : `${input.afterCreate.join("\n")}\n`;
 
   return `set -euo pipefail
 workspace_path=${workspacePath}
@@ -219,7 +223,7 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
   ): Promise<WorkspaceCleanupResult> {
     const workspacePath =
       workspace.target.kind === "remote"
-        ? workspace.target.pathHint ?? null
+        ? (workspace.target.pathHint ?? null)
         : null;
     if (workspacePath === null) {
       throw new WorkspaceError(
@@ -233,7 +237,8 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
         buildCleanupWorkspaceCommand(workspacePath),
       ),
     );
-    const kind = result.stdout.trim() === "deleted" ? "deleted" : "already-absent";
+    const kind =
+      result.stdout.trim() === "deleted" ? "deleted" : "already-absent";
     return {
       kind,
       workspacePath: renderRemotePath(this.#workerHost, workspacePath),
@@ -263,7 +268,9 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     sourceOverride?: WorkspaceSource | null,
   ): WorkspaceSource | null {
     const source =
-      sourceOverride ?? this.#sourceOverride ?? createConfiguredWorkspaceSource(this.#config.repoUrl);
+      sourceOverride ??
+      this.#sourceOverride ??
+      createConfiguredWorkspaceSource(this.#config.repoUrl);
     if (source.kind === "configured-repo") {
       return source;
     }
@@ -273,11 +280,14 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     ) {
       return source;
     }
-    this.#logger.warn("Ignoring local-only workspace source override for remote SSH workspace", {
-      workerHost: this.#workerHost.name,
-      sourceKind: source.kind,
-      sourceLocation: getWorkspaceSourceLocation(source),
-    });
+    this.#logger.warn(
+      "Ignoring local-only workspace source override for remote SSH workspace",
+      {
+        workerHost: this.#workerHost.name,
+        sourceKind: source.kind,
+        sourceLocation: getWorkspaceSourceLocation(source),
+      },
+    );
     return createConfiguredWorkspaceSource(this.#config.repoUrl);
   }
 

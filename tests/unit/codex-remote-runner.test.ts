@@ -76,7 +76,9 @@ describe("CodexRunner remote SSH transport", () => {
     const remoteDir = await createTempDir("codex-remote-workspace-");
     const session = createSession(remoteDir);
     const runner = new CodexRunner(
-      createConfig(`${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -`),
+      createConfig(
+        `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -`,
+      ),
       new JsonLogger(),
       null,
       {
@@ -112,7 +114,8 @@ describe("CodexRunner remote SSH transport", () => {
         createRunnerTransportMetadata("remote-stdio-session", {
           localProcessPid: spawnedPid,
           canTerminateLocalProcess: true,
-          remoteSessionId: "builder:sociotechnica-org/symphony-ts#187/attempt-1",
+          remoteSessionId:
+            "builder:sociotechnica-org/symphony-ts#187/attempt-1",
         }),
       );
       expect(turn.session.backendThreadId).toBe("thread-1");

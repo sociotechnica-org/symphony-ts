@@ -267,7 +267,7 @@ policy, code, docs, or local test evidence.
 | `workspace.root`                 | Where isolated workspaces are created                                                  |
 | `workspace.repo_url`             | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
 | `workspace.branch_prefix`        | Issue branch naming prefix                                                             |
-| `workspace.worker_hosts.<name>` | Optional SSH worker-host definitions for remote Codex execution                        |
+| `workspace.worker_hosts.<name>`  | Optional SSH worker-host definitions for remote Codex execution                        |
 | `agent.runner.kind`              | Selects the logical runner provider (`codex`, `claude-code`, or `generic-command`)     |
 | `agent.runner.remote_execution`  | Optional remote execution selection for Codex (`kind: ssh`, `worker_host: <name>`)     |
 | `agent.command`                  | Runner command shape; Codex reuses its flags to launch `codex app-server`              |

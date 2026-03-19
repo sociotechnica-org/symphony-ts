@@ -159,7 +159,9 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   #requireWorkspacePathHint(consumer: string): string {
-    const workspacePath = getPreparedWorkspacePathHint(this.#runSession.workspace);
+    const workspacePath = getPreparedWorkspacePathHint(
+      this.#runSession.workspace,
+    );
     if (workspacePath === null) {
       throw new RunnerError(
         `${consumer} requires a prepared workspace path; received ${this.#runSession.workspace.target.kind}`,

@@ -690,7 +690,10 @@ function resolveCodexRemoteExecutionConfig(
     return undefined;
   }
 
-  const remoteExecution = coerceOptionalObject(raw, "agent.runner.remote_execution");
+  const remoteExecution = coerceOptionalObject(
+    raw,
+    "agent.runner.remote_execution",
+  );
   const kind = requireEnum(
     remoteExecution["kind"],
     ["ssh"],
