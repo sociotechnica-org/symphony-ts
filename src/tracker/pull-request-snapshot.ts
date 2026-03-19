@@ -33,6 +33,9 @@ function isAfter(left: string, right: string | null): boolean {
 const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
   // Keep these in sync with the summary comment templates emitted by known bots.
   cursorSummary: "<!-- CURSOR_SUMMARY -->",
+  cursorTakingALook: /^Taking a look!\s*/i,
+  cursorAgentLinks:
+    /cursor\.com\/(agents\/|background-agent\?|assets\/images\/open-in-(web|cursor))/i,
   greptileSummaryHeading: /<h3\b[^>]*>\s*Greptile Summary\s*<\/h3>/i,
 } as const;
 
@@ -41,6 +44,10 @@ function isActionableBotReviewComment(body: string): boolean {
   return (
     normalized.length > 0 &&
     !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
+    !(
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)
+    ) &&
     !NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(normalized)
   );
 }
