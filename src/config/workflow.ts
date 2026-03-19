@@ -17,6 +17,7 @@ import type {
   LinearTrackerConfig,
   ObservabilityConfig,
   PromptBuilder,
+  QueuePriorityConfig,
   ResolvedConfig,
   SshWorkerHostConfig,
   TrackerConfig,
@@ -875,6 +876,23 @@ function resolveTrackerConfig(
   }
 }
 
+function resolveQueuePriorityConfig(
+  value: unknown,
+  field: string,
+): QueuePriorityConfig | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError(`Expected object for ${field}`);
+  }
+
+  const config = value as Record<string, unknown>;
+  return {
+    enabled: requireBoolean(config["enabled"], `${field}.enabled`),
+  };
+}
+
 function resolveTrackerKind(
   tracker: Readonly<Record<string, unknown>>,
 ): TrackerConfig["kind"] {
@@ -924,6 +942,10 @@ function resolveGitHubTrackerConfig<
             tracker["review_bot_logins"],
             "tracker.review_bot_logins",
           ),
+    queuePriority: resolveQueuePriorityConfig(
+      tracker["queue_priority"],
+      "tracker.queue_priority",
+    ),
   } as Extract<GitHubCompatibleTrackerConfig, { readonly kind: TKind }>;
 }
 
@@ -975,6 +997,10 @@ function resolveLinearTrackerConfig(
             tracker["terminal_states"],
             "tracker.terminal_states",
           ),
+    queuePriority: resolveQueuePriorityConfig(
+      tracker["queue_priority"],
+      "tracker.queue_priority",
+    ),
   };
 }
 

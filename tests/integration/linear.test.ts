@@ -66,6 +66,7 @@ describe("LinearTracker", () => {
       stateName: "Todo",
       assigneeEmail: "worker@example.test",
       labels: ["Backend"],
+      priority: 2,
     });
     server.seedIssue({
       projectSlug: "symphony-linear",
@@ -88,6 +89,7 @@ describe("LinearTracker", () => {
 
     expect(ready.map((issue) => issue.number)).toEqual([1, 2, 3]);
     expect(ready[0]?.labels).toEqual(["backend"]);
+    expect(ready[0]?.queuePriority).toBeNull();
     expect(ready[1]?.labels).toEqual(["needs review"]);
     expect(server.countRequests("GetProjectIssuesPage")).toBe(2);
   });

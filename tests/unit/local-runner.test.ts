@@ -45,6 +45,7 @@ function createSession(): RunSession {
       url: "https://example.test/issues/1",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      queuePriority: null,
     },
     workspace: {
       key: "sociotechnica-org_symphony-ts_1",

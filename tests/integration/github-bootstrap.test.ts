@@ -60,6 +60,7 @@ describe("GitHubTracker", () => {
     await tracker.ensureLabels();
     const ready = await tracker.fetchReadyIssues();
     expect(ready).toHaveLength(1);
+    expect(ready[0]?.queuePriority).toBeNull();
     expect(await tracker.fetchRunningIssues()).toHaveLength(0);
 
     const claimed = await tracker.claimIssue(7);

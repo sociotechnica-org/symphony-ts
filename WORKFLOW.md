@@ -13,6 +13,10 @@ tracker:
     - greptile-apps
     - cursor
     - devin-ai-integration
+  # Optional tracker-owned ready-work ordering seam. Current adapters keep
+  # `issue.queuePriority` null until provider-specific mapping lands.
+  # queue_priority:
+  #   enabled: true
 polling:
   interval_ms: 30000
   max_concurrent_runs: 1

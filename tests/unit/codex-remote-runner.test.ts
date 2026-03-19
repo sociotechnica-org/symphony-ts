@@ -24,6 +24,7 @@ function createSession(remotePath: string): RunSession {
       url: "https://example.test/issues/187",
       createdAt: "2026-03-19T12:00:00.000Z",
       updatedAt: "2026-03-19T12:00:00.000Z",
+      queuePriority: null,
     },
     workspace: {
       key: "sociotechnica-org_symphony-ts_187",
