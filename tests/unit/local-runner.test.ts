@@ -378,9 +378,9 @@ rl.on("line", (line) => {
       pendingServerRequestKind = "unsupported-request";
       send({
         id: pendingServerRequestId,
-        method: "item/tool/call",
+        method: "item/unsupported",
         params: {
-          tool: "unknown",
+          value: "unknown",
         },
       });
       return;
@@ -1398,7 +1398,7 @@ describe("runners", () => {
     );
   });
 
-  it("responds explicitly to malformed dynamic tool requests", async () => {
+  it("responds explicitly to generic unsupported Codex requests", async () => {
     const fakeCodex = await createFakeCodexExecutable();
     const logFile = path.join(
       await createTempDir("fake-codex-log-"),
@@ -1422,7 +1422,9 @@ describe("runners", () => {
           turnNumber: 1,
           prompt: "first",
         }),
-      ).rejects.toThrowError(/malformed dynamic tool request/);
+      ).rejects.toThrowError(
+        /Codex app-server requested unsupported method 'item\/unsupported'/,
+      );
     } finally {
       await liveSession.close().catch(() => {});
     }
@@ -1432,7 +1434,8 @@ describe("runners", () => {
       expect.objectContaining({
         id: 9201,
         error: expect.objectContaining({
-          code: -32602,
+          code: -32601,
+          message: "Unsupported Codex app-server request 'item/unsupported'",
         }),
       }),
     );

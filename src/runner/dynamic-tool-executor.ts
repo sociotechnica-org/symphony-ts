@@ -150,8 +150,11 @@ export class RunnerDynamicToolExecutor implements DynamicToolExecutor {
 }
 
 function isEmptyObject(value: unknown): value is Record<string, never> {
+  if (value === undefined || value === null) {
+    return true;
+  }
+
   return (
-    value !== null &&
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value as Record<string, unknown>).length === 0
