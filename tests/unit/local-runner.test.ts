@@ -135,6 +135,7 @@ type FakeCodexMode =
   | "unsupported-request"
   | "dynamic-tool-success"
   | "dynamic-tool-unknown"
+  | "dynamic-tool-invalid-arguments"
   | "dynamic-tool-malformed"
   | "dynamic-tool-request-user-input"
   | "turn-failed"
@@ -292,6 +293,7 @@ rl.on("line", (line) => {
       if (
         (requestKind === "dynamic-tool-success" ||
           requestKind === "dynamic-tool-unknown" ||
+          requestKind === "dynamic-tool-invalid-arguments" ||
           requestKind === "dynamic-tool-malformed" ||
           requestKind === "dynamic-tool-request-user-input") &&
         turnId !== null
@@ -418,6 +420,25 @@ rl.on("line", (line) => {
           callId: "tool-call-" + String(turnCount),
           tool: "unknown_tracker_tool",
           arguments: {},
+        },
+      });
+      return;
+    }
+    if (mode === "dynamic-tool-invalid-arguments") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9315 + turnCount;
+      pendingServerRequestKind = "dynamic-tool-invalid-arguments";
+      send({
+        id: pendingServerRequestId,
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId,
+          callId: "tool-call-" + String(turnCount),
+          tool: "tracker_current_context",
+          arguments: {
+            unexpected: true,
+          },
         },
       });
       return;
@@ -1599,7 +1620,56 @@ describe("runners", () => {
     );
   });
 
-  it("returns invalid params for unsupported dynamic tool user-input requests", async () => {
+  it("returns a failed tool result for invalid dynamic tool arguments", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "dynamic-tool-invalid-arguments",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+      createTrackerToolServiceStub(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9316,
+        result: expect.objectContaining({
+          success: false,
+          contentItems: [
+            expect.objectContaining({
+              type: "inputText",
+              text: expect.stringContaining('"code": "invalid_arguments"'),
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("fails unsupported dynamic tool user-input requests explicitly", async () => {
     const fakeCodex = await createFakeCodexExecutable();
     const logFile = path.join(
       await createTempDir("fake-codex-log-"),
@@ -1624,9 +1694,7 @@ describe("runners", () => {
           turnNumber: 1,
           prompt: "first",
         }),
-      ).resolves.toMatchObject({
-        exitCode: 0,
-      });
+      ).rejects.toThrowError(/unsupported interactive dynamic-tool user input/);
     } finally {
       await liveSession.close().catch(() => {});
     }

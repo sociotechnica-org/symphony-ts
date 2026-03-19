@@ -892,11 +892,25 @@ export class CodexAppServerSession implements LiveRunnerSession {
 
       if (outcome.kind === "invalid-arguments") {
         await this.#writeMessage(
-          createCodexInvalidParamsResponse(
-            message.id,
-            message.method,
-            outcome.message,
-          ),
+          createCodexDynamicToolCallResponse(message.id, {
+            contentItems: [
+              {
+                type: "inputText",
+                text: JSON.stringify(
+                  {
+                    tool: request.tool,
+                    error: {
+                      code: "invalid_arguments",
+                      message: outcome.message,
+                    },
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            success: false,
+          }),
         );
         await this.#emitVisibility({
           state: "running",
@@ -968,6 +982,12 @@ export class CodexAppServerSession implements LiveRunnerSession {
         errorSummary:
           "unsupported-request-failure: interactive dynamic-tool user input is unsupported",
       });
+      this.#rejectActiveTurn(
+        this.#createTransportError(
+          "unsupported-request-failure",
+          "Codex app-server requested unsupported interactive dynamic-tool user input",
+        ),
+      );
     } catch (error) {
       throw this.#normalizeTransportError(
         asError(error),
