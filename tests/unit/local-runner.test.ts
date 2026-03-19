@@ -338,7 +338,7 @@ describe("runners", () => {
     expect(runner.describeSession(createSession())).toEqual({
       provider: "codex",
       model: "gpt-5.4",
-      transport: createRunnerTransportMetadata("local-process", {
+      transport: createRunnerTransportMetadata("local-stdio-session", {
         canTerminateLocalProcess: true,
       }),
       backendSessionId: null,

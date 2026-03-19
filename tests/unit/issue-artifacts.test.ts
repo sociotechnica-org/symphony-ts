@@ -412,7 +412,9 @@ describe("issue artifacts", () => {
     );
 
     expect(session.transport).toEqual(
-      createRunnerTransportMetadata("local-process"),
+      createRunnerTransportMetadata("local-process", {
+        canTerminateLocalProcess: true,
+      }),
     );
   });
 

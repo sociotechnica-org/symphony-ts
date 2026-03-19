@@ -36,7 +36,10 @@ export class CodexRunner implements Runner {
   }
 
   describeSession(_session: RunSession): RunnerSessionDescription {
-    return describeLocalRunnerSession(this.#config.command);
+    return describeLocalRunnerSession(
+      this.#config.command,
+      "local-stdio-session",
+    );
   }
 
   startSession(session: RunSession): Promise<CodexAppServerSession> {

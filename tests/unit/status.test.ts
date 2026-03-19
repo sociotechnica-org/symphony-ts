@@ -341,7 +341,11 @@ describe("factory status helpers", () => {
       const parsed = await readFactoryStatusSnapshot(filePath);
       expect(
         parsed.activeIssues[0]?.runnerVisibility?.session.transport,
-      ).toEqual(createRunnerTransportMetadata("local-process"));
+      ).toEqual(
+        createRunnerTransportMetadata("local-process", {
+          canTerminateLocalProcess: true,
+        }),
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

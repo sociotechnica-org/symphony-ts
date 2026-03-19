@@ -562,14 +562,12 @@ async function readIssueArtifactSessionFile(
     latestTurnId: latestTurnId ?? null,
     transport:
       transport ??
-      (appServerPid === null || appServerPid === undefined
-        ? createRunnerTransportMetadata(legacyTransportKind)
-        : withRunnerTransportLocalProcess(
-            createRunnerTransportMetadata(legacyTransportKind, {
-              canTerminateLocalProcess: true,
-            }),
-            appServerPid,
-          )),
+      withRunnerTransportLocalProcess(
+        createRunnerTransportMetadata(legacyTransportKind, {
+          canTerminateLocalProcess: true,
+        }),
+        appServerPid ?? null,
+      ),
   };
 }
 
