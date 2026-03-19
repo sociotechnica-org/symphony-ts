@@ -234,20 +234,20 @@ This issue changes stateful long-lived execution behavior at the runner transpor
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| subprocess exits before `initialize` completes | command, workspace, maybe pid, stderr | unchanged | classify as `startup-transport-failure`; close session; hand runner failure to orchestrator |
-| `initialize` returns malformed payload or error | pid, raw payload | unchanged | classify as `initialize-transport-failure`; fail startup explicitly |
-| `thread/start` returns malformed payload or error | pid, initialized session, raw payload | unchanged | classify as `thread-start-transport-failure`; fail session before any turn starts |
-| `turn/start` returns malformed payload or error | pid, thread id, request id | unchanged | classify as `turn-start-transport-failure`; fail active turn |
-| approval request is well-formed and supported | pid, thread id, active turn, approval payload | unchanged | emit normalized approval event/state, respond explicitly, continue turn |
-| approval request is malformed or unsupported | pid, thread id, active turn, raw payload | unchanged | classify as `approval-transport-failure` or `unsupported-request-failure`; fail active turn without stalling |
-| unsupported dynamic tool or other unsupported protocol request arrives | pid, thread id, active turn, request payload | unchanged | send explicit unsupported response when protocol allows, otherwise fail clearly; do not hang |
-| non-terminal malformed stream line arrives after turn start | pid, thread id, active turn | unchanged | log and classify as non-terminal malformed stream only if the protocol can safely continue |
-| terminal payload such as `turn/completed` / `turn/failed` is malformed | pid, thread id, active turn, raw payload | unchanged | classify as `malformed-terminal-payload`; fail active turn and close session |
-| subprocess exits during active turn | pid, thread id, latest turn id | unchanged | classify as `active-turn-transport-failure`; fail turn; outer retry policy decides next step |
-| turn times out while process is still alive | pid, thread id, active turn | unchanged | classify as `turn-timeout`; shut down transport; surface normalized timed-out runner failure |
-| turn completes successfully | pid, thread id, turn id | post-turn lifecycle from tracker/orchestrator | return success; orchestration decides whether to continue |
+| Observed condition                                                     | Local facts available                         | Normalized tracker facts available            | Expected decision                                                                                            |
+| ---------------------------------------------------------------------- | --------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| subprocess exits before `initialize` completes                         | command, workspace, maybe pid, stderr         | unchanged                                     | classify as `startup-transport-failure`; close session; hand runner failure to orchestrator                  |
+| `initialize` returns malformed payload or error                        | pid, raw payload                              | unchanged                                     | classify as `initialize-transport-failure`; fail startup explicitly                                          |
+| `thread/start` returns malformed payload or error                      | pid, initialized session, raw payload         | unchanged                                     | classify as `thread-start-transport-failure`; fail session before any turn starts                            |
+| `turn/start` returns malformed payload or error                        | pid, thread id, request id                    | unchanged                                     | classify as `turn-start-transport-failure`; fail active turn                                                 |
+| approval request is well-formed and supported                          | pid, thread id, active turn, approval payload | unchanged                                     | emit normalized approval event/state, respond explicitly, continue turn                                      |
+| approval request is malformed or unsupported                           | pid, thread id, active turn, raw payload      | unchanged                                     | classify as `approval-transport-failure` or `unsupported-request-failure`; fail active turn without stalling |
+| unsupported dynamic tool or other unsupported protocol request arrives | pid, thread id, active turn, request payload  | unchanged                                     | send explicit unsupported response when protocol allows, otherwise fail clearly; do not hang                 |
+| non-terminal malformed stream line arrives after turn start            | pid, thread id, active turn                   | unchanged                                     | log and classify as non-terminal malformed stream only if the protocol can safely continue                   |
+| terminal payload such as `turn/completed` / `turn/failed` is malformed | pid, thread id, active turn, raw payload      | unchanged                                     | classify as `malformed-terminal-payload`; fail active turn and close session                                 |
+| subprocess exits during active turn                                    | pid, thread id, latest turn id                | unchanged                                     | classify as `active-turn-transport-failure`; fail turn; outer retry policy decides next step                 |
+| turn times out while process is still alive                            | pid, thread id, active turn                   | unchanged                                     | classify as `turn-timeout`; shut down transport; surface normalized timed-out runner failure                 |
+| turn completes successfully                                            | pid, thread id, turn id                       | post-turn lifecycle from tracker/orchestrator | return success; orchestration decides whether to continue                                                    |
 
 ## Observability Requirements
 
