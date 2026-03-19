@@ -31,6 +31,7 @@ interface BaseGitHubTrackerConfig {
   readonly failedLabel: string;
   readonly successComment: string;
   readonly reviewBotLogins: readonly string[];
+  readonly approvedReviewBotLogins?: readonly string[] | undefined;
   readonly queuePriority?: GitHubQueuePriorityConfig | undefined;
 }
 

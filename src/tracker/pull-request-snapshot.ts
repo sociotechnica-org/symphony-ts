@@ -21,6 +21,8 @@ export interface PullRequestSnapshot {
   readonly actionableReviewFeedback: readonly ReviewFeedback[];
   readonly botActionableReviewFeedback: readonly ReviewFeedback[];
   readonly unresolvedThreadIds: readonly string[];
+  readonly requiredApprovedReviewSatisfied: boolean;
+  readonly observedApprovedReviewBotLogins: readonly string[];
 }
 
 function isAfter(left: string, right: string | null): boolean {
@@ -52,6 +54,18 @@ function isActionableBotReviewComment(body: string): boolean {
   );
 }
 
+function isQualifyingApprovedReviewBody(body: string): boolean {
+  const normalized = body.trim();
+  return (
+    normalized.length > 0 &&
+    !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
+    !(
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)
+    )
+  );
+}
+
 function isHumanLandingApprover(
   authorLogin: string | null,
   authorAssociation: string,
@@ -76,11 +90,15 @@ export function createPullRequestSnapshot(input: {
   checks: readonly PullRequestCheck[];
   reviewState: PullRequestReviewState;
   reviewBotLogins: readonly string[];
+  approvedReviewBotLogins?: readonly string[] | undefined;
 }): PullRequestSnapshot {
   const latestCommitAt =
     input.reviewState.commits.nodes[0]?.commit.committedDate ?? null;
   const reviewBotLogins = new Set(
     input.reviewBotLogins.map((login) => login.toLowerCase()),
+  );
+  const approvedReviewBotLogins = new Set(
+    (input.approvedReviewBotLogins ?? []).map((login) => login.toLowerCase()),
   );
 
   const unresolvedThreads = input.reviewState.reviewThreads.nodes
@@ -172,6 +190,42 @@ export function createPullRequestSnapshot(input: {
     .filter((feedback) => feedback.kind === "review-thread")
     .map((feedback) => feedback.threadId)
     .filter((threadId): threadId is string => threadId !== null);
+  const observedApprovedReviewBotLogins =
+    approvedReviewBotLogins.size === 0
+      ? []
+      : [
+          ...new Set(
+            [
+              ...input.reviewState.comments.nodes
+                .filter((comment) => {
+                  const authorLogin = comment.author?.login;
+                  return (
+                    typeof authorLogin === "string" &&
+                    approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
+                    isQualifyingApprovedReviewBody(comment.body) &&
+                    isAfter(comment.createdAt, latestCommitAt)
+                  );
+                })
+                .map((comment) => comment.author!.login),
+              ...input.reviewState.reviewThreads.nodes
+                .map((thread) => thread.originComments.nodes[0])
+                .filter((comment) => comment !== undefined)
+                .filter((comment) => {
+                  const authorLogin = comment.author?.login;
+                  return (
+                    typeof authorLogin === "string" &&
+                    approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
+                    isQualifyingApprovedReviewBody(comment.body) &&
+                    isAfter(comment.createdAt, latestCommitAt)
+                  );
+                })
+                .map((comment) => comment.author!.login),
+            ].map((login) => login.toLowerCase()),
+          ),
+        ];
+  const requiredApprovedReviewSatisfied =
+    approvedReviewBotLogins.size === 0 ||
+    observedApprovedReviewBotLogins.length > 0;
 
   return {
     branchName: input.branchName,
@@ -190,5 +244,7 @@ export function createPullRequestSnapshot(input: {
     actionableReviewFeedback,
     botActionableReviewFeedback,
     unresolvedThreadIds,
+    requiredApprovedReviewSatisfied,
+    observedApprovedReviewBotLogins,
   };
 }

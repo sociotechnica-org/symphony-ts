@@ -21,6 +21,7 @@ function createTracker(
     fieldName?: string;
     optionRankMap?: Readonly<Record<string, number>>;
   },
+  approvedReviewBotLogins?: readonly string[],
 ): GitHubTracker {
   return new GitHubTracker(
     {
@@ -32,6 +33,7 @@ function createTracker(
       failedLabel: "symphony:failed",
       successComment: "done",
       reviewBotLogins: ["greptile[bot]", "bugbot[bot]"],
+      approvedReviewBotLogins: approvedReviewBotLogins ?? [],
       queuePriority,
     },
     logger,
@@ -972,6 +974,86 @@ describe("GitHubTracker", () => {
     expect(lifecycle.kind).toBe("awaiting-landing-command");
     expect(lifecycle.actionableReviewFeedback).toHaveLength(0);
     expect(lifecycle.summary).toMatch(/awaiting a human \/land command/i);
+  });
+
+  it("waits for required approved bot review before allowing landing", async () => {
+    const tracker = createTracker(server, undefined, ["greptile[bot]"]);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-human-review");
+    expect(lifecycle.summary).toMatch(/required approved bot review/i);
+  });
+
+  it("treats a clean bot summary comment as satisfying required approved bot review", async () => {
+    const tracker = createTracker(server, undefined, ["greptile[bot]"]);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "greptile[bot]",
+      body: "<h3>Greptile Summary</h3>\n\nThis PR is safe to merge.",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
+  });
+
+  it("blocks guarded landing when required approved bot review is missing", async () => {
+    const tracker = createTracker(server, undefined, ["greptile[bot]"]);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "jessmartin",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+      body: "/land",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+    expect(lifecycle.kind).toBe("awaiting-human-review");
+
+    const result = await tracker.executeLanding({
+      number: 1,
+      url: `${server.baseUrl}/pulls/1`,
+      branchName: "symphony/7",
+      headSha: null,
+      latestCommitAt: null,
+    });
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "required-bot-review-missing",
+      lifecycleKind: "awaiting-human-review",
+    });
   });
 
   it("ignores Cursor taking-a-look acknowledgement comments when deriving PR lifecycle", async () => {

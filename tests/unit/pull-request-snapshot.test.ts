@@ -209,6 +209,127 @@ describe("createPullRequestSnapshot", () => {
     );
   });
 
+  it("records required approved bot review presence from a clean summary comment", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "greptile-apps" },
+              body: "<h3 class=\"summary\">Greptile Summary</h3>\n\nThis PR is safe to merge.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor"],
+      approvedReviewBotLogins: ["greptile-apps"],
+    });
+
+    expect(snapshot.requiredApprovedReviewSatisfied).toBe(true);
+    expect(snapshot.observedApprovedReviewBotLogins).toEqual([
+      "greptile-apps",
+    ]);
+  });
+
+  it("ignores stale required approved bot review from before the current head commit", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "greptile-apps" },
+              body: "This PR is safe to merge.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor"],
+      approvedReviewBotLogins: ["greptile-apps"],
+    });
+
+    expect(snapshot.requiredApprovedReviewSatisfied).toBe(false);
+    expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
+  });
+
+  it("ignores cursor acknowledgement noise for required approved bot review presence", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "cursor[bot]" },
+              body: `Taking a look!
+
+<div><a href="https://cursor.com/agents/example">Open in Web</a>&nbsp;<a href="https://cursor.com/background-agent?bcId=example">Open in Cursor</a></div>`,
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor", "cursor[bot]"],
+      approvedReviewBotLogins: ["cursor[bot]"],
+    });
+
+    expect(snapshot.requiredApprovedReviewSatisfied).toBe(false);
+    expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
+  });
+
   it("detects a human /land command on the current PR head", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

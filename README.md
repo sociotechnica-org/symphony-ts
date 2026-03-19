@@ -197,8 +197,8 @@ from existing issue reports. They are written under:
 5. After plan approval, the agent implements the issue and opens a PR
 6. Symphony monitors CI and automated review feedback on the PR
 7. If CI fails or reviewers request changes, the agent pushes follow-up commits on the same branch
-8. When the PR is clean, Symphony waits for an explicit human landing signal such as a `/land` PR comment
-9. Symphony executes a guarded landing path that re-checks mergeability, required checks, and unresolved review threads before merge
+8. When the PR is clean and at least one configured approved reviewer bot has produced output on the current head, Symphony waits for an explicit human landing signal such as a `/land` PR comment
+9. Symphony executes a guarded landing path that re-checks mergeability, required checks, required approved bot review presence, and unresolved review threads before merge
 10. Symphony comments on the issue and closes it only after merge is actually observed
 
 If a run fails, Symphony retries. After retries are exhausted, it marks the issue `symphony:failed`.
@@ -216,6 +216,12 @@ tracker:
   ready_label: symphony:ready
   running_label: symphony:running
   failed_label: symphony:failed
+  review_bot_logins:
+    - greptile[bot]
+    - bugbot[bot]
+  approved_review_bot_logins:
+    - greptile[bot]
+    - bugbot[bot]
   queue_priority:
     enabled: true
     project_number: 12

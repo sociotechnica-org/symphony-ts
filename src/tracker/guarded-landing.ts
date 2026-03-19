@@ -15,6 +15,7 @@ export interface GuardedLandingSnapshot {
   readonly failingCheckNames: readonly string[];
   readonly botActionableReviewFeedback: PullRequestSnapshot["botActionableReviewFeedback"];
   readonly unresolvedReviewThreadCount: number;
+  readonly requiredApprovedReviewSatisfied: boolean;
 }
 
 // Fail closed: GitHub can report "unstable" when only non-required checks fail,
@@ -122,6 +123,15 @@ export function evaluateGuardedLanding(
       reason: "review-threads-unresolved",
       lifecycleKind: "awaiting-human-review",
       summary: `Landing blocked for ${formatPullRequest(snapshot)} because unresolved non-outdated review threads remain.`,
+    };
+  }
+
+  if (!snapshot.requiredApprovedReviewSatisfied) {
+    return {
+      kind: "blocked",
+      reason: "required-bot-review-missing",
+      lifecycleKind: "awaiting-human-review",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because required approved bot review has not been observed on the current head.`,
     };
   }
 

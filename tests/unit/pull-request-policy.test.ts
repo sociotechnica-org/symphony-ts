@@ -22,6 +22,8 @@ function createSnapshot(
     actionableReviewFeedback: [],
     botActionableReviewFeedback: [],
     unresolvedThreadIds: [],
+    requiredApprovedReviewSatisfied: true,
+    observedApprovedReviewBotLogins: [],
     ...overrides,
   };
 }
@@ -100,6 +102,26 @@ describe("pull-request-policy", () => {
 
     expect(lifecycle.kind).toBe("awaiting-human-review");
     expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
+  });
+
+  it("waits on required approved bot review before allowing landing", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        checks: [
+          {
+            name: "CI",
+            status: "success",
+            conclusion: "success",
+            detailsUrl: null,
+          },
+        ],
+        requiredApprovedReviewSatisfied: false,
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("awaiting-human-review");
+    expect(lifecycle.summary).toMatch(/required approved bot review/i);
   });
 
   it("requires rework for failing checks or bot feedback", () => {
