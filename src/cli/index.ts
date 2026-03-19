@@ -20,6 +20,7 @@ import { createRunner } from "../runner/factory.js";
 import { runStartupPreparation } from "../startup/service.js";
 import { isAbortError } from "../support/abort.js";
 import { createTracker } from "../tracker/factory.js";
+import { createTrackerToolService } from "../tracker/tool-service.js";
 import { LocalWorkspaceManager } from "../workspace/local.js";
 import {
   type FactoryControlStatusSnapshot,
@@ -359,7 +360,12 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     logger,
     startup.workspaceSourceOverride,
   );
-  const runner = createRunner(workflow.config.agent, logger);
+  const runner = createRunner(workflow.config.agent, logger, {
+    trackerToolService: createTrackerToolService(
+      tracker,
+      workflow.config.tracker,
+    ),
+  });
   const livenessProbe =
     workflow.config.polling.watchdog?.enabled === true
       ? new FsLivenessProbe(workflow.config.workspace.root)

@@ -14,6 +14,7 @@ import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { createRunner } from "../../src/runner/factory.js";
 import { createTracker } from "../../src/tracker/factory.js";
+import { createTrackerToolService } from "../../src/tracker/tool-service.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
   countRemoteBranchCommits,
@@ -88,7 +89,12 @@ async function createOrchestrator(
     workflow.config.hooks.afterCreate,
     logger,
   );
-  const runner = createRunner(workflow.config.agent, logger);
+  const runner = createRunner(workflow.config.agent, logger, {
+    trackerToolService: createTrackerToolService(
+      tracker,
+      workflow.config.tracker,
+    ),
+  });
   return new BootstrapOrchestrator(
     workflow.config,
     promptBuilder,
