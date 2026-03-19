@@ -311,6 +311,7 @@ export class LinearTracker implements Tracker {
   #normalizeOptions() {
     return {
       configuredAssignee: this.#config.assignee,
+      queuePriority: this.#config.queuePriority,
     } as const;
   }
 }

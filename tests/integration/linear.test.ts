@@ -17,6 +17,7 @@ function createConfig(
     assignee: "worker@example.test",
     activeStates: ["Todo", "In Progress"],
     terminalStates: ["Done", "Canceled"],
+    queuePriority: undefined,
     ...overrides,
   };
 }
@@ -92,6 +93,58 @@ describe("LinearTracker", () => {
     expect(ready[0]?.queuePriority).toBeNull();
     expect(ready[1]?.labels).toEqual(["needs review"]);
     expect(server.countRequests("GetProjectIssuesPage")).toBe(2);
+  });
+
+  it("returns normalized queue priority from Linear native priority when enabled", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 1,
+      title: "Urgent issue",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+      priority: 1,
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, {
+        queuePriority: { enabled: true },
+      }),
+      new JsonLogger(),
+    );
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready[0]?.queuePriority).toEqual({
+      rank: 1,
+      label: "Urgent",
+    });
+  });
+
+  it("keeps Linear queue priority null when omitted or disabled", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 1,
+      title: "High issue",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+      priority: 2,
+    });
+
+    const omittedTracker = new LinearTracker(
+      createConfig(server),
+      new JsonLogger(),
+    );
+    const disabledTracker = new LinearTracker(
+      createConfig(server, {
+        queuePriority: { enabled: false },
+      }),
+      new JsonLogger(),
+    );
+
+    const omittedReady = await omittedTracker.fetchReadyIssues();
+    const disabledReady = await disabledTracker.fetchReadyIssues();
+
+    expect(omittedReady[0]?.queuePriority).toBeNull();
+    expect(disabledReady[0]?.queuePriority).toBeNull();
   });
 
   it("filters ready issues by normalized assignee routing instead of GraphQL query parameters", async () => {

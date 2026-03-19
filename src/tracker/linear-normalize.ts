@@ -1,5 +1,6 @@
 import type { RuntimeIssue } from "../domain/issue.js";
 import { TrackerError } from "../domain/errors.js";
+import type { QueuePriorityConfig } from "../domain/workflow.js";
 import {
   requireArray,
   requireBoolean,
@@ -12,6 +13,7 @@ import {
   parseLinearWorkpad,
   type LinearWorkpadEntry,
 } from "./linear-workpad.js";
+import { normalizeLinearQueuePriority } from "./linear-queue-priority.js";
 
 export interface LinearWorkflowState {
   readonly id: string;
@@ -43,6 +45,7 @@ export interface LinearIssueRelationSnapshot {
 
 export interface LinearIssueNormalizationOptions {
   readonly configuredAssignee: string | null;
+  readonly queuePriority?: QueuePriorityConfig | undefined;
 }
 
 export interface LinearIssueSnapshot {
@@ -80,6 +83,7 @@ export interface LinearProjectIssuesSnapshot {
 
 const DEFAULT_OPTIONS: LinearIssueNormalizationOptions = {
   configuredAssignee: null,
+  queuePriority: undefined,
 };
 
 export function normalizeLinearProject(value: unknown): LinearProjectSnapshot {
@@ -209,6 +213,10 @@ export function normalizeLinearIssueSnapshot(
   );
   const normalizedDescription = description ?? "";
   const workpad = parseLinearWorkpad(description);
+  const priority = normalizeLinearPriority(
+    record["priority"],
+    `${field}.priority`,
+  );
 
   const runtimeIssue: RuntimeIssue = {
     id: requireString(record["id"], `${field}.id`),
@@ -221,7 +229,10 @@ export function normalizeLinearIssueSnapshot(
     url: requireString(record["url"], `${field}.url`),
     createdAt: requireString(record["createdAt"], `${field}.createdAt`),
     updatedAt: requireString(record["updatedAt"], `${field}.updatedAt`),
-    queuePriority: null,
+    queuePriority: normalizeLinearQueuePriority(
+      priority,
+      options.queuePriority,
+    ),
   };
 
   return {
@@ -230,7 +241,7 @@ export function normalizeLinearIssueSnapshot(
     number: runtimeIssue.number,
     title: runtimeIssue.title,
     description: runtimeIssue.description,
-    priority: normalizeLinearPriority(record["priority"], `${field}.priority`),
+    priority,
     branchName: requireNullableString(
       record["branchName"],
       `${field}.branchName`,
