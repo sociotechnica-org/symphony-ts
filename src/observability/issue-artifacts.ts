@@ -39,6 +39,7 @@ export type IssueArtifactOutcome =
   | "merged"
   | "awaiting-human-review"
   | "awaiting-system-checks"
+  | "degraded-review-infrastructure"
   | "awaiting-landing-command"
   | "awaiting-landing"
   | "rework-required"

@@ -190,10 +190,10 @@ export function evaluatePullRequestLifecycle(
     }
   }
 
-  if (!snapshot.requiredApprovedReviewSatisfied) {
+  if (snapshot.requiredApprovedReviewCoverage === "missing") {
     return {
       lifecycle: {
-        kind: "awaiting-human-review",
+        kind: "degraded-review-infrastructure",
         branchName: snapshot.branchName,
         pullRequest: snapshot.pullRequest,
         checks: snapshot.checks,
@@ -201,7 +201,7 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
-        summary: `Waiting for required approved bot review on ${snapshot.pullRequest.url}`,
+        summary: `Degraded external review infrastructure for ${snapshot.pullRequest.url}; expected reviewer-app output has not been observed on the current head.`,
       },
       nextNoCheckObservation: previousNoCheckObservation ?? null,
     };

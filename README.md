@@ -201,6 +201,8 @@ from existing issue reports. They are written under:
 9. Symphony executes a guarded landing path that re-checks mergeability, required checks, required approved bot review presence, and unresolved review threads before merge
 10. Symphony comments on the issue and closes it only after merge is actually observed
 
+If expected reviewer apps are configured and never produce qualifying output on the current head after checks settle, Symphony treats that as degraded external infrastructure rather than a normal review-clean wait state.
+
 If a run fails, Symphony retries. After retries are exhausted, it marks the issue `symphony:failed`.
 
 Active run ownership is persisted locally as a transport-aware execution-owner record. On restart, Symphony reconciles `symphony:running` issues against local state, recovers orphaned runs, and resumes or fails them cleanly without assuming every execution owns a local runner PID. Per-issue reporting artifacts are written to `.var/factory/issues/` so they survive workspace cleanup. Generated per-issue reports are written under `.var/reports/issues/<issue-number>/` when the report command is run.

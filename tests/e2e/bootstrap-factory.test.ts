@@ -1101,10 +1101,10 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(status.activeIssues[0]).toMatchObject({
       issueNumber: 207,
-      status: "awaiting-human-review",
+      status: "degraded-review-infrastructure",
     });
     expect(status.activeIssues[0]?.summary).toMatch(
-      /required approved bot review/i,
+      /degraded external review infrastructure/i,
     );
 
     server.addPullRequestComment({

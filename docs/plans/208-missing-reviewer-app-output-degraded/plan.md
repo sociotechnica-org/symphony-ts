@@ -163,15 +163,15 @@ This issue changes stateful handoff behavior, so the plan makes the reviewer-app
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Pending CI or requested reviewer-app status is still visible | no landing attempt active | coverage state = `waiting-on-check-surface`; pending checks present | stay in `awaiting-system-checks` |
-| No checks were visible on first inspection | no landing attempt active | no-check stabilization observation absent | stay in `awaiting-system-checks` for stabilization |
-| No checks are visible after the stabilization pass, and no approved reviewer bot has produced output | no landing attempt active | coverage state = `missing-output-degraded` | report `degraded-review-infrastructure` with explicit missing-output reason |
-| Checks are green and a configured approved reviewer bot leaves a qualifying clean output | no landing attempt active | coverage state = `satisfied`; actionable feedback count = 0 | move to `awaiting-landing-command` |
-| Checks are green and a configured approved reviewer bot leaves actionable feedback | no landing attempt active | coverage state = `satisfied`; actionable feedback count > 0 | move to `rework-required` |
-| `/land` exists, but guarded landing re-check still finds no reviewer-app output on current head | landing approval recorded | coverage state = `missing-output-degraded` | block landing with degraded reviewer-app reason and lifecycle fallback |
-| Required approved reviewer bot list is empty | no landing attempt active | coverage state = `not-required` | preserve existing non-degraded behavior |
+| Observed condition                                                                                   | Local facts available     | Normalized tracker facts available                                  | Expected decision                                                           |
+| ---------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Pending CI or requested reviewer-app status is still visible                                         | no landing attempt active | coverage state = `waiting-on-check-surface`; pending checks present | stay in `awaiting-system-checks`                                            |
+| No checks were visible on first inspection                                                           | no landing attempt active | no-check stabilization observation absent                           | stay in `awaiting-system-checks` for stabilization                          |
+| No checks are visible after the stabilization pass, and no approved reviewer bot has produced output | no landing attempt active | coverage state = `missing-output-degraded`                          | report `degraded-review-infrastructure` with explicit missing-output reason |
+| Checks are green and a configured approved reviewer bot leaves a qualifying clean output             | no landing attempt active | coverage state = `satisfied`; actionable feedback count = 0         | move to `awaiting-landing-command`                                          |
+| Checks are green and a configured approved reviewer bot leaves actionable feedback                   | no landing attempt active | coverage state = `satisfied`; actionable feedback count > 0         | move to `rework-required`                                                   |
+| `/land` exists, but guarded landing re-check still finds no reviewer-app output on current head      | landing approval recorded | coverage state = `missing-output-degraded`                          | block landing with degraded reviewer-app reason and lifecycle fallback      |
+| Required approved reviewer bot list is empty                                                         | no landing attempt active | coverage state = `not-required`                                     | preserve existing non-degraded behavior                                     |
 
 ## Storage / Persistence Contract
 

@@ -880,6 +880,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       lifecycle.kind === "awaiting-system-checks" ||
       lifecycle.kind === "awaiting-human-handoff" ||
       lifecycle.kind === "awaiting-human-review" ||
+      lifecycle.kind === "degraded-review-infrastructure" ||
       lifecycle.kind === "awaiting-landing-command"
     ) {
       clearLandingRuntimeState(this.#state.landing, issue.number);
@@ -1749,6 +1750,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       lifecycle.kind === "awaiting-system-checks" ||
       lifecycle.kind === "awaiting-human-handoff" ||
       lifecycle.kind === "awaiting-human-review" ||
+      lifecycle.kind === "degraded-review-infrastructure" ||
       lifecycle.kind === "awaiting-landing-command" ||
       lifecycle.kind === "awaiting-landing" ||
       lifecycle.kind === "rework-required"
@@ -3126,6 +3128,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       lifecycle.kind !== "awaiting-landing-command" &&
       lifecycle.kind !== "awaiting-human-review" &&
       lifecycle.kind !== "awaiting-system-checks" &&
+      lifecycle.kind !== "degraded-review-infrastructure" &&
       lifecycle.kind !== "awaiting-landing" &&
       lifecycle.kind !== "rework-required"
     ) {
@@ -3157,6 +3160,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     | "awaiting-plan-review"
     | "awaiting-human-review"
     | "awaiting-system-checks"
+    | "degraded-review-infrastructure"
     | "awaiting-landing-command"
     | "awaiting-landing"
     | "rework-required"
@@ -3168,6 +3172,8 @@ export class BootstrapOrchestrator implements Orchestrator {
         return "awaiting-human-review";
       case "awaiting-system-checks":
         return "awaiting-system-checks";
+      case "degraded-review-infrastructure":
+        return "degraded-review-infrastructure";
       case "awaiting-landing-command":
         return "awaiting-landing-command";
       case "awaiting-landing":

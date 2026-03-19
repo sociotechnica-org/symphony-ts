@@ -3,6 +3,7 @@ export type HandoffLifecycleKind =
   | "awaiting-human-handoff"
   | "awaiting-human-review"
   | "awaiting-system-checks"
+  | "degraded-review-infrastructure"
   | "awaiting-landing-command"
   | "awaiting-landing"
   | "rework-required"

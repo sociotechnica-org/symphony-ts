@@ -42,6 +42,7 @@ export type FactoryIssueStatus =
   | "merged"
   | "awaiting-human-review"
   | "awaiting-system-checks"
+  | "degraded-review-infrastructure"
   | "awaiting-landing-command"
   | "awaiting-landing"
   | "rework-required";
@@ -95,6 +96,7 @@ export interface FactoryRestartRecoveryIssueSnapshot {
     | "awaiting-human-handoff"
     | "awaiting-human-review"
     | "awaiting-system-checks"
+    | "degraded-review-infrastructure"
     | "awaiting-landing-command"
     | "awaiting-landing"
     | "rework-required"
@@ -1196,6 +1198,7 @@ function parseRestartRecoveryIssue(
         "awaiting-human-handoff",
         "awaiting-human-review",
         "awaiting-system-checks",
+        "degraded-review-infrastructure",
         "awaiting-landing-command",
         "awaiting-landing",
         "rework-required",
@@ -1335,6 +1338,7 @@ function parseActiveIssue(
         "merged",
         "awaiting-human-review",
         "awaiting-system-checks",
+        "degraded-review-infrastructure",
         "awaiting-landing-command",
         "awaiting-landing",
         "rework-required",

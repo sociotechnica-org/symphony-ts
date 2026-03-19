@@ -1185,6 +1185,8 @@ function resolveStageLabel(entry: TuiSnapshot["running"][number]): string {
       return "human-review";
     case "awaiting-system-checks":
       return "system-checks";
+    case "degraded-review-infrastructure":
+      return "degraded-review";
     case "awaiting-landing-command":
       return "landing-command";
     case "awaiting-landing":
