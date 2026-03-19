@@ -4,6 +4,7 @@ import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { describeLocalRunnerSession } from "./local-session-description.js";
+import { requireLocalWorkspacePath } from "./local-execution.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
 import {
   buildCodexAppServerCommand,
@@ -217,6 +218,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   #spawnProcess(onEvent?: (event: RunnerEvent) => void | Promise<void>): void {
+    const workspacePath = requireLocalWorkspacePath(
+      this.#runSession,
+      "Codex app-server runner",
+    );
     if (
       !this.#loggedDroppedArgs &&
       this.#appServerCommand.droppedArgs.length > 0
@@ -232,7 +237,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     const child = spawn("bash", ["-lc", this.#appServerCommand.launchCommand], {
-      cwd: this.#runSession.workspace.path,
+      cwd: workspacePath,
       env: {
         ...process.env,
         ...this.#config.env,
@@ -241,7 +246,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
         SYMPHONY_ISSUE_NUMBER: String(this.#runSession.issue.number),
         SYMPHONY_RUN_ATTEMPT: String(this.#runSession.attempt.sequence),
         SYMPHONY_BRANCH_NAME: this.#runSession.workspace.branchName,
-        SYMPHONY_WORKSPACE_PATH: this.#runSession.workspace.path,
+        SYMPHONY_WORKSPACE_PATH: workspacePath,
         SYMPHONY_RUN_SESSION_ID: this.#runSession.id,
       },
       stdio: ["pipe", "pipe", "pipe"],
@@ -370,12 +375,16 @@ export class CodexAppServerSession implements LiveRunnerSession {
   }
 
   async #startThread(): Promise<void> {
+    const workspacePath = requireLocalWorkspacePath(
+      this.#runSession,
+      "Codex app-server thread startup",
+    );
     const result = await this.#sendRequest({
       id: THREAD_START_REQUEST_ID,
       method: "thread/start",
       params: omitNullValues({
         approvalPolicy: this.#appServerCommand.approvalPolicy,
-        cwd: this.#runSession.workspace.path,
+        cwd: workspacePath,
         model: this.#appServerCommand.model,
         sandbox: this.#appServerCommand.sandbox,
       }),
@@ -410,6 +419,10 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
 
     const startedAt = new Date().toISOString();
+    const workspacePath = requireLocalWorkspacePath(
+      this.#runSession,
+      "Codex app-server turn execution",
+    );
     await this.#emitVisibility({
       state: "running",
       phase: "turn-execution",
@@ -431,7 +444,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
         method: "turn/start",
         params: {
           threadId: this.#threadId,
-          cwd: this.#runSession.workspace.path,
+          cwd: workspacePath,
           input: [
             {
               type: "text",

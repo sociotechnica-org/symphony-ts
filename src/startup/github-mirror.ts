@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import type { LocalPathWorkspaceSource } from "../domain/workspace.js";
 import type { ResolvedConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { StartupPreparationResult, StartupPreparer } from "./service.js";
@@ -80,6 +81,13 @@ export function deriveGitHubMirrorPath(workspaceRoot: string): string {
   return path.join(path.dirname(workspaceRoot), "github", "upstream");
 }
 
+function createMirrorWorkspaceSource(mirrorPath: string): LocalPathWorkspaceSource {
+  return {
+    kind: "local-path",
+    path: mirrorPath,
+  };
+}
+
 export class GitHubMirrorStartupPreparer implements StartupPreparer {
   readonly id = "github-bootstrap/local-mirror";
 
@@ -142,7 +150,7 @@ export class GitHubMirrorStartupPreparer implements StartupPreparer {
       return {
         kind: "ready",
         summary: `GitHub bootstrap mirror ${action} at ${mirrorPath}.`,
-        workspaceRepoUrlOverride: mirrorPath,
+        workspaceSourceOverride: createMirrorWorkspaceSource(mirrorPath),
       };
     } catch (error) {
       const summary = `GitHub bootstrap mirror setup failed for source ${sourceRepoUrl} at ${mirrorPath}: ${formatExecError(

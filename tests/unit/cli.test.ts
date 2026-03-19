@@ -517,7 +517,7 @@ describe("runCli run", () => {
         kind: "ready",
         provider: "github-bootstrap/noop",
         summary: null,
-        workspaceRepoUrlOverride: null,
+        workspaceSourceOverride: null,
         artifactPath: "/tmp/factory-root/.tmp/startup.json",
         runtimeIdentity: {
           checkoutPath: "/tmp/factory-root",
@@ -605,7 +605,7 @@ describe("runCli run", () => {
         kind: "failed",
         provider: "github-bootstrap/noop",
         summary: "Mirror refresh failed.",
-        workspaceRepoUrlOverride: null,
+        workspaceSourceOverride: null,
         artifactPath: "/tmp/factory-root/.tmp/startup.json",
         runtimeIdentity: {
           checkoutPath: "/tmp/factory-root",

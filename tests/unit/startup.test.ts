@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
+import { getPreparedWorkspacePath } from "../../src/domain/workspace.js";
 import type { ResolvedConfig } from "../../src/domain/workflow.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {
@@ -138,9 +139,10 @@ describe("startup service", () => {
 
       expect(outcome.kind).toBe("ready");
       expect(outcome.provider).toBe("github-bootstrap/local-mirror");
-      expect(outcome.workspaceRepoUrlOverride).toBe(
-        deriveGitHubMirrorPath(config.workspace.root),
-      );
+      expect(outcome.workspaceSourceOverride).toEqual({
+        kind: "local-path",
+        path: deriveGitHubMirrorPath(config.workspace.root),
+      });
 
       const mirrorResult = await execFile(
         "git",
@@ -183,20 +185,21 @@ describe("startup service", () => {
       }
 
       const workspace = new LocalWorkspaceManager(
-        {
-          ...config.workspace,
-          repoUrl:
-            firstStartup.workspaceRepoUrlOverride ?? config.workspace.repoUrl,
-        },
+        config.workspace,
         [],
         logger,
+        firstStartup.workspaceSourceOverride,
       );
 
       const firstPrepared = await workspace.prepareWorkspace({
         issue: createIssue(88),
       });
+      const firstWorkspacePath = getPreparedWorkspacePath(firstPrepared);
+      if (firstWorkspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
       expect(
-        await readFileAtRef(firstPrepared.path, "HEAD", "README.md"),
+        await readFileAtRef(firstWorkspacePath, "HEAD", "README.md"),
       ).toContain("# mock repo");
 
       await fs.writeFile(
@@ -218,15 +221,19 @@ describe("startup service", () => {
       const secondPrepared = await workspace.prepareWorkspace({
         issue: createIssue(88),
       });
+      const secondWorkspacePath = getPreparedWorkspacePath(secondPrepared);
+      if (secondWorkspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
       expect(secondPrepared.createdNow).toBe(false);
       expect(
-        await readFileAtRef(secondPrepared.path, "HEAD", "README.md"),
+        await readFileAtRef(secondWorkspacePath, "HEAD", "README.md"),
       ).toContain("# refreshed repo");
 
       const remoteUrl = await execFile(
         "git",
         ["config", "--get", "remote.origin.url"],
-        { cwd: secondPrepared.path },
+        { cwd: secondWorkspacePath },
       );
       expect(remoteUrl.stdout.trim()).toBe(
         deriveGitHubMirrorPath(config.workspace.root),

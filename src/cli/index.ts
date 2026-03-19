@@ -351,19 +351,13 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     return;
   }
 
-  const workspaceConfig =
-    startup.workspaceRepoUrlOverride === null
-      ? workflow.config.workspace
-      : {
-          ...workflow.config.workspace,
-          repoUrl: startup.workspaceRepoUrlOverride,
-        };
   const promptBuilder = createPromptBuilder(workflow);
   const tracker = createTracker(workflow.config.tracker, logger);
   const workspace = new LocalWorkspaceManager(
-    workspaceConfig,
+    workflow.config.workspace,
     workflow.config.hooks.afterCreate,
     logger,
+    startup.workspaceSourceOverride,
   );
   const runner = createRunner(workflow.config.agent, logger);
   const livenessProbe =

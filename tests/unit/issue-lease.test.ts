@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import type { RunSession } from "../../src/domain/run.js";
+import { createConfiguredWorkspaceSource } from "../../src/domain/workspace.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import type { Logger } from "../../src/observability/logger.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
@@ -27,9 +28,13 @@ function createSession(issueNumber: number, workspacePath: string): RunSession {
     },
     workspace: {
       key: `sociotechnica-org_symphony-ts_${issueNumber}`,
-      path: workspacePath,
       branchName: `symphony/${issueNumber}`,
       createdNow: false,
+      source: createConfiguredWorkspaceSource(workspacePath),
+      target: {
+        kind: "local",
+        path: workspacePath,
+      },
     },
     prompt: "test prompt",
     startedAt: timestamp,

@@ -7,6 +7,10 @@ import type { HandoffLifecycle } from "../../src/domain/handoff.js";
 import type { RuntimeIssue } from "../../src/domain/issue.js";
 import type { RunSession } from "../../src/domain/run.js";
 import type { PreparedWorkspace } from "../../src/domain/workspace.js";
+import {
+  createConfiguredWorkspaceSource,
+  getPreparedWorkspacePath,
+} from "../../src/domain/workspace.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -452,18 +456,26 @@ class StaticWorkspaceManager implements WorkspaceManager {
     this.prepared.push(`/tmp/workspaces/${issue.number}`);
     return {
       key: `sociotechnica-org_symphony-ts_${issue.number}`,
-      path: `/tmp/workspaces/${issue.number}`,
       branchName: `symphony/${issue.number}`,
       createdNow: true,
+      source: createConfiguredWorkspaceSource("/tmp/repo.git"),
+      target: {
+        kind: "local",
+        path: `/tmp/workspaces/${issue.number}`,
+      },
     };
   }
 
   async cleanupWorkspace(
     _workspace: PreparedWorkspace,
   ): Promise<{ kind: "deleted"; workspacePath: string }> {
+    const workspacePath = getPreparedWorkspacePath(_workspace);
+    if (workspacePath === null) {
+      throw new Error("expected local workspace path");
+    }
     return {
       kind: "deleted",
-      workspacePath: _workspace.path,
+      workspacePath,
     };
   }
 
@@ -474,9 +486,13 @@ class StaticWorkspaceManager implements WorkspaceManager {
   }): Promise<{ kind: "deleted"; workspacePath: string }> {
     return await this.cleanupWorkspace({
       key: `sociotechnica-org_symphony-ts_${issue.number}`,
-      path: `/tmp/workspaces/${issue.number}`,
       branchName: `symphony/${issue.number}`,
       createdNow: false,
+      source: createConfiguredWorkspaceSource("/tmp/repo.git"),
+      target: {
+        kind: "local",
+        path: `/tmp/workspaces/${issue.number}`,
+      },
     });
   }
 }
@@ -487,7 +503,11 @@ class CleanupFailingWorkspaceManager extends StaticWorkspaceManager {
   override async cleanupWorkspace(
     workspace: PreparedWorkspace,
   ): Promise<{ kind: "deleted"; workspacePath: string }> {
-    this.cleaned.push(workspace.path);
+    const workspacePath = getPreparedWorkspacePath(workspace);
+    if (workspacePath === null) {
+      throw new Error("expected local workspace path");
+    }
+    this.cleaned.push(workspacePath);
     throw new Error("rm failed");
   }
 }
@@ -498,10 +518,14 @@ class TrackingWorkspaceManager extends StaticWorkspaceManager {
   override async cleanupWorkspace(
     workspace: PreparedWorkspace,
   ): Promise<{ kind: "deleted"; workspacePath: string }> {
-    this.cleaned.push(workspace.path);
+    const workspacePath = getPreparedWorkspacePath(workspace);
+    if (workspacePath === null) {
+      throw new Error("expected local workspace path");
+    }
+    this.cleaned.push(workspacePath);
     return {
       kind: "deleted",
-      workspacePath: workspace.path,
+      workspacePath,
     };
   }
 }

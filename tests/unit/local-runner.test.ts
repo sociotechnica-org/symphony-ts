@@ -6,7 +6,10 @@ import type {
   AgentConfig,
   GenericCommandRunnerConfig,
 } from "../../src/domain/workflow.js";
-import { RunnerShutdownError } from "../../src/domain/errors.js";
+import {
+  RunnerShutdownError,
+} from "../../src/domain/errors.js";
+import { createConfiguredWorkspaceSource } from "../../src/domain/workspace.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {
   createRunningEntry,
@@ -45,9 +48,13 @@ function createSession(): RunSession {
     },
     workspace: {
       key: "sociotechnica-org_symphony-ts_1",
-      path: process.cwd(),
       branchName: "symphony/1",
       createdNow: false,
+      source: createConfiguredWorkspaceSource(process.cwd()),
+      target: {
+        kind: "local",
+        path: process.cwd(),
+      },
     },
     prompt: "x".repeat(1024),
     startedAt: new Date().toISOString(),
@@ -331,6 +338,34 @@ async function readLoggedPayloads(
 }
 
 describe("runners", () => {
+  it("fails clearly when a local runner receives a non-local workspace target", async () => {
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig("printf 'should not run'"),
+      new JsonLogger(),
+    );
+    const session = {
+      ...createSession(),
+      workspace: {
+        key: "sociotechnica-org_symphony-ts_1",
+        branchName: "symphony/1",
+        createdNow: false,
+        source: createConfiguredWorkspaceSource(process.cwd()),
+        target: {
+          kind: "remote",
+          host: "worker-1",
+          workspaceId: "remote-1",
+          pathHint: "/srv/workspaces/1",
+        },
+      },
+    } satisfies RunSession;
+
+    await expect(runner.run(session)).rejects.toMatchObject({
+      message: expect.stringContaining(
+        "requires a local workspace target; received remote",
+      ),
+    });
+  });
+
   it("describes Codex-backed sessions with provider and model metadata", () => {
     const runner = new CodexRunner(createCodexConfig(), new JsonLogger());
 

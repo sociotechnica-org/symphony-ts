@@ -4,6 +4,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { WorkspaceError } from "../../src/domain/errors.js";
+import { getPreparedWorkspacePath } from "../../src/domain/workspace.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
@@ -56,8 +57,12 @@ describe("LocalWorkspaceManager", () => {
       const firstPrepared = await manager.prepareWorkspace({
         issue: createIssue(7),
       });
+      const firstWorkspacePath = getPreparedWorkspacePath(firstPrepared);
+      if (firstWorkspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
       const firstHead = await execFile("git", ["rev-parse", "HEAD"], {
-        cwd: firstPrepared.path,
+        cwd: firstWorkspacePath,
       });
 
       await fs.writeFile(
@@ -73,13 +78,17 @@ describe("LocalWorkspaceManager", () => {
       const secondPrepared = await manager.prepareWorkspace({
         issue: createIssue(7),
       });
+      const secondWorkspacePath = getPreparedWorkspacePath(secondPrepared);
+      if (secondWorkspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
       const secondHead = await execFile("git", ["rev-parse", "HEAD"], {
-        cwd: secondPrepared.path,
+        cwd: secondWorkspacePath,
       });
       const currentBranch = await execFile(
         "git",
         ["symbolic-ref", "--short", "HEAD"],
-        { cwd: secondPrepared.path },
+        { cwd: secondWorkspacePath },
       );
 
       expect(firstHead.stdout.trim()).not.toBe(secondHead.stdout.trim());

@@ -186,7 +186,7 @@ from existing issue reports. They are written under:
 
 1. An issue gets the `symphony:ready` label
 2. Symphony claims it, swaps the label to `symphony:running`
-3. Symphony prepares branch `symphony/<issue-number>` in an isolated local workspace
+3. Symphony prepares branch `symphony/<issue-number>` in an isolated execution workspace (today a local checkout, later also a remote target seam)
 4. The agent drafts a technical plan and stops at a **human review station** (unless waived)
 5. After plan approval, the agent implements the issue and opens a PR
 6. Symphony monitors CI and automated review feedback on the PR
@@ -282,6 +282,8 @@ shares the same runtime semantics. Set `workspace.repo_url` explicitly when you
 want to override the derived source or when using a tracker/config path that
 does not provide enough repository information on its own. Explicit local-path
 `workspace.repo_url` values are resolved relative to the owning `WORKFLOW.md`.
+Startup preparation now hands that mirror to the workspace layer as a typed
+workspace-source override instead of rewriting the configured `workspace.repo_url`.
 
 `agent.runner.kind` keeps backend selection in `WORKFLOW.md`. Use `codex` for
 the built-in long-lived Codex app-server path, `claude-code` for the first-class
