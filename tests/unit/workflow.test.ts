@@ -164,6 +164,11 @@ ${buildSharedWorkflowSections()}`,
   success_comment: done
   queue_priority:
     enabled: true
+    project_number: 7
+    field_name: Priority
+    option_rank_map:
+      P0: 0
+      P1: 1
 ${buildSharedWorkflowSections()}`,
       ),
       "utf8",
@@ -173,6 +178,12 @@ ${buildSharedWorkflowSections()}`,
 
     expect(workflow.config.tracker.queuePriority).toEqual({
       enabled: true,
+      projectNumber: 7,
+      fieldName: "Priority",
+      optionRankMap: {
+        P0: 0,
+        P1: 1,
+      },
     });
   });
 
@@ -248,6 +259,62 @@ ${buildSharedWorkflowSections()}`,
 
     await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
       "Expected boolean for tracker.queue_priority.enabled",
+    );
+  });
+
+  it("fails clearly when enabled GitHub queue priority omits the project number", async () => {
+    const dir = await createTempDir(
+      "workflow-github-queue-priority-no-project-",
+    );
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: github
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  queue_priority:
+    enabled: true
+    field_name: Priority
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected integer for tracker.queue_priority.project_number",
+    );
+  });
+
+  it("fails clearly when enabled GitHub queue priority omits the field name", async () => {
+    const dir = await createTempDir("workflow-github-queue-priority-no-field-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: github
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  queue_priority:
+    enabled: true
+    project_number: 7
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrowError(
+      "Expected non-empty string for tracker.queue_priority.field_name",
     );
   });
 

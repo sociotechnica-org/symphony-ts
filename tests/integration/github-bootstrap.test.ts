@@ -13,7 +13,15 @@ import { createTempDir } from "../support/git.js";
 
 const logger = new JsonLogger();
 
-function createTracker(server: MockGitHubServer): GitHubTracker {
+function createTracker(
+  server: MockGitHubServer,
+  queuePriority?: {
+    enabled: boolean;
+    projectNumber?: number;
+    fieldName?: string;
+    optionRankMap?: Readonly<Record<string, number>>;
+  },
+): GitHubTracker {
   return new GitHubTracker(
     {
       kind: "github",
@@ -24,6 +32,7 @@ function createTracker(server: MockGitHubServer): GitHubTracker {
       failedLabel: "symphony:failed",
       successComment: "done",
       reviewBotLogins: ["greptile[bot]", "bugbot[bot]"],
+      queuePriority,
     },
     logger,
   );
@@ -119,6 +128,52 @@ describe("GitHubTracker", () => {
 
     expect(lifecycle.kind).toBe("missing-target");
     expect(lifecycle.summary).toMatch(/no open pull request/i);
+  });
+
+  it("returns normalized queue priority from configured GitHub project data", async () => {
+    server.setProjectFieldValue({
+      projectNumber: 12,
+      issueNumber: 7,
+      fieldName: "Priority",
+      value: {
+        kind: "single_select",
+        value: "P1",
+      },
+    });
+    const tracker = createTracker(server, {
+      enabled: true,
+      projectNumber: 12,
+      fieldName: "Priority",
+      optionRankMap: {
+        P1: 1,
+      },
+    });
+
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready[0]?.queuePriority).toEqual({
+      rank: 1,
+      label: "P1",
+    });
+  });
+
+  it("falls back to null queue priority when the issue has no configured project item value", async () => {
+    server.addIssueToProject({
+      projectNumber: 12,
+      issueNumber: 7,
+    });
+    const tracker = createTracker(server, {
+      enabled: true,
+      projectNumber: 12,
+      fieldName: "Priority",
+      optionRankMap: {
+        P1: 1,
+      },
+    });
+
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready[0]?.queuePriority).toBeNull();
   });
 
   it("reports awaiting-human-handoff when the latest issue handoff is plan-ready", async () => {

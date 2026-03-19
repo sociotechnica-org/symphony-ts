@@ -14,6 +14,7 @@ import type {
   AgentRunnerConfig,
   CodexRemoteExecutionConfig,
   GitHubCompatibleTrackerConfig,
+  GitHubQueuePriorityConfig,
   LinearTrackerConfig,
   ObservabilityConfig,
   PromptBuilder,
@@ -140,6 +141,17 @@ function requireNumber(value: unknown, field: string): number {
   return value;
 }
 
+function requireInteger(value: unknown, field: string): number {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    throw new ConfigError(`Expected integer for ${field}`);
+  }
+  const number = value;
+  if (!Number.isSafeInteger(number)) {
+    throw new ConfigError(`Expected integer for ${field}`);
+  }
+  return number;
+}
+
 function requireBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") {
     throw new ConfigError(`Expected boolean for ${field}`);
@@ -202,6 +214,28 @@ function requireNonEmptyStringArray(
     throw new ConfigError(`Expected non-empty string array for ${field}`);
   }
   return items;
+}
+
+function requireNumberRecord(
+  value: unknown,
+  field: string,
+): Readonly<Record<string, number>> {
+  if (value === undefined) {
+    return {};
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError(`Expected object for ${field}`);
+  }
+
+  const record: Record<string, number> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (key.trim() === "") {
+      throw new ConfigError(`Expected non-empty string key for ${field}`);
+    }
+    const rank = requireInteger(rawValue, `${field}.${key}`);
+    record[key] = rank;
+  }
+  return record;
 }
 
 function normalizeSecretValue(value: string | null | undefined): string | null {
@@ -893,6 +927,39 @@ function resolveQueuePriorityConfig(
   };
 }
 
+function resolveGitHubQueuePriorityConfig(
+  value: unknown,
+  field: string,
+): GitHubQueuePriorityConfig | undefined {
+  const config = resolveQueuePriorityConfig(value, field);
+  if (config === undefined) {
+    return undefined;
+  }
+
+  const rawConfig = value as Record<string, unknown>;
+  if (!config.enabled) {
+    return {
+      enabled: false,
+    };
+  }
+
+  return {
+    enabled: true,
+    projectNumber: requireInteger(
+      rawConfig["project_number"],
+      `${field}.project_number`,
+    ),
+    fieldName: requireString(rawConfig["field_name"], `${field}.field_name`),
+    optionRankMap:
+      rawConfig["option_rank_map"] === undefined
+        ? undefined
+        : requireNumberRecord(
+            rawConfig["option_rank_map"],
+            `${field}.option_rank_map`,
+          ),
+  };
+}
+
 function resolveTrackerKind(
   tracker: Readonly<Record<string, unknown>>,
 ): TrackerConfig["kind"] {
@@ -942,7 +1009,7 @@ function resolveGitHubTrackerConfig<
             tracker["review_bot_logins"],
             "tracker.review_bot_logins",
           ),
-    queuePriority: resolveQueuePriorityConfig(
+    queuePriority: resolveGitHubQueuePriorityConfig(
       tracker["queue_priority"],
       "tracker.queue_priority",
     ),
