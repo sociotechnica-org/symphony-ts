@@ -378,12 +378,13 @@ export function renderFactoryStatusSnapshot(
       hostDispatch === null
         ? "not configured"
         : hostDispatch.hosts
-            .map((host) =>
-              `${host.name}=${
-                host.occupiedByIssueNumber === null
-                  ? "free"
-                  : `issue-${host.occupiedByIssueNumber.toString()}`
-              }`,
+            .map(
+              (host) =>
+                `${host.name}=${
+                  host.occupiedByIssueNumber === null
+                    ? "free"
+                    : `issue-${host.occupiedByIssueNumber.toString()}`
+                }`,
             )
             .join(", ")
     }`,

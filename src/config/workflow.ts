@@ -728,7 +728,9 @@ function resolveCodexRemoteExecutionConfig(
   return {
     kind,
     workerHostNames,
-    workerHosts: workerHostNames.map((workerHostName) => workerHosts[workerHostName]!),
+    workerHosts: workerHostNames.map(
+      (workerHostName) => workerHosts[workerHostName]!,
+    ),
   };
 }
 

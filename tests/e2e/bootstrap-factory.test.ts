@@ -80,9 +80,10 @@ async function writeWorkflow(options: {
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   const workerHostsBlock =
-    (options.remoteWorkerHosts ?? (options.remoteWorkerHost === undefined
-      ? undefined
-      : [options.remoteWorkerHost])) === undefined
+    (options.remoteWorkerHosts ??
+      (options.remoteWorkerHost === undefined
+        ? undefined
+        : [options.remoteWorkerHost])) === undefined
       ? ""
       : `  worker_hosts:
 ${(options.remoteWorkerHosts ?? [options.remoteWorkerHost!])
@@ -95,9 +96,10 @@ ${(options.remoteWorkerHosts ?? [options.remoteWorkerHost!])
   .join("\n")}
 `;
   const remoteExecutionBlock =
-    (options.remoteWorkerHosts ?? (options.remoteWorkerHost === undefined
-      ? undefined
-      : [options.remoteWorkerHost])) === undefined
+    (options.remoteWorkerHosts ??
+      (options.remoteWorkerHost === undefined
+        ? undefined
+        : [options.remoteWorkerHost])) === undefined
       ? ""
       : `    remote_execution:
       kind: ssh
@@ -207,7 +209,9 @@ async function createOrchestrator(
   const tracker = createTracker(workflow.config.tracker, logger);
   const remoteWorkerHosts = getCodexRemoteWorkerHosts(workflow.config);
   const remoteWorkerHostEntries = Object.fromEntries(
-    remoteWorkerHosts.map((workerHost) => [workerHost.name, workerHost] as const),
+    remoteWorkerHosts.map(
+      (workerHost) => [workerHost.name, workerHost] as const,
+    ),
   );
   const workspace =
     remoteWorkerHosts.length === 0
@@ -585,7 +589,9 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       ),
     ).toBeDefined();
     await expect(
-      fs.stat(path.join(remoteWorkspaceRootB, "sociotechnica-org_symphony-ts_71")),
+      fs.stat(
+        path.join(remoteWorkspaceRootB, "sociotechnica-org_symphony-ts_71"),
+      ),
     ).rejects.toMatchObject({
       code: "ENOENT",
     });
@@ -656,14 +662,18 @@ describe("Phase 1.2 PR lifecycle factory", () => {
         issue.executionOwner?.endpoint.workspaceHost ?? null,
       ]),
     );
-    expect(
-      new Set([hostByIssue.get(90), hostByIssue.get(91)]),
-    ).toEqual(new Set(["builder-a", "builder-b"]));
+    expect(new Set([hostByIssue.get(90), hostByIssue.get(91)])).toEqual(
+      new Set(["builder-a", "builder-b"]),
+    );
     await expect(
-      fs.stat(path.join(remoteWorkspaceRootA, "sociotechnica-org_symphony-ts_90")),
+      fs.stat(
+        path.join(remoteWorkspaceRootA, "sociotechnica-org_symphony-ts_90"),
+      ),
     ).resolves.toBeDefined();
     await expect(
-      fs.stat(path.join(remoteWorkspaceRootB, "sociotechnica-org_symphony-ts_91")),
+      fs.stat(
+        path.join(remoteWorkspaceRootB, "sociotechnica-org_symphony-ts_91"),
+      ),
     ).resolves.toBeDefined();
   });
 

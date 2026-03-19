@@ -2252,7 +2252,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       const retryEntry = scheduleRetry(this.#state.retries, {
         issue,
         runSequence,
-        preferredHost: readPreferredHost(this.#state.hostDispatch, issue.number),
+        preferredHost: readPreferredHost(
+          this.#state.hostDispatch,
+          issue.number,
+        ),
         retryClass: failure.retryClass,
         backoffMs: this.#config.polling.retry.backoffMs,
         message: failure.message,

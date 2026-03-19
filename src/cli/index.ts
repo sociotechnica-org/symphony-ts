@@ -358,7 +358,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
   const tracker = createTracker(workflow.config.tracker, logger);
   const remoteWorkerHosts = getCodexRemoteWorkerHosts(workflow.config);
   const remoteWorkerHostEntries = Object.fromEntries(
-    remoteWorkerHosts.map((workerHost) => [workerHost.name, workerHost] as const),
+    remoteWorkerHosts.map(
+      (workerHost) => [workerHost.name, workerHost] as const,
+    ),
   );
   const workspace =
     remoteWorkerHosts.length === 0

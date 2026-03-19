@@ -25,7 +25,9 @@ export class CodexRunner implements Runner {
     config: AgentConfig,
     logger: Logger,
     trackerToolService: TrackerToolService | null = null,
-    remoteWorkerHosts: Readonly<Record<string, SshWorkerHostConfig>> | null = null,
+    remoteWorkerHosts: Readonly<
+      Record<string, SshWorkerHostConfig>
+    > | null = null,
   ) {
     if (config.runner.kind !== "codex") {
       throw new RunnerError(

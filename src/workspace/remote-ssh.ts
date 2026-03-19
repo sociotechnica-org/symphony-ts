@@ -177,12 +177,11 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     sourceOverride?: WorkspaceSource | null,
   ) {
     this.#config = config;
-    this.#workerHosts =
-      isWorkerHostRecord(workerHosts)
-        ? workerHosts
-        : {
-            [workerHosts.name]: workerHosts,
-          };
+    this.#workerHosts = isWorkerHostRecord(workerHosts)
+      ? workerHosts
+      : {
+          [workerHosts.name]: workerHosts,
+        };
     this.#afterCreate = afterCreate;
     this.#logger = logger;
     this.#sourceOverride = sourceOverride ?? null;
@@ -276,7 +275,10 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
         kind: "remote",
         host: workerHost.name,
         workspaceId: `${workerHost.name}:${sanitize(request.issue.identifier)}`,
-        pathHint: this.#workspacePathForIssue(workerHost, request.issue.identifier),
+        pathHint: this.#workspacePathForIssue(
+          workerHost,
+          request.issue.identifier,
+        ),
       },
     });
   }
@@ -342,9 +344,6 @@ export class RemoteSshWorkspaceManager implements WorkspaceManager {
     workerHost: SshWorkerHostConfig,
     issueIdentifier: string,
   ): string {
-    return path.posix.join(
-      workerHost.workspaceRoot,
-      sanitize(issueIdentifier),
-    );
+    return path.posix.join(workerHost.workspaceRoot, sanitize(issueIdentifier));
   }
 }

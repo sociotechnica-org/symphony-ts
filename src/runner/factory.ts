@@ -10,9 +10,9 @@ export function createRunner(
   config: AgentConfig,
   logger: Logger,
   options?: {
-    readonly remoteWorkerHosts?:
-      | Readonly<Record<string, SshWorkerHostConfig>>
-      | null;
+    readonly remoteWorkerHosts?: Readonly<
+      Record<string, SshWorkerHostConfig>
+    > | null;
     readonly trackerToolService?: TrackerToolService | null;
   },
 ): Runner {

@@ -239,7 +239,8 @@ This issue changes stateful orchestration around dispatch, retries, and remote h
 9. `degraded-host-missing`
    - continuity points at a host that is no longer configured or cannot be normalized safely
 10. `terminal`
-   - the issue completed, failed terminally, or was handed off and no longer occupies a host
+
+- the issue completed, failed terminally, or was handed off and no longer occupies a host
 
 ### Allowed transitions
 
@@ -275,18 +276,18 @@ This issue changes stateful orchestration around dispatch, retries, and remote h
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized runtime facts available | Expected decision |
-| --- | --- | --- | --- |
-| Initial remote dispatch finds an unoccupied eligible host | host pool config, no current occupancy on selected host | issue is ready, no preferred host or preferred host is available | reserve that host, prepare workspace, start run |
-| Retry becomes due and previous host is still configured and free | retry entry, preferred host, occupancy map | prior run recorded remote host affinity | redispatch on the same host |
-| Retry becomes due and previous host is occupied by another run | retry entry, preferred host, occupancy map | preferred host still valid but unavailable | fall back to another eligible host, record broken continuity in status/artifacts |
-| Retry becomes due and previous host no longer exists in config | retry entry, preferred host | host pool no longer contains preferred host | clear affinity, mark degraded host-missing posture, select another host if available |
-| Ready remote issue has no free eligible host | occupancy map shows all eligible hosts owned | issue is otherwise dispatchable | leave issue queued, publish `dispatch-blocked-no-host` posture, do not mark tracker failure |
-| Healthy inherited remote run already owns host `builder-b` after restart | lease/execution-owner facts show remote host and active ownership | selected host is already attached to active run | adopt existing run and preserve occupancy on `builder-b` |
-| Remote startup fails after host reservation but before first useful run result | reserved host, startup error | no durable continuation state yet | release host occupancy and schedule retry without stale reservation |
-| Remote run fails after making progress on host `builder-a` and is retryable | prior execution-owner/session host | preferred host `builder-a` is known | queue retry with same-host affinity |
-| Two remote issues compete for one remaining host in the same poll cycle | host occupancy plus candidate list | deterministic host selector inputs | dispatch one issue, leave the other blocked with explicit no-host posture |
-| Global provider rate-limit pressure is active while hosts are otherwise free | dispatch-pressure snapshot | host occupancy may be free, provider dispatch is globally paused | honor existing provider-pressure pause first; host occupancy remains observable but not decisive |
+| Observed condition                                                             | Local facts available                                             | Normalized runtime facts available                               | Expected decision                                                                                |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Initial remote dispatch finds an unoccupied eligible host                      | host pool config, no current occupancy on selected host           | issue is ready, no preferred host or preferred host is available | reserve that host, prepare workspace, start run                                                  |
+| Retry becomes due and previous host is still configured and free               | retry entry, preferred host, occupancy map                        | prior run recorded remote host affinity                          | redispatch on the same host                                                                      |
+| Retry becomes due and previous host is occupied by another run                 | retry entry, preferred host, occupancy map                        | preferred host still valid but unavailable                       | fall back to another eligible host, record broken continuity in status/artifacts                 |
+| Retry becomes due and previous host no longer exists in config                 | retry entry, preferred host                                       | host pool no longer contains preferred host                      | clear affinity, mark degraded host-missing posture, select another host if available             |
+| Ready remote issue has no free eligible host                                   | occupancy map shows all eligible hosts owned                      | issue is otherwise dispatchable                                  | leave issue queued, publish `dispatch-blocked-no-host` posture, do not mark tracker failure      |
+| Healthy inherited remote run already owns host `builder-b` after restart       | lease/execution-owner facts show remote host and active ownership | selected host is already attached to active run                  | adopt existing run and preserve occupancy on `builder-b`                                         |
+| Remote startup fails after host reservation but before first useful run result | reserved host, startup error                                      | no durable continuation state yet                                | release host occupancy and schedule retry without stale reservation                              |
+| Remote run fails after making progress on host `builder-a` and is retryable    | prior execution-owner/session host                                | preferred host `builder-a` is known                              | queue retry with same-host affinity                                                              |
+| Two remote issues compete for one remaining host in the same poll cycle        | host occupancy plus candidate list                                | deterministic host selector inputs                               | dispatch one issue, leave the other blocked with explicit no-host posture                        |
+| Global provider rate-limit pressure is active while hosts are otherwise free   | dispatch-pressure snapshot                                        | host occupancy may be free, provider dispatch is globally paused | honor existing provider-pressure pause first; host occupancy remains observable but not decisive |
 
 ## Storage / Persistence Contract
 
