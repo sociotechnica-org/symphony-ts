@@ -5,6 +5,12 @@ export interface QueuePriorityConfig {
   readonly enabled: boolean;
 }
 
+export interface GitHubQueuePriorityConfig extends QueuePriorityConfig {
+  readonly projectNumber?: number | undefined;
+  readonly fieldName?: string | undefined;
+  readonly optionRankMap?: Readonly<Record<string, number>> | undefined;
+}
+
 export interface WatchdogConfig {
   readonly enabled: boolean;
   readonly checkIntervalMs: number;
@@ -25,7 +31,7 @@ interface BaseGitHubTrackerConfig {
   readonly failedLabel: string;
   readonly successComment: string;
   readonly reviewBotLogins: readonly string[];
-  readonly queuePriority?: QueuePriorityConfig | undefined;
+  readonly queuePriority?: GitHubQueuePriorityConfig | undefined;
 }
 
 export interface GitHubTrackerConfig extends BaseGitHubTrackerConfig {

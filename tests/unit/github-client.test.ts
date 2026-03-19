@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Logger } from "../../src/observability/logger.js";
 import { GitHubClient } from "../../src/tracker/github-client.js";
+import { MockGitHubServer } from "../support/mock-github-server.js";
 
 describe("GitHubClient", () => {
   const previousToken = process.env.GH_TOKEN;
@@ -377,5 +378,58 @@ describe("GitHubClient", () => {
         allowedMergeMethods: ["merge", "squash", "rebase"],
       },
     );
+  });
+
+  it("reads configured project queue priority values from GitHub GraphQL", async () => {
+    const server = new MockGitHubServer();
+    await server.start();
+    try {
+      server.seedIssue({
+        number: 7,
+        title: "Queue priority",
+        body: "",
+        labels: ["symphony:ready"],
+      });
+      server.setProjectFieldValue({
+        projectNumber: 12,
+        issueNumber: 7,
+        fieldName: "Priority",
+        value: {
+          kind: "single_select",
+          value: "P1",
+        },
+      });
+
+      const client = new GitHubClient(
+        {
+          kind: "github",
+          repo: "sociotechnica-org/symphony-ts",
+          apiUrl: server.baseUrl,
+          readyLabel: "symphony:ready",
+          runningLabel: "symphony:running",
+          failedLabel: "symphony:failed",
+          successComment: "done",
+          reviewBotLogins: [],
+          queuePriority: {
+            enabled: true,
+            projectNumber: 12,
+            fieldName: "Priority",
+            optionRankMap: {
+              P1: 1,
+            },
+          },
+        },
+        createLoggerSpy(),
+      );
+
+      const issue = await client.getIssue(7);
+
+      expect(issue.queuePriority).toEqual({
+        rank: 1,
+        label: "P1",
+      });
+    } finally {
+      await server.stop();
+    }
   });
 });

@@ -107,6 +107,29 @@ interface MockLabel {
   description: string;
 }
 
+type MockProjectFieldValue =
+  | {
+      readonly kind: "number";
+      readonly value: number | null;
+    }
+  | {
+      readonly kind: "single_select";
+      readonly value: string | null;
+    }
+  | {
+      readonly kind: "text";
+      readonly value: string | null;
+    }
+  | {
+      readonly kind: "unsupported";
+    };
+
+interface MockProjectItem {
+  readonly issueNumber: number;
+  readonly repo: string;
+  readonly fieldValues: Map<string, MockProjectFieldValue | null>;
+}
+
 function json(
   response: ServerResponse,
   statusCode: number,
@@ -130,6 +153,7 @@ export class MockGitHubServer {
   readonly #issues = new Map<number, MockIssue>();
   readonly #labels = new Map<string, MockLabel>();
   readonly #prs = new Map<number, PullRequestRecord>();
+  readonly #projects = new Map<number, MockProjectItem[]>();
   readonly #requestCounts = new Map<string, number>();
   readonly #branchCommitTimes = new Map<string, string>();
   #repositoryMergeConfig: MockRepositoryMergeConfig = {
@@ -220,6 +244,54 @@ export class MockGitHubServer {
     }
     issue.state = state;
     issue.updated_at = new Date().toISOString();
+  }
+
+  addIssueToProject(input: {
+    projectNumber: number;
+    issueNumber: number;
+    repo?: string;
+  }): void {
+    const items = this.#projects.get(input.projectNumber) ?? [];
+    const existing = items.find((item) => item.issueNumber === input.issueNumber);
+    if (existing) {
+      return;
+    }
+    items.push({
+      issueNumber: input.issueNumber,
+      repo: input.repo ?? "sociotechnica-org/symphony-ts",
+      fieldValues: new Map<string, MockProjectFieldValue | null>(),
+    });
+    this.#projects.set(input.projectNumber, items);
+  }
+
+  setProjectFieldValue(input: {
+    projectNumber: number;
+    issueNumber: number;
+    fieldName: string;
+    value: MockProjectFieldValue | null;
+    repo?: string;
+  }): void {
+    const projectInput: {
+      projectNumber: number;
+      issueNumber: number;
+      repo?: string;
+    } = {
+      projectNumber: input.projectNumber,
+      issueNumber: input.issueNumber,
+    };
+    if (input.repo !== undefined) {
+      projectInput.repo = input.repo;
+    }
+    this.addIssueToProject(projectInput);
+    const item = this.#projects
+      .get(input.projectNumber)
+      ?.find((entry) => entry.issueNumber === input.issueNumber);
+    if (!item) {
+      throw new Error(
+        `Project item ${input.projectNumber.toString()}/${input.issueNumber.toString()} not found`,
+      );
+    }
+    item.fieldValues.set(input.fieldName, input.value);
   }
 
   addIssueComment(input: {
@@ -826,6 +898,55 @@ export class MockGitHubServer {
     body: { query: string; variables: Record<string, unknown> },
     response: ServerResponse,
   ): Promise<void> {
+    if (body.query.includes("ProjectQueuePriorityFieldValues")) {
+      const projectNumber = Number(body.variables["projectNumber"]);
+      const fieldName = String(body.variables["fieldName"]);
+      const items = this.#projects.get(projectNumber);
+      if (!items) {
+        json(response, 200, {
+          data: {
+            repository: {
+              owner: {
+                projectV2: null,
+              },
+            },
+          },
+        });
+        return;
+      }
+
+      json(response, 200, {
+        data: {
+          repository: {
+            owner: {
+              __typename: "Organization",
+              projectV2: {
+                items: {
+                  nodes: items.map((item) => ({
+                    content: {
+                      __typename: "Issue",
+                      number: item.issueNumber,
+                      repository: {
+                        nameWithOwner: item.repo,
+                      },
+                    },
+                    fieldValueByName: toGraphqlProjectFieldValue(
+                      item.fieldValues.get(fieldName) ?? null,
+                    ),
+                  })),
+                  pageInfo: {
+                    hasNextPage: false,
+                    endCursor: null,
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      return;
+    }
+
     if (body.query.includes("PullRequestReviewState")) {
       const number = Number(body.variables["number"]);
       const pullRequest = this.#prs.get(number);
@@ -1011,4 +1132,40 @@ export class MockGitHubServer {
     }
     throw new Error(`Review thread ${threadId} not found`);
   }
+}
+
+function toGraphqlProjectFieldValue(
+  value: MockProjectFieldValue | null,
+): Record<string, unknown> | null {
+  if (value === null) {
+    return null;
+  }
+
+  switch (value.kind) {
+    case "number":
+      return {
+        __typename: "ProjectV2ItemFieldNumberValue",
+        number: value.value,
+      };
+    case "single_select":
+      return {
+        __typename: "ProjectV2ItemFieldSingleSelectValue",
+        name: value.value,
+      };
+    case "text":
+      return {
+        __typename: "ProjectV2ItemFieldTextValue",
+        text: value.value,
+      };
+    case "unsupported":
+      return {
+        __typename: "ProjectV2ItemFieldDateValue",
+      };
+    default:
+      return exhaustiveProjectFieldValue(value);
+  }
+}
+
+function exhaustiveProjectFieldValue(value: never): never {
+  throw new Error(`Unsupported mock project field value: ${String(value)}`);
 }

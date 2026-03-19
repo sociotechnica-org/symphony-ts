@@ -215,6 +215,11 @@ tracker:
   failed_label: symphony:failed
   queue_priority:
     enabled: true
+    project_number: 12
+    field_name: Priority
+    option_rank_map:
+      P0: 0
+      P1: 1
 
 polling:
   interval_ms: 30000
@@ -246,10 +251,12 @@ agent:
 ```
 
 `tracker.queue_priority` reserves a tracker-boundary contract for normalized
-ready-work ordering metadata. In this slice it only enables the config seam and
-normalized `issue.queuePriority` field; current GitHub and Linear adapters do
-not populate tracker-native priority yet, so missing or unset priority still
-falls back to deterministic issue-number ordering.
+ready-work ordering metadata. For GitHub, Symphony can read one configured
+Projects V2 field, normalize supported values into `issue.queuePriority`, and
+keep missing, unset, unmapped, or unsupported project data as `null` so ready
+work still falls back to deterministic issue-number ordering. The current
+GitHub slice supports integer number fields directly plus single-select or text
+fields when `option_rank_map` provides the rank mapping.
 
 When multiple remote Codex worker hosts are configured, Symphony selects a host
 at dispatch time, keeps continuation turns on that same host, and prefers the

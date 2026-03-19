@@ -1,13 +1,17 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { TrackerError } from "../domain/errors.js";
-import type { RuntimeIssue } from "../domain/issue.js";
+import type { QueuePriority, RuntimeIssue } from "../domain/issue.js";
 import type {
   PullRequestCheck,
   PullRequestCheckStatus,
 } from "../domain/pull-request.js";
 import type { GitHubCompatibleTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
+import {
+  normalizeGitHubQueuePriority,
+  type GitHubProjectFieldValue,
+} from "./github-queue-priority.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -90,6 +94,57 @@ interface GraphQlResponse<T> {
   readonly data?: T;
   readonly errors?: ReadonlyArray<{ readonly message: string }>;
 }
+
+interface ProjectQueuePriorityFieldPageResponse {
+  readonly repository: {
+    readonly owner:
+      | {
+          readonly projectV2: {
+            readonly items: {
+              readonly nodes: ReadonlyArray<{
+                readonly content:
+                  | {
+                      readonly __typename: "Issue";
+                      readonly number: number;
+                      readonly repository: {
+                        readonly nameWithOwner: string;
+                      };
+                    }
+                  | {
+                      readonly __typename: string;
+                    }
+                  | null;
+                readonly fieldValueByName:
+                  | ProjectQueuePriorityFieldValueResponse;
+              }>;
+              readonly pageInfo: {
+                readonly hasNextPage: boolean;
+                readonly endCursor: string | null;
+              };
+            };
+          } | null;
+        }
+      | null;
+  } | null;
+}
+
+type ProjectQueuePriorityFieldValueResponse =
+  | {
+      readonly __typename: "ProjectV2ItemFieldNumberValue";
+      readonly number: number | null;
+    }
+  | {
+      readonly __typename: "ProjectV2ItemFieldSingleSelectValue";
+      readonly name: string | null;
+    }
+  | {
+      readonly __typename: "ProjectV2ItemFieldTextValue";
+      readonly text: string | null;
+    }
+  | {
+      readonly __typename: string;
+    }
+  | null;
 
 interface PullRequestReviewCommentsConnection {
   readonly nodes: Array<{
@@ -286,6 +341,88 @@ const RESOLVE_REVIEW_THREAD_MUTATION = `
   }
 `;
 
+const PROJECT_QUEUE_PRIORITY_FIELD_QUERY = `
+  query ProjectQueuePriorityFieldValues(
+    $owner: String!,
+    $repo: String!,
+    $projectNumber: Int!,
+    $fieldName: String!,
+    $after: String
+  ) {
+    repository(owner: $owner, name: $repo) {
+      owner {
+        __typename
+        ... on Organization {
+          projectV2(number: $projectNumber) {
+            items(first: 100, after: $after) {
+              nodes {
+                content {
+                  __typename
+                  ... on Issue {
+                    number
+                    repository {
+                      nameWithOwner
+                    }
+                  }
+                }
+                fieldValueByName(name: $fieldName) {
+                  __typename
+                  ... on ProjectV2ItemFieldNumberValue {
+                    number
+                  }
+                  ... on ProjectV2ItemFieldSingleSelectValue {
+                    name
+                  }
+                  ... on ProjectV2ItemFieldTextValue {
+                    text
+                  }
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+            }
+          }
+        }
+        ... on User {
+          projectV2(number: $projectNumber) {
+            items(first: 100, after: $after) {
+              nodes {
+                content {
+                  __typename
+                  ... on Issue {
+                    number
+                    repository {
+                      nameWithOwner
+                    }
+                  }
+                }
+                fieldValueByName(name: $fieldName) {
+                  __typename
+                  ... on ProjectV2ItemFieldNumberValue {
+                    number
+                  }
+                  ... on ProjectV2ItemFieldSingleSelectValue {
+                    name
+                  }
+                  ... on ProjectV2ItemFieldTextValue {
+                    text
+                  }
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 function paginationInfo(
   pageInfo:
     | {
@@ -371,6 +508,7 @@ async function resolveToken(): Promise<string> {
 export function toRuntimeIssue(
   issue: GitHubIssueResponse,
   repo: string,
+  queuePriority: QueuePriority | null = null,
 ): RuntimeIssue {
   return {
     id: String(issue.number),
@@ -383,7 +521,7 @@ export function toRuntimeIssue(
     url: issue.html_url,
     createdAt: issue.created_at,
     updatedAt: issue.updated_at,
-    queuePriority: null,
+    queuePriority,
   };
 }
 
@@ -448,7 +586,7 @@ export class GitHubClient {
       "GET",
       this.#issuePath(`issues?state=open&labels=${encodeURIComponent(label)}`),
     );
-    return issues.map((issue) => toRuntimeIssue(issue, this.#config.repo));
+    return this.#toRuntimeIssues(issues);
   }
 
   async getIssue(issueNumber: number): Promise<RuntimeIssue> {
@@ -456,7 +594,7 @@ export class GitHubClient {
       "GET",
       this.#issuePath(`issues/${issueNumber}`),
     );
-    return toRuntimeIssue(issue, this.#config.repo);
+    return await this.#toRuntimeIssue(issue);
   }
 
   async updateIssue(
@@ -468,7 +606,7 @@ export class GitHubClient {
       this.#issuePath(`issues/${issueNumber}`),
       body,
     );
-    return toRuntimeIssue(issue, this.#config.repo);
+    return await this.#toRuntimeIssue(issue);
   }
 
   async createComment(issueNumber: number, body: string): Promise<void> {
@@ -739,6 +877,96 @@ export class GitHubClient {
     );
   }
 
+  async #toRuntimeIssues(
+    issues: readonly GitHubIssueResponse[],
+  ): Promise<readonly RuntimeIssue[]> {
+    const queuePriorityByIssueNumber =
+      await this.#getQueuePriorityByIssueNumber();
+    return issues.map((issue) =>
+      toRuntimeIssue(
+        issue,
+        this.#config.repo,
+        queuePriorityByIssueNumber.get(issue.number) ?? null,
+      ),
+    );
+  }
+
+  async #toRuntimeIssue(issue: GitHubIssueResponse): Promise<RuntimeIssue> {
+    const queuePriorityByIssueNumber =
+      await this.#getQueuePriorityByIssueNumber();
+    return toRuntimeIssue(
+      issue,
+      this.#config.repo,
+      queuePriorityByIssueNumber.get(issue.number) ?? null,
+    );
+  }
+
+  async #getQueuePriorityByIssueNumber(): Promise<ReadonlyMap<number, QueuePriority>> {
+    if (this.#config.queuePriority?.enabled !== true) {
+      return new Map<number, QueuePriority>();
+    }
+
+    const projectNumber = this.#config.queuePriority.projectNumber;
+    const fieldName = this.#config.queuePriority.fieldName;
+    if (projectNumber === undefined || fieldName === undefined) {
+      throw new TrackerError(
+        "GitHub queue-priority config requires tracker.queue_priority.project_number and tracker.queue_priority.field_name when enabled",
+      );
+    }
+
+    const queuePriorities = new Map<number, QueuePriority>();
+    let after: string | null = null;
+
+    for (;;) {
+      const response: ProjectQueuePriorityFieldPageResponse =
+        await this.#graphqlRequest<ProjectQueuePriorityFieldPageResponse>(
+          PROJECT_QUEUE_PRIORITY_FIELD_QUERY,
+          {
+            owner: this.#repoOwner,
+            repo: this.#repoName,
+            projectNumber,
+            fieldName,
+            after,
+          },
+        );
+
+      const project: NonNullable<
+        NonNullable<
+          ProjectQueuePriorityFieldPageResponse["repository"]
+        >["owner"]
+      >["projectV2"] = response.repository?.owner?.projectV2 ?? null;
+      if (project === null) {
+        throw new TrackerError(
+          `GitHub project ${projectNumber.toString()} was not found for ${this.#config.repo}`,
+        );
+      }
+
+      for (const item of project.items.nodes) {
+        const issue = item.content;
+        if (!isProjectQueuePriorityIssueContent(issue)) {
+          continue;
+        }
+        if (issue.repository.nameWithOwner !== this.#config.repo) {
+          continue;
+        }
+
+        const queuePriority = normalizeGitHubQueuePriority(
+          toGitHubProjectFieldValue(item.fieldValueByName),
+          this.#config.queuePriority,
+        );
+        if (queuePriority !== null) {
+          queuePriorities.set(issue.number, queuePriority);
+        }
+      }
+
+      const pageInfo: typeof project.items.pageInfo = project.items.pageInfo;
+      if (!pageInfo.hasNextPage) {
+        return queuePriorities;
+      }
+      after = pageInfo.endCursor;
+    }
+  }
+
   async #graphqlRequest<T>(
     query: string,
     variables: Record<string, unknown>,
@@ -885,4 +1113,80 @@ export class GitHubClient {
       ? `/repos/${this.#config.repo}`
       : `/repos/${this.#config.repo}/${suffix}`;
   }
+}
+
+function toGitHubProjectFieldValue(
+  value: ProjectQueuePriorityFieldValueResponse,
+): GitHubProjectFieldValue | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (isProjectQueuePriorityNumberFieldValue(value)) {
+    return {
+      kind: "number",
+      value: value.number,
+    };
+  }
+  if (isProjectQueuePrioritySingleSelectFieldValue(value)) {
+    return {
+      kind: "single_select",
+      value: value.name,
+    };
+  }
+  if (isProjectQueuePriorityTextFieldValue(value)) {
+    return {
+      kind: "text",
+      value: value.text,
+    };
+  }
+
+  return {
+    kind: "unsupported",
+  };
+}
+
+function isProjectQueuePriorityIssueContent(
+  value: ProjectQueuePriorityFieldPageResponse["repository"] extends infer TRepository
+    ? TRepository extends { readonly owner: { readonly projectV2: { readonly items: { readonly nodes: ReadonlyArray<infer TNode> } } | null } | null } | null
+      ? TNode extends { readonly content: infer TContent }
+        ? TContent
+        : never
+      : never
+    : never,
+): value is {
+  readonly __typename: "Issue";
+  readonly number: number;
+  readonly repository: {
+    readonly nameWithOwner: string;
+  };
+} {
+  return value?.__typename === "Issue";
+}
+
+function isProjectQueuePriorityNumberFieldValue(
+  value: Exclude<ProjectQueuePriorityFieldValueResponse, null>,
+): value is {
+  readonly __typename: "ProjectV2ItemFieldNumberValue";
+  readonly number: number | null;
+} {
+  return value.__typename === "ProjectV2ItemFieldNumberValue";
+}
+
+function isProjectQueuePrioritySingleSelectFieldValue(
+  value: Exclude<ProjectQueuePriorityFieldValueResponse, null>,
+): value is {
+  readonly __typename: "ProjectV2ItemFieldSingleSelectValue";
+  readonly name: string | null;
+} {
+  return value.__typename === "ProjectV2ItemFieldSingleSelectValue";
+}
+
+function isProjectQueuePriorityTextFieldValue(
+  value: Exclude<ProjectQueuePriorityFieldValueResponse, null>,
+): value is {
+  readonly __typename: "ProjectV2ItemFieldTextValue";
+  readonly text: string | null;
+} {
+  return value.__typename === "ProjectV2ItemFieldTextValue";
 }
