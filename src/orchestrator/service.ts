@@ -1230,13 +1230,16 @@ export class BootstrapOrchestrator implements Orchestrator {
         },
         blockedReason: null,
         runnerAccounting: sessionState.accounting,
-        runnerVisibility: this.#buildRunnerVisibility(sessionState.description, {
-          state: "starting",
-          phase: "boot",
-          lastHeartbeatAt: session.startedAt,
-          lastActionAt: session.startedAt,
-          lastActionSummary: "Runner session created",
-        }),
+        runnerVisibility: this.#buildRunnerVisibility(
+          sessionState.description,
+          {
+            state: "starting",
+            phase: "boot",
+            lastHeartbeatAt: session.startedAt,
+            lastActionAt: session.startedAt,
+            lastActionSummary: "Runner session created",
+          },
+        ),
       });
       noteStatusAction(this.#state.status, {
         kind: "run-started",
@@ -1285,7 +1288,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       if (shutdownSignal?.aborted) {
         handleShutdown();
       } else if (shutdownSignal) {
-        shutdownSignal.addEventListener("abort", handleShutdown, { once: true });
+        shutdownSignal.addEventListener("abort", handleShutdown, {
+          once: true,
+        });
       }
       this.#state.runAbortControllers.set(issue.number, abortController);
       this.#initWatchdogEntry(issue.number);

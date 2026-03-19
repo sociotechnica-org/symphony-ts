@@ -1665,7 +1665,9 @@ describe("BootstrapOrchestrator", () => {
   });
 
   it("releases reserved remote worker hosts when prompt building fails before run startup", async () => {
-    const tempRoot = await createTempDir("symphony-remote-prompt-failure-test-");
+    const tempRoot = await createTempDir(
+      "symphony-remote-prompt-failure-test-",
+    );
     try {
       const tracker = new SequencedTracker({
         ready: [createIssue(86)],
