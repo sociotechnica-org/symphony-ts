@@ -29,6 +29,7 @@ import {
 import { waitForExit } from "../support/process.js";
 import { createTempDir } from "../support/git.js";
 import type { Logger } from "../../src/observability/logger.js";
+import type { TrackerToolService } from "../../src/tracker/tool-service.js";
 
 function createSession(): RunSession {
   return {
@@ -132,6 +133,11 @@ type FakeCodexMode =
   | "command-approval-requires-input"
   | "malformed-command-approval"
   | "unsupported-request"
+  | "dynamic-tool-success"
+  | "dynamic-tool-unknown"
+  | "dynamic-tool-invalid-arguments"
+  | "dynamic-tool-malformed"
+  | "dynamic-tool-request-user-input"
   | "turn-failed"
   | "turn-failed-null-params"
   | "turn-failed-without-params"
@@ -284,6 +290,17 @@ rl.on("line", (line) => {
         });
         return;
       }
+      if (
+        (requestKind === "dynamic-tool-success" ||
+          requestKind === "dynamic-tool-unknown" ||
+          requestKind === "dynamic-tool-invalid-arguments" ||
+          requestKind === "dynamic-tool-malformed" ||
+          requestKind === "dynamic-tool-request-user-input") &&
+        turnId !== null
+      ) {
+        setTimeout(() => completeTurn(turnId), 5);
+        return;
+      }
     }
     return;
   }
@@ -334,7 +351,10 @@ rl.on("line", (line) => {
         turn: { id: turnId },
       },
     });
-    if (mode === "command-approval" || mode === "command-approval-requires-input") {
+    if (
+      mode === "command-approval" ||
+      mode === "command-approval-requires-input"
+    ) {
       pendingTurnId = turnId;
       pendingServerRequestId = 9000 + turnCount;
       pendingServerRequestKind = "command-approval";
@@ -363,9 +383,93 @@ rl.on("line", (line) => {
       pendingServerRequestKind = "unsupported-request";
       send({
         id: pendingServerRequestId,
+        method: "item/unsupported",
+        params: {
+          value: "unknown",
+        },
+      });
+      return;
+    }
+    if (mode === "dynamic-tool-success") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9300 + turnCount;
+      pendingServerRequestKind = "dynamic-tool-success";
+      send({
+        id: pendingServerRequestId,
         method: "item/tool/call",
         params: {
-          tool: "unknown",
+          threadId,
+          turnId,
+          callId: "tool-call-" + String(turnCount),
+          tool: "tracker_current_context",
+          arguments: {},
+        },
+      });
+      return;
+    }
+    if (mode === "dynamic-tool-unknown") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9310 + turnCount;
+      pendingServerRequestKind = "dynamic-tool-unknown";
+      send({
+        id: pendingServerRequestId,
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId,
+          callId: "tool-call-" + String(turnCount),
+          tool: "unknown_tracker_tool",
+          arguments: {},
+        },
+      });
+      return;
+    }
+    if (mode === "dynamic-tool-invalid-arguments") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9315 + turnCount;
+      pendingServerRequestKind = "dynamic-tool-invalid-arguments";
+      send({
+        id: pendingServerRequestId,
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId,
+          callId: "tool-call-" + String(turnCount),
+          tool: "tracker_current_context",
+          arguments: {
+            unexpected: true,
+          },
+        },
+      });
+      return;
+    }
+    if (mode === "dynamic-tool-malformed") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9320 + turnCount;
+      pendingServerRequestKind = "dynamic-tool-malformed";
+      send({
+        id: pendingServerRequestId,
+        method: "item/tool/call",
+        params: {
+          threadId,
+          turnId,
+          tool: "tracker_current_context",
+        },
+      });
+      return;
+    }
+    if (mode === "dynamic-tool-request-user-input") {
+      pendingTurnId = turnId;
+      pendingServerRequestId = 9330 + turnCount;
+      pendingServerRequestKind = "dynamic-tool-request-user-input";
+      send({
+        id: pendingServerRequestId,
+        method: "item/tool/requestUserInput",
+        params: {
+          threadId,
+          turnId,
+          itemId: "tool-item-" + String(turnCount),
+          questions: [],
         },
       });
       return;
@@ -391,6 +495,7 @@ function createCodexRunnerForMode(
   fakeCodex: string,
   mode: FakeCodexMode,
   logger: Logger = new JsonLogger(),
+  trackerToolService: TrackerToolService | null = null,
 ): CodexRunner {
   return new CodexRunner(
     createCodexConfig({
@@ -400,6 +505,7 @@ function createCodexRunnerForMode(
       },
     }),
     logger,
+    trackerToolService,
   );
 }
 
@@ -412,6 +518,32 @@ async function readLoggedPayloads(
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+function createTrackerToolServiceStub(options?: {
+  readonly fail?: boolean;
+}): TrackerToolService {
+  return {
+    async readCurrentContext(runSession) {
+      if (options?.fail === true) {
+        throw new Error("tracker lookup failed");
+      }
+      return {
+        branchName: runSession.workspace.branchName,
+        issue: {
+          identifier: runSession.issue.identifier,
+          number: runSession.issue.number,
+          title: runSession.issue.title,
+          labels: runSession.issue.labels,
+          state: runSession.issue.state,
+          url: runSession.issue.url,
+          summary: "Sanitized tracker summary",
+        },
+        pullRequest: null,
+        retrievedAt: "2026-03-19T00:00:00.000Z",
+      };
+    },
+  };
 }
 
 describe("runners", () => {
@@ -1290,7 +1422,7 @@ describe("runners", () => {
     );
   });
 
-  it("responds explicitly to unsupported Codex server requests", async () => {
+  it("responds explicitly to generic unsupported Codex requests", async () => {
     const fakeCodex = await createFakeCodexExecutable();
     const logFile = path.join(
       await createTempDir("fake-codex-log-"),
@@ -1315,7 +1447,7 @@ describe("runners", () => {
           prompt: "first",
         }),
       ).rejects.toThrowError(
-        /Codex app-server requested unsupported method 'item\/tool\/call'/,
+        /Codex app-server requested unsupported method 'item\/unsupported'/,
       );
     } finally {
       await liveSession.close().catch(() => {});
@@ -1327,6 +1459,301 @@ describe("runners", () => {
         id: 9201,
         error: expect.objectContaining({
           code: -32601,
+          message: "Unsupported Codex app-server request 'item/unsupported'",
+        }),
+      }),
+    );
+  });
+
+  it("advertises and executes the tracker dynamic tool successfully", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "dynamic-tool-success",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+      createTrackerToolServiceStub(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    const threadStart = payloads.find(
+      (payload) => payload["method"] === "thread/start",
+    );
+    expect(threadStart).toMatchObject({
+      params: {
+        config: {
+          experimental_supported_tools: [
+            expect.objectContaining({
+              name: "tracker_current_context",
+            }),
+          ],
+        },
+      },
+    });
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9301,
+        result: expect.objectContaining({
+          success: true,
+          contentItems: [
+            expect.objectContaining({
+              type: "inputText",
+              text: expect.stringContaining(
+                '"tool": "tracker_current_context"',
+              ),
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("returns an explicit unsupported-tool response without stalling the turn", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "dynamic-tool-unknown",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+      createTrackerToolServiceStub(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9311,
+        result: expect.objectContaining({
+          success: false,
+          contentItems: [
+            expect.objectContaining({
+              type: "inputText",
+              text: expect.stringContaining('"code": "unsupported_tool"'),
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("returns invalid params for malformed dynamic tool calls", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "dynamic-tool-malformed",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+      createTrackerToolServiceStub(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError(/malformed dynamic tool request/);
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9321,
+        error: expect.objectContaining({
+          code: -32602,
+        }),
+      }),
+    );
+  });
+
+  it("returns a failed tool result for invalid dynamic tool arguments", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "dynamic-tool-invalid-arguments",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+      createTrackerToolServiceStub(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9316,
+        result: expect.objectContaining({
+          success: false,
+          contentItems: [
+            expect.objectContaining({
+              type: "inputText",
+              text: expect.stringContaining('"code": "invalid_arguments"'),
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("fails unsupported dynamic tool user-input requests explicitly", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "dynamic-tool-request-user-input",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+      createTrackerToolServiceStub(),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).rejects.toThrowError(/unsupported interactive dynamic-tool user input/);
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9331,
+        error: expect.objectContaining({
+          code: -32602,
+        }),
+      }),
+    );
+  });
+
+  it("returns a normalized failed tool result when the tracker read fails", async () => {
+    const fakeCodex = await createFakeCodexExecutable();
+    const logFile = path.join(
+      await createTempDir("fake-codex-log-"),
+      "rpc.jsonl",
+    );
+    const runner = new CodexRunner(
+      createCodexConfig({
+        command: `${fakeCodex} exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`,
+        env: {
+          FAKE_CODEX_MODE: "dynamic-tool-success",
+          FAKE_CODEX_LOG_FILE: logFile,
+        },
+      }),
+      new JsonLogger(),
+      createTrackerToolServiceStub({ fail: true }),
+    );
+    const liveSession = await runner.startSession(createSession());
+
+    try {
+      await expect(
+        liveSession.runTurn({
+          turnNumber: 1,
+          prompt: "first",
+        }),
+      ).resolves.toMatchObject({
+        exitCode: 0,
+      });
+    } finally {
+      await liveSession.close().catch(() => {});
+    }
+
+    const payloads = await readLoggedPayloads(logFile);
+    expect(payloads).toContainEqual(
+      expect.objectContaining({
+        id: 9301,
+        result: expect.objectContaining({
+          success: false,
+          contentItems: [
+            expect.objectContaining({
+              type: "inputText",
+              text: expect.stringContaining("tracker_read_failed"),
+            }),
+          ],
         }),
       }),
     );

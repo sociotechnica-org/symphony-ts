@@ -14,14 +14,18 @@ import {
   CodexAppServerTransportError,
   classifyCodexAppServerMessage,
   createCodexApprovalResponse,
+  createCodexDynamicToolCallResponse,
   createCodexInvalidParamsResponse,
   createCodexUnsupportedRequestResponse,
+  extractCodexDynamicToolCallRequest,
   extractCodexApprovalRequest,
   formatCodexTransportError,
+  type CodexDynamicToolCallRequest,
   type CodexAppServerFailureClass,
   type CodexAppServerRequestMessage,
   type CodexAppServerSessionState,
 } from "./codex-app-server-protocol.js";
+import type { DynamicToolExecutor } from "./dynamic-tool-executor.js";
 import {
   RUNNER_SHUTDOWN_GRACE_MS,
   summarizeRunnerText,
@@ -65,6 +69,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
   readonly #runSession: RunSession;
   readonly #baseDescription: RunnerSessionDescription;
   readonly #appServerCommand: CodexAppServerCommand;
+  readonly #dynamicToolExecutor: DynamicToolExecutor;
   #child: ChildProcessWithoutNullStreams | null = null;
   #closePromise: Promise<void> | null = null;
   #closeResolve: (() => void) | null = null;
@@ -86,11 +91,22 @@ export class CodexAppServerSession implements LiveRunnerSession {
   #startupStderr = "";
   #currentOnEvent: ((event: RunnerEvent) => void | Promise<void>) | null = null;
   #currentOnUpdate: ((event: RunUpdateEvent) => void) | null = null;
+  #activeToolCall: {
+    readonly requestId: string | number;
+    readonly tool: string;
+    readonly callId: string;
+  } | null = null;
 
-  constructor(config: AgentConfig, logger: Logger, session: RunSession) {
+  constructor(
+    config: AgentConfig,
+    logger: Logger,
+    session: RunSession,
+    dynamicToolExecutor: DynamicToolExecutor,
+  ) {
     this.#config = config;
     this.#logger = logger;
     this.#runSession = session;
+    this.#dynamicToolExecutor = dynamicToolExecutor;
     this.#baseDescription = describeLocalRunnerSession(
       config.command,
       "local-stdio-session",
@@ -434,6 +450,7 @@ export class CodexAppServerSession implements LiveRunnerSession {
       method: "thread/start",
       params: omitNullValues({
         approvalPolicy: this.#appServerCommand.approvalPolicy,
+        config: buildCodexThreadStartConfig(this.#dynamicToolExecutor),
         cwd: workspacePath,
         model: this.#appServerCommand.model,
         sandbox: this.#appServerCommand.sandbox,
@@ -450,12 +467,18 @@ export class CodexAppServerSession implements LiveRunnerSession {
     }
     this.#threadId = threadId;
     this.#sessionState = "ready";
+    const dynamicToolCount = this.#dynamicToolExecutor.toolSpecs.length;
     await this.#emitVisibility({
       state: "starting",
       phase: "session-start",
       lastHeartbeatAt: new Date().toISOString(),
       lastActionAt: new Date().toISOString(),
-      lastActionSummary: "Codex thread started",
+      lastActionSummary:
+        dynamicToolCount > 0
+          ? `Codex thread started (${dynamicToolCount.toString()} dynamic tool${
+              dynamicToolCount === 1 ? "" : "s"
+            } advertised)`
+          : "Codex thread started",
     });
   }
 
@@ -712,19 +735,54 @@ export class CodexAppServerSession implements LiveRunnerSession {
   async #handleRequest(message: CodexAppServerRequestMessage): Promise<void> {
     try {
       const approval = extractCodexApprovalRequest(message);
-      if (approval === null) {
-        await this.#writeMessage(
-          createCodexUnsupportedRequestResponse(message.id, message.method),
-        );
-        this.#rejectActiveTurn(
-          this.#createTransportError(
-            "unsupported-request-failure",
-            `Codex app-server requested unsupported method '${message.method}'`,
-          ),
-        );
+      if (approval !== null) {
+        await this.#handleApprovalRequest(message, approval);
         return;
       }
 
+      const dynamicToolRequest = extractCodexDynamicToolCallRequest(message);
+      if (dynamicToolRequest !== null) {
+        await this.#handleDynamicToolCall(message, dynamicToolRequest);
+        return;
+      }
+
+      if (message.method === "item/tool/requestUserInput") {
+        await this.#handleUnsupportedToolUserInputRequest(message);
+        return;
+      }
+
+      await this.#writeMessage(
+        createCodexUnsupportedRequestResponse(message.id, message.method),
+      );
+      this.#rejectActiveTurn(
+        this.#createTransportError(
+          "unsupported-request-failure",
+          `Codex app-server requested unsupported method '${message.method}'`,
+        ),
+      );
+    } catch (error) {
+      const resolvedError = this.#normalizeTransportError(
+        asError(error),
+        failureClassForInboundRequestMethod(message.method),
+      );
+      try {
+        await this.#writeMessage(
+          createCodexInvalidParamsResponse(
+            message.id,
+            message.method,
+            resolvedError.message,
+          ),
+        );
+      } catch {}
+      this.#rejectActiveTurn(resolvedError);
+    }
+  }
+
+  async #handleApprovalRequest(
+    message: CodexAppServerRequestMessage,
+    approval: NonNullable<ReturnType<typeof extractCodexApprovalRequest>>,
+  ): Promise<void> {
+    try {
       this.#sessionState = "awaiting-approval";
       const observedAt = new Date().toISOString();
       await this.#emitVisibility({
@@ -765,20 +823,176 @@ export class CodexAppServerSession implements LiveRunnerSession {
         stderrSummary: summarizeRunnerText(this.#activeTurn?.stderr ?? ""),
       });
     } catch (error) {
-      const resolvedError = this.#normalizeTransportError(
+      throw this.#normalizeTransportError(
         asError(error),
         "approval-transport-failure",
       );
-      try {
+    }
+  }
+
+  async #handleDynamicToolCall(
+    message: CodexAppServerRequestMessage,
+    request: CodexDynamicToolCallRequest,
+  ): Promise<void> {
+    try {
+      this.#activeToolCall = {
+        requestId: message.id,
+        tool: request.tool,
+        callId: request.callId,
+      };
+      const observedAt = new Date().toISOString();
+      await this.#emitVisibility({
+        state: "running",
+        phase: "turn-execution",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary: `Dynamic tool call requested (${request.tool})`,
+        stdoutSummary: summarizeRunnerText(this.#activeTurn?.stdout ?? ""),
+        stderrSummary: summarizeRunnerText(this.#activeTurn?.stderr ?? ""),
+      });
+
+      const outcome = await this.#dynamicToolExecutor.execute(request, {
+        runSession: this.#runSession,
+      });
+
+      if (outcome.kind === "unsupported-tool") {
         await this.#writeMessage(
-          createCodexInvalidParamsResponse(
-            message.id,
-            message.method,
-            resolvedError.message,
-          ),
+          createCodexDynamicToolCallResponse(message.id, {
+            contentItems: [
+              {
+                type: "inputText",
+                text: JSON.stringify(
+                  {
+                    tool: request.tool,
+                    error: {
+                      code: "unsupported_tool",
+                      message: `Dynamic tool '${request.tool}' is not supported by this Symphony runner`,
+                    },
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            success: false,
+          }),
         );
-      } catch {}
-      this.#rejectActiveTurn(resolvedError);
+        await this.#emitVisibility({
+          state: "running",
+          phase: "turn-execution",
+          lastHeartbeatAt: observedAt,
+          lastActionAt: observedAt,
+          lastActionSummary: `Dynamic tool rejected (${request.tool})`,
+          stdoutSummary: summarizeRunnerText(this.#activeTurn?.stdout ?? ""),
+          stderrSummary: summarizeRunnerText(this.#activeTurn?.stderr ?? ""),
+          errorSummary: "Unsupported dynamic tool request",
+        });
+        return;
+      }
+
+      if (outcome.kind === "invalid-arguments") {
+        await this.#writeMessage(
+          createCodexDynamicToolCallResponse(message.id, {
+            contentItems: [
+              {
+                type: "inputText",
+                text: JSON.stringify(
+                  {
+                    tool: request.tool,
+                    error: {
+                      code: "invalid_arguments",
+                      message: outcome.message,
+                    },
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            success: false,
+          }),
+        );
+        await this.#emitVisibility({
+          state: "running",
+          phase: "turn-execution",
+          lastHeartbeatAt: observedAt,
+          lastActionAt: observedAt,
+          lastActionSummary: `Dynamic tool rejected (${request.tool})`,
+          stdoutSummary: summarizeRunnerText(this.#activeTurn?.stdout ?? ""),
+          stderrSummary: summarizeRunnerText(this.#activeTurn?.stderr ?? ""),
+          errorSummary: summarizeRunnerText(outcome.message),
+        });
+        return;
+      }
+
+      await this.#writeMessage(
+        createCodexDynamicToolCallResponse(message.id, {
+          contentItems: outcome.result.contentItems.map((item) =>
+            item.type === "inputImage"
+              ? { type: item.type, imageUrl: item.imageUrl ?? "" }
+              : { type: item.type, text: item.text ?? "" },
+          ),
+          success: outcome.result.success,
+        }),
+      );
+      await this.#emitVisibility({
+        state: "running",
+        phase: "turn-execution",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary: outcome.result.success
+          ? `Dynamic tool completed (${request.tool})`
+          : `Dynamic tool failed (${request.tool})`,
+        stdoutSummary: summarizeRunnerText(this.#activeTurn?.stdout ?? ""),
+        stderrSummary: summarizeRunnerText(this.#activeTurn?.stderr ?? ""),
+        errorSummary: outcome.result.success
+          ? null
+          : summarizeRunnerText(outcome.result.summary),
+      });
+    } catch (error) {
+      throw this.#normalizeTransportError(
+        asError(error),
+        "active-turn-transport-failure",
+      );
+    } finally {
+      this.#activeToolCall = null;
+    }
+  }
+
+  async #handleUnsupportedToolUserInputRequest(
+    message: CodexAppServerRequestMessage,
+  ): Promise<void> {
+    try {
+      const observedAt = new Date().toISOString();
+      await this.#writeMessage(
+        createCodexInvalidParamsResponse(
+          message.id,
+          message.method,
+          "Symphony does not support interactive dynamic-tool user input in this slice",
+        ),
+      );
+      await this.#emitVisibility({
+        state: "running",
+        phase: "turn-execution",
+        lastHeartbeatAt: observedAt,
+        lastActionAt: observedAt,
+        lastActionSummary: "Dynamic tool user input rejected",
+        stdoutSummary: summarizeRunnerText(this.#activeTurn?.stdout ?? ""),
+        stderrSummary: summarizeRunnerText(this.#activeTurn?.stderr ?? ""),
+        errorSummary:
+          "unsupported-request-failure: interactive dynamic-tool user input is unsupported",
+      });
+      this.#rejectActiveTurn(
+        this.#createTransportError(
+          "unsupported-request-failure",
+          "Codex app-server requested unsupported interactive dynamic-tool user input",
+        ),
+      );
+    } catch (error) {
+      throw this.#normalizeTransportError(
+        asError(error),
+        "unsupported-request-failure",
+      );
     }
   }
 
@@ -1071,6 +1285,25 @@ function omitNullValues(
   );
 }
 
+function buildCodexThreadStartConfig(
+  dynamicToolExecutor: DynamicToolExecutor,
+): Record<string, unknown> | null {
+  if (dynamicToolExecutor.toolSpecs.length === 0) {
+    return null;
+  }
+
+  return {
+    experimental_supported_tools: dynamicToolExecutor.toolSpecs.map((tool) => ({
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+      name: tool.name,
+      ...(tool.deferLoading === undefined
+        ? {}
+        : { deferLoading: tool.deferLoading }),
+    })),
+  };
+}
+
 function failureClassForPendingMethod(
   method: string,
 ): CodexAppServerFailureClass {
@@ -1084,4 +1317,21 @@ function failureClassForPendingMethod(
     default:
       return "startup-transport-failure";
   }
+}
+
+function failureClassForInboundRequestMethod(
+  method: string,
+): CodexAppServerFailureClass {
+  if (
+    method === "item/commandExecution/requestApproval" ||
+    method === "item/fileChange/requestApproval"
+  ) {
+    return "approval-transport-failure";
+  }
+
+  if (method === "item/tool/call") {
+    return "active-turn-transport-failure";
+  }
+
+  return "unsupported-request-failure";
 }

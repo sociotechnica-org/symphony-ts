@@ -20,6 +20,7 @@ import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { FsLivenessProbe } from "../../src/orchestrator/liveness-probe.js";
 import { createRunner } from "../../src/runner/factory.js";
 import { createTracker } from "../../src/tracker/factory.js";
+import { createTrackerToolService } from "../../src/tracker/tool-service.js";
 import { parsePlanReadyCommentMetadata } from "../../src/tracker/plan-review-comment.js";
 import { LocalWorkspaceManager } from "../../src/workspace/local.js";
 import {
@@ -151,7 +152,12 @@ async function createOrchestrator(
     workflow.config.hooks.afterCreate,
     logger,
   );
-  const runner = createRunner(workflow.config.agent, logger);
+  const runner = createRunner(workflow.config.agent, logger, {
+    trackerToolService: createTrackerToolService(
+      tracker,
+      workflow.config.tracker,
+    ),
+  });
   return new BootstrapOrchestrator(
     workflow.config,
     promptBuilder,

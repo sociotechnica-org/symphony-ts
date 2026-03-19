@@ -70,6 +70,14 @@ export interface CodexAppServerApprovalRequest {
   readonly summary: string;
 }
 
+export interface CodexDynamicToolCallRequest {
+  readonly threadId: string;
+  readonly turnId: string;
+  readonly callId: string;
+  readonly tool: string;
+  readonly arguments: unknown;
+}
+
 export function classifyCodexAppServerMessage(
   payload: unknown,
 ): CodexAppServerMessage | null {
@@ -188,6 +196,59 @@ export function createCodexUnsupportedRequestResponse(
     -32601,
     `Unsupported Codex app-server request '${method}'`,
   );
+}
+
+export function createCodexDynamicToolCallResponse(
+  requestId: string | number,
+  response: {
+    readonly success: boolean;
+    readonly contentItems: readonly Record<string, unknown>[];
+  },
+): Record<string, unknown> {
+  return {
+    id: requestId,
+    result: {
+      contentItems: response.contentItems,
+      success: response.success,
+    },
+  };
+}
+
+export function extractCodexDynamicToolCallRequest(
+  request: CodexAppServerRequestMessage,
+): CodexDynamicToolCallRequest | null {
+  if (request.method !== "item/tool/call") {
+    return null;
+  }
+
+  const params = request.params;
+  const threadId =
+    typeof params?.["threadId"] === "string" ? params["threadId"] : null;
+  const turnId =
+    typeof params?.["turnId"] === "string" ? params["turnId"] : null;
+  const callId =
+    typeof params?.["callId"] === "string" ? params["callId"] : null;
+  const tool = typeof params?.["tool"] === "string" ? params["tool"] : null;
+
+  if (
+    threadId === null ||
+    turnId === null ||
+    callId === null ||
+    tool === null
+  ) {
+    throw new CodexAppServerTransportError(
+      "unsupported-request-failure",
+      "Codex app-server sent a malformed dynamic tool request",
+    );
+  }
+
+  return {
+    threadId,
+    turnId,
+    callId,
+    tool,
+    arguments: params?.["arguments"],
+  };
 }
 
 function createCodexErrorResponse(

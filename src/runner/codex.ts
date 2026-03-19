@@ -2,9 +2,11 @@ import type { RunSession } from "../domain/run.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import { RunnerError } from "../domain/errors.js";
 import type { Logger } from "../observability/logger.js";
+import type { TrackerToolService } from "../tracker/tool-service.js";
 import { describeLocalRunnerBackend } from "./local-command.js";
 import { executeLocalRunnerCommand } from "./local-execution.js";
 import { CodexAppServerSession } from "./codex-app-server-session.js";
+import { RunnerDynamicToolExecutor } from "./dynamic-tool-executor.js";
 import { describeLocalRunnerSession } from "./local-session-description.js";
 import type {
   Runner,
@@ -16,8 +18,13 @@ import type {
 export class CodexRunner implements Runner {
   readonly #config: AgentConfig;
   readonly #logger: Logger;
+  readonly #dynamicToolExecutor: RunnerDynamicToolExecutor;
 
-  constructor(config: AgentConfig, logger: Logger) {
+  constructor(
+    config: AgentConfig,
+    logger: Logger,
+    trackerToolService: TrackerToolService | null = null,
+  ) {
     if (config.runner.kind !== "codex") {
       throw new RunnerError(
         `CodexRunner requires agent.runner.kind 'codex', got '${config.runner.kind}'`,
@@ -33,6 +40,9 @@ export class CodexRunner implements Runner {
 
     this.#config = config;
     this.#logger = logger;
+    this.#dynamicToolExecutor = new RunnerDynamicToolExecutor(
+      trackerToolService,
+    );
   }
 
   describeSession(_session: RunSession): RunnerSessionDescription {
@@ -45,7 +55,12 @@ export class CodexRunner implements Runner {
   startSession(session: RunSession): Promise<CodexAppServerSession> {
     try {
       return Promise.resolve(
-        new CodexAppServerSession(this.#config, this.#logger, session),
+        new CodexAppServerSession(
+          this.#config,
+          this.#logger,
+          session,
+          this.#dynamicToolExecutor,
+        ),
       );
     } catch (error) {
       return Promise.reject(error);
