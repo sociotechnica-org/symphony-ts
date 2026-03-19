@@ -2,9 +2,19 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { RunSession } from "../domain/run.js";
+import type { ActiveRunExecutionOwner } from "../domain/execution-owner.js";
+import {
+  canControlExecutionOwnerLocally,
+  createActiveRunExecutionOwner,
+  currentHostName,
+  deriveExecutionOwnerOwnerPid,
+  deriveExecutionOwnerRunnerPid,
+  normalizeExecutionOwner,
+  withExecutionOwnerTransport,
+} from "../domain/execution-owner.js";
 import type { Logger } from "../observability/logger.js";
 import {
-  getRunnerControllableProcessId,
+  type RunnerSessionDescription,
   type RunnerSpawnedEvent,
 } from "../runner/service.js";
 
@@ -33,7 +43,8 @@ export interface ActiveRunLeaseRecord {
   readonly branchName: string;
   readonly runSessionId: string;
   readonly attempt: number;
-  readonly ownerPid: number;
+  readonly executionOwner?: ActiveRunExecutionOwner | null;
+  readonly ownerPid: number | null;
   readonly runnerPid: number | null;
   readonly runRecordedAt: string;
   readonly runnerStartedAt: string | null;
@@ -52,6 +63,7 @@ export interface IssueLeaseSnapshot {
     | "invalid";
   readonly issueNumber: number;
   readonly lockDir: string | null;
+  readonly executionOwner: ActiveRunExecutionOwner | null;
   readonly ownerPid: number | null;
   readonly ownerAlive: boolean | null;
   readonly runnerPid: number | null;
@@ -66,10 +78,12 @@ type SignalDelivery = "sent" | "missing" | "denied";
 export class LocalIssueLeaseManager {
   readonly #workspaceRoot: string;
   readonly #logger: Logger;
+  readonly #host: string;
 
   constructor(workspaceRoot: string, logger: Logger) {
     this.#workspaceRoot = workspaceRoot;
     this.#logger = logger;
+    this.#host = currentHostName();
   }
 
   async acquire(issueNumber: number): Promise<string | null> {
@@ -121,15 +135,33 @@ export class LocalIssueLeaseManager {
     await fs.rm(lockDir, { recursive: true, force: true });
   }
 
-  async recordRun(lockDir: string, session: RunSession): Promise<void> {
+  async recordRun(
+    lockDir: string,
+    session: RunSession,
+    description: RunnerSessionDescription,
+    options: {
+      readonly factoryInstanceId: string;
+      readonly factoryPid?: number | null;
+    },
+  ): Promise<void> {
+    const executionOwner = createActiveRunExecutionOwner({
+      session,
+      description,
+      factoryHost: this.#host,
+      factoryInstanceId: options.factoryInstanceId,
+      ...(options.factoryPid === undefined
+        ? {}
+        : { factoryPid: options.factoryPid }),
+    });
     const record: ActiveRunLeaseRecord = {
       issueNumber: session.issue.number,
       issueIdentifier: session.issue.identifier,
       branchName: session.workspace.branchName,
       runSessionId: session.id,
       attempt: session.attempt.sequence,
-      ownerPid: process.pid,
-      runnerPid: null,
+      executionOwner,
+      ownerPid: deriveExecutionOwnerOwnerPid(executionOwner),
+      runnerPid: deriveExecutionOwnerRunnerPid(executionOwner),
       runRecordedAt: new Date().toISOString(),
       runnerStartedAt: null,
       shutdown: null,
@@ -147,10 +179,22 @@ export class LocalIssueLeaseManager {
     if (record === null) {
       return;
     }
-    const runnerPid = getRunnerControllableProcessId(event.transport);
+    const executionOwner = normalizeExecutionOwner({
+      executionOwner: record.executionOwner,
+      legacyOwnerPid: record.ownerPid,
+      legacyRunnerPid: record.runnerPid,
+      runSessionId: record.runSessionId,
+      defaultHost: this.#host,
+    });
+    const nextExecutionOwner =
+      executionOwner === null
+        ? executionOwner
+        : withExecutionOwnerTransport(executionOwner, event.transport);
     const nextRecord: ActiveRunLeaseRecord = {
       ...record,
-      runnerPid,
+      executionOwner: nextExecutionOwner,
+      ownerPid: deriveExecutionOwnerOwnerPid(nextExecutionOwner),
+      runnerPid: deriveExecutionOwnerRunnerPid(nextExecutionOwner),
       runnerStartedAt: event.spawnedAt,
       updatedAt: event.spawnedAt,
     };
@@ -175,6 +219,8 @@ export class LocalIssueLeaseManager {
         {
           ...record,
           shutdown,
+          ownerPid: deriveExecutionOwnerOwnerPid(record.executionOwner),
+          runnerPid: deriveExecutionOwnerRunnerPid(record.executionOwner),
           updatedAt: shutdown.updatedAt,
         } satisfies ActiveRunLeaseRecord,
         null,
@@ -195,6 +241,7 @@ export class LocalIssueLeaseManager {
           kind: "missing",
           issueNumber,
           lockDir: null,
+          executionOwner: null,
           ownerPid: null,
           ownerAlive: null,
           runnerPid: null,
@@ -209,10 +256,17 @@ export class LocalIssueLeaseManager {
       this.#readOwnerPid(lockDir),
       this.#readRecord(lockDir),
     ]);
+    const executionOwner = normalizeExecutionOwner({
+      executionOwner: record?.executionOwner,
+      legacyOwnerPid: record?.ownerPid ?? ownerPid,
+      legacyRunnerPid: record?.runnerPid,
+      runSessionId: record?.runSessionId,
+      defaultHost: this.#host,
+    });
 
     const ownerAlive =
       ownerPid === null ? null : this.#isProcessAlive(ownerPid);
-    const runnerPid = record?.runnerPid ?? null;
+    const runnerPid = deriveExecutionOwnerRunnerPid(executionOwner);
     const runnerAlive =
       runnerPid === null ? null : this.#isProcessAlive(runnerPid);
 
@@ -221,6 +275,7 @@ export class LocalIssueLeaseManager {
         kind: "invalid",
         issueNumber,
         lockDir,
+        executionOwner,
         ownerPid,
         ownerAlive,
         runnerPid,
@@ -234,6 +289,7 @@ export class LocalIssueLeaseManager {
         kind: "shutdown-terminated",
         issueNumber,
         lockDir,
+        executionOwner,
         ownerPid,
         ownerAlive,
         runnerPid,
@@ -247,6 +303,7 @@ export class LocalIssueLeaseManager {
         kind: "shutdown-forced",
         issueNumber,
         lockDir,
+        executionOwner,
         ownerPid,
         ownerAlive,
         runnerPid,
@@ -260,6 +317,7 @@ export class LocalIssueLeaseManager {
         kind: "active",
         issueNumber,
         lockDir,
+        executionOwner,
         ownerPid,
         ownerAlive,
         runnerPid,
@@ -272,6 +330,7 @@ export class LocalIssueLeaseManager {
       kind: runnerAlive ? "stale-owner-runner" : "stale-owner",
       issueNumber,
       lockDir,
+      executionOwner,
       ownerPid,
       ownerAlive,
       runnerPid,
@@ -297,7 +356,7 @@ export class LocalIssueLeaseManager {
       snapshot.runnerPid !== null &&
       snapshot.runnerAlive
     ) {
-      await this.#terminateRunner(issueNumber, snapshot.runnerPid);
+      await this.#terminateRunner(issueNumber, snapshot.executionOwner);
     }
 
     if (
@@ -312,7 +371,7 @@ export class LocalIssueLeaseManager {
       (snapshot.kind === "stale-owner-runner" || snapshot.kind === "invalid") &&
       snapshot.runnerPid !== null
     ) {
-      await this.#terminateRunner(issueNumber, snapshot.runnerPid);
+      await this.#terminateRunner(issueNumber, snapshot.executionOwner);
     }
 
     if (snapshot.lockDir === null) {
@@ -398,7 +457,26 @@ export class LocalIssueLeaseManager {
     }
   }
 
-  async #terminateRunner(issueNumber: number, pid: number): Promise<void> {
+  async #terminateRunner(
+    issueNumber: number,
+    executionOwner: ActiveRunExecutionOwner | null,
+  ): Promise<void> {
+    if (!canControlExecutionOwnerLocally(executionOwner, this.#host)) {
+      this.#logger.info(
+        "Skipping orphaned runner termination because execution is not locally controllable",
+        {
+          issueNumber,
+          transportKind: executionOwner?.transport.kind ?? null,
+          localControlHost: executionOwner?.localControl?.host ?? null,
+        },
+      );
+      return;
+    }
+    const localControl = executionOwner?.localControl;
+    const pid = localControl?.pid;
+    if (pid === null || pid === undefined) {
+      return;
+    }
     if (pid === process.pid) {
       this.#logger.warn(
         "Refusing to terminate current orchestrator process while reconciling orphaned runner lease",

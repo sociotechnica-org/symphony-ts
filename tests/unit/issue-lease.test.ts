@@ -45,6 +45,21 @@ function createSession(issueNumber: number, workspacePath: string): RunSession {
   };
 }
 
+function createDescription() {
+  return {
+    provider: "test-runner",
+    model: null,
+    transport: createRunnerTransportMetadata("local-process", {
+      canTerminateLocalProcess: true,
+    }),
+    backendSessionId: null,
+    backendThreadId: null,
+    latestTurnId: null,
+    latestTurnNumber: null,
+    logPointers: [],
+  };
+}
+
 class CapturingLogger implements Logger {
   readonly warnings: string[] = [];
 
@@ -66,7 +81,14 @@ describe("LocalIssueLeaseManager", () => {
       const lockDir = await manager.acquire(21);
       expect(lockDir).not.toBeNull();
 
-      await manager.recordRun(lockDir!, createSession(21, tempRoot));
+      await manager.recordRun(
+        lockDir!,
+        createSession(21, tempRoot),
+        createDescription(),
+        {
+          factoryInstanceId: "test-instance",
+        },
+      );
       manager.recordRunnerSpawn(lockDir!, {
         kind: "spawned",
         transport: createRunnerTransportMetadata("local-process", {
@@ -94,7 +116,14 @@ describe("LocalIssueLeaseManager", () => {
       const lockDir = await manager.acquire(31);
       expect(lockDir).not.toBeNull();
 
-      await manager.recordRun(lockDir!, createSession(31, tempRoot));
+      await manager.recordRun(
+        lockDir!,
+        createSession(31, tempRoot),
+        createDescription(),
+        {
+          factoryInstanceId: "test-instance",
+        },
+      );
       manager.recordRunnerSpawn(lockDir!, {
         kind: "spawned",
         transport: createRunnerTransportMetadata("remote-task", {
@@ -120,7 +149,14 @@ describe("LocalIssueLeaseManager", () => {
       const lockDir = await manager.acquire(28);
       expect(lockDir).not.toBeNull();
 
-      await manager.recordRun(lockDir!, createSession(28, tempRoot));
+      await manager.recordRun(
+        lockDir!,
+        createSession(28, tempRoot),
+        createDescription(),
+        {
+          factoryInstanceId: "test-instance",
+        },
+      );
       await manager.recordShutdown(lockDir!, {
         state: "shutdown-terminated",
         requestedAt: new Date().toISOString(),
@@ -150,7 +186,14 @@ describe("LocalIssueLeaseManager", () => {
       const lockDir = await manager.acquire(29);
       expect(lockDir).not.toBeNull();
 
-      await manager.recordRun(lockDir!, createSession(29, tempRoot));
+      await manager.recordRun(
+        lockDir!,
+        createSession(29, tempRoot),
+        createDescription(),
+        {
+          factoryInstanceId: "test-instance",
+        },
+      );
       await manager.recordShutdown(lockDir!, {
         state: "shutdown-forced",
         requestedAt: new Date().toISOString(),

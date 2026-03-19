@@ -1,6 +1,10 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
+  createActiveRunExecutionOwner,
+  currentHostName,
+} from "../domain/execution-owner.js";
+import {
   OrchestratorError,
   RunnerAbortedError,
   RunnerShutdownError,
@@ -64,6 +68,7 @@ import {
   type LiveRunnerSession,
   type Runner,
   type RunnerEvent,
+  type RunnerSessionDescription,
   type RunnerSpawnedEvent,
   type RunnerVisibilitySnapshot,
   type RunnerTurnResult,
@@ -248,6 +253,7 @@ interface RecoveredShutdownLease {
   readonly issueNumber: number;
   readonly lockDir: string;
   readonly shutdownState: "shutdown-terminated" | "shutdown-forced";
+  readonly executionOwner: IssueLeaseSnapshot["executionOwner"];
   readonly runnerPid: number | null;
   readonly runnerAlive: boolean | null;
   readonly runSessionId: string | null;
@@ -262,6 +268,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   readonly #logger: Logger;
   readonly #state: ReturnType<typeof createOrchestratorState>;
   readonly #instanceId = randomUUID();
+  readonly #hostName = currentHostName();
   readonly #leaseManager: LocalIssueLeaseManager;
   readonly #issueArtifactStore: IssueArtifactStore;
   readonly #statusFilePath: string;
@@ -690,6 +697,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName: this.#branchName(claimed.number),
         status: "queued",
         summary: `Claimed ${claimed.identifier}`,
+        executionOwner: null,
         ownerPid: process.pid,
       });
       adjustTrackerIssueCounts(this.#state.status, {
@@ -746,6 +754,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName: this.#branchName(issue.number),
         status: "queued",
         summary: `Inspecting ${issue.identifier}`,
+        executionOwner: null,
         ownerPid: process.pid,
       });
       noteStatusAction(this.#state.status, {
@@ -1051,6 +1060,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName: this.#branchName(issue.number),
         status: "queued",
         summary,
+        executionOwner: null,
         ownerPid: process.pid,
         blockedReason: dispatchPressure.reason,
       });
@@ -1068,6 +1078,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       branchName: this.#branchName(issue.number),
       status: "preparing",
       summary: `Preparing workspace for ${issue.identifier}`,
+      executionOwner: null,
       ownerPid: process.pid,
       runnerPid: null,
       blockedReason: null,
@@ -1097,6 +1108,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       latestTurnNumber: null,
       accounting: createRunnerAccountingSnapshot(),
     };
+    const initialExecutionOwner = this.#createExecutionOwner(
+      session,
+      sessionState.description,
+    );
     upsertActiveIssue(this.#state.status, issue, {
       source,
       runSequence: attempt,
@@ -1105,6 +1120,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       summary: `Running ${issue.identifier}`,
       workspacePath: getPreparedWorkspacePath(workspace),
       runSessionId: session.id,
+      executionOwner: initialExecutionOwner,
       ownerPid: process.pid,
       runnerPid: null,
       startedAt: new Date().toISOString(),
@@ -1150,7 +1166,15 @@ export class BootstrapOrchestrator implements Orchestrator {
         pullRequest,
       ),
     );
-    await this.#leaseManager.recordRun(lockDir, session);
+    await this.#leaseManager.recordRun(
+      lockDir,
+      session,
+      sessionState.description,
+      {
+        factoryInstanceId: this.#instanceId,
+        factoryPid: process.pid,
+      },
+    );
     const abortController = new AbortController();
     const shutdownSignal = this.#shutdownSignal;
     const shutdownContext: ActiveRunShutdownContext = {
@@ -1792,6 +1816,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           decision: decision.decision,
           leaseState: decision.leaseState,
           lifecycleKind: decision.lifecycleKind,
+          executionOwner: snapshot.executionOwner,
           ownerPid: snapshot.ownerPid,
           ownerAlive: snapshot.ownerAlive,
           runnerPid: snapshot.runnerPid,
@@ -1830,6 +1855,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           decision: "degraded",
           leaseState: "missing",
           lifecycleKind: null,
+          executionOwner: null,
           ownerPid: null,
           ownerAlive: null,
           runnerPid: null,
@@ -1864,6 +1890,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#logger.info("Adopted healthy inherited ownership", {
         issueNumber: issue.number,
         ownershipState: snapshot.kind,
+        executionOwner: snapshot.executionOwner,
         ownerPid: snapshot.ownerPid,
         runnerPid: snapshot.runnerPid,
       });
@@ -1881,6 +1908,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         this.#logger.info("Recovered intentional shutdown posture", {
           issueNumber: issue.number,
           shutdownState: recoveredShutdown.shutdownState,
+          executionOwner: recoveredShutdown.executionOwner,
           runnerPid: recoveredShutdown.runnerPid,
           runnerAlive: recoveredShutdown.runnerAlive,
           runSessionId: recoveredShutdown.runSessionId,
@@ -1904,6 +1932,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#logger.warn("Recovered stale local run ownership", {
         issueNumber: issue.number,
         ownershipState: snapshot.kind,
+        executionOwner: snapshot.executionOwner,
         ownerPid: snapshot.ownerPid,
         runnerPid: snapshot.runnerPid,
         runSessionId: snapshot.record?.runSessionId ?? null,
@@ -2507,6 +2536,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         sessionId: session.runSession.id,
         startedAt: session.runSession.startedAt,
         lifecycle,
+        executionOwner: this.#createExecutionOwner(
+          session.runSession,
+          session.description,
+        ),
         latestTurnNumber: session.latestTurnNumber,
       }),
       ...sessionArtifacts,
@@ -2561,6 +2594,10 @@ export class BootstrapOrchestrator implements Orchestrator {
               startedAt: options.session.runSession.startedAt,
               finishedAt: observedAt,
               lifecycle,
+              executionOwner: this.#createExecutionOwner(
+                options.session.runSession,
+                options.session.description,
+              ),
               runnerPid: this.#currentRunnerPid(issue.number),
               latestTurnNumber: options.session.latestTurnNumber,
             }),
@@ -2595,6 +2632,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         sessionId: session.runSession.id,
         startedAt: session.runSession.startedAt,
         finishedAt,
+        executionOwner: this.#createExecutionOwner(
+          session.runSession,
+          session.description,
+        ),
         runnerPid: this.#currentRunnerPid(session.runSession.issue.number),
         latestTurnNumber: session.latestTurnNumber,
       }),
@@ -2645,6 +2686,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         sessionId: session.runSession.id,
         startedAt: session.runSession.startedAt,
         finishedAt: observedAt,
+        executionOwner: this.#createExecutionOwner(
+          session.runSession,
+          session.description,
+        ),
         runnerPid: this.#currentRunnerPid(issue.number),
         latestTurnNumber: session.latestTurnNumber,
       }),
@@ -2694,6 +2739,10 @@ export class BootstrapOrchestrator implements Orchestrator {
         branchName,
         sessionId: session.runSession.id,
         startedAt: session.runSession.startedAt,
+        executionOwner: this.#createExecutionOwner(
+          session.runSession,
+          session.description,
+        ),
         runnerPid: this.#currentRunnerPid(issue.number),
         latestTurnNumber: session.latestTurnNumber,
       }),
@@ -2802,6 +2851,13 @@ export class BootstrapOrchestrator implements Orchestrator {
               startedAt: options.session?.runSession.startedAt ?? null,
               finishedAt: options.observedAt,
               lifecycle: options.lifecycle ?? null,
+              executionOwner:
+                options.session === undefined
+                  ? null
+                  : this.#createExecutionOwner(
+                      options.session.runSession,
+                      options.session.description,
+                    ),
               runnerPid: options.runnerPid ?? null,
               latestTurnNumber: options.session?.latestTurnNumber ?? null,
             }),
@@ -2817,6 +2873,10 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): IssueArtifactObservation {
     const sessionArtifacts = this.#createSessionObservationArtifacts(session);
     const runnerPid = getRunnerControllableProcessId(event.transport);
+    const executionOwner = this.#createExecutionOwner(session.runSession, {
+      ...session.description,
+      transport: event.transport,
+    });
     return {
       issue: this.#createIssueArtifactUpdate(session.runSession.issue, {
         observedAt: event.spawnedAt,
@@ -2832,6 +2892,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           attemptNumber: session.runSession.attempt.sequence,
           sessionId: session.runSession.id,
           details: {
+            executionOwner,
             pid: runnerPid,
             runnerPid,
             transportKind: event.transport.kind,
@@ -2852,6 +2913,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           branchName: session.runSession.workspace.branchName,
           sessionId: session.runSession.id,
           startedAt: session.runSession.startedAt,
+          executionOwner,
           runnerPid,
           latestTurnNumber: session.latestTurnNumber,
         },
@@ -3066,6 +3128,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly startedAt: string | null;
       readonly finishedAt?: string | null;
       readonly lifecycle?: HandoffLifecycle | null;
+      readonly executionOwner?: IssueArtifactAttemptSnapshot["executionOwner"];
       readonly runnerPid?: number | null;
       readonly latestTurnNumber?: number | null;
     },
@@ -3081,6 +3144,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       summary: options.summary,
       sessionId: options.sessionId,
       latestTurnNumber: options.latestTurnNumber ?? null,
+      executionOwner: options.executionOwner ?? null,
       runnerPid: options.runnerPid ?? null,
       pullRequest: this.#createPullRequestArtifactSnapshot(
         options.lifecycle ?? null,
@@ -3101,6 +3165,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       sessionId: session.runSession.id,
       provider: session.description.provider,
       model: session.description.model,
+      executionOwner: this.#createExecutionOwner(
+        session.runSession,
+        session.description,
+      ),
       transport: session.description.transport,
       backendSessionId: session.description.backendSessionId,
       backendThreadId: session.description.backendThreadId,
@@ -3183,6 +3251,19 @@ export class BootstrapOrchestrator implements Orchestrator {
     return this.#state.status.activeIssues.get(issueNumber)?.runnerPid ?? null;
   }
 
+  #createExecutionOwner(
+    session: RunSession,
+    description: RunnerSessionDescription,
+  ) {
+    return createActiveRunExecutionOwner({
+      session,
+      description,
+      factoryHost: this.#hostName,
+      factoryInstanceId: this.#instanceId,
+      factoryPid: process.pid,
+    });
+  }
+
   #captureLiveSessionState(
     session: RunSessionArtifactsState,
     liveRunnerSession?: LiveRunnerSession,
@@ -3213,6 +3294,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       issueNumber: snapshot.issueNumber,
       lockDir: snapshot.lockDir,
       shutdownState: snapshot.kind,
+      executionOwner: snapshot.executionOwner,
       runnerPid: snapshot.runnerPid,
       runnerAlive: snapshot.runnerAlive,
       runSessionId: snapshot.record?.runSessionId ?? null,
@@ -3226,6 +3308,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#logger.info("Cleared recovered shutdown lease", {
       issueNumber: recovered.issueNumber,
       shutdownState: recovered.shutdownState,
+      executionOwner: recovered.executionOwner,
       runnerPid: recovered.runnerPid,
       runnerAlive: recovered.runnerAlive,
       runSessionId: recovered.runSessionId,
@@ -3404,11 +3487,16 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): Promise<void> {
     const issueNumber = session.runSession.issue.number;
     const runnerPid = getRunnerControllableProcessId(event.transport);
+    const executionOwner = this.#createExecutionOwner(session.runSession, {
+      ...session.description,
+      transport: event.transport,
+    });
     this.#leaseManager.recordRunnerSpawn(lockDir, event);
     const entry = this.#state.status.activeIssues.get(issueNumber);
     if (entry) {
       this.#state.status.activeIssues.set(issueNumber, {
         ...entry,
+        executionOwner,
         runnerPid,
         updatedAt: event.spawnedAt,
         runnerAccounting: session.accounting,

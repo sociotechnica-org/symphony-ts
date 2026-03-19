@@ -8,6 +8,7 @@ function createSnapshot(kind: IssueLeaseSnapshot["kind"]): IssueLeaseSnapshot {
     kind,
     issueNumber: 163,
     lockDir: kind === "missing" ? null : "/tmp/.symphony-locks/163",
+    executionOwner: null,
     ownerPid: kind === "missing" ? null : 1234,
     ownerAlive: kind === "missing" ? null : kind === "active" ? true : false,
     runnerPid:

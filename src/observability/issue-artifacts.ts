@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import type { ActiveRunExecutionOwner } from "../domain/execution-owner.js";
 import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
 import {
   createRunnerTransportMetadata,
@@ -109,6 +110,7 @@ export interface IssueArtifactAttemptSnapshot {
   readonly summary: string;
   readonly sessionId: string | null;
   readonly latestTurnNumber: number | null;
+  readonly executionOwner?: ActiveRunExecutionOwner | null;
   readonly runnerPid: number | null;
   readonly pullRequest: IssueArtifactPullRequestSnapshot | null;
   readonly review: IssueArtifactReviewSnapshot | null;
@@ -128,6 +130,7 @@ export interface IssueArtifactSessionSnapshot {
   readonly sessionId: string;
   readonly provider: string;
   readonly model: string | null;
+  readonly executionOwner?: ActiveRunExecutionOwner | null;
   readonly transport: RunnerTransportMetadata;
   readonly backendSessionId: string | null;
   readonly backendThreadId: string | null;
@@ -382,6 +385,7 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       summary: summary.currentSummary,
       sessionId: existing?.sessionId ?? summary.latestSessionId,
       latestTurnNumber,
+      executionOwner: existing?.executionOwner ?? null,
       runnerPid: existing?.runnerPid ?? null,
       pullRequest: existing?.pullRequest ?? null,
       review: existing?.review ?? null,
