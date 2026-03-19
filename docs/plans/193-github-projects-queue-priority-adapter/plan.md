@@ -135,16 +135,16 @@ Not applicable for this slice. The issue changes tracker-boundary transport and 
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected behavior |
-| --- | --- | --- | --- |
-| GitHub queue-priority config is absent | resolved tracker config | none | keep current behavior; GitHub issues normalize with `queuePriority: null` |
-| GitHub queue-priority config is malformed | workflow path and raw front matter | none | fail workflow loading with a field-specific config error |
-| Issue is not on the configured project or has no matching project item field value | resolved GitHub config, issue number | issue present, project field absent | normalize to `queuePriority: null`; issue remains eligible |
-| Project field value is present but empty/unset | resolved GitHub config, issue number | project field resolves to null/empty | normalize to `queuePriority: null` |
-| Project field value type is unsupported for this seam | GraphQL payload shape | raw GitHub field metadata only inside tracker | fail or discard at the GitHub normalization boundary according to the documented supported types; do not leak raw payload upward |
-| Project field value cannot be mapped to a stable numeric rank | configured mapping facts plus raw option/text value | no valid normalized priority | normalize to `queuePriority: null` and log/test the fallback contract |
-| Multiple ready issues have valid GitHub-derived priorities | normalized issues | populated `queuePriority` values | existing comparator/order helpers can consume the normalized values without GitHub-specific knowledge |
-| GitHub project GraphQL request fails | request error, repo/project config | no updated queue priority data | surface a tracker error for the fetch rather than silently inventing stale priority facts |
+| Observed condition                                                                 | Local facts available                               | Normalized tracker facts available            | Expected behavior                                                                                                                |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub queue-priority config is absent                                             | resolved tracker config                             | none                                          | keep current behavior; GitHub issues normalize with `queuePriority: null`                                                        |
+| GitHub queue-priority config is malformed                                          | workflow path and raw front matter                  | none                                          | fail workflow loading with a field-specific config error                                                                         |
+| Issue is not on the configured project or has no matching project item field value | resolved GitHub config, issue number                | issue present, project field absent           | normalize to `queuePriority: null`; issue remains eligible                                                                       |
+| Project field value is present but empty/unset                                     | resolved GitHub config, issue number                | project field resolves to null/empty          | normalize to `queuePriority: null`                                                                                               |
+| Project field value type is unsupported for this seam                              | GraphQL payload shape                               | raw GitHub field metadata only inside tracker | fail or discard at the GitHub normalization boundary according to the documented supported types; do not leak raw payload upward |
+| Project field value cannot be mapped to a stable numeric rank                      | configured mapping facts plus raw option/text value | no valid normalized priority                  | normalize to `queuePriority: null` and log/test the fallback contract                                                            |
+| Multiple ready issues have valid GitHub-derived priorities                         | normalized issues                                   | populated `queuePriority` values              | existing comparator/order helpers can consume the normalized values without GitHub-specific knowledge                            |
+| GitHub project GraphQL request fails                                               | request error, repo/project config                  | no updated queue priority data                | surface a tracker error for the fetch rather than silently inventing stale priority facts                                        |
 
 ## Storage / Persistence Contract
 

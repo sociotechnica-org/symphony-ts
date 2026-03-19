@@ -263,7 +263,9 @@ ${buildSharedWorkflowSections()}`,
   });
 
   it("fails clearly when enabled GitHub queue priority omits the project number", async () => {
-    const dir = await createTempDir("workflow-github-queue-priority-no-project-");
+    const dir = await createTempDir(
+      "workflow-github-queue-priority-no-project-",
+    );
     const workflowPath = path.join(dir, "WORKFLOW.md");
     await fs.writeFile(
       workflowPath,

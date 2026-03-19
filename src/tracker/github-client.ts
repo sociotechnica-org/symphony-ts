@@ -97,34 +97,31 @@ interface GraphQlResponse<T> {
 
 interface ProjectQueuePriorityFieldPageResponse {
   readonly repository: {
-    readonly owner:
-      | {
-          readonly projectV2: {
-            readonly items: {
-              readonly nodes: ReadonlyArray<{
-                readonly content:
-                  | {
-                      readonly __typename: "Issue";
-                      readonly number: number;
-                      readonly repository: {
-                        readonly nameWithOwner: string;
-                      };
-                    }
-                  | {
-                      readonly __typename: string;
-                    }
-                  | null;
-                readonly fieldValueByName:
-                  | ProjectQueuePriorityFieldValueResponse;
-              }>;
-              readonly pageInfo: {
-                readonly hasNextPage: boolean;
-                readonly endCursor: string | null;
-              };
-            };
-          } | null;
-        }
-      | null;
+    readonly owner: {
+      readonly projectV2: {
+        readonly items: {
+          readonly nodes: ReadonlyArray<{
+            readonly content:
+              | {
+                  readonly __typename: "Issue";
+                  readonly number: number;
+                  readonly repository: {
+                    readonly nameWithOwner: string;
+                  };
+                }
+              | {
+                  readonly __typename: string;
+                }
+              | null;
+            readonly fieldValueByName: ProjectQueuePriorityFieldValueResponse;
+          }>;
+          readonly pageInfo: {
+            readonly hasNextPage: boolean;
+            readonly endCursor: string | null;
+          };
+        };
+      } | null;
+    } | null;
   } | null;
 }
 
@@ -901,7 +898,9 @@ export class GitHubClient {
     );
   }
 
-  async #getQueuePriorityByIssueNumber(): Promise<ReadonlyMap<number, QueuePriority>> {
+  async #getQueuePriorityByIssueNumber(): Promise<
+    ReadonlyMap<number, QueuePriority>
+  > {
     if (this.#config.queuePriority?.enabled !== true) {
       return new Map<number, QueuePriority>();
     }
@@ -1148,7 +1147,13 @@ function toGitHubProjectFieldValue(
 
 function isProjectQueuePriorityIssueContent(
   value: ProjectQueuePriorityFieldPageResponse["repository"] extends infer TRepository
-    ? TRepository extends { readonly owner: { readonly projectV2: { readonly items: { readonly nodes: ReadonlyArray<infer TNode> } } | null } | null } | null
+    ? TRepository extends {
+        readonly owner: {
+          readonly projectV2: {
+            readonly items: { readonly nodes: ReadonlyArray<infer TNode> };
+          } | null;
+        } | null;
+      } | null
       ? TNode extends { readonly content: infer TContent }
         ? TContent
         : never

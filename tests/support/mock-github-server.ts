@@ -252,7 +252,9 @@ export class MockGitHubServer {
     repo?: string;
   }): void {
     const items = this.#projects.get(input.projectNumber) ?? [];
-    const existing = items.find((item) => item.issueNumber === input.issueNumber);
+    const existing = items.find(
+      (item) => item.issueNumber === input.issueNumber,
+    );
     if (existing) {
       return;
     }
