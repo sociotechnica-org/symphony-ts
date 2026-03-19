@@ -257,10 +257,12 @@ This issue changes stateful orchestration around dispatch, retries, and remote h
 - `running-on-host -> terminal`
 - `waiting-on-host -> running-on-host`
 - `waiting-on-host -> retry-queued-with-affinity`
+- `waiting-on-host -> retry-queued-without-affinity`
 - `waiting-on-host -> terminal`
 - `retry-queued-with-affinity -> selecting-host`
 - `retry-queued-without-affinity -> selecting-host`
 - `dispatch-blocked-no-host -> selecting-host`
+- `dispatch-blocked-no-host -> terminal`
 - `degraded-host-missing -> selecting-host`
 - `degraded-host-missing -> terminal`
 
