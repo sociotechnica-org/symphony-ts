@@ -21,7 +21,10 @@ export interface PullRequestSnapshot {
   readonly actionableReviewFeedback: readonly ReviewFeedback[];
   readonly botActionableReviewFeedback: readonly ReviewFeedback[];
   readonly unresolvedThreadIds: readonly string[];
-  readonly requiredApprovedReviewSatisfied: boolean;
+  readonly requiredApprovedReviewCoverage:
+    | "not-required"
+    | "satisfied"
+    | "missing";
   readonly observedApprovedReviewBotLogins: readonly string[];
 }
 
@@ -234,9 +237,12 @@ export function createPullRequestSnapshot(input: {
             ].map((login) => login.toLowerCase()),
           ),
         ];
-  const requiredApprovedReviewSatisfied =
-    approvedReviewBotLogins.size === 0 ||
-    observedApprovedReviewBotLogins.length > 0;
+  const requiredApprovedReviewCoverage =
+    approvedReviewBotLogins.size === 0
+      ? "not-required"
+      : observedApprovedReviewBotLogins.length > 0
+        ? "satisfied"
+        : "missing";
 
   return {
     branchName: input.branchName,
@@ -255,7 +261,7 @@ export function createPullRequestSnapshot(input: {
     actionableReviewFeedback,
     botActionableReviewFeedback,
     unresolvedThreadIds,
-    requiredApprovedReviewSatisfied,
+    requiredApprovedReviewCoverage,
     observedApprovedReviewBotLogins,
   };
 }

@@ -220,7 +220,7 @@ export class GitHubTracker implements Tracker {
           feedback.kind === "review-thread" &&
           !this.#isBotReviewFeedback(feedback.authorLogin),
       ).length,
-      requiredApprovedReviewSatisfied: snapshot.requiredApprovedReviewSatisfied,
+      requiredApprovedReviewCoverage: snapshot.requiredApprovedReviewCoverage,
     };
     const decision = evaluateGuardedLanding(gateSnapshot);
     if (decision.kind === "blocked") {

@@ -39,7 +39,7 @@ Run this sequence at the start of each operator pass:
    - active issues in `awaiting-human-handoff`
    - active issues or PRs in `awaiting-landing-command`
 4. If the detached runtime is stopped or degraded, repair that first.
-5. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`.
+5. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
 6. After a merge, fast-forward the root checkout and `.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
@@ -90,13 +90,14 @@ Interpret the main recovery-posture families this way:
 - `retry-backoff`: at least one issue is queued for retry; avoid manual reruns unless the posture is stuck or degraded
 - `watchdog-recovery`: a stalled run triggered watchdog recovery or watchdog-driven retry
 - `restart-recovery`: startup is reconciling inherited `symphony:running` work or surfacing restart decisions
-- `degraded` or `degraded-observability`: inspect before taking further action; this is not a healthy wait state
+- `degraded` or `degraded-observability`: inspect before taking further action; this is not a healthy wait state. Missing expected reviewer-app output after checks settle also belongs here.
 
 Issue-level lifecycle checkpoints:
 
 - `awaiting-human-handoff`: review the technical plan and reply with an accepted plan-review marker
 - `awaiting-system-checks`: wait for CI or automated review follow-up unless a check is obviously stuck
 - `awaiting-human-review` or `rework-required`: inspect the PR review state and let the factory push follow-up if it is already responding
+- `degraded-review-infrastructure`: expected reviewer-app output never arrived on the current head after checks settled; inspect the reviewer app/integration before treating the PR as review-clean
 - `awaiting-landing-command`: post `/land` when the PR is green, review-clean, and required approved bot review has been observed on the current head
 - `awaiting-landing`: the landing request was issued; wait for merge observation or a clear landing failure
 
@@ -109,6 +110,7 @@ Use this table:
 | Situation                                                                                        | Operator action                                                                                                             |
 | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
 | `awaiting-human-handoff`                                                                         | Review the plan and post `Plan review: approved`, `Plan review: changes-requested`, or `Plan review: waived`                |
+| `degraded-review-infrastructure`                                                                 | Inspect the missing reviewer-app output path before further automation or manual landing                                    |
 | `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                                                      |
 | Detached runtime stopped or degraded                                                             | Use `factory status`, then `factory start` or `factory restart`                                                             |
 | `restart-recovery` visible after startup                                                         | Inspect the recovery summary and per-issue decisions before manual reruns                                                   |
@@ -135,7 +137,7 @@ Two human checkpoints remain explicit even when the factory is otherwise autonom
 1. Technical plan review before substantial implementation unless the review is explicitly waived.
 2. Landing approval through `/land` on a review-clean PR whose current head already has required approved bot review.
 
-If either checkpoint is waiting, treat that as normal `waiting-expected` posture, not a runtime failure.
+If either checkpoint is waiting, treat that as normal `waiting-expected` posture, not a runtime failure. If expected reviewer-app output is missing after checks settle, that is not a normal checkpoint wait; it is degraded infrastructure.
 
 ## Stability Validation
 

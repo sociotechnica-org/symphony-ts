@@ -1473,6 +1473,7 @@ function readLifecycleKindFromDetails(
   return lifecycleKind === "merged" ||
     lifecycleKind === "awaiting-human-review" ||
     lifecycleKind === "awaiting-system-checks" ||
+    lifecycleKind === "degraded-review-infrastructure" ||
     lifecycleKind === "rework-required" ||
     lifecycleKind === "awaiting-landing-command" ||
     lifecycleKind === "awaiting-landing"

@@ -24,7 +24,7 @@ function createSnapshot(
     failingCheckNames: [],
     botActionableReviewFeedback: [],
     unresolvedReviewThreadCount: 0,
-    requiredApprovedReviewSatisfied: true,
+    requiredApprovedReviewCoverage: "satisfied",
     ...overrides,
   };
 }
@@ -181,14 +181,14 @@ describe("evaluateGuardedLanding", () => {
   it("rejects landing when required approved bot review is missing", () => {
     const result = evaluateGuardedLanding(
       createSnapshot({
-        requiredApprovedReviewSatisfied: false,
+        requiredApprovedReviewCoverage: "missing",
       }),
     );
 
     expect(result).toMatchObject({
       kind: "blocked",
       reason: "required-bot-review-missing",
-      lifecycleKind: "awaiting-human-review",
+      lifecycleKind: "degraded-review-infrastructure",
     });
   });
 

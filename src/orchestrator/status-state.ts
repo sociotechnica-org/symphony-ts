@@ -207,11 +207,13 @@ export function noteLifecycleForIssue(
             ? "awaiting-human-review"
             : lifecycle.kind === "awaiting-system-checks"
               ? "awaiting-system-checks"
-              : lifecycle.kind === "awaiting-landing-command"
-                ? "awaiting-landing-command"
-                : lifecycle.kind === "awaiting-landing"
-                  ? "awaiting-landing"
-                  : "queued",
+              : lifecycle.kind === "degraded-review-infrastructure"
+                ? "degraded-review-infrastructure"
+                : lifecycle.kind === "awaiting-landing-command"
+                  ? "awaiting-landing-command"
+                  : lifecycle.kind === "awaiting-landing"
+                    ? "awaiting-landing"
+                    : "queued",
     summary: lifecycle.summary,
     pullRequest:
       lifecycle.pullRequest === null
@@ -234,6 +236,7 @@ export function noteLifecycleForIssue(
       lifecycle.kind === "awaiting-human-handoff" ||
       lifecycle.kind === "awaiting-human-review" ||
       lifecycle.kind === "awaiting-system-checks" ||
+      lifecycle.kind === "degraded-review-infrastructure" ||
       lifecycle.kind === "awaiting-landing-command" ||
       lifecycle.kind === "awaiting-landing" ||
       lifecycle.kind === "rework-required"

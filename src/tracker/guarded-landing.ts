@@ -15,7 +15,7 @@ export interface GuardedLandingSnapshot {
   readonly failingCheckNames: readonly string[];
   readonly botActionableReviewFeedback: PullRequestSnapshot["botActionableReviewFeedback"];
   readonly unresolvedReviewThreadCount: number;
-  readonly requiredApprovedReviewSatisfied: boolean;
+  readonly requiredApprovedReviewCoverage: PullRequestSnapshot["requiredApprovedReviewCoverage"];
 }
 
 // Fail closed: GitHub can report "unstable" when only non-required checks fail,
@@ -126,12 +126,12 @@ export function evaluateGuardedLanding(
     };
   }
 
-  if (!snapshot.requiredApprovedReviewSatisfied) {
+  if (snapshot.requiredApprovedReviewCoverage === "missing") {
     return {
       kind: "blocked",
       reason: "required-bot-review-missing",
-      lifecycleKind: "awaiting-human-review",
-      summary: `Landing blocked for ${formatPullRequest(snapshot)} because required approved bot review has not been observed on the current head.`,
+      lifecycleKind: "degraded-review-infrastructure",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because expected reviewer-app output has not been observed on the current head and external review coverage is degraded.`,
     };
   }
 

@@ -991,8 +991,10 @@ describe("GitHubTracker", () => {
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
-    expect(lifecycle.kind).toBe("awaiting-human-review");
-    expect(lifecycle.summary).toMatch(/required approved bot review/i);
+    expect(lifecycle.kind).toBe("degraded-review-infrastructure");
+    expect(lifecycle.summary).toMatch(
+      /degraded external review infrastructure/i,
+    );
   });
 
   it("treats a clean bot summary comment as satisfying required approved bot review", async () => {
@@ -1063,7 +1065,7 @@ describe("GitHubTracker", () => {
     });
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
-    expect(lifecycle.kind).toBe("awaiting-human-review");
+    expect(lifecycle.kind).toBe("degraded-review-infrastructure");
 
     const result = await tracker.executeLanding({
       number: 1,
@@ -1076,7 +1078,7 @@ describe("GitHubTracker", () => {
     expect(result).toMatchObject({
       kind: "blocked",
       reason: "required-bot-review-missing",
-      lifecycleKind: "awaiting-human-review",
+      lifecycleKind: "degraded-review-infrastructure",
     });
   });
 

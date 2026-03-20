@@ -22,7 +22,7 @@ function createSnapshot(
     actionableReviewFeedback: [],
     botActionableReviewFeedback: [],
     unresolvedThreadIds: [],
-    requiredApprovedReviewSatisfied: true,
+    requiredApprovedReviewCoverage: "satisfied",
     observedApprovedReviewBotLogins: [],
     ...overrides,
   };
@@ -115,18 +115,20 @@ describe("pull-request-policy", () => {
             detailsUrl: null,
           },
         ],
-        requiredApprovedReviewSatisfied: false,
+        requiredApprovedReviewCoverage: "missing",
       }),
       undefined,
     ).lifecycle;
 
-    expect(lifecycle.kind).toBe("awaiting-human-review");
-    expect(lifecycle.summary).toMatch(/required approved bot review/i);
+    expect(lifecycle.kind).toBe("degraded-review-infrastructure");
+    expect(lifecycle.summary).toMatch(
+      /degraded external review infrastructure/i,
+    );
   });
 
   it("preserves no-check stabilization while required approved bot review is missing", () => {
     const snapshot = createSnapshot({
-      requiredApprovedReviewSatisfied: false,
+      requiredApprovedReviewCoverage: "missing",
     });
 
     const first = evaluatePullRequestLifecycle(snapshot, undefined);
@@ -140,9 +142,9 @@ describe("pull-request-policy", () => {
     );
 
     expect(first.lifecycle.kind).toBe("awaiting-system-checks");
-    expect(second.lifecycle.kind).toBe("awaiting-human-review");
+    expect(second.lifecycle.kind).toBe("degraded-review-infrastructure");
     expect(second.nextNoCheckObservation).toEqual(first.nextNoCheckObservation);
-    expect(third.lifecycle.kind).toBe("awaiting-human-review");
+    expect(third.lifecycle.kind).toBe("degraded-review-infrastructure");
     expect(third.nextNoCheckObservation).toEqual(first.nextNoCheckObservation);
   });
 

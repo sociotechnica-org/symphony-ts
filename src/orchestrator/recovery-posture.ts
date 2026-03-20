@@ -137,6 +137,19 @@ export function projectRecoveryPosture(input: {
       continue;
     }
 
+    if (issue.status === "degraded-review-infrastructure") {
+      upsertIssueEntry(issueEntries, {
+        family: "degraded",
+        issueNumber: issue.issueNumber,
+        issueIdentifier: issue.issueIdentifier,
+        title: issue.title,
+        source: "active-issue",
+        summary: issue.blockedReason ?? issue.summary,
+        observedAt: issue.updatedAt,
+      });
+      continue;
+    }
+
     if (WAITING_STATUSES.has(issue.status)) {
       upsertIssueEntry(issueEntries, {
         family: "waiting-expected",

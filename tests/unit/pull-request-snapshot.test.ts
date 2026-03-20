@@ -253,7 +253,7 @@ describe("createPullRequestSnapshot", () => {
       approvedReviewBotLogins: ["greptile-apps"],
     });
 
-    expect(snapshot.requiredApprovedReviewSatisfied).toBe(true);
+    expect(snapshot.requiredApprovedReviewCoverage).toBe("satisfied");
     expect(snapshot.observedApprovedReviewBotLogins).toEqual(["greptile-apps"]);
   });
 
@@ -295,7 +295,7 @@ describe("createPullRequestSnapshot", () => {
       approvedReviewBotLogins: ["greptile-apps"],
     });
 
-    expect(snapshot.requiredApprovedReviewSatisfied).toBe(false);
+    expect(snapshot.requiredApprovedReviewCoverage).toBe("missing");
     expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
   });
 
@@ -339,7 +339,7 @@ describe("createPullRequestSnapshot", () => {
       approvedReviewBotLogins: ["cursor[bot]"],
     });
 
-    expect(snapshot.requiredApprovedReviewSatisfied).toBe(false);
+    expect(snapshot.requiredApprovedReviewCoverage).toBe("missing");
     expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
   });
 
