@@ -1019,6 +1019,30 @@ describe("GitHubTracker", () => {
     expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
+  it("treats a clean top-level bot review as satisfying required approved bot review", async () => {
+    const tracker = createTracker(server, undefined, ["devin-ai-integration"]);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReview({
+      head: "symphony/7",
+      authorLogin: "devin-ai-integration",
+      body: "## ✅ Devin Review: No Issues Found",
+      submittedAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
+  });
+
   it("blocks guarded landing when required approved bot review is missing", async () => {
     const tracker = createTracker(server, undefined, ["greptile[bot]"]);
 

@@ -29,6 +29,9 @@ function createReviewState(
     comments: {
       nodes: [],
     },
+    reviews: {
+      nodes: [],
+    },
     reviewThreads: {
       nodes: [
         {
@@ -195,6 +198,9 @@ describe("createPullRequestSnapshot", () => {
             },
           ],
         },
+        reviews: {
+          nodes: [],
+        },
         reviewThreads: {
           nodes: [],
         },
@@ -236,6 +242,9 @@ describe("createPullRequestSnapshot", () => {
             },
           ],
         },
+        reviews: {
+          nodes: [],
+        },
         reviewThreads: {
           nodes: [],
         },
@@ -274,6 +283,9 @@ describe("createPullRequestSnapshot", () => {
               url: "https://example.test/pr/24#comment-1",
             },
           ],
+        },
+        reviews: {
+          nodes: [],
         },
         reviewThreads: {
           nodes: [],
@@ -316,6 +328,9 @@ describe("createPullRequestSnapshot", () => {
             },
           ],
         },
+        reviews: {
+          nodes: [],
+        },
         reviewThreads: {
           nodes: [],
         },
@@ -326,6 +341,47 @@ describe("createPullRequestSnapshot", () => {
 
     expect(snapshot.requiredApprovedReviewSatisfied).toBe(false);
     expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
+  });
+
+  it("records required approved bot review presence from a top-level PR review", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [
+            {
+              author: { login: "devin-ai-integration" },
+              body: "## ✅ Devin Review: No Issues Found",
+              submittedAt: "2026-03-06T01:00:00.000Z",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredApprovedReviewSatisfied).toBe(true);
+    expect(snapshot.observedApprovedReviewBotLogins).toEqual([
+      "devin-ai-integration",
+    ]);
   });
 
   it("detects a human /land command on the current PR head", () => {
