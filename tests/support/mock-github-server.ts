@@ -14,6 +14,7 @@ interface PullRequestRecord {
   latestCommitAt: string | null;
   latestCommitSha: string;
   readonly comments: MockPullRequestComment[];
+  readonly reviews: MockPullRequestReview[];
   readonly reviewThreads: MockReviewThread[];
   checkRuns: MockCheckRun[];
   statuses: MockCommitStatus[];
@@ -46,6 +47,12 @@ interface MockPullRequestComment {
   readonly body: string;
   readonly createdAt: string;
   readonly url: string;
+}
+
+interface MockPullRequestReview {
+  readonly authorLogin: string | null;
+  readonly body: string;
+  readonly submittedAt: string;
 }
 
 interface MockReviewThread {
@@ -373,6 +380,7 @@ export class MockGitHubServer {
       latestCommitAt,
       latestCommitSha: randomUUID(),
       comments: [],
+      reviews: [],
       reviewThreads: [],
       checkRuns: [],
       statuses: [],
@@ -528,6 +536,20 @@ export class MockGitHubServer {
       ],
     });
     return threadId;
+  }
+
+  addPullRequestReview(input: {
+    head: string;
+    authorLogin: string | null;
+    body: string;
+    submittedAt?: string;
+  }): void {
+    const pullRequest = this.#requirePullRequestByHead(input.head);
+    pullRequest.reviews.push({
+      authorLogin: input.authorLogin,
+      body: input.body,
+      submittedAt: input.submittedAt ?? new Date().toISOString(),
+    });
   }
 
   injectPullRequestReviewThreadOnReviewStateRead(input: {
@@ -1008,6 +1030,18 @@ export class MockGitHubServer {
                   hasNextPage: false,
                   endCursor: null,
                 },
+              },
+              reviews: {
+                nodes: pullRequest.reviews.map((review) => ({
+                  body: review.body,
+                  submittedAt: review.submittedAt,
+                  author:
+                    review.authorLogin === null
+                      ? null
+                      : {
+                          login: review.authorLogin,
+                        },
+                })),
               },
               reviewThreads: {
                 nodes: pullRequest.reviewThreads.map((thread) => ({

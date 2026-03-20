@@ -198,6 +198,16 @@ interface PullRequestReviewThreadsConnection {
   };
 }
 
+interface PullRequestReviewsConnection {
+  readonly nodes: Array<{
+    readonly body: string;
+    readonly submittedAt: string;
+    readonly author: {
+      readonly login: string;
+    } | null;
+  }>;
+}
+
 export interface PullRequestReviewPageResponse {
   readonly repository: {
     readonly pullRequest: {
@@ -209,6 +219,7 @@ export interface PullRequestReviewPageResponse {
         }>;
       };
       readonly comments?: PullRequestReviewCommentsConnection;
+      readonly reviews?: PullRequestReviewsConnection;
       readonly reviewThreads?: PullRequestReviewThreadsConnection;
     } | null;
   } | null;
@@ -223,8 +234,13 @@ export interface PullRequestReviewState {
     }>;
   };
   readonly comments: PullRequestReviewCommentsConnection;
+  readonly reviews?: PullRequestReviewsConnection;
   readonly reviewThreads: PullRequestReviewThreadsConnection;
 }
+
+type MutablePullRequestReviewState = {
+  -readonly [K in keyof PullRequestReviewState]: PullRequestReviewState[K];
+};
 
 type GitHubMergeMethod = "merge" | "squash" | "rebase";
 
@@ -283,6 +299,15 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
           pageInfo {
             hasNextPage
             endCursor
+          }
+        }
+        reviews(first: 100) {
+          nodes {
+            body
+            submittedAt
+            author {
+              login
+            }
           }
         }
         reviewThreads(first: 100, after: $reviewThreadsAfter) @include(if: $includeReviewThreads) {
@@ -781,7 +806,7 @@ export class GitHubClient {
     let reviewThreadsAfter: string | null = null;
     let commentsExhausted = false;
     let reviewThreadsExhausted = false;
-    let pullRequest: PullRequestReviewState | null = null;
+    let pullRequest: MutablePullRequestReviewState | null = null;
 
     for (;;) {
       const response: PullRequestReviewPageResponse =
@@ -811,6 +836,9 @@ export class GitHubClient {
         nodes: [],
         pageInfo: { hasNextPage: false, endCursor: null },
       };
+      const reviews = page.reviews ?? {
+        nodes: [],
+      };
       const reviewThreads = page.reviewThreads ?? {
         nodes: [],
         pageInfo: { hasNextPage: false, endCursor: null },
@@ -823,6 +851,9 @@ export class GitHubClient {
             nodes: [...comments.nodes],
             pageInfo: paginationInfo(comments.pageInfo),
           },
+          reviews: {
+            nodes: [...reviews.nodes],
+          },
           reviewThreads: {
             nodes: [...reviewThreads.nodes],
             pageInfo: paginationInfo(reviewThreads.pageInfo),
@@ -831,6 +862,11 @@ export class GitHubClient {
       } else {
         if (!commentsExhausted) {
           pullRequest.comments.nodes.push(...comments.nodes);
+        }
+        if ((pullRequest.reviews?.nodes.length ?? 0) === 0) {
+          pullRequest.reviews = {
+            nodes: [...reviews.nodes],
+          };
         }
         if (!reviewThreadsExhausted) {
           pullRequest.reviewThreads.nodes.push(...reviewThreads.nodes);

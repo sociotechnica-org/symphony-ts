@@ -220,6 +220,17 @@ export function createPullRequestSnapshot(input: {
                   );
                 })
                 .map((comment) => comment.author!.login),
+              ...(input.reviewState.reviews?.nodes ?? [])
+                .filter((review) => {
+                  const authorLogin = review.author?.login;
+                  return (
+                    typeof authorLogin === "string" &&
+                    approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
+                    isQualifyingApprovedReviewBody(review.body) &&
+                    isAfter(review.submittedAt, latestCommitAt)
+                  );
+                })
+                .map((review) => review.author!.login),
             ].map((login) => login.toLowerCase()),
           ),
         ];
