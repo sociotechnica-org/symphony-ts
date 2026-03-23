@@ -71,6 +71,22 @@ async function expectPathMissing(targetPath: string): Promise<void> {
   });
 }
 
+async function waitForFile(targetPath: string): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      await fs.access(targetPath);
+      return;
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      if (systemError.code !== "ENOENT") {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw new Error(`Timed out waiting for ${targetPath}`);
+}
+
 function createCodexConfig(overrides?: Partial<AgentConfig>): AgentConfig {
   return {
     runner: {
@@ -795,6 +811,37 @@ describe("runners", () => {
     });
     expect(spawnedPid).toBeGreaterThan(0);
     await waitForExit(spawnedPid);
+  });
+
+  it("terminates subprocess descendants when the runner is aborted", async () => {
+    const pidFile = path.join(
+      await createTempDir("local-runner-descendant-"),
+      "descendant.pid",
+    );
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig(
+        `node -e "const fs = require('node:fs'); const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); fs.writeFileSync(process.argv[1], String(child.pid)); setInterval(() => {}, 1000)" ${JSON.stringify(pidFile)}`,
+      ),
+      new JsonLogger(),
+    );
+    const session = createSession();
+    const abortController = new AbortController();
+
+    const run = runner.run(session, {
+      signal: abortController.signal,
+    });
+
+    await waitForFile(pidFile);
+    abortController.abort();
+
+    await expect(run).rejects.toBeInstanceOf(RunnerShutdownError);
+
+    const descendantPid = Number.parseInt(
+      await fs.readFile(pidFile, "utf8"),
+      10,
+    );
+    expect(descendantPid).toBeGreaterThan(0);
+    await waitForExit(descendantPid);
   });
 
   it("reports a timeout even when the runner must be SIGKILLed", async () => {

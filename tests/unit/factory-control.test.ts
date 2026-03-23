@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import type { StartupSnapshot } from "../../src/startup/service.js";
+import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import {
   collectDescendantProcessIds,
   createFactoryLaunchEnvironment,
@@ -102,10 +103,15 @@ function createControlDeps(
 ): FactoryControlDeps {
   const repoRoot = "/repo";
   const runtimeRoot = path.join(repoRoot, ".tmp", "factory-main");
-  const workflowPath = path.join(runtimeRoot, "WORKFLOW.md");
-  const statusFilePath = path.join(runtimeRoot, ".tmp", "status.json");
-  const startupFilePath = path.join(runtimeRoot, ".tmp", "startup.json");
+  const instancePaths = deriveRuntimeInstancePaths({
+    workflowPath: path.join(runtimeRoot, "WORKFLOW.md"),
+    workspaceRoot: path.join(runtimeRoot, ".tmp", "workspaces"),
+  });
+  const workflowPath = instancePaths.runtimeWorkflowPath;
+  const statusFilePath = instancePaths.statusFilePath;
+  const startupFilePath = instancePaths.startupFilePath;
   const nowValues = [...(options.nowValues ?? [0])];
+  let lastNowValue = nowValues[0] ?? 0;
 
   return {
     cwd: () => runtimeRoot,
@@ -113,14 +119,15 @@ function createControlDeps(
     pathExists: async (targetPath) =>
       [
         repoRoot,
+        instancePaths.tempRoot,
         runtimeRoot,
         workflowPath,
         path.dirname(statusFilePath),
         statusFilePath,
         startupFilePath,
       ].includes(targetPath),
-    loadWorkflowWorkspaceRoot: async () =>
-      path.join(runtimeRoot, ".tmp", "workspaces"),
+    loadWorkflowWorkspaceRoot: async () => instancePaths.workspaceRoot,
+    loadWorkflowInstancePaths: async () => instancePaths,
     readFile: async (filePath) => {
       if (filePath === statusFilePath) {
         if (options.snapshot === null) {
@@ -176,9 +183,10 @@ function createControlDeps(
       ),
     now: () => {
       if (nowValues.length === 0) {
-        return 0;
+        return lastNowValue;
       }
-      return nowValues.shift() ?? 0;
+      lastNowValue = nowValues.shift() ?? lastNowValue;
+      return lastNowValue;
     },
     ...(options.launchScreenSession === undefined
       ? {}
@@ -238,7 +246,7 @@ Prompt body
       expect(paths.runtimeRoot).toBe(runtimeRoot);
       expect(paths.workflowPath).toBe(path.join(runtimeRoot, "WORKFLOW.md"));
       expect(paths.statusFilePath).toBe(
-        path.join(runtimeRoot, ".tmp", "status.json"),
+        path.join(tempDir, ".tmp", "status.json"),
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
