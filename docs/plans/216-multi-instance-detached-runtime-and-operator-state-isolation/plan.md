@@ -189,15 +189,15 @@ This issue does not change orchestration retry or handoff states. The stateful s
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized instance facts available | Expected decision |
-| --- | --- | --- | --- |
-| Two instances launch detached runtimes from the same engine checkout | two selected workflow paths | two distinct instance roots and identity values | each instance gets a distinct detached session name; both can run concurrently |
-| `factory status --workflow <instance-a>` runs while instance B is also detached | selected workflow path, all `screen -ls` output | instance A identity | inspect only A's matching session; do not report B as degraded noise |
-| `factory stop --workflow <instance-a>` runs while instance B is healthy | selected workflow path, all live sessions/processes | instance A identity | stop only A's detached session and descendants; leave B untouched |
-| legacy global `symphony-factory` session exists from older code | matching sessions include legacy/global and/or scoped names | targeted instance identity | surface clear degraded or migration-safe behavior without silently killing another instance |
-| two operator loops target different instances from the same engine checkout | same operator repo root, two selected workflow paths | two distinct operator-state roots | lock/status/log/scratchpad files do not collide; each loop reports its own state |
-| operator loop omits `--workflow` inside an instance root | caller `cwd` | discovered selected instance and identity | preserve current local-default behavior but still write per-instance operator state |
-| provided workflow path is invalid | workflow path only | none | fail clearly before reading or writing session/operator files for any other instance |
+| Observed condition                                                              | Local facts available                                       | Normalized instance facts available             | Expected decision                                                                           |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Two instances launch detached runtimes from the same engine checkout            | two selected workflow paths                                 | two distinct instance roots and identity values | each instance gets a distinct detached session name; both can run concurrently              |
+| `factory status --workflow <instance-a>` runs while instance B is also detached | selected workflow path, all `screen -ls` output             | instance A identity                             | inspect only A's matching session; do not report B as degraded noise                        |
+| `factory stop --workflow <instance-a>` runs while instance B is healthy         | selected workflow path, all live sessions/processes         | instance A identity                             | stop only A's detached session and descendants; leave B untouched                           |
+| legacy global `symphony-factory` session exists from older code                 | matching sessions include legacy/global and/or scoped names | targeted instance identity                      | surface clear degraded or migration-safe behavior without silently killing another instance |
+| two operator loops target different instances from the same engine checkout     | same operator repo root, two selected workflow paths        | two distinct operator-state roots               | lock/status/log/scratchpad files do not collide; each loop reports its own state            |
+| operator loop omits `--workflow` inside an instance root                        | caller `cwd`                                                | discovered selected instance and identity       | preserve current local-default behavior but still write per-instance operator state         |
+| provided workflow path is invalid                                               | workflow path only                                          | none                                            | fail clearly before reading or writing session/operator files for any other instance        |
 
 ## Storage / Persistence Contract
 
