@@ -186,14 +186,14 @@ This issue does not change long-running orchestration state. The stateful surfac
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized scaffold facts available | Expected decision |
-| --- | --- | --- | --- |
-| Target repository exists and has no `WORKFLOW.md` | target path, no existing file | selected output path and template inputs | write the starter workflow and print next-step commands |
-| Target repository already has `WORKFLOW.md` and overwrite is not set | target path, existing file | selected output path | fail clearly without modifying the file |
-| Target repository already has `WORKFLOW.md` and overwrite is set | target path, existing file, explicit overwrite flag | selected output path and template inputs | replace the file deterministically and print that overwrite occurred |
-| Required scaffold input such as tracker repo is missing | argv only | none | fail with command-usage guidance; do not write a partial file |
-| Checked-in starter template cannot be read | repo files, template path | none | fail clearly as a repo/setup bug rather than silently generating a fallback template |
-| Operator runs the generated workflow from the engine checkout with `--workflow` | engine checkout cwd, generated workflow path | instance-rooted workflow path | existing runtime should load the target instance without new multi-instance logic |
+| Observed condition                                                              | Local facts available                               | Normalized scaffold facts available      | Expected decision                                                                    |
+| ------------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| Target repository exists and has no `WORKFLOW.md`                               | target path, no existing file                       | selected output path and template inputs | write the starter workflow and print next-step commands                              |
+| Target repository already has `WORKFLOW.md` and overwrite is not set            | target path, existing file                          | selected output path                     | fail clearly without modifying the file                                              |
+| Target repository already has `WORKFLOW.md` and overwrite is set                | target path, existing file, explicit overwrite flag | selected output path and template inputs | replace the file deterministically and print that overwrite occurred                 |
+| Required scaffold input such as tracker repo is missing                         | argv only                                           | none                                     | fail with command-usage guidance; do not write a partial file                        |
+| Checked-in starter template cannot be read                                      | repo files, template path                           | none                                     | fail clearly as a repo/setup bug rather than silently generating a fallback template |
+| Operator runs the generated workflow from the engine checkout with `--workflow` | engine checkout cwd, generated workflow path        | instance-rooted workflow path            | existing runtime should load the target instance without new multi-instance logic    |
 
 ## Storage / Persistence Contract
 

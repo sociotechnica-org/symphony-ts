@@ -2,6 +2,11 @@
 
 Symphony runs against the `symphony-ts` GitHub repo and works `symphony-ts` issues by opening PRs back to that same repo. This is how we develop it.
 
+This guide is only for the `symphony-ts` self-hosting path. If you want to run
+Symphony against a different repository from a shared engine checkout, use the
+third-party onboarding path in [`README.md`](../../README.md), starting with
+`pnpm tsx bin/symphony.ts init <target-repo> --tracker-repo <owner/repo>`.
+
 Canonical day-two operating procedure now lives in:
 
 - [`operator-runbook.md`](./operator-runbook.md)

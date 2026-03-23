@@ -32,6 +32,21 @@ pnpm operator:once
 pnpm operator -- --workflow ../target-repo/WORKFLOW.md
 ```
 
+## Third-Party Onboarding
+
+If you are operating a third-party repository instead of self-hosting
+`symphony-ts`, create that repository's local instance contract first from the
+engine checkout:
+
+```bash
+pnpm tsx bin/symphony.ts init ../target-repo --tracker-repo your-org/your-repo
+```
+
+Then review `../target-repo/WORKFLOW.md`, customize its prompt and repo policy,
+and use the factory commands in this runbook with `--workflow
+../target-repo/WORKFLOW.md` whenever your shell is not already inside that
+instance root.
+
 Normal path rules:
 
 - Treat `factory status --json` as the primary source of truth.

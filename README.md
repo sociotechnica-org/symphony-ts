@@ -31,9 +31,32 @@ cd symphony-ts
 pnpm install
 ```
 
+To scaffold a project-local Symphony instance inside another repository from
+this engine checkout, run:
+
+```bash
+pnpm tsx bin/symphony.ts init ../target-repo --tracker-repo your-org/your-repo
+```
+
+Use `--runner claude-code` or `--runner generic-command` to change the starter
+runner, and use `--force` to replace an existing target workflow. You can also
+target an explicit workflow path instead of a repository directory:
+
+```bash
+pnpm tsx bin/symphony.ts init ../target-repo/WORKFLOW.md --tracker-repo your-org/your-repo
+```
+
+The checked-in root [`WORKFLOW.md`](WORKFLOW.md) is the self-hosting contract
+for `symphony-ts`; do not copy it blindly into unrelated repositories. Review
+and customize the scaffolded target-repo workflow for that repository's prompt,
+checks, and policy before running agents.
+
 Your target repo needs three labels: `symphony:ready`, `symphony:running`, `symphony:failed`.
 
-**Before running**, set `tracker.repo` in `WORKFLOW.md` to the GitHub repository you want Symphony to work against (e.g. `your-org/your-repo`). The checked-in default is blank — Symphony will refuse to start without it. You can also set the `SYMPHONY_REPO` environment variable instead:
+If you are writing `WORKFLOW.md` manually instead of using `symphony init`,
+set `tracker.repo` to the GitHub repository you want Symphony to work against
+(for example `your-org/your-repo`). Symphony will refuse to start without it.
+You can also set the `SYMPHONY_REPO` environment variable instead:
 
 ```bash
 export SYMPHONY_REPO=your-org/your-repo
@@ -46,7 +69,7 @@ The repository containing that `WORKFLOW.md` is the local Symphony instance root
 Run one poll cycle:
 
 ```bash
-pnpm tsx bin/symphony.ts run --once
+pnpm tsx bin/symphony.ts run --once --workflow ../target-repo/WORKFLOW.md
 ```
 
 Startup preparation now runs on this mainline `run` path. Do not use or
@@ -55,34 +78,29 @@ invent a separate "safe" wrapper entrypoint for GitHub bootstrap hardening.
 Run continuously:
 
 ```bash
-pnpm tsx bin/symphony.ts run
+pnpm tsx bin/symphony.ts run --workflow ../target-repo/WORKFLOW.md
 ```
 
 Check the workflow-derived status snapshot:
 
 ```bash
-pnpm tsx bin/symphony.ts status          # terminal view
-pnpm tsx bin/symphony.ts status --json   # machine-readable
+pnpm tsx bin/symphony.ts status --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts status --json --workflow ../target-repo/WORKFLOW.md
 ```
 
-Control or inspect the local detached factory runtime from the repo root:
+Control or inspect the local detached factory runtime from the engine checkout:
 
 ```bash
-pnpm tsx bin/symphony.ts factory start
-pnpm tsx bin/symphony.ts factory status        # control/runtime view
-pnpm tsx bin/symphony.ts factory watch         # live read-only watch surface
-pnpm tsx bin/symphony.ts factory status --json
-pnpm tsx bin/symphony.ts factory restart
-pnpm tsx bin/symphony.ts factory stop
-```
-
-From a separate engine checkout, target a project-local instance explicitly:
-
-```bash
+pnpm tsx bin/symphony.ts factory start --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory status --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory watch --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory status --json --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory restart --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory stop --workflow ../target-repo/WORKFLOW.md
 ```
+
+When you are already inside the target instance root, the same commands may
+omit `--workflow` and use the local `WORKFLOW.md` by default.
 
 `factory start` launches the same startup-preparation path as `symphony run`
 and surfaces startup preparation/failure details through `factory status`

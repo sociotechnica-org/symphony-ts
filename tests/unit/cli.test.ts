@@ -3,6 +3,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseArgs, runCli } from "../../src/cli/index.js";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
+import { loadWorkflow } from "../../src/config/workflow.js";
 import { createTempDir } from "../support/git.js";
 
 function createWorkflow(rootDir: string): string {
@@ -90,6 +91,23 @@ Prompt body
   return workflowPath;
 }
 
+async function withEnvVarUnset<T>(
+  name: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previousValue = process.env[name];
+  delete process.env[name];
+  try {
+    return await run();
+  } finally {
+    if (previousValue === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = previousValue;
+    }
+  }
+}
+
 function createSnapshot(): FactoryStatusSnapshot {
   return {
     version: 1,
@@ -161,7 +179,7 @@ describe("parseArgs", () => {
 
   it("fails when the run command is missing", () => {
     expect(() => parseArgs(["node", "symphony"])).toThrowError(
-      "Usage: symphony <run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+      "Usage: symphony <init|run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
     );
   });
 
@@ -186,7 +204,78 @@ describe("parseArgs", () => {
     expect(() =>
       parseArgs(["node", "symphony", "deploy", "--workflow"]),
     ).toThrowError(
-      "Usage: symphony <run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+      "Usage: symphony <init|run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+    );
+  });
+
+  it("parses the init command", () => {
+    const targetPath = path.resolve("/tmp/project");
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "init",
+        "/tmp/project",
+        "--tracker-repo",
+        "acme/widgets",
+      ]),
+    ).toEqual({
+      command: "init",
+      targetPath,
+      trackerRepo: "acme/widgets",
+      runnerKind: "codex",
+      force: false,
+    });
+  });
+
+  it("parses optional init runner and force flags", () => {
+    const targetPath = path.resolve("/tmp/project/WORKFLOW.md");
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "init",
+        "/tmp/project/WORKFLOW.md",
+        "--tracker-repo",
+        "acme/widgets",
+        "--runner",
+        "claude-code",
+        "--force",
+      ]),
+    ).toEqual({
+      command: "init",
+      targetPath,
+      trackerRepo: "acme/widgets",
+      runnerKind: "claude-code",
+      force: true,
+    });
+  });
+
+  it("requires a target path and tracker repo for init", () => {
+    expect(() => parseArgs(["node", "symphony", "init"])).toThrowError(
+      "Usage: symphony init <target-directory-or-workflow-path> --tracker-repo <owner/repo> [--runner <codex|claude-code|generic-command>] [--force]",
+    );
+    expect(() =>
+      parseArgs(["node", "symphony", "init", "/tmp/project"]),
+    ).toThrowError(
+      "Usage: symphony init <target-directory-or-workflow-path> --tracker-repo <owner/repo> [--runner <codex|claude-code|generic-command>] [--force]\nMissing required --tracker-repo <owner/repo>.",
+    );
+  });
+
+  it("rejects unsupported init runner values", () => {
+    expect(() =>
+      parseArgs([
+        "node",
+        "symphony",
+        "init",
+        "/tmp/project",
+        "--tracker-repo",
+        "acme/widgets",
+        "--runner",
+        "cursor",
+      ]),
+    ).toThrowError(
+      'Usage: symphony init <target-directory-or-workflow-path> --tracker-repo <owner/repo> [--runner <codex|claude-code|generic-command>] [--force]\nUnsupported --runner "cursor". Supported values: codex, claude-code, generic-command.',
     );
   });
 
@@ -540,6 +629,120 @@ describe("runCli status", () => {
     }
 
     expect(chunks.join("")).toContain('"factoryState": "idle"');
+  });
+});
+
+describe("runCli init", () => {
+  it("scaffolds a starter workflow into a target repository and prints next steps", async () => {
+    const tempDir = await createTempDir("symphony-cli-init-");
+    const targetRepo = path.join(tempDir, "target-repo");
+    await fs.mkdir(targetRepo, { recursive: true });
+
+    const chunks: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      chunk: string | Uint8Array,
+    ) => {
+      chunks.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
+      );
+      return true;
+    }) as typeof process.stdout.write);
+
+    try {
+      await runCli([
+        "node",
+        "symphony",
+        "init",
+        targetRepo,
+        "--tracker-repo",
+        "acme/widgets",
+      ]);
+
+      const workflowPath = path.join(targetRepo, "WORKFLOW.md");
+      const workflowBody = await fs.readFile(workflowPath, "utf8");
+      const workflow = await withEnvVarUnset("SYMPHONY_REPO", () =>
+        loadWorkflow(workflowPath),
+      );
+
+      expect(workflowBody).toContain("repo: acme/widgets");
+      expect(workflowBody).toContain("kind: codex");
+      expect(workflowBody).toContain(
+        "Read `AGENTS.md`, `README.md`, and the relevant docs before making changes.",
+      );
+      expect(workflow.config.workflowPath).toBe(workflowPath);
+      expect(workflow.config.instance.instanceRoot).toBe(targetRepo);
+      expect(workflow.config.instance.runtimeRoot).toBe(
+        path.join(targetRepo, ".tmp", "factory-main"),
+      );
+
+      const output = chunks.join("");
+      expect(output).toContain(`Created ${workflowPath}`);
+      expect(output).toContain(
+        `pnpm tsx bin/symphony.ts factory start --workflow ${JSON.stringify(workflowPath)}`,
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to overwrite an existing workflow without --force", async () => {
+    const tempDir = await createTempDir("symphony-cli-init-existing-");
+    const targetRepo = path.join(tempDir, "target-repo");
+    await fs.mkdir(targetRepo, { recursive: true });
+    const workflowPath = await writeWorkflow(targetRepo);
+
+    try {
+      await expect(
+        runCli([
+          "node",
+          "symphony",
+          "init",
+          targetRepo,
+          "--tracker-repo",
+          "acme/widgets",
+        ]),
+      ).rejects.toThrowError(
+        `Refusing to overwrite existing workflow at ${workflowPath}. Re-run with --force to replace it.`,
+      );
+      expect(await fs.readFile(workflowPath, "utf8")).toContain(
+        "repo: sociotechnica-org/symphony-ts",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("overwrites an existing workflow when --force is set", async () => {
+    const tempDir = await createTempDir("symphony-cli-init-force-");
+    const targetRepo = path.join(tempDir, "target-repo");
+    await fs.mkdir(targetRepo, { recursive: true });
+    const workflowPath = await writeWorkflow(targetRepo);
+    vi.spyOn(process.stdout, "write").mockImplementation(
+      (() => true) as typeof process.stdout.write,
+    );
+
+    try {
+      await runCli([
+        "node",
+        "symphony",
+        "init",
+        workflowPath,
+        "--tracker-repo",
+        "acme/widgets",
+        "--runner",
+        "claude-code",
+        "--force",
+      ]);
+
+      const workflowBody = await fs.readFile(workflowPath, "utf8");
+      expect(workflowBody).toContain("repo: acme/widgets");
+      expect(workflowBody).toContain("kind: claude-code");
+      expect(workflowBody).toContain(
+        "command: claude -p --output-format json --permission-mode bypassPermissions --model sonnet",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
