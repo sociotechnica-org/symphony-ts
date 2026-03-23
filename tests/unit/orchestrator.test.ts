@@ -119,16 +119,57 @@ function createRunnerVisibilityProbe(): LivenessProbe {
   };
 }
 
+const BASE_INSTANCE_ROOT = path.join(
+  "/tmp",
+  `symphony-orchestrator-test-${process.pid}`,
+);
+
+function deriveTestInstance(root: string) {
+  return deriveRuntimeInstancePaths({
+    workflowPath: path.join(root, "WORKFLOW.md"),
+    workspaceRoot: root,
+  });
+}
+
+function withLocalInstanceRoot(
+  config: ResolvedConfig,
+  root: string,
+): ResolvedConfig {
+  const instance = deriveTestInstance(root);
+  return {
+    ...config,
+    workflowPath: path.join(root, "WORKFLOW.md"),
+    instance,
+    workspace: {
+      ...config.workspace,
+      root,
+    },
+  };
+}
+
+async function removeTempRoot(root: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.rm(root, {
+        recursive: true,
+        force: true,
+      });
+      return;
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code !== "ENOTEMPTY" ||
+        attempt === 4
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+}
+
 const baseConfig: ResolvedConfig = {
-  workflowPath: "/tmp/WORKFLOW.md",
-  instance: deriveRuntimeInstancePaths({
-    workflowPath: "/tmp/WORKFLOW.md",
-    workspaceRoot: path.join(
-      "/tmp",
-      `symphony-orchestrator-test-${process.pid}`,
-      "workspaces",
-    ),
-  }),
+  workflowPath: path.join(BASE_INSTANCE_ROOT, "WORKFLOW.md"),
+  instance: deriveTestInstance(BASE_INSTANCE_ROOT),
   tracker: {
     kind: "github-bootstrap",
     repo: "sociotechnica-org/symphony-ts",
@@ -148,11 +189,7 @@ const baseConfig: ResolvedConfig = {
     },
   },
   workspace: {
-    root: path.join(
-      "/tmp",
-      `symphony-orchestrator-test-${process.pid}`,
-      "workspaces",
-    ),
+    root: BASE_INSTANCE_ROOT,
     repoUrl: "/tmp/remote.git",
     branchPrefix: "symphony/",
     retention: {
@@ -202,7 +239,7 @@ function createRemoteConfig(
   } as const;
 
   return {
-    ...baseConfig,
+    ...withLocalInstanceRoot(baseConfig, workspaceRoot),
     workspace: {
       ...baseConfig.workspace,
       root: workspaceRoot,
@@ -943,13 +980,7 @@ describe("BootstrapOrchestrator", () => {
       ]);
       const runner = new ConcurrencyRunner();
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -972,7 +1003,7 @@ describe("BootstrapOrchestrator", () => {
         [...tracker.completed].sort((left, right) => left - right),
       ).toEqual([1, 2]);
     } finally {
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await removeTempRoot(tempRoot);
     }
   });
 
@@ -1020,17 +1051,16 @@ describe("BootstrapOrchestrator", () => {
       };
 
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
           polling: {
             ...baseConfig.polling,
             maxConcurrentRuns: 1,
           },
-        },
+          },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1042,7 +1072,7 @@ describe("BootstrapOrchestrator", () => {
 
       expect(runnerIssues).toEqual([2]);
       const snapshot = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(snapshot.readyQueue).toEqual([
         {
@@ -1108,17 +1138,16 @@ describe("BootstrapOrchestrator", () => {
       };
 
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
           polling: {
             ...baseConfig.polling,
             maxConcurrentRuns: 1,
           },
-        },
+          },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1130,7 +1159,7 @@ describe("BootstrapOrchestrator", () => {
 
       expect(runnerIssues).toEqual([]);
       const snapshot = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(snapshot.activeIssues).toEqual(
         expect.arrayContaining([
@@ -1166,14 +1195,13 @@ describe("BootstrapOrchestrator", () => {
       ]);
       const logger = new NullLogger();
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          polling: { ...baseConfig.polling, intervalMs: 1 },
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
+        withLocalInstanceRoot(
+          {
+            ...baseConfig,
+            polling: { ...baseConfig.polling, intervalMs: 1 },
           },
-        },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1208,7 +1236,7 @@ describe("BootstrapOrchestrator", () => {
       expect(logger.errors).toContain("Poll cycle failed");
       expect(tracker.completed).toEqual([1]);
     } finally {
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await removeTempRoot(tempRoot);
     }
   });
 
@@ -1222,13 +1250,7 @@ describe("BootstrapOrchestrator", () => {
         running: [],
       });
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1295,13 +1317,7 @@ describe("BootstrapOrchestrator", () => {
       ]);
       let runnerCalls = 0;
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1325,12 +1341,15 @@ describe("BootstrapOrchestrator", () => {
       expect(tracker.retried).toEqual([]);
 
       const snapshot = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(snapshot.lastAction?.kind).toBe("awaiting-landing-command");
       expect(snapshot.activeIssues[0]?.status).toBe("awaiting-landing-command");
 
-      const summary = await readIssueArtifactSummary(tempRoot, 47);
+      const summary = await readIssueArtifactSummary(
+        deriveTestInstance(tempRoot),
+        47,
+      );
       expect(summary.currentOutcome).toBe("awaiting-landing-command");
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
@@ -1349,13 +1368,7 @@ describe("BootstrapOrchestrator", () => {
       ]);
       const runner = new RecordingRunner();
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1370,7 +1383,7 @@ describe("BootstrapOrchestrator", () => {
       expect(tracker.retried).toEqual([]);
 
       const snapshot = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(snapshot.activeIssues[0]?.status).toBe("awaiting-human-handoff");
     } finally {
@@ -1392,13 +1405,7 @@ describe("BootstrapOrchestrator", () => {
       const logger = new NullLogger();
       const runner = new RecordingRunner();
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1435,13 +1442,7 @@ describe("BootstrapOrchestrator", () => {
         }),
       ]);
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1452,7 +1453,7 @@ describe("BootstrapOrchestrator", () => {
       await orchestrator.runOnce();
 
       const snapshot = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(snapshot.activeIssues).toHaveLength(1);
       expect(snapshot.activeIssues[0]?.source).toBe("running");
@@ -1478,13 +1479,7 @@ describe("BootstrapOrchestrator", () => {
       await fs.mkdir(lockDir, { recursive: true });
       await fs.writeFile(path.join(lockDir, "pid"), `${process.pid}\n`, "utf8");
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1524,13 +1519,7 @@ describe("BootstrapOrchestrator", () => {
       await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
 
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1588,17 +1577,16 @@ describe("BootstrapOrchestrator", () => {
       );
 
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
           polling: {
             ...baseConfig.polling,
             maxConcurrentRuns: 0,
           },
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
           },
-        },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1653,13 +1641,7 @@ describe("BootstrapOrchestrator", () => {
       );
       const runner = new RecordingRunner();
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1672,7 +1654,7 @@ describe("BootstrapOrchestrator", () => {
       expect(runner.sessionIds).toEqual([]);
       expect(tracker.completed).toEqual([]);
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(status.restartRecovery?.state).toBe("ready");
       expect(status.restartRecovery?.issues).toEqual(
@@ -1768,7 +1750,7 @@ describe("BootstrapOrchestrator", () => {
 
       expect(runner.sessionIds).toEqual([]);
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(status.hostDispatch).toEqual({
         hosts: [
@@ -1824,13 +1806,7 @@ describe("BootstrapOrchestrator", () => {
 
     try {
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1871,7 +1847,7 @@ describe("BootstrapOrchestrator", () => {
       await orchestrator.runOnce();
 
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(status.hostDispatch).toEqual({
         hosts: [
@@ -1898,13 +1874,7 @@ describe("BootstrapOrchestrator", () => {
         lifecycle("awaiting-system-checks", "symphony/72"),
       ]);
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -1919,7 +1889,7 @@ describe("BootstrapOrchestrator", () => {
       await orchestrator.runOnce();
 
       const snapshot = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(snapshot.activeIssues).toHaveLength(0);
       expect(snapshot.counts.running).toBe(0);
@@ -1948,13 +1918,7 @@ describe("BootstrapOrchestrator", () => {
     });
 
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
-        },
-      },
+      withLocalInstanceRoot(baseConfig, tempRoot),
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -2087,13 +2051,7 @@ describe("BootstrapOrchestrator", () => {
     ]);
     const logger = new NullLogger();
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
-        },
-      },
+      withLocalInstanceRoot(baseConfig, tempRoot),
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -2122,9 +2080,15 @@ describe("BootstrapOrchestrator", () => {
         }),
       });
 
-      const summary = await readIssueArtifactSummary(tempRoot, 74);
+      const summary = await readIssueArtifactSummary(
+        deriveTestInstance(tempRoot),
+        74,
+      );
       expect(summary.currentOutcome).toBe("attempt-failed");
-      const events = await readIssueArtifactEvents(tempRoot, 74);
+      const events = await readIssueArtifactEvents(
+        deriveTestInstance(tempRoot),
+        74,
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           kind: "landing-failed",
@@ -2141,7 +2105,7 @@ describe("BootstrapOrchestrator", () => {
       );
 
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(status.lastAction?.kind).toBe("landing-failed");
 
@@ -2165,13 +2129,7 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("awaiting-human-review", "symphony/75"),
     ]);
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
-        },
-      },
+      withLocalInstanceRoot(baseConfig, tempRoot),
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -2192,10 +2150,16 @@ describe("BootstrapOrchestrator", () => {
 
       expect(tracker.landingRequests).toEqual([1, 1]);
 
-      const summary = await readIssueArtifactSummary(tempRoot, 75);
+      const summary = await readIssueArtifactSummary(
+        deriveTestInstance(tempRoot),
+        75,
+      );
       expect(summary.currentOutcome).toBe("awaiting-human-review");
 
-      const events = await readIssueArtifactEvents(tempRoot, 75);
+      const events = await readIssueArtifactEvents(
+        deriveTestInstance(tempRoot),
+        75,
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           kind: "landing-blocked",
@@ -2208,7 +2172,7 @@ describe("BootstrapOrchestrator", () => {
       );
 
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(status.lastAction?.kind).toBe("landing-blocked");
       expect(status.activeIssues[0]?.blockedReason).toMatch(
@@ -2229,13 +2193,7 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("awaiting-system-checks", "symphony/76"),
     ]);
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
-        },
-      },
+      withLocalInstanceRoot(baseConfig, tempRoot),
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -2253,10 +2211,16 @@ describe("BootstrapOrchestrator", () => {
     try {
       await orchestrator.runOnce();
 
-      const summary = await readIssueArtifactSummary(tempRoot, 76);
+      const summary = await readIssueArtifactSummary(
+        deriveTestInstance(tempRoot),
+        76,
+      );
       expect(summary.currentOutcome).toBe("awaiting-system-checks");
 
-      const events = await readIssueArtifactEvents(tempRoot, 76);
+      const events = await readIssueArtifactEvents(
+        deriveTestInstance(tempRoot),
+        76,
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           kind: "landing-blocked",
@@ -2269,7 +2233,7 @@ describe("BootstrapOrchestrator", () => {
       );
 
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(status.lastAction?.kind).toBe("landing-blocked");
       expect(status.activeIssues[0]).toMatchObject({
@@ -2300,13 +2264,7 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("handoff-ready", "symphony/77"),
     ]);
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
-        },
-      },
+      withLocalInstanceRoot(baseConfig, tempRoot),
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -2327,10 +2285,16 @@ describe("BootstrapOrchestrator", () => {
       expect(tracker.landingRequests).toEqual([1]);
       expect(tracker.completed).toEqual([77]);
 
-      const summary = await readIssueArtifactSummary(tempRoot, 77);
+      const summary = await readIssueArtifactSummary(
+        deriveTestInstance(tempRoot),
+        77,
+      );
       expect(summary.currentOutcome).toBe("succeeded");
 
-      const events = await readIssueArtifactEvents(tempRoot, 77);
+      const events = await readIssueArtifactEvents(
+        deriveTestInstance(tempRoot),
+        77,
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           kind: "landing-blocked",
@@ -2362,13 +2326,7 @@ describe("BootstrapOrchestrator", () => {
       lifecycle("awaiting-landing", "symphony/73"),
     ]);
     const orchestrator = new BootstrapOrchestrator(
-      {
-        ...baseConfig,
-        workspace: {
-          ...baseConfig.workspace,
-          root: tempRoot,
-        },
-      },
+      withLocalInstanceRoot(baseConfig, tempRoot),
       staticPromptBuilder,
       tracker,
       new StaticWorkspaceManager(),
@@ -2388,9 +2346,15 @@ describe("BootstrapOrchestrator", () => {
       expect(tracker.landingRequests).toEqual([1]);
       expect(tracker.completed).toEqual([]);
 
-      const summary = await readIssueArtifactSummary(tempRoot, 73);
+      const summary = await readIssueArtifactSummary(
+        deriveTestInstance(tempRoot),
+        73,
+      );
       expect(summary.currentOutcome).toBe("attempt-failed");
-      const events = await readIssueArtifactEvents(tempRoot, 73);
+      const events = await readIssueArtifactEvents(
+        deriveTestInstance(tempRoot),
+        73,
+      );
       expect(events).toContainEqual(
         expect.objectContaining({
           kind: "landing-failed",
@@ -2809,7 +2773,7 @@ describe("BootstrapOrchestrator", () => {
     await orchestrator.runOnce();
 
     const artifactSummary = await readIssueArtifactSummary(
-      baseConfig.workspace.root,
+      baseConfig.instance,
       77,
     );
 
@@ -2824,12 +2788,12 @@ describe("BootstrapOrchestrator", () => {
     expect(artifactSummary.latestSessionId).not.toBeNull();
 
     const attempt = await readIssueArtifactAttempt(
-      baseConfig.workspace.root,
+      baseConfig.instance,
       77,
       1,
     );
     const session = await readIssueArtifactSession(
-      baseConfig.workspace.root,
+      baseConfig.instance,
       77,
       artifactSummary.latestSessionId!,
     );
@@ -2891,7 +2855,7 @@ describe("BootstrapOrchestrator", () => {
     ]);
 
     const attempt = await readIssueArtifactAttempt(
-      baseConfig.workspace.root,
+      baseConfig.instance,
       82,
       1,
     );
@@ -2916,12 +2880,9 @@ describe("BootstrapOrchestrator", () => {
 
     try {
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
           polling: {
             ...baseConfig.polling,
             retry: {
@@ -2929,7 +2890,9 @@ describe("BootstrapOrchestrator", () => {
               backoffMs: 0,
             },
           },
-        },
+          },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -2946,9 +2909,13 @@ describe("BootstrapOrchestrator", () => {
         },
       ]);
 
-      const attempt = await readIssueArtifactAttempt(tempRoot, 77, 1);
+      const attempt = await readIssueArtifactAttempt(
+        deriveTestInstance(tempRoot),
+        77,
+        1,
+      );
       const session = await readIssueArtifactSession(
-        tempRoot,
+        deriveTestInstance(tempRoot),
         77,
         attempt.sessionId!,
       );
@@ -2976,9 +2943,9 @@ describe("BootstrapOrchestrator", () => {
 
     try {
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
-          workspace: { ...baseConfig.workspace, root: tempRoot },
           polling: {
             ...baseConfig.polling,
             retry: {
@@ -2986,7 +2953,9 @@ describe("BootstrapOrchestrator", () => {
               backoffMs: 1_000,
             },
           },
-        },
+          },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -3003,7 +2972,7 @@ describe("BootstrapOrchestrator", () => {
         },
       ]);
       const snapshot = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(snapshot.dispatchPressure).toBeNull();
     } finally {
@@ -3026,12 +2995,9 @@ describe("BootstrapOrchestrator", () => {
 
     try {
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
           polling: {
             ...baseConfig.polling,
             retry: {
@@ -3039,7 +3005,9 @@ describe("BootstrapOrchestrator", () => {
               backoffMs: 0,
             },
           },
-        },
+          },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -3057,9 +3025,13 @@ describe("BootstrapOrchestrator", () => {
         },
       ]);
 
-      const attempt = await readIssueArtifactAttempt(tempRoot, 88, 1);
+      const attempt = await readIssueArtifactAttempt(
+        deriveTestInstance(tempRoot),
+        88,
+        1,
+      );
       const session = await readIssueArtifactSession(
-        tempRoot,
+        deriveTestInstance(tempRoot),
         88,
         attempt.sessionId!,
       );
@@ -3082,13 +3054,7 @@ describe("BootstrapOrchestrator", () => {
 
     try {
       const orchestrator = new BootstrapOrchestrator(
-        {
-          ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
-        },
+        withLocalInstanceRoot(baseConfig, tempRoot),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -3145,9 +3111,13 @@ describe("BootstrapOrchestrator", () => {
 
       expect(tracker.completed).toEqual([90]);
 
-      const attempt = await readIssueArtifactAttempt(tempRoot, 90, 1);
+      const attempt = await readIssueArtifactAttempt(
+        deriveTestInstance(tempRoot),
+        90,
+        1,
+      );
       const session = await readIssueArtifactSession(
-        tempRoot,
+        deriveTestInstance(tempRoot),
         90,
         attempt.sessionId!,
       );
@@ -3230,7 +3200,8 @@ describe("BootstrapOrchestrator", () => {
       ]);
 
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
           agent: {
             ...baseConfig.agent,
@@ -3243,11 +3214,9 @@ describe("BootstrapOrchestrator", () => {
               backoffMs: 0,
             },
           },
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
           },
-        },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -3258,7 +3227,7 @@ describe("BootstrapOrchestrator", () => {
       await orchestrator.runOnce();
 
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       const issueStatus = status.activeIssues.find(
         (issue) => issue.issueNumber === 90,
@@ -3312,7 +3281,8 @@ describe("BootstrapOrchestrator", () => {
       ]);
 
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
           agent: {
             ...baseConfig.agent,
@@ -3325,11 +3295,9 @@ describe("BootstrapOrchestrator", () => {
               backoffMs: 0,
             },
           },
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
           },
-        },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -3340,7 +3308,7 @@ describe("BootstrapOrchestrator", () => {
       await orchestrator.runOnce();
 
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       const issueStatus = status.activeIssues.find(
         (issue) => issue.issueNumber === 91,
@@ -3599,12 +3567,9 @@ describe("BootstrapOrchestrator", () => {
       const artifactStore = new RecordingIssueArtifactStore();
       const runnerAttempts: number[] = [];
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
-          },
           polling: {
             ...baseConfig.polling,
             retry: {
@@ -3612,7 +3577,9 @@ describe("BootstrapOrchestrator", () => {
               backoffMs: 0,
             },
           },
-        },
+          },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -3650,7 +3617,7 @@ describe("BootstrapOrchestrator", () => {
       expect(tracker.completed).toEqual([84]);
       expect(tracker.failed).toEqual([]);
       const status = await readFactoryStatusSnapshot(
-        deriveStatusFilePath(tempRoot),
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
       );
       expect(status.counts.retries).toBe(0);
       expect(status.activeIssues).toHaveLength(0);
@@ -3847,17 +3814,16 @@ describe("BootstrapOrchestrator", () => {
       ]);
       const started = createDeferred<void>();
       const orchestrator = new BootstrapOrchestrator(
-        {
+        withLocalInstanceRoot(
+          {
           ...baseConfig,
           polling: {
             ...baseConfig.polling,
             intervalMs: 1,
           },
-          workspace: {
-            ...baseConfig.workspace,
-            root: tempRoot,
           },
-        },
+          tempRoot,
+        ),
         staticPromptBuilder,
         tracker,
         new StaticWorkspaceManager(),
@@ -4130,8 +4096,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     const staticProbe = createObservableStalledProbe();
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4235,8 +4200,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     };
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4298,8 +4262,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     };
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4382,8 +4345,7 @@ describe("BootstrapOrchestrator watchdog", () => {
 
     const orchestrator = new BootstrapOrchestrator(
       {
-        ...baseConfig,
-        workspace: { ...baseConfig.workspace, root: tmpDir },
+        ...withLocalInstanceRoot(baseConfig, tmpDir),
         polling: {
           ...baseConfig.polling,
           watchdog: {
@@ -4410,7 +4372,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.retried[0]?.reason).toContain("Stall detected (log-stall)");
     expect(tracker.retried[0]?.reason).not.toContain("provider-rate-limit");
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.dispatchPressure).toBeNull();
   });
@@ -4451,8 +4413,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     };
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4493,7 +4454,7 @@ describe("BootstrapOrchestrator watchdog", () => {
       },
     ]);
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.lastAction?.kind).toBe("issue-failed");
     expect(snapshot.lastAction?.summary).toContain(
@@ -4525,7 +4486,9 @@ describe("BootstrapOrchestrator watchdog", () => {
         return new Promise<RunnerExecutionResult>((_resolve, reject) => {
           const handleAbort = (): void => {
             abortCount += 1;
-            void readFactoryStatusSnapshot(deriveStatusFilePath(tmpDir))
+            void readFactoryStatusSnapshot(
+              deriveStatusFilePath(deriveTestInstance(tmpDir)),
+            )
               .then((snapshot) => {
                 abortSnapshot.resolve({
                   kind: snapshot.lastAction?.kind ?? null,
@@ -4554,8 +4517,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     };
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4598,8 +4560,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     ]);
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4639,7 +4600,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
     expect(
@@ -4655,8 +4616,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     ]);
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4687,7 +4647,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
     expect(
@@ -4703,8 +4663,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     ]);
 
     const watchdogConfig = {
-      ...baseConfig,
-      workspace: { ...baseConfig.workspace, root: tmpDir },
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
         watchdog: {
@@ -4751,7 +4710,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.retried).toEqual([]);
     expect(tracker.failed).toEqual([]);
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery");
     expect(snapshot.lastAction?.kind).not.toBe("watchdog-recovery-exhausted");
@@ -4814,8 +4773,7 @@ describe("BootstrapOrchestrator watchdog", () => {
 
     const orchestrator = new BootstrapOrchestrator(
       {
-        ...baseConfig,
-        workspace: { ...baseConfig.workspace, root: tmpDir },
+        ...withLocalInstanceRoot(baseConfig, tmpDir),
         polling: {
           ...baseConfig.polling,
           maxConcurrentRuns: 1,
@@ -4844,7 +4802,7 @@ describe("BootstrapOrchestrator watchdog", () => {
       },
     ]);
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.dispatchPressure).toMatchObject({
       retryClass: "provider-rate-limit",
@@ -4889,8 +4847,7 @@ describe("BootstrapOrchestrator watchdog", () => {
 
     const orchestrator = new BootstrapOrchestrator(
       {
-        ...baseConfig,
-        workspace: { ...baseConfig.workspace, root: tmpDir },
+        ...withLocalInstanceRoot(baseConfig, tmpDir),
         polling: { ...baseConfig.polling, maxConcurrentRuns: 2 },
       },
       staticPromptBuilder,
@@ -4909,7 +4866,7 @@ describe("BootstrapOrchestrator watchdog", () => {
       3, 4,
     ]);
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.dispatchPressure).toBeNull();
   });
@@ -4948,8 +4905,7 @@ describe("BootstrapOrchestrator watchdog", () => {
 
     const orchestrator = new BootstrapOrchestrator(
       {
-        ...baseConfig,
-        workspace: { ...baseConfig.workspace, root: tmpDir },
+        ...withLocalInstanceRoot(baseConfig, tmpDir),
       },
       staticPromptBuilder,
       tracker,
@@ -4963,7 +4919,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.retried).toEqual([]);
     expect(tracker.completed).toEqual([5]);
     const snapshot = await readFactoryStatusSnapshot(
-      deriveStatusFilePath(tmpDir),
+      deriveStatusFilePath(deriveTestInstance(tmpDir)),
     );
     expect(snapshot.dispatchPressure).toBeNull();
   });

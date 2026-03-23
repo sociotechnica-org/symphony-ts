@@ -298,17 +298,5 @@ export interface PromptBuilder {
 export function getConfigInstancePaths(
   config: ResolvedConfig,
 ): RuntimeInstancePaths {
-  const resolvedWorkspaceRoot = path.resolve(config.workspace.root);
-  const resolvedWorkflowRoot = path.dirname(path.resolve(config.workflowPath));
-  const expectedFromWorkspace = coerceRuntimeInstancePaths(
-    resolvedWorkspaceRoot,
-  );
-  if (
-    config.instance.instanceRoot === expectedFromWorkspace.instanceRoot &&
-    config.instance.workflowRoot === resolvedWorkflowRoot &&
-    config.instance.workspaceRoot === resolvedWorkspaceRoot
-  ) {
-    return config.instance;
-  }
-  return expectedFromWorkspace;
+  return config.instance;
 }
