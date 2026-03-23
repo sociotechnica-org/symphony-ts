@@ -229,7 +229,9 @@ describe("factory status helpers", () => {
   });
 
   it("keeps the status file within the instance temp root when given a filesystem root", () => {
-    expect(deriveStatusFilePath("/")).toBe(path.join("/", ".tmp", "status.json"));
+    expect(deriveStatusFilePath("/")).toBe(
+      path.join("/", ".tmp", "status.json"),
+    );
   });
 
   it("writes and reads the JSON snapshot contract", async () => {

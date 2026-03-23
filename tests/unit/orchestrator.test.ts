@@ -1053,11 +1053,11 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            maxConcurrentRuns: 1,
-          },
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              maxConcurrentRuns: 1,
+            },
           },
           tempRoot,
         ),
@@ -1140,11 +1140,11 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            maxConcurrentRuns: 1,
-          },
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              maxConcurrentRuns: 1,
+            },
           },
           tempRoot,
         ),
@@ -1579,11 +1579,11 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            maxConcurrentRuns: 0,
-          },
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              maxConcurrentRuns: 0,
+            },
           },
           tempRoot,
         ),
@@ -2787,11 +2787,7 @@ describe("BootstrapOrchestrator", () => {
     expect(artifactSummary.latestAttemptNumber).toBe(1);
     expect(artifactSummary.latestSessionId).not.toBeNull();
 
-    const attempt = await readIssueArtifactAttempt(
-      baseConfig.instance,
-      77,
-      1,
-    );
+    const attempt = await readIssueArtifactAttempt(baseConfig.instance, 77, 1);
     const session = await readIssueArtifactSession(
       baseConfig.instance,
       77,
@@ -2854,11 +2850,7 @@ describe("BootstrapOrchestrator", () => {
       },
     ]);
 
-    const attempt = await readIssueArtifactAttempt(
-      baseConfig.instance,
-      82,
-      1,
-    );
+    const attempt = await readIssueArtifactAttempt(baseConfig.instance, 82, 1);
     expect(attempt.outcome).toBe("failed");
     expect(attempt.sessionId).not.toBeNull();
     expect(attempt.runnerPid).toBe(runnerPid);
@@ -2882,14 +2874,14 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            retry: {
-              maxAttempts: 1,
-              backoffMs: 0,
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              retry: {
+                maxAttempts: 1,
+                backoffMs: 0,
+              },
             },
-          },
           },
           tempRoot,
         ),
@@ -2945,14 +2937,14 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            retry: {
-              ...baseConfig.polling.retry,
-              backoffMs: 1_000,
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              retry: {
+                ...baseConfig.polling.retry,
+                backoffMs: 1_000,
+              },
             },
-          },
           },
           tempRoot,
         ),
@@ -2997,14 +2989,14 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            retry: {
-              maxAttempts: 1,
-              backoffMs: 0,
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              retry: {
+                maxAttempts: 1,
+                backoffMs: 0,
+              },
             },
-          },
           },
           tempRoot,
         ),
@@ -3202,18 +3194,18 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          agent: {
-            ...baseConfig.agent,
-            maxTurns: 1,
-          },
-          polling: {
-            ...baseConfig.polling,
-            retry: {
-              maxAttempts: 1,
-              backoffMs: 0,
+            ...baseConfig,
+            agent: {
+              ...baseConfig.agent,
+              maxTurns: 1,
             },
-          },
+            polling: {
+              ...baseConfig.polling,
+              retry: {
+                maxAttempts: 1,
+                backoffMs: 0,
+              },
+            },
           },
           tempRoot,
         ),
@@ -3283,18 +3275,18 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          agent: {
-            ...baseConfig.agent,
-            maxTurns: 3,
-          },
-          polling: {
-            ...baseConfig.polling,
-            retry: {
-              maxAttempts: 1,
-              backoffMs: 0,
+            ...baseConfig,
+            agent: {
+              ...baseConfig.agent,
+              maxTurns: 3,
             },
-          },
+            polling: {
+              ...baseConfig.polling,
+              retry: {
+                maxAttempts: 1,
+                backoffMs: 0,
+              },
+            },
           },
           tempRoot,
         ),
@@ -3569,14 +3561,14 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            retry: {
-              maxAttempts: 2,
-              backoffMs: 0,
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              retry: {
+                maxAttempts: 2,
+                backoffMs: 0,
+              },
             },
-          },
           },
           tempRoot,
         ),
@@ -3816,11 +3808,11 @@ describe("BootstrapOrchestrator", () => {
       const orchestrator = new BootstrapOrchestrator(
         withLocalInstanceRoot(
           {
-          ...baseConfig,
-          polling: {
-            ...baseConfig.polling,
-            intervalMs: 1,
-          },
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              intervalMs: 1,
+            },
           },
           tempRoot,
         ),
