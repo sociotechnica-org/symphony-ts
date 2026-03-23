@@ -178,7 +178,7 @@ polling:
     max_attempts: 2
     backoff_ms: 0
 workspace:
-  root: ../../.tmp/workspaces
+  root: ./.tmp/workspaces
   repo_url: /tmp/repo.git
   branch_prefix: symphony/
   cleanup_on_success: false
