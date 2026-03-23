@@ -947,14 +947,14 @@ class BlockingRecordingRunner implements Runner {
 
 describe("BootstrapOrchestrator", () => {
   beforeEach(async () => {
-    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.workspace.root), {
+    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.instance), {
       recursive: true,
       force: true,
     });
   });
 
   afterEach(async () => {
-    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.workspace.root), {
+    await fs.rm(deriveFactoryRuntimeRoot(baseConfig.instance), {
       recursive: true,
       force: true,
     });

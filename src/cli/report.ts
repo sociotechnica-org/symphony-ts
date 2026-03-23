@@ -1,5 +1,5 @@
 import path from "node:path";
-import { loadWorkflow } from "../config/workflow.js";
+import { loadWorkflowInstancePaths } from "../config/workflow.js";
 import { publishIssueToFactoryRuns } from "../integration/factory-runs.js";
 import { createDefaultIssueReportEnrichers } from "../runner/codex-report-enricher.js";
 import {
@@ -83,8 +83,7 @@ export async function runReportCli(
   },
 ): Promise<void> {
   const args = parseReportArgs(argv);
-  const workflow = await loadWorkflow(args.workflowPath);
-  const { instance } = workflow.config;
+  const instance = await loadWorkflowInstancePaths(args.workflowPath);
   if (args.command === "issue") {
     const generated = await writeIssueReport(instance, args.issueNumber, {
       enrichers: options?.issueEnrichers ?? createDefaultIssueReportEnrichers(),
