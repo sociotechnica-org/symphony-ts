@@ -32,8 +32,20 @@ import {
   stopFactory,
 } from "./factory-control.js";
 import { watchFactory } from "./factory-watch.js";
+import { scaffoldWorkflow, renderScaffoldWorkflowResult } from "./init.js";
+import {
+  SUPPORTED_STARTER_RUNNER_KINDS,
+  type StarterRunnerKind,
+} from "../templates/third-party-workflow.js";
 
 export type CliArgs =
+  | {
+      readonly command: "init";
+      readonly targetPath: string;
+      readonly trackerRepo: string;
+      readonly runnerKind: StarterRunnerKind;
+      readonly force: boolean;
+    }
   | {
       readonly command: "run";
       readonly once: boolean;
@@ -67,6 +79,38 @@ export type CliArgs =
 export function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
   const command = args[0];
+
+  if (command === "init") {
+    const targetPath = args[1];
+    if (targetPath === undefined || targetPath.startsWith("--")) {
+      throw new Error(INIT_USAGE);
+    }
+    const trackerRepo = readOptionValue(args, "--tracker-repo");
+    if (trackerRepo === null) {
+      throw new Error(
+        `${INIT_USAGE}\nMissing required --tracker-repo <owner/repo>.`,
+      );
+    }
+    const runnerKindValue = readOptionValue(args, "--runner") ?? "codex";
+    if (
+      !SUPPORTED_STARTER_RUNNER_KINDS.includes(
+        runnerKindValue as StarterRunnerKind,
+      )
+    ) {
+      throw new Error(
+        `${INIT_USAGE}\nUnsupported --runner ${JSON.stringify(
+          runnerKindValue,
+        )}. Supported values: ${SUPPORTED_STARTER_RUNNER_KINDS.join(", ")}.`,
+      );
+    }
+    return {
+      command: "init",
+      targetPath: path.resolve(process.cwd(), targetPath),
+      trackerRepo,
+      runnerKind: runnerKindValue as StarterRunnerKind,
+      force: args.includes("--force"),
+    };
+  }
 
   if (command === "run") {
     const workflowPath = readOptionValue(args, "--workflow") ?? "WORKFLOW.md";
@@ -133,13 +177,24 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   }
 
   throw new Error(
-    "Usage: symphony <run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
+    "Usage: symphony <init|run|status|factory> [--once] [--json] [--workflow <path>] [--status-file <path>]",
   );
 }
 
 export async function runCli(argv: readonly string[]): Promise<void> {
   const args = parseArgs(argv);
   switch (args.command) {
+    case "init": {
+      const result = await scaffoldWorkflow({
+        targetPath: args.targetPath,
+        trackerRepo: args.trackerRepo,
+        runnerKind: args.runnerKind,
+        force: args.force,
+      });
+      process.stdout.write(renderScaffoldWorkflowResult(result));
+      return;
+    }
+
     case "factory":
       switch (args.action) {
         case "start": {
@@ -461,6 +516,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     dashboard.stop();
   }
 }
+
+const INIT_USAGE =
+  "Usage: symphony init <target-directory-or-workflow-path> --tracker-repo <owner/repo> [--runner <codex|claude-code|generic-command>] [--force]";
 
 function applyFactoryControlExitCode(
   snapshot: FactoryControlStatusSnapshot,
