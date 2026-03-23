@@ -226,19 +226,13 @@ export async function generateCampaignDigest(
   },
 ): Promise<GeneratedCampaignDigest> {
   const normalizedSelection = normalizeCampaignSelection(selection);
-  const reports = await loadCampaignIssueReports(
-    instance,
-    normalizedSelection,
-  );
+  const reports = await loadCampaignIssueReports(instance, normalizedSelection);
   const digest = buildCampaignDigest(
     normalizedSelection,
     reports,
     options?.generatedAt ?? new Date().toISOString(),
   );
-  const outputPaths = deriveCampaignReportPaths(
-    instance,
-    digest.campaignId,
-  );
+  const outputPaths = deriveCampaignReportPaths(instance, digest.campaignId);
   const markdown = {
     summary: renderCampaignSummaryMarkdown(digest),
     timeline: renderCampaignTimelineMarkdown(digest),
@@ -261,11 +255,7 @@ export async function writeCampaignDigest(
     readonly generatedAt?: string | undefined;
   },
 ): Promise<GeneratedCampaignDigest> {
-  const generated = await generateCampaignDigest(
-    instance,
-    selection,
-    options,
-  );
+  const generated = await generateCampaignDigest(instance, selection, options);
   await Promise.all([
     writeTextFileAtomic(
       generated.outputPaths.summaryFile,

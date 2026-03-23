@@ -272,7 +272,9 @@ describe("startup service", () => {
       expect(outcome.provider).toBe("github-bootstrap/local-mirror");
       expect(outcome.summary).toContain("GitHub bootstrap mirror setup failed");
       expect(outcome.summary).toContain(config.workspace.repoUrl);
-      expect(outcome.summary).toContain(deriveGitHubMirrorPath(config.instance));
+      expect(outcome.summary).toContain(
+        deriveGitHubMirrorPath(config.instance),
+      );
     } finally {
       await fs.rm(runtimeRoot, { recursive: true, force: true });
     }

@@ -19,9 +19,7 @@ import type {
   IssueArtifactSessionSnapshot,
   IssueArtifactSummary,
 } from "./issue-artifacts.js";
-import {
-  deriveIssueArtifactPaths,
-} from "./issue-artifacts.js";
+import { deriveIssueArtifactPaths } from "./issue-artifacts.js";
 import {
   createRunnerAccountingSnapshot,
   sumIfAllPresent,

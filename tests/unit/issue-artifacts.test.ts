@@ -49,21 +49,30 @@ describe("issue artifacts", () => {
     );
     const nonTmpWorkspaceRoot = path.join("/repo", "local-workspaces");
 
-    expect(deriveFactoryArtifactsRoot(deriveInstanceFromWorkspaceRoot(workspaceRoot))).toBe(
-      path.join("/repo", ".var", "factory"),
-    );
-    expect(deriveFactoryArtifactsRoot(deriveInstanceFromWorkspaceRoot(nestedWorkspaceRoot))).toBe(
-      path.join("/repo", ".var", "factory"),
-    );
-    expect(deriveFactoryArtifactsRoot(deriveInstanceFromWorkspaceRoot(nonTmpWorkspaceRoot))).toBe(
-      path.join("/repo", ".var", "factory"),
-    );
-    expect(deriveIssueArtifactsRoot(deriveInstanceFromWorkspaceRoot(workspaceRoot))).toBe(
-      path.join("/repo", ".var", "factory", "issues"),
-    );
-    expect(deriveIssueArtifactPaths(deriveInstanceFromWorkspaceRoot(workspaceRoot), 43).issueRoot).toBe(
-      path.join("/repo", ".var", "factory", "issues", "43"),
-    );
+    expect(
+      deriveFactoryArtifactsRoot(
+        deriveInstanceFromWorkspaceRoot(workspaceRoot),
+      ),
+    ).toBe(path.join("/repo", ".var", "factory"));
+    expect(
+      deriveFactoryArtifactsRoot(
+        deriveInstanceFromWorkspaceRoot(nestedWorkspaceRoot),
+      ),
+    ).toBe(path.join("/repo", ".var", "factory"));
+    expect(
+      deriveFactoryArtifactsRoot(
+        deriveInstanceFromWorkspaceRoot(nonTmpWorkspaceRoot),
+      ),
+    ).toBe(path.join("/repo", ".var", "factory"));
+    expect(
+      deriveIssueArtifactsRoot(deriveInstanceFromWorkspaceRoot(workspaceRoot)),
+    ).toBe(path.join("/repo", ".var", "factory", "issues"));
+    expect(
+      deriveIssueArtifactPaths(
+        deriveInstanceFromWorkspaceRoot(workspaceRoot),
+        43,
+      ).issueRoot,
+    ).toBe(path.join("/repo", ".var", "factory", "issues", "43"));
   });
 
   it("writes the base layout and suppresses duplicate consecutive lifecycle events", async () => {

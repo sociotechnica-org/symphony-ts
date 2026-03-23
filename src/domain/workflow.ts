@@ -177,7 +177,9 @@ export interface WorkflowDefinition {
   readonly promptTemplate: string;
 }
 
-export function deriveInstanceRootFromWorkflowPath(workflowPath: string): string {
+export function deriveInstanceRootFromWorkflowPath(
+  workflowPath: string,
+): string {
   const resolvedWorkflowPath = path.resolve(workflowPath);
   const workflowRoot = path.dirname(resolvedWorkflowPath);
   if (
@@ -298,7 +300,9 @@ export function getConfigInstancePaths(
 ): RuntimeInstancePaths {
   const resolvedWorkspaceRoot = path.resolve(config.workspace.root);
   const resolvedWorkflowRoot = path.dirname(path.resolve(config.workflowPath));
-  const expectedFromWorkspace = coerceRuntimeInstancePaths(resolvedWorkspaceRoot);
+  const expectedFromWorkspace = coerceRuntimeInstancePaths(
+    resolvedWorkspaceRoot,
+  );
   if (
     config.instance.instanceRoot === expectedFromWorkspace.instanceRoot &&
     config.instance.workflowRoot === resolvedWorkflowRoot &&

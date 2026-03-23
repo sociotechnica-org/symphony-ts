@@ -148,7 +148,11 @@ const baseConfig: ResolvedConfig = {
     },
   },
   workspace: {
-    root: path.join("/tmp", `symphony-orchestrator-test-${process.pid}`, "workspaces"),
+    root: path.join(
+      "/tmp",
+      `symphony-orchestrator-test-${process.pid}`,
+      "workspaces",
+    ),
     repoUrl: "/tmp/remote.git",
     branchPrefix: "symphony/",
     retention: {

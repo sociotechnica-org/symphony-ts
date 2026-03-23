@@ -464,8 +464,7 @@ function resolveObservabilityConfig(
 
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   const resolvedWorkflowPath = path.resolve(workflowPath);
-  const instanceRoot =
-    deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
+  const instanceRoot = deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
   const tracker = coerceOptionalObject(raw.tracker, "tracker");
   const polling = coerceOptionalObject(raw.polling, "polling");
   const workspace = coerceOptionalObject(raw.workspace, "workspace");
@@ -1214,8 +1213,7 @@ export async function loadWorkflowInstancePaths(
     "workspace",
   );
   const resolvedWorkflowPath = path.resolve(workflowPath);
-  const instanceRoot =
-    deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
+  const instanceRoot = deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
   const workspaceRoot = path.resolve(
     instanceRoot,
     requireString(workspace["root"], "workspace.root"),
