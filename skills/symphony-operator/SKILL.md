@@ -42,14 +42,17 @@ scratchpad, status snapshots, logs, and loop lock files.
    - any PR or active issue waiting in `awaiting-landing-command`
 7. If the factory is unhealthy, fix the concrete problem and restart it.
 8. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-9. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
-   - `Plan review: approved`
-   - `Plan review: changes-requested`
-   - `Plan review: waived` (record why in the comment)
-10. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
-11. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
-12. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
-13. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+9. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
+10. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
+
+- `Plan review: approved`
+- `Plan review: changes-requested`
+- `Plan review: waived` (record why in the comment)
+
+11. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
+12. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
+13. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
+14. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
 
@@ -66,6 +69,7 @@ scratchpad, status snapshots, logs, and loop lock files.
 - Use an isolated checkout when fixing PR branches so local operator-only modifications do not leak into tracked work.
 - The factory owns PR follow-up by default. If a fresh actionable review batch lands and the factory does not pick it up, debug the miss as a factory/runtime problem before taking over the branch manually.
 - Do not silently replace the worker on an active PR just because the next fix is obvious. Operator PR intervention is for stalled or broken factory behavior, not the normal path.
+- If a PR's required checks remain non-terminal for an unusually long time but the same behavior can be reproduced locally, do not stop at the first fixed assertion failure. Keep the PR in active operator treatment until the full locally reproducible hang is resolved or reduced to clearly external infrastructure.
 - Keep runner assumptions provider-neutral. The current runtime may use `codex`, `claude-code`, or `generic-command`; do not assume every healthy run appears as a direct `codex exec` child process.
 - Treat plan review as a required operator checkpoint:
   - if the plan is sound, post `Plan review: approved`,
