@@ -1,4 +1,5 @@
 import path from "node:path";
+import { ConfigError } from "./errors.js";
 import type { RuntimeIssue } from "./issue.js";
 import type { HandoffLifecycle } from "./handoff.js";
 
@@ -244,6 +245,12 @@ export function coerceRuntimeInstancePaths(
       break;
     }
     current = parent;
+  }
+
+  if (!workspaceRoot.startsWith(path.join(instanceRoot, ".tmp", ""))) {
+    throw new ConfigError(
+      `Cannot infer Symphony instance paths from ${workspaceRoot}; pass resolved config.instance when workspace.root is outside the instance .tmp directory.`,
+    );
   }
 
   return deriveRuntimeInstancePaths({

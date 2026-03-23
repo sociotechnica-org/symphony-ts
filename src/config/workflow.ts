@@ -368,7 +368,7 @@ function resolveRepoUrl(
   explicitRepoUrl: unknown,
   derivedRepoUrl: string | undefined,
   envOverrideActive: boolean,
-  instanceRoot: string,
+  workflowRoot: string,
 ): string {
   // When SYMPHONY_REPO is set, the derived URL always wins so the factory
   // polls, clones, and pushes to the same repo.
@@ -395,18 +395,18 @@ function resolveRepoUrl(
 
   return resolveWorkspaceRepoUrl(
     requireString(explicitRepoUrl, "workspace.repo_url"),
-    instanceRoot,
+    workflowRoot,
   );
 }
 
 function resolveWorkspaceRepoUrl(
   repoUrl: string,
-  instanceRoot: string,
+  workflowRoot: string,
 ): string {
   if (isRemoteRepoUrl(repoUrl)) {
     return repoUrl;
   }
-  return path.resolve(instanceRoot, repoUrl);
+  return path.resolve(workflowRoot, repoUrl);
 }
 
 function isRemoteRepoUrl(repoUrl: string): boolean {
@@ -464,6 +464,7 @@ function resolveObservabilityConfig(
 
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   const resolvedWorkflowPath = path.resolve(workflowPath);
+  const workflowRoot = path.dirname(resolvedWorkflowPath);
   const instanceRoot = deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
   const tracker = coerceOptionalObject(raw.tracker, "tracker");
   const polling = coerceOptionalObject(raw.polling, "polling");
@@ -541,7 +542,7 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
       workspace["repo_url"],
       derivedRepoUrl,
       repoOverride !== undefined,
-      instanceRoot,
+      workflowRoot,
     ),
     branchPrefix: requireString(
       workspace["branch_prefix"],

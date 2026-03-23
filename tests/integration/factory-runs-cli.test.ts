@@ -23,6 +23,7 @@ import {
   initializeGitRepo,
 } from "../support/git.js";
 import {
+  deriveReportInstance,
   downgradeIssueReportSchemaVersion,
   deriveWorkspaceRoot,
   seedFailedIssueArtifacts,
@@ -148,6 +149,100 @@ describe("factory-runs publication", () => {
     await expect(
       fs.readFile(generated.outputPaths.reportJsonFile, "utf8"),
     ).resolves.toContain('"githubActivity"');
+  });
+
+  it("publishes from the workflow checkout when the workflow lives under .tmp/factory-main", async () => {
+    const instanceRoot = await createTempDir("symphony-factory-runs-runtime-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    const runtimeRoot = path.join(instanceRoot, ".tmp", "factory-main");
+    tempRoots.push(instanceRoot, archiveRoot);
+
+    await fs.mkdir(runtimeRoot, { recursive: true });
+    const workflowPath = path.join(runtimeRoot, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      `---
+tracker:
+  kind: github-bootstrap
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://example.test
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  review_bot_logins: []
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 0
+workspace:
+  root: ../../.tmp/workspaces
+  repo_url: /tmp/repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: false
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`,
+      "utf8",
+    );
+
+    const workspaceRoot = deriveWorkspaceRoot(instanceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+    await initializeGitRepo(runtimeRoot);
+    await checkoutGitBranch(runtimeRoot, "symphony/44");
+    await writeIssueReport(deriveReportInstance(instanceRoot), 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+    });
+    const runtimeHeadSha = await commitAllFiles(
+      runtimeRoot,
+      "seed runtime publish inputs",
+    );
+
+    await initializeGitRepo(archiveRoot);
+
+    await runReportCli([
+      "node",
+      "symphony-report",
+      "publish",
+      "--issue",
+      "44",
+      "--workflow",
+      workflowPath,
+      "--archive-root",
+      archiveRoot,
+    ]);
+
+    const publicationRoot = path.join(
+      archiveRoot,
+      "symphony-ts",
+      "issues",
+      "44",
+      deriveFactoryRunsPublicationId("2026-03-09T10:25:30.123Z", runtimeHeadSha),
+    );
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(publicationRoot, "metadata.json"), "utf8"),
+    ) as {
+      readonly sourceRevision: {
+        readonly checkoutPath: string;
+        readonly currentBranch: string | null;
+        readonly relevantSha: string | null;
+      };
+    };
+
+    expect(metadata.sourceRevision.checkoutPath).toBe(runtimeRoot);
+    expect(metadata.sourceRevision.currentBranch).toBe("symphony/44");
+    expect(metadata.sourceRevision.relevantSha).toBe(runtimeHeadSha);
   });
 
   it("falls back to pointer manifests when a log is unreadable", async () => {

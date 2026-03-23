@@ -104,7 +104,7 @@ export async function runReportCli(
 
   const published = await publishIssueToFactoryRuns({
     instance,
-    sourceRoot: instance.instanceRoot,
+    sourceRoot: instance.workflowRoot,
     archiveRoot: args.archiveRoot,
     issueNumber: args.issueNumber,
   });

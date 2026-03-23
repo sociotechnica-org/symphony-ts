@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { coerceRuntimeInstancePaths } from "../../src/domain/workflow.js";
+import {
+  coerceRuntimeInstancePaths,
+  deriveRuntimeInstancePaths,
+} from "../../src/domain/workflow.js";
 import { ObservabilityError } from "../../src/domain/errors.js";
 import {
   ISSUE_ARTIFACT_SCHEMA_VERSION,
@@ -61,7 +64,10 @@ describe("issue artifacts", () => {
     ).toBe(path.join("/repo", ".var", "factory"));
     expect(
       deriveFactoryArtifactsRoot(
-        deriveInstanceFromWorkspaceRoot(nonTmpWorkspaceRoot),
+        deriveRuntimeInstancePaths({
+          workflowPath: path.join("/repo", "WORKFLOW.md"),
+          workspaceRoot: nonTmpWorkspaceRoot,
+        }),
       ),
     ).toBe(path.join("/repo", ".var", "factory"));
     expect(
@@ -73,6 +79,14 @@ describe("issue artifacts", () => {
         43,
       ).issueRoot,
     ).toBe(path.join("/repo", ".var", "factory", "issues", "43"));
+  });
+
+  it("rejects string coercion when workspace roots are outside the instance .tmp tree", () => {
+    expect(() =>
+      coerceRuntimeInstancePaths(path.join("/repo", "local-workspaces")),
+    ).toThrowError(
+      /pass resolved config\.instance when workspace\.root is outside the instance \.tmp directory/,
+    );
   });
 
   it("writes the base layout and suppresses duplicate consecutive lifecycle events", async () => {

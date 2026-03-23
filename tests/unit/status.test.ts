@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import {
   assessFactoryStatusSnapshot,
   deriveStatusFilePath,
@@ -229,7 +230,14 @@ describe("factory status helpers", () => {
   });
 
   it("keeps the status file within the instance temp root when given a filesystem root", () => {
-    expect(deriveStatusFilePath("/")).toBe(
+    expect(
+      deriveStatusFilePath(
+        deriveRuntimeInstancePaths({
+          workflowPath: path.join("/", "WORKFLOW.md"),
+          workspaceRoot: path.join("/", ".tmp", "workspaces"),
+        }),
+      ),
+    ).toBe(
       path.join("/", ".tmp", "status.json"),
     );
   });
