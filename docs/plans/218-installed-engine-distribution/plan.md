@@ -1,4 +1,4 @@
-# Issue 218 Plan: Installed Engine Distribution
+# Issue 218 Plan: Npm-Installable Symphony Engine And Installed CLI Distribution
 
 ## Status
 
@@ -6,270 +6,292 @@
 
 ## Goal
 
-Make Symphony usable as an npm-installed engine CLI against a project-local `WORKFLOW.md` without requiring users to clone the `symphony-ts` source repo.
+Package Symphony as an npm-installable CLI engine that can operate against a project-local `WORKFLOW.md` without requiring the full `symphony-ts` source checkout, `pnpm`, or `tsx` on the consumer side.
 
-This first slice should make the built package self-runnable for the core engine path: the installed `symphony` binary must be able to target a project repository, preserve the existing instance-rooted `.tmp/` / `.var/` contract, and launch detached factory control without relying on `pnpm tsx bin/symphony.ts`.
+This slice should preserve the multi-instance contract already established in `#214` through `#216`: the repository owning `WORKFLOW.md` remains the Symphony instance root, and its `.tmp/` / `.var/` trees remain the instance-owned runtime surface. The new work is to make the engine distribution install-safe by materializing the detached runtime from packaged assets rather than assuming a git checkout with `bin/symphony.ts`.
 
 ## Scope
 
-- define the supported installed-engine product model for this slice:
-  - install Symphony as a package/CLI
-  - keep `WORKFLOW.md` in each target repository
-  - keep runtime state under the target repository's instance-owned `.tmp/` and `.var/`
-- remove source-checkout-only engine self-invocation from detached factory control
-- add a reusable engine-entrypoint helper that works from both:
-  - a source checkout during development
-  - a built or packed distribution during installation
-- update package metadata so the built CLI is installable as an npm package
-- add focused docs for installed-engine usage and current constraints
-- add focused tests that prove a packed distribution can run the supported CLI paths against an external project-local instance
+- define one supported installed-engine distribution contract for the main `symphony` CLI
+- make the npm package publishable and self-contained enough to run the main CLI after installation
+- introduce a runtime-distribution/materialization seam so detached factory control can stage or refresh `<instance-root>/.tmp/factory-main` from the installed package instead of assuming a source checkout
+- replace detached launch assumptions that hardcode `pnpm tsx bin/symphony.ts run` with an install-safe runtime command
+- package any runtime assets the installed CLI needs to materialize the detached runtime and resolve its own entrypoints
+- update docs and command guidance so source-checkout usage and installed-engine usage are both explicit
+- add focused unit, integration, and end-to-end coverage that exercises the installed CLI from a packed tarball against a temp target repository
 
 ## Non-goals
 
-- npm registry publishing automation, release workflows, or versioning policy
-- replacing the repo's development workflow based on local source checkouts
-- redesigning runtime layout away from `<instance-root>/.tmp/factory-main`
-- tracker transport, normalization, or lifecycle-policy changes
-- orchestrator retry, continuation, reconciliation, or landing-state changes
-- packaging every repo-local operator workflow for installed use in this slice
-- installed distribution support for `pnpm operator`, repo-local skills, or report/archive tooling unless a narrow runtime dependency proves unavoidable
-- Windows-specific detached-runtime support changes beyond whatever already works through the current CLI contract
+- npm publishing automation, release workflows, provenance signing, or registry rollout
+- packaging the repo-local operator loop as a product CLI command
+- packaging `symphony-report` as a first-class installed command in this slice
+- tracker transport, normalization, or lifecycle policy changes
+- orchestrator retry, continuation, reconciliation, lease, or landing-state redesign
+- changing the instance-rooted `.tmp/` / `.var/` ownership contract from `#214`
+- changing the instance-scoped detached session identity or operator-state isolation from `#216`
+- introducing remote execution or multi-host distribution updates as part of packaging
 
 ## Current Gaps
 
-- `package.json` exposes a `bin` entry, but the package is still marked `private`, so the current repo cannot be installed as the intended engine distribution
-- detached factory startup still shells out to `pnpm tsx bin/symphony.ts run`, which only works from a source checkout with development tooling present
-- tests lock in source-checkout command strings like `pnpm tsx bin/symphony.ts run`, so current regression coverage would reject an installed-compatible invocation contract
-- docs and operator-facing examples overwhelmingly describe source-checkout commands, not the installed-engine model from the issue
-- there is no contract test proving that `npm pack` output can be installed into a separate project and operate on that project's `WORKFLOW.md`
-- runtime identity and status surfaces already tolerate non-git environments, but there is no explicit installed-package path proving that the engine remains inspectable when it is not running from a git checkout
+- `package.json` is still `"private": true`, so there is no publishable package contract yet
+- the checked-in product command surface is documented primarily as `pnpm tsx bin/symphony.ts ...`, which assumes a source checkout rather than an installed CLI
+- detached factory launch still hardcodes `pnpm tsx bin/symphony.ts run`, so `factory start` cannot work from an installed package
+- the detached runtime home under `<instance-root>/.tmp/factory-main` is treated as a git checkout in docs and launch behavior rather than as a general runtime home that can be staged from packaged assets
+- the operator helper remains repo-local by design, but it currently shells through repo-relative TypeScript entrypoints and is therefore not part of an install-safe product story
+- current tests cover instance selection and detached isolation, but they do not lock in a real `npm pack` -> install -> run workflow against a consumer repository
 
 ## Decision Notes
 
-- Narrow the issue to the engine distribution seam first. Full installed-product support would otherwise mix package publication, detached runtime invocation, operator-loop packaging, docs, and release process in one PR.
-- Keep the target-repository instance contract from `#214`, `#215`, and `#216`. Installation form factor changes should not change where runtime state lives.
-- Prefer one engine-entrypoint resolution helper over scattered command-string branching. Detached control and any future self-invocation should share the same contract.
-- Preserve local development ergonomics. Source-checkout workflows such as `pnpm tsx bin/symphony.ts ...` may remain documented for contributors, but runtime-owned self-invocation must not depend on them.
-- Treat installed distribution support as a runtime contract, not just package metadata. A publishable package that cannot start its own detached runtime is incomplete.
+- Keep the user-facing instance contract stable. `WORKFLOW.md` ownership should remain the source of truth for local runtime state whether the engine comes from a source checkout or an installed package.
+- Keep `<instance-root>/.tmp/factory-main` as the detached runtime home for this slice, but stop assuming it is always a git checkout. In installed mode it becomes a staged runtime home produced from packaged engine assets.
+- Narrow the installed-product surface to the main `symphony` CLI for this PR. Repo-local operator automation and reporting commands are useful, but packaging them here would broaden the seam and couple product installation to repo-specific tooling.
+- Introduce one explicit runtime-distribution abstraction instead of scattering environment checks across `package.json`, factory control, and docs. The code should know whether it is running from a source checkout or an installed package and materialize runtime assets accordingly.
+- Preserve self-hosting development. Source-checkout behavior must keep working so `symphony-ts` can continue building itself while the installed distribution seam is added.
 
 ## Spec Alignment By Abstraction Level
 
 `SPEC.md` is not vendored in this clone, so this plan uses the abstraction mapping in `docs/architecture.md`.
 
 - Policy Layer
-  - belongs: the repo-owned product rule that Symphony may be installed as an engine CLI while `WORKFLOW.md` and runtime state remain owned by each target repository
-  - belongs: the rule that engine self-invocation must work from an installed distribution, not just from a contributor checkout
-  - does not belong: child-process spawning details, package-manager command strings, or screen/process inspection internals
+  - belongs: the repo-owned rule that Symphony may be distributed as an installed CLI while the target repository owning `WORKFLOW.md` still owns runtime state
+  - belongs: the rule that the supported installed product surface in this slice is the main `symphony` CLI, not every repo-local helper
+  - does not belong: tarball build scripts, `screen` process management, or filesystem copy logic
 - Configuration Layer
-  - belongs: resolving the selected workflow path and deriving instance-owned runtime paths exactly as today
-  - belongs: resolving the running engine's executable entrypoint in a typed helper rather than hardcoding source paths
-  - does not belong: detached process supervision logic or tracker-side policy
+  - belongs: resolving the current engine distribution source and any packaged asset roots the runtime materializer needs
+  - belongs: keeping `WORKFLOW.md` as the target-repo runtime contract while installation source is resolved separately
+  - does not belong: tracker lifecycle policy or detached process supervision
 - Coordination Layer
-  - belongs: keeping `run`, `status`, and detached `factory` control aligned on the same installed-engine invocation contract
-  - does not belong: retry budgeting, reconciliation, review-loop state, or new orchestration lifecycle states
+  - belongs: deciding when detached control must materialize or refresh the runtime home before launch
+  - belongs: using the same selected instance contract regardless of whether the engine was installed or checked out from source
+  - does not belong: tracker retries, handoff states, or review-loop policy
 - Execution Layer
-  - belongs: detached startup invoking the current engine through a portable command that works from source and installed builds
-  - belongs: packaging the runtime assets that the engine actually needs at execution time
-  - does not belong: tracker mutation policy or workflow rendering rules unrelated to engine launch
+  - belongs: staging packaged runtime assets under `<instance-root>/.tmp/factory-main`, launching the detached worker with an install-safe command, and preserving existing workspace/runtime ownership
+  - does not belong: tracker mutations or package-publishing automation
 - Integration Layer
-  - belongs: npm package metadata and packed-distribution install tests as the outer distribution boundary for the engine
-  - does not belong: tracker API changes, remote-host protocol changes, or operator-loop packaging if it is not required for this first engine slice
+  - belongs: npm-package metadata, tarball install validation, and any packaged-asset resolution needed at the node/process boundary
+  - does not belong: tracker transport or normalization changes
 - Observability Layer
-  - belongs: status/runtime identity remaining legible when the engine runs from an installed package rather than a git checkout
-  - belongs: docs/output language that distinguishes the engine install from the target-project instance
-  - does not belong: a new status schema or unrelated TUI redesign
+  - belongs: surfacing whether the runtime home came from a git checkout or an installed package clearly enough for diagnosis
+  - belongs: docs and status/runtime identity wording that no longer assume the detached runtime is always a checkout
+  - does not belong: choosing installation policy or mutating runtime state directly
 
 ## Architecture Boundaries
 
-### Engine entrypoint resolution
+### Package / distribution contract
 
 Belongs here:
 
-- deriving the command and executable path for "run the current Symphony engine again"
-- supporting both source-checkout and built-distribution layouts
-- exposing a small reusable contract that detached control can consume
+- publishable package metadata
+- the list of packaged runtime assets required by the installed CLI
+- explicit installed-vs-source distribution detection
 
 Does not belong here:
 
-- tracker selection
-- workflow parsing
-- package publication workflow automation
+- tracker config parsing
+- detached session control flow
+- repo-local operator automation design
 
-### Detached factory control
+### Configuration and instance resolution
 
 Belongs here:
 
-- replacing the hardcoded `pnpm tsx bin/symphony.ts run` command with the portable engine-entrypoint contract
-- preserving the current detached locale, screen, and instance-selection behavior
+- keeping `WORKFLOW.md` loading and instance-path derivation unchanged in principle
+- resolving engine-distribution facts separately from instance ownership facts
+- exposing any typed distribution/materialization inputs needed by CLI/runtime wiring
 
 Does not belong here:
 
-- package metadata decisions beyond consuming the resolved engine command
-- operator-loop state management
+- file copying side effects
+- `screen` launches
+- package release automation
 
-### Package / distribution boundary
+### Detached runtime materialization
 
 Belongs here:
 
-- package metadata required for installation
-- selecting which built runtime assets ship in the package
-- packed-distribution smoke/integration tests
+- staging or refreshing `<instance-root>/.tmp/factory-main` from the current engine distribution
+- ensuring the staged runtime can execute `symphony run` without `pnpm tsx`
+- keeping the target instance's workflow path and runtime-owned snapshots aligned with the staged runtime
 
 Does not belong here:
 
-- npm publish CI
-- registry credentials, provenance, or release automation
+- tracker policy
+- operator-loop packaging
+- broad runtime-update orchestration beyond the minimum needed to keep the detached runtime launchable
 
-### Docs and operator guidance
+### CLI and detached factory control
 
 Belongs here:
 
-- documenting the supported installed-engine workflow for target repositories
-- clarifying which commands remain contributor-source-checkout commands versus end-user installed-engine commands
+- resolving install-safe command invocation for foreground and detached runs
+- invoking runtime materialization before detached start when needed
+- keeping explicit `--workflow` instance selection from `#215`
+
+Does not belong here:
+
+- package build logic hidden inside ad hoc command strings
+- git-checkout-only assumptions baked into the control surface
+
+### Observability and docs
+
+Belongs here:
+
+- status/runtime identity wording that distinguishes git checkout vs installed package runtime homes
+- install documentation for consumer repositories
+- clear statement that repo-local operator tooling remains separate from the installed CLI
 
 Does not belong here:
 
 - a broad README rewrite
-- packaging repo-local skills as a separate installed product unless the implementation proves they are runtime-critical
+- unrelated TUI or report-surface redesign
 
 ## Slice Strategy And PR Seam
 
-This issue should land as one reviewable PR on one seam: make the core Symphony engine installable and self-runnable outside a source checkout.
+This issue should land as one reviewable PR focused on one seam: install-safe engine distribution for the main `symphony` CLI.
 
 What lands in this PR:
 
-1. a portable engine self-invocation contract used by detached factory control
-2. package metadata and shipped asset changes required for npm installation of the engine CLI
-3. focused docs for the installed-engine model and its current limits
-4. focused tests proving a packed distribution can target a project-local `WORKFLOW.md`
+1. publishable package metadata plus packaged runtime assets for the main CLI
+2. a small runtime-distribution/materialization abstraction that supports source-checkout and installed-package execution
+3. detached factory-control changes so `<instance-root>/.tmp/factory-main` can be staged from packaged assets and launched without `pnpm tsx`
+4. focused install-path docs and tests, including a real tarball-install validation path
 
 What is deliberately deferred:
 
-- npm release automation and registry publication
-- installed-distribution support for the checked-in operator loop
-- installed-distribution support for report/archive helper CLIs unless separately required
-- broader onboarding or release-management docs
+- `symphony-report` as an installed product command
+- promoting the repo-local operator loop into the installed product surface
+- release automation and registry publication
+- broader runtime update channels beyond the minimum staged-runtime refresh needed for correctness
 
-This seam is reviewable because it stays on engine distribution and self-invocation. It does not mix tracker seams, orchestrator state refactors, or operator-loop distribution work into the same patch.
+This seam is reviewable because it stays on engine packaging and detached-runtime materialization. It does not mix tracker edges, orchestrator retry state, or repo-local operator workflow redesign into the same patch.
 
-## Engine Invocation Resolution Model
+## Runtime Distribution Resolution Model
 
-This issue does not change retries, continuations, reconciliation, or handoff states. The stateful surface here is how the running engine resolves "invoke Symphony again" across source and installed layouts.
+This issue does not change orchestration retries or handoff states, but it does introduce a stateful runtime-materialization path that should be explicit.
 
 ### States
 
-1. `entrypoint-unresolved`
-   - the running process has not yet derived its portable engine command
-2. `source-layout-resolved`
-   - the running process identifies a contributor/source-checkout layout
-3. `installed-layout-resolved`
-   - the running process identifies a built or packed distribution layout
-4. `entrypoint-ready`
-   - a command/executable pair exists for self-invocation
-5. `engine-dispatched`
-   - detached control or another caller launches the resolved engine command
-6. `entrypoint-resolution-failed`
-   - the runtime cannot derive a valid executable path for the current layout
+1. `distribution-unresolved`
+   - the current process has not yet classified whether it is running from a source checkout or an installed package
+2. `distribution-resolved`
+   - the runtime distribution source and packaged asset roots are known
+3. `instance-resolved`
+   - the selected `WORKFLOW.md` yields typed instance paths
+4. `runtime-home-materializing`
+   - `<instance-root>/.tmp/factory-main` is being staged or refreshed from the resolved distribution
+5. `runtime-home-ready`
+   - the detached runtime home has the files needed to execute the main CLI
+6. `runtime-command-dispatched`
+   - foreground or detached `symphony run` has been launched from the resolved distribution/runtime home
+7. `materialization-failed`
+   - packaged assets are missing, the runtime home cannot be staged, or the install-safe command cannot be derived
 
 ### Allowed transitions
 
-- `entrypoint-unresolved -> source-layout-resolved`
-- `entrypoint-unresolved -> installed-layout-resolved`
-- `source-layout-resolved -> entrypoint-ready`
-- `installed-layout-resolved -> entrypoint-ready`
-- `entrypoint-ready -> engine-dispatched`
-- `entrypoint-unresolved -> entrypoint-resolution-failed`
-- `source-layout-resolved -> entrypoint-resolution-failed`
-- `installed-layout-resolved -> entrypoint-resolution-failed`
+- `distribution-unresolved -> distribution-resolved`
+- `distribution-resolved -> instance-resolved`
+- `instance-resolved -> runtime-home-materializing`
+- `runtime-home-materializing -> runtime-home-ready`
+- `runtime-home-ready -> runtime-command-dispatched`
+- `distribution-unresolved -> materialization-failed`
+- `distribution-resolved -> materialization-failed`
+- `instance-resolved -> materialization-failed`
+- `runtime-home-materializing -> materialization-failed`
 
 ### Contract rules
 
-- detached factory launch must invoke the current engine through the resolved entrypoint contract rather than a hardcoded `pnpm tsx` source path
-- installed-engine invocation must continue to honor explicit `--workflow <path>` instance targeting
-- source-checkout contributor workflows may remain available, but the runtime must not require `pnpm`, `tsx`, or source `.ts` entrypoints to start itself
-- failure messages should identify the missing or invalid engine entrypoint clearly enough to diagnose broken package contents
+- the selected `WORKFLOW.md` remains the authoritative instance selector
+- instance-owned `.tmp/` and `.var/` paths remain rooted at the repository that owns `WORKFLOW.md`
+- detached runtime launch must not require `pnpm`, `tsx`, or source `.ts` files inside the consumer repository
+- `<instance-root>/.tmp/factory-main` remains the detached runtime home, but may be either:
+  - a git checkout in source-checkout development mode, or
+  - a staged runtime home copied from packaged engine assets in installed mode
+- installed-package execution should use one explicit packaged entrypoint contract rather than reconstructing ad hoc command strings in multiple places
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized engine/instance facts available | Expected decision |
-| --- | --- | --- | --- |
-| Detached start runs from a contributor checkout | current executable, repo layout, selected workflow path | valid source-layout engine entrypoint, valid instance paths | build the portable command and launch normally |
-| Detached start runs from an installed package | current executable, package layout, selected workflow path | valid installed-layout engine entrypoint, valid instance paths | build the portable command and launch normally without `pnpm tsx` |
-| Packed distribution is missing the built CLI entrypoint | package files on disk, selected workflow path | instance paths only | fail clearly before launch with a packaging/entrypoint error |
-| Installed engine targets an external repo via `--workflow` | installed binary path, explicit workflow path | project-local instance paths | operate on the target repo's instance-owned `.tmp/` / `.var/` only |
-| Installed engine runs outside a git checkout | executable path, status/startup snapshots | runtime identity collector returns non-git source | status remains readable and explicit about non-git runtime identity |
-| Source-checkout contributor runs existing manual `pnpm tsx bin/symphony.ts ...` commands | source repo layout | valid instance paths | continue to work for development without being the runtime-owned self-invocation path |
+| Observed condition                                                                                                   | Local facts available                                             | Normalized distribution / instance facts available                    | Expected decision                                                                       |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `symphony run --workflow /project/WORKFLOW.md` is launched from an installed package                                 | installed CLI path, selected workflow path                        | installed-package distribution, resolved instance paths               | run successfully against `/project` without requiring a source checkout                 |
+| `factory start --workflow /project/WORKFLOW.md` is launched from an installed package and the runtime home is absent | selected workflow path, empty `<instance-root>/.tmp/factory-main` | installed-package distribution, resolved instance paths               | materialize the runtime home from packaged assets, then launch detached runtime         |
+| detached runtime home exists from an older staged package version                                                    | selected workflow path, existing runtime-home files               | resolved distribution version/asset identity, resolved instance paths | refresh or replace the staged runtime home deterministically before launch              |
+| detached start still tries to use `pnpm tsx bin/symphony.ts run`                                                     | launch command builder, current process metadata                  | none or incorrect distribution facts                                  | fail tests and replace the launch path with the install-safe packaged command           |
+| package tarball omits required runtime assets                                                                        | packed tarball contents, install test failure                     | incomplete installed-package distribution                             | fail install-path validation clearly; do not silently ship a partial package            |
+| source-checkout self-hosting run executes from the repo root                                                         | repo checkout paths, selected workflow path                       | source-checkout distribution, resolved instance paths                 | preserve existing development behavior while flowing through the same distribution seam |
+| runtime identity collection runs inside a staged runtime home that is not a git checkout                             | runtime-home path                                                 | resolved instance paths, installed distribution                       | report a non-git runtime identity clearly instead of assuming corruption                |
 
 ## Storage / Persistence Contract
 
-- no new orchestrator durable state is introduced
-- the installed engine must continue to write runtime state under the selected target repository's existing instance-owned paths:
-  - `<instance-root>/.tmp/`
-  - `<instance-root>/.var/`
-  - `<instance-root>/.tmp/factory-main`
-- package metadata may add shipped build assets, but installation must not create hidden machine-global runtime state outside normal package-manager install locations
-- status/startup snapshots remain in the target instance, not in the engine install directory
+- target-instance runtime state remains owned by the repository containing `WORKFLOW.md`
+- `<instance-root>/.tmp/factory-main` remains the detached runtime home, but its contents may come from either:
+  - the development checkout path, or
+  - staged packaged assets from the installed engine
+- status and startup snapshots remain under the existing instance-owned temp area
+- reports and issue artifacts remain under the existing instance-owned `.var/` area
+- no tracker-side persistence changes are introduced
+- no release-registry metadata or publication logs are introduced as runtime state in this slice
 
 ## Observability Requirements
 
-- detached control output should continue to show the selected repository root and runtime root, regardless of whether the engine itself is running from source or an installed package
-- runtime identity should remain explicit when the engine is not running from a git checkout
-- docs must clearly distinguish:
-  - the engine install location
-  - the target repository that owns `WORKFLOW.md`
-  - the target repository's instance-owned `.tmp/` and `.var/`
-- packaging/entrypoint failures should name the missing runtime file or unsupported layout directly
+- `factory status` and related status surfaces should stop implying that the detached runtime is always a git checkout
+- runtime identity reporting should remain explicit when the staged runtime home is not a git checkout and should not treat that as an unexplained error
+- docs should clearly separate:
+  - source-checkout development/self-hosting usage
+  - installed-engine consumer usage
+  - repo-local operator tooling that is still intentionally outside the installed product surface
+- install-path failures should name the missing packaged asset, missing staged runtime file, or invalid launch command clearly
 
 ## Implementation Steps
 
-1. Add a small engine-entrypoint helper module that derives the current engine invocation command from the running layout and returns:
-   - the executable to run
-   - the argument vector for `symphony run`
-   - any layout metadata useful for diagnostics
-2. Refactor `src/cli/factory-control.ts` to use that helper for detached startup instead of `pnpm tsx bin/symphony.ts run`.
-3. Update affected unit tests to assert the portable entrypoint contract rather than the source-only command string.
-4. Update `package.json` and related build/package metadata so the engine package is installable and ships the build outputs required by the installed CLI path.
-5. Add an integration test that:
-   - builds or packs the package
-   - installs it into a temporary consumer environment
-   - creates a separate temp project repo with `WORKFLOW.md`
-   - proves the installed `symphony` CLI can operate against that project's instance-owned paths on at least the supported non-network-dependent commands
-6. Update README and any directly relevant operational docs with a concise installed-engine quick-start and current limitations.
+1. Add a small engine-distribution module that classifies the current execution as source-checkout or installed-package and resolves the packaged asset roots/entrypoints needed by the main CLI.
+2. Make `package.json` publishable for this slice:
+   - remove `"private": true`
+   - define the shipped files/exports/bin contract needed by the installed CLI
+   - ensure the build output and any packaged runtime assets are included in the tarball
+3. Introduce detached runtime materialization helpers that can stage or refresh `<instance-root>/.tmp/factory-main` from the resolved engine distribution while preserving the instance-owned workflow/runtime contract.
+4. Refactor factory-control launch command construction so detached `symphony run` executes through an install-safe packaged entrypoint instead of `pnpm tsx bin/symphony.ts run`.
+5. Update any foreground CLI wiring that still assumes source `.ts` entrypoints or repo-relative tooling paths for the main installed command.
+6. Update runtime identity / status wording and minimal docs so operators can distinguish source-checkout vs installed-package runtime homes.
+7. Add tarball-install validation that packs the current repo, installs it into a temp consumer environment, and exercises the installed main CLI against a temp target repo with `WORKFLOW.md`.
+8. Update README and any focused operator/install docs to document:
+   - installed-engine prerequisites and invocation
+   - the continued instance-rooted ownership model
+   - the deferred status of operator-loop/report packaging
 
 ## Tests And Acceptance Scenarios
 
 ### Unit tests
 
-- engine-entrypoint helper resolves a valid source-layout command from a contributor checkout
-- engine-entrypoint helper resolves a valid installed-layout command from built package paths
-- detached factory launch uses the resolved engine-entrypoint contract instead of `pnpm tsx bin/symphony.ts run`
-- packaging/entrypoint resolution failures mention the missing runtime file or unsupported layout
-- runtime identity rendering stays explicit for non-git installed layouts
+- engine-distribution resolution distinguishes source-checkout vs installed-package execution and produces the expected packaged entrypoints
+- detached launch command construction no longer requires `pnpm`, `tsx`, or `bin/symphony.ts`
+- runtime materialization derives the correct staged files for a selected instance
+- runtime identity rendering stays explicit when the staged runtime home is not a git checkout
 
 ### Integration tests
 
-- a packed or built distribution can be installed into a temporary consumer directory and run `symphony status --workflow <project>/WORKFLOW.md` against a separate temp project instance
-- the installed CLI can inspect `factory status --workflow <project>/WORKFLOW.md` for a seeded temp instance without relying on the engine checkout as `cwd`
-- detached-start command construction under the installed layout resolves to the shipped built CLI entrypoint
+- a packed tarball can be installed into a temp consumer directory and the installed `symphony` CLI can run against a separate temp target repo's `WORKFLOW.md`
+- `factory start --workflow <target>/WORKFLOW.md` from the installed CLI materializes `<target>/.tmp/factory-main` and records startup/status output under the target instance
+- source-checkout self-hosting paths still work after the distribution abstraction is introduced
 
 ### End-to-end acceptance scenarios
 
-1. Given a user installs the packaged Symphony engine and has a target repo containing `WORKFLOW.md`, when they run `symphony status --workflow /project/WORKFLOW.md`, then Symphony reads the target repo's instance-owned status path without needing a source checkout.
-2. Given the same installed engine and target repo, when they run `symphony factory status --workflow /project/WORKFLOW.md`, then detached control inspects the target repo's instance-owned runtime paths and reports the selected repo/runtime roots clearly.
-3. Given detached startup is requested from the installed engine, when Symphony builds the child command, then it launches the packaged engine entrypoint rather than `pnpm`, `tsx`, or source `.ts` files.
-4. Given the installed engine is not running from a git checkout, when status surfaces render runtime identity, then they remain explicit about the non-git runtime source instead of failing or pretending the package is a checkout.
+1. Given a temp target repository with its own `WORKFLOW.md`, when a consumer installs Symphony from the packed tarball and runs `symphony status --workflow /target/WORKFLOW.md`, then the command resolves the target instance without needing a source checkout.
+2. Given the same installed package, when the operator runs `symphony factory start --workflow /target/WORKFLOW.md`, then Symphony stages `<target>/.tmp/factory-main` from packaged assets and launches the detached runtime without `pnpm tsx`.
+3. Given the detached runtime is staged from an installed package, when `factory status` inspects it, then the status surface clearly reports the runtime home and a non-git identity source instead of assuming a git checkout.
+4. Given the repo's own source checkout self-hosting flow, when a developer still runs the checked-in commands locally, then the development path continues to work through the same distribution seam.
 
 ## Exit Criteria
 
-- the Symphony package is installable as an engine CLI for this first slice
-- detached factory startup no longer depends on `pnpm tsx bin/symphony.ts run`
-- the installed CLI can target a project-local `WORKFLOW.md` while preserving the existing instance-rooted runtime contract
-- focused docs describe the installed-engine workflow and current deferred areas
-- focused unit/integration coverage proves the supported installed-engine contract
+- the main `symphony` CLI is installable from an npm tarball and can operate against a project-local `WORKFLOW.md`
+- detached factory launch no longer depends on `pnpm`, `tsx`, or repo-local `.ts` entrypoints
+- `<instance-root>/.tmp/factory-main` can be materialized from packaged engine assets for installed use while preserving the existing instance-rooted runtime contract
+- docs clearly distinguish installed-engine usage from source-checkout development usage
+- focused install-path tests, including tarball install validation, pass locally
 
-## Deferred To Later Issues Or PRs
+## Deferred To Later Issues / PRs
 
-- npm publication workflow, release automation, provenance, and registry policy
-- installed-distribution support for the checked-in operator loop and repo-local skills
-- installed-distribution support for additional helper CLIs such as report/archive commands unless separately prioritized
-- broader productization work such as upgrade tooling, template generators, or platform-specific installers
+- `symphony-report` as an installed command
+- packaging or promoting the repo-local operator loop into the installed product surface
+- npm release automation and registry publication policy
+- runtime self-update channels, version pinning policy, or staged-runtime rollback mechanics beyond what this slice needs
+- broader doc consolidation once the installed product surface is larger than the main CLI
