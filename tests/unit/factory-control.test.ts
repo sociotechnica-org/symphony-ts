@@ -252,6 +252,71 @@ Prompt body
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("skips workspace checkout WORKFLOW files and resolves the owning instance", async () => {
+    const tempDir = await createTempDir("symphony-factory-paths-");
+    const runtimeRoot = path.join(tempDir, ".tmp", "factory-main");
+    const workspaceRepoRoot = path.join(
+      tempDir,
+      ".tmp",
+      "workspaces",
+      "sociotechnica-org_symphony-ts_214",
+    );
+    const nestedCwd = path.join(workspaceRepoRoot, "src");
+    const workflowContent = `---
+tracker:
+  kind: github-bootstrap
+  repo: sociotechnica-org/symphony-ts
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+workspace:
+  root: ./.tmp/workspaces
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`;
+
+    await fs.mkdir(path.join(runtimeRoot, ".tmp"), { recursive: true });
+    await fs.mkdir(nestedCwd, { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, "WORKFLOW.md"),
+      workflowContent,
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(runtimeRoot, "WORKFLOW.md"),
+      workflowContent,
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(workspaceRepoRoot, "WORKFLOW.md"),
+      workflowContent,
+      "utf8",
+    );
+
+    try {
+      const paths = await resolveFactoryPaths({
+        cwd: () => nestedCwd,
+      });
+      expect(paths.repoRoot).toBe(tempDir);
+      expect(paths.runtimeRoot).toBe(runtimeRoot);
+      expect(paths.workflowPath).toBe(path.join(tempDir, "WORKFLOW.md"));
+      expect(paths.statusFilePath).toBe(
+        path.join(tempDir, ".tmp", "status.json"),
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("process parsing helpers", () => {

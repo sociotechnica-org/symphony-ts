@@ -677,7 +677,7 @@ async function findFactoryWorkflowPath(
 
   for (;;) {
     const workflowPath = path.join(current, "WORKFLOW.md");
-    if (await pathExists(workflowPath)) {
+    if (isFactoryWorkflowRoot(current) && (await pathExists(workflowPath))) {
       return workflowPath;
     }
     const runtimeWorkflowPath = path.join(
@@ -693,6 +693,28 @@ async function findFactoryWorkflowPath(
       throw new Error(
         `Could not find an owning Symphony instance from ${startingPath}. Run 'symphony factory' from an instance root containing WORKFLOW.md or from its ${FACTORY_RUNTIME_DIRECTORY} runtime checkout.`,
       );
+    }
+    current = parent;
+  }
+}
+
+function isFactoryWorkflowRoot(candidateRoot: string): boolean {
+  const resolvedRoot = path.resolve(candidateRoot);
+  if (
+    path.basename(resolvedRoot) === "factory-main" &&
+    path.basename(path.dirname(resolvedRoot)) === ".tmp"
+  ) {
+    return true;
+  }
+
+  let current = path.dirname(resolvedRoot);
+  for (;;) {
+    if (path.basename(current) === ".tmp") {
+      return false;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return true;
     }
     current = parent;
   }
