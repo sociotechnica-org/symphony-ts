@@ -1,4 +1,4 @@
-# Issue 217 Plan: Multi-Instance Instance Scaffolding And Third-Party README Onboarding
+# Issue 217 Plan: Multi-Instance Scaffolding And Third-Party README Onboarding
 
 ## Status
 
