@@ -193,15 +193,15 @@ This issue does not change orchestration retries, handoff states, or reconciliat
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized instance facts available | Expected decision |
-| --- | --- | --- | --- |
-| `run --workflow /project/WORKFLOW.md` launched from the engine checkout | absolute workflow path | instance paths for `/project` | run against `/project` without depending on the engine checkout `cwd` |
-| `factory status --workflow /project/WORKFLOW.md` launched outside the instance root | absolute workflow path | instance runtime root and status/startup paths | inspect `/project`'s detached runtime and never walk from caller `cwd` |
-| `factory watch --workflow /project/WORKFLOW.md` launched from another repo | absolute workflow path | instance runtime root | watch the selected instance only |
-| `factory start` omits `--workflow` and runs inside an instance root | caller `cwd` | discovered instance paths | preserve current local-default behavior |
-| `factory ... --workflow /missing/WORKFLOW.md` | provided path only | none | fail clearly with workflow-path guidance; do not fall back to another discovered instance |
-| operator loop is launched from the engine checkout with a target workflow path | operator-loop args/env, prompt path | selected instance paths | operator probes and control commands act on that project-local instance |
-| two project repos exist on disk and one command selects one of them explicitly | provided workflow path, multiple repos nearby | one resolved instance contract | act on the selected instance only and keep outputs explicit enough to verify which one was chosen |
+| Observed condition                                                                  | Local facts available                         | Normalized instance facts available            | Expected decision                                                                                 |
+| ----------------------------------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `run --workflow /project/WORKFLOW.md` launched from the engine checkout             | absolute workflow path                        | instance paths for `/project`                  | run against `/project` without depending on the engine checkout `cwd`                             |
+| `factory status --workflow /project/WORKFLOW.md` launched outside the instance root | absolute workflow path                        | instance runtime root and status/startup paths | inspect `/project`'s detached runtime and never walk from caller `cwd`                            |
+| `factory watch --workflow /project/WORKFLOW.md` launched from another repo          | absolute workflow path                        | instance runtime root                          | watch the selected instance only                                                                  |
+| `factory start` omits `--workflow` and runs inside an instance root                 | caller `cwd`                                  | discovered instance paths                      | preserve current local-default behavior                                                           |
+| `factory ... --workflow /missing/WORKFLOW.md`                                       | provided path only                            | none                                           | fail clearly with workflow-path guidance; do not fall back to another discovered instance         |
+| operator loop is launched from the engine checkout with a target workflow path      | operator-loop args/env, prompt path           | selected instance paths                        | operator probes and control commands act on that project-local instance                           |
+| two project repos exist on disk and one command selects one of them explicitly      | provided workflow path, multiple repos nearby | one resolved instance contract                 | act on the selected instance only and keep outputs explicit enough to verify which one was chosen |
 
 ## Storage / Persistence Contract
 
