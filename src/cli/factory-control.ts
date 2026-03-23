@@ -2,7 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import { loadWorkflowWorkspaceRoot } from "../config/workflow.js";
+import { loadWorkflowInstancePaths } from "../config/workflow.js";
+import {
+  deriveRuntimeInstancePaths,
+  type RuntimeInstancePaths,
+} from "../domain/workflow.js";
 import {
   assessFactoryStatusSnapshot,
   deriveStatusFilePath,
@@ -39,6 +43,7 @@ export interface FactoryPaths {
   readonly workflowPath: string;
   readonly statusFilePath: string;
   readonly startupFilePath: string;
+  readonly instance?: RuntimeInstancePaths;
 }
 
 export interface HostProcessSnapshot {
@@ -119,6 +124,9 @@ export interface FactoryControlDeps {
   readonly loadWorkflowWorkspaceRoot?: (
     workflowPath: string,
   ) => Promise<string>;
+  readonly loadWorkflowInstancePaths?: (
+    workflowPath: string,
+  ) => Promise<RuntimeInstancePaths>;
   readonly readFile?: (filePath: string, encoding: "utf8") => Promise<string>;
   readonly listProcesses?: () => Promise<readonly HostProcessSnapshot[]>;
   readonly listScreenSessions?: () => Promise<readonly ScreenSessionSnapshot[]>;
@@ -142,32 +150,40 @@ export async function resolveFactoryPaths(
 ): Promise<FactoryPaths> {
   const cwd = deps.cwd ?? (() => process.cwd());
   const pathExists = deps.pathExists ?? defaultPathExists;
-  const loadWorkspaceRoot =
-    deps.loadWorkflowWorkspaceRoot ?? loadWorkflowWorkspaceRoot;
+  const loadWorkspaceRoot = deps.loadWorkflowWorkspaceRoot;
+  const loadInstancePaths =
+    deps.loadWorkflowInstancePaths ?? loadWorkflowInstancePaths;
 
-  const repoRoot = await findFactoryRepoRoot(cwd(), pathExists);
-  const runtimeRoot = path.join(repoRoot, FACTORY_RUNTIME_DIRECTORY);
-
-  const workflowPath = path.join(runtimeRoot, "WORKFLOW.md");
-  if (!(await pathExists(workflowPath))) {
-    throw new Error(
-      `Factory runtime workflow not found at ${workflowPath}. The runtime checkout is incomplete.`,
-    );
-  }
-
-  const workspaceRoot = await loadWorkspaceRoot(workflowPath).catch((error) => {
-    throw new Error(
-      `Could not determine the factory status file path from ${workflowPath}.`,
-      { cause: error as Error },
-    );
-  });
+  const workflowPath = await findFactoryWorkflowPath(cwd(), pathExists);
+  const instance =
+    loadWorkspaceRoot !== undefined
+      ? deriveRuntimeInstancePaths({
+          workflowPath,
+          workspaceRoot: await loadWorkspaceRoot(workflowPath).catch(
+            (error) => {
+              throw new Error(
+                `Could not determine the factory instance paths from ${workflowPath}.`,
+                { cause: error as Error },
+              );
+            },
+          ),
+        })
+      : await loadInstancePaths(workflowPath).catch((error) => {
+          throw new Error(
+            `Could not determine the factory instance paths from ${workflowPath}.`,
+            { cause: error as Error },
+          );
+        });
+  const repoRoot = instance.instanceRoot;
+  const runtimeRoot = instance.runtimeRoot;
 
   return {
     repoRoot,
     runtimeRoot,
     workflowPath,
-    statusFilePath: deriveStatusFilePath(workspaceRoot),
-    startupFilePath: deriveStartupFilePath(workspaceRoot),
+    statusFilePath: deriveStatusFilePath(instance),
+    startupFilePath: deriveStartupFilePath(instance),
+    instance,
   };
 }
 
@@ -653,22 +669,52 @@ async function stopFactoryAtPaths(
   }
 }
 
-async function findFactoryRepoRoot(
+async function findFactoryWorkflowPath(
   startingPath: string,
   pathExists: (targetPath: string) => Promise<boolean>,
 ): Promise<string> {
   let current = path.resolve(startingPath);
 
   for (;;) {
-    const runtimeRoot = path.join(current, FACTORY_RUNTIME_DIRECTORY);
-    if (await pathExists(runtimeRoot)) {
-      return current;
+    const workflowPath = path.join(current, "WORKFLOW.md");
+    if (isFactoryWorkflowRoot(current) && (await pathExists(workflowPath))) {
+      return workflowPath;
+    }
+    const runtimeWorkflowPath = path.join(
+      current,
+      FACTORY_RUNTIME_DIRECTORY,
+      "WORKFLOW.md",
+    );
+    if (await pathExists(runtimeWorkflowPath)) {
+      return runtimeWorkflowPath;
     }
     const parent = path.dirname(current);
     if (parent === current) {
       throw new Error(
-        `Could not find a repository root containing ${FACTORY_RUNTIME_DIRECTORY} from ${startingPath}. Run 'symphony factory' from the repository root.`,
+        `Could not find an owning Symphony instance from ${startingPath}. Run 'symphony factory' from an instance root containing WORKFLOW.md or from its ${FACTORY_RUNTIME_DIRECTORY} runtime checkout.`,
       );
+    }
+    current = parent;
+  }
+}
+
+function isFactoryWorkflowRoot(candidateRoot: string): boolean {
+  const resolvedRoot = path.resolve(candidateRoot);
+  if (
+    path.basename(resolvedRoot) === "factory-main" &&
+    path.basename(path.dirname(resolvedRoot)) === ".tmp"
+  ) {
+    return true;
+  }
+
+  let current = resolvedRoot;
+  for (;;) {
+    if (path.basename(current) === ".tmp") {
+      return false;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return true;
     }
     current = parent;
   }

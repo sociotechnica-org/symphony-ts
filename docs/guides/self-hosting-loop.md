@@ -50,6 +50,12 @@ repository. Startup now refreshes a local bare mirror under
 `.tmp/github/upstream` first, so those per-issue workspaces clone from the
 local mirror instead of directly from GitHub.
 
+The repository containing `WORKFLOW.md` is the local Symphony instance root.
+Its `.tmp/`, `.var/`, and detached runtime checkout under `.tmp/factory-main`
+belong to that one instance. That is the local multi-instance seam: different
+target repositories can each own their own `WORKFLOW.md` and local runtime
+state while still using the same engine code.
+
 ### 3. Create a real GitHub issue
 
 Open an issue at <https://github.com/sociotechnica-org/symphony-ts/issues>.
@@ -80,7 +86,7 @@ pnpm tsx bin/symphony.ts factory watch
 
 In continuous mode, Symphony will keep polling for additional ready issues. The
 factory-control commands are the normal operator surface for the detached
-runtime under `.tmp/factory-main`.
+runtime under `<instance-root>/.tmp/factory-main`.
 For the full daily-use procedure, recovery interpretation, and restart rules,
 use the checked-in operator runbook instead of treating this guide as the only
 operations reference.
@@ -110,7 +116,7 @@ Symphony now has two status surfaces:
 
 Both surfaces now include the runtime checkout identity for the live factory
 code. Use that `HEAD` SHA and checkout path to answer "what version is running
-right now?"; for detached control it refers to `.tmp/factory-main`, not the
+right now?"; for detached control it refers to `<instance-root>/.tmp/factory-main`, not the
 operator checkout you are typing in.
 
 For self-hosting operations, prefer `factory status` first, then `factory watch`

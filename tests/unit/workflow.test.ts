@@ -5,6 +5,10 @@ import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
+import {
+  deriveRuntimeInstancePaths,
+  getConfigInstancePaths,
+} from "../../src/domain/workflow.js";
 import { createTempDir } from "../support/git.js";
 
 function buildWorkflow(
@@ -124,6 +128,67 @@ ${buildSharedWorkflowSections()}`,
     expect(rendered).toContain("repo#1");
     expect(rendered).toContain("D");
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
+  });
+
+  it("preserves the authoritative resolved instance paths", async () => {
+    const instanceRoot = "/srv/instances/project-a";
+    const workflowPath = path.join(instanceRoot, "WORKFLOW.md");
+    const authoritative = deriveRuntimeInstancePaths({
+      workflowPath,
+      workspaceRoot: path.join(instanceRoot, "custom", "workspaces"),
+    });
+
+    expect(
+      getConfigInstancePaths({
+        workflowPath,
+        instance: authoritative,
+        tracker: {
+          kind: "github",
+          repo: "sociotechnica-org/symphony-ts",
+          apiUrl: "https://api.github.com",
+          readyLabel: "symphony:ready",
+          runningLabel: "symphony:running",
+          failedLabel: "symphony:failed",
+          successComment: "done",
+          reviewBotLogins: [],
+        },
+        polling: {
+          intervalMs: 1000,
+          maxConcurrentRuns: 1,
+          retry: {
+            maxAttempts: 1,
+            backoffMs: 10,
+          },
+        },
+        workspace: {
+          root: "/tmp/heuristic-should-not-win",
+          repoUrl: "git@example.com:repo.git",
+          branchPrefix: "symphony/",
+          retention: {
+            onSuccess: "delete",
+            onFailure: "retain",
+          },
+        },
+        hooks: {
+          afterCreate: [],
+        },
+        agent: {
+          runner: {
+            kind: "codex",
+          },
+          command: "codex exec -",
+          promptTransport: "stdin",
+          timeoutMs: 1000,
+          maxTurns: 1,
+          env: {},
+        },
+        observability: {
+          dashboardEnabled: true,
+          refreshMs: 1000,
+          renderIntervalMs: 16,
+        },
+      }),
+    ).toEqual(authoritative);
   });
 
   it("loads an explicit maintained github tracker config", async () => {
@@ -1473,6 +1538,53 @@ polling:
     backoff_ms: 10
 workspace:
   root: ./.tmp/ws
+  repo_url: ../repos/local.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: generic-command
+  command: echo test
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.workspace.repoUrl).toBe(
+      path.resolve(path.dirname(workflowPath), "../repos/local.git"),
+    );
+  });
+
+  it("resolves relative local workspace.repo_url values against the runtime workflow directory", async () => {
+    const dir = await createTempDir("workflow-runtime-local-repo-url-");
+    const workflowPath = path.join(dir, ".tmp", "factory-main", "WORKFLOW.md");
+    await fs.mkdir(path.dirname(workflowPath), { recursive: true });
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  kind: linear
+  endpoint: https://linear.example.test
+  api_key: linear-token
+  project_slug: symphony
+  assignee: worker@example.test
+  active_states:
+    - Todo
+  terminal_states:
+    - Done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+workspace:
+  root: ../../.tmp/ws
   repo_url: ../repos/local.git
   branch_prefix: symphony/
   cleanup_on_success: true

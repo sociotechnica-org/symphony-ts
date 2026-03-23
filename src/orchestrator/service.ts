@@ -28,7 +28,10 @@ import type {
   SshWorkerHostConfig,
   WatchdogConfig,
 } from "../domain/workflow.js";
-import { getCodexRemoteWorkerHosts } from "../domain/workflow.js";
+import {
+  getCodexRemoteWorkerHosts,
+  getConfigInstancePaths,
+} from "../domain/workflow.js";
 import type {
   IssueArtifactAttemptSnapshot,
   IssueArtifactCheckSnapshot,
@@ -311,6 +314,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     livenessProbe?: LivenessProbe,
     runtimeIdentity?: FactoryRuntimeIdentity,
   ) {
+    const instance = getConfigInstancePaths(config);
     this.#config = config;
     this.#promptBuilder = promptBuilder;
     this.#tracker = tracker;
@@ -326,8 +330,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       logger,
     );
     this.#issueArtifactStore =
-      issueArtifactStore ?? new LocalIssueArtifactStore(config.workspace.root);
-    this.#statusFilePath = deriveStatusFilePath(config.workspace.root);
+      issueArtifactStore ?? new LocalIssueArtifactStore(instance);
+    this.#statusFilePath = deriveStatusFilePath(instance);
     this.#watchdogConfig = config.polling.watchdog ?? DEFAULT_WATCHDOG_CONFIG;
     this.#livenessProbe = livenessProbe ?? null;
     this.#runtimeIdentity = Promise.resolve(

@@ -2,8 +2,11 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import {
+  coerceRuntimeInstancePaths,
+  type RuntimeInstanceInput,
+} from "../domain/workflow.js";
 import { writeTextFileAtomic } from "./atomic-file.js";
-import { deriveFactoryRuntimeRoot } from "./issue-artifacts.js";
 import type {
   IssueReportAvailability,
   IssueReportDocument,
@@ -184,12 +187,10 @@ export interface GeneratedCampaignDigest {
   readonly outputPaths: CampaignReportPaths;
 }
 
-export function deriveCampaignReportsRoot(workspaceRoot: string): string {
-  return path.join(
-    path.dirname(deriveFactoryRuntimeRoot(workspaceRoot)),
-    "reports",
-    "campaigns",
-  );
+export function deriveCampaignReportsRoot(
+  instance: RuntimeInstanceInput,
+): string {
+  return coerceRuntimeInstancePaths(instance).campaignReportsRoot;
 }
 
 export function deriveCampaignId(selection: CampaignSelection): string {
@@ -200,11 +201,11 @@ export function deriveCampaignId(selection: CampaignSelection): string {
 }
 
 export function deriveCampaignReportPaths(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   campaignId: string,
 ): CampaignReportPaths {
   const campaignRoot = path.join(
-    deriveCampaignReportsRoot(workspaceRoot),
+    deriveCampaignReportsRoot(instance),
     campaignId,
   );
   return {
@@ -218,26 +219,20 @@ export function deriveCampaignReportPaths(
 }
 
 export async function generateCampaignDigest(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   selection: CampaignSelection,
   options?: {
     readonly generatedAt?: string | undefined;
   },
 ): Promise<GeneratedCampaignDigest> {
   const normalizedSelection = normalizeCampaignSelection(selection);
-  const reports = await loadCampaignIssueReports(
-    workspaceRoot,
-    normalizedSelection,
-  );
+  const reports = await loadCampaignIssueReports(instance, normalizedSelection);
   const digest = buildCampaignDigest(
     normalizedSelection,
     reports,
     options?.generatedAt ?? new Date().toISOString(),
   );
-  const outputPaths = deriveCampaignReportPaths(
-    workspaceRoot,
-    digest.campaignId,
-  );
+  const outputPaths = deriveCampaignReportPaths(instance, digest.campaignId);
   const markdown = {
     summary: renderCampaignSummaryMarkdown(digest),
     timeline: renderCampaignTimelineMarkdown(digest),
@@ -254,17 +249,13 @@ export async function generateCampaignDigest(
 }
 
 export async function writeCampaignDigest(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   selection: CampaignSelection,
   options?: {
     readonly generatedAt?: string | undefined;
   },
 ): Promise<GeneratedCampaignDigest> {
-  const generated = await generateCampaignDigest(
-    workspaceRoot,
-    selection,
-    options,
-  );
+  const generated = await generateCampaignDigest(instance, selection, options);
   await Promise.all([
     writeTextFileAtomic(
       generated.outputPaths.summaryFile,
@@ -306,28 +297,28 @@ export async function writeCampaignDigest(
 }
 
 export async function loadCampaignIssueReports(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   selection: CampaignSelection,
 ): Promise<readonly StoredIssueReportDocument[]> {
   if (selection.kind === "issues") {
     const issueNumbers = normalizeIssueNumbers(selection.issueNumbers);
     return Promise.all(
       issueNumbers.map((issueNumber) =>
-        readIssueReportDocument(workspaceRoot, issueNumber),
+        readIssueReportDocument(instance, issueNumber),
       ),
     );
   }
 
-  const issueNumbers = await listStoredIssueReportNumbers(workspaceRoot);
+  const issueNumbers = await listStoredIssueReportNumbers(instance);
   if (issueNumbers.length === 0) {
     throw new ObservabilityError(
-      `No generated issue reports were found under ${deriveIssueReportsRoot(workspaceRoot)}; run 'symphony-report issue --issue <number>' first.`,
+      `No generated issue reports were found under ${deriveIssueReportsRoot(instance)}; run 'symphony-report issue --issue <number>' first.`,
     );
   }
 
   const reports = await Promise.all(
     issueNumbers.map((issueNumber) =>
-      readIssueReportDocument(workspaceRoot, issueNumber),
+      readIssueReportDocument(instance, issueNumber),
     ),
   );
   const selectedReports = reports.filter((report) =>
@@ -336,7 +327,7 @@ export async function loadCampaignIssueReports(
 
   if (selectedReports.length === 0) {
     throw new ObservabilityError(
-      `No generated issue reports overlapped ${selection.from} to ${selection.to} under ${deriveIssueReportsRoot(workspaceRoot)}; generate or regenerate the relevant issue reports first.`,
+      `No generated issue reports overlapped ${selection.from} to ${selection.to} under ${deriveIssueReportsRoot(instance)}; generate or regenerate the relevant issue reports first.`,
     );
   }
 
@@ -987,9 +978,9 @@ function normalizeIssueNumbers(
 }
 
 async function listStoredIssueReportNumbers(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
 ): Promise<readonly number[]> {
-  const reportsRoot = deriveIssueReportsRoot(workspaceRoot);
+  const reportsRoot = deriveIssueReportsRoot(instance);
   const entries = await fs
     .readdir(reportsRoot, {
       withFileTypes: true,

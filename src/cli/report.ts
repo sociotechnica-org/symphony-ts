@@ -1,5 +1,5 @@
 import path from "node:path";
-import { loadWorkflowWorkspaceRoot } from "../config/workflow.js";
+import { loadWorkflowInstancePaths } from "../config/workflow.js";
 import { publishIssueToFactoryRuns } from "../integration/factory-runs.js";
 import { createDefaultIssueReportEnrichers } from "../runner/codex-report-enricher.js";
 import {
@@ -83,9 +83,9 @@ export async function runReportCli(
   },
 ): Promise<void> {
   const args = parseReportArgs(argv);
-  const workspaceRoot = await loadWorkflowWorkspaceRoot(args.workflowPath);
+  const instance = await loadWorkflowInstancePaths(args.workflowPath);
   if (args.command === "issue") {
-    const generated = await writeIssueReport(workspaceRoot, args.issueNumber, {
+    const generated = await writeIssueReport(instance, args.issueNumber, {
       enrichers: options?.issueEnrichers ?? createDefaultIssueReportEnrichers(),
     });
     process.stdout.write(
@@ -94,7 +94,7 @@ export async function runReportCli(
     return;
   }
   if (args.command === "campaign") {
-    const generated = await writeCampaignDigest(workspaceRoot, args.selection);
+    const generated = await writeCampaignDigest(instance, args.selection);
     process.stdout.write(
       `Generated campaign digest ${generated.digest.campaignId}\nsummary.md: ${generated.outputPaths.summaryFile}\ntimeline.md: ${generated.outputPaths.timelineFile}\ngithub-activity.md: ${generated.outputPaths.githubActivityFile}\ntoken-usage.md: ${generated.outputPaths.tokenUsageFile}\nlearnings.md: ${generated.outputPaths.learningsFile}\n`,
     );
@@ -102,8 +102,8 @@ export async function runReportCli(
   }
 
   const published = await publishIssueToFactoryRuns({
-    workspaceRoot,
-    sourceRoot: path.dirname(args.workflowPath),
+    instance,
+    sourceRoot: instance.workflowRoot,
     archiveRoot: args.archiveRoot,
     issueNumber: args.issueNumber,
   });

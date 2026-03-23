@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
 import type { ActiveRunExecutionOwner } from "../domain/execution-owner.js";
+import {
+  coerceRuntimeInstancePaths,
+  type RuntimeInstanceInput,
+  type RuntimeInstancePaths,
+} from "../domain/workflow.js";
 import type { RunnerAccountingSnapshot } from "../runner/accounting.js";
 import {
   createRunnerTransportMetadata,
@@ -194,17 +199,17 @@ export interface IssueArtifactStore {
 }
 
 export class LocalIssueArtifactStore implements IssueArtifactStore {
-  readonly #workspaceRoot: string;
+  readonly #instance: RuntimeInstancePaths;
 
-  constructor(workspaceRoot: string) {
-    this.#workspaceRoot = workspaceRoot;
+  constructor(instance: RuntimeInstanceInput) {
+    this.#instance = coerceRuntimeInstancePaths(instance);
   }
 
   async recordObservation(
     observation: IssueArtifactObservation,
   ): Promise<void> {
     const paths = deriveIssueArtifactPaths(
-      this.#workspaceRoot,
+      this.#instance,
       observation.issue.issueNumber,
     );
 
@@ -419,35 +424,26 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
   }
 }
 
-export function deriveFactoryRuntimeRoot(workspaceRoot: string): string {
-  const resolved = path.resolve(workspaceRoot);
-  let current = resolved;
-
-  for (;;) {
-    const parent = path.dirname(current);
-    if (path.basename(parent) === ".tmp") {
-      return path.join(path.dirname(parent), ".var", "factory");
-    }
-    if (parent === current) {
-      break;
-    }
-    current = parent;
-  }
-
-  const repoRoot = path.dirname(resolved);
-  return path.join(repoRoot, ".var", "factory");
+export function deriveFactoryArtifactsRoot(
+  instance: RuntimeInstanceInput,
+): string {
+  return coerceRuntimeInstancePaths(instance).factoryArtifactsRoot;
 }
 
-export function deriveIssueArtifactsRoot(workspaceRoot: string): string {
-  return path.join(deriveFactoryRuntimeRoot(workspaceRoot), "issues");
+export const deriveFactoryRuntimeRoot = deriveFactoryArtifactsRoot;
+
+export function deriveIssueArtifactsRoot(
+  instance: RuntimeInstanceInput,
+): string {
+  return coerceRuntimeInstancePaths(instance).issueArtifactsRoot;
 }
 
 export function deriveIssueArtifactPaths(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): IssueArtifactPaths {
   const issueRoot = path.join(
-    deriveIssueArtifactsRoot(workspaceRoot),
+    deriveIssueArtifactsRoot(instance),
     issueNumber.toString(),
   );
   return {
@@ -462,22 +458,19 @@ export function deriveIssueArtifactPaths(
 }
 
 export async function readIssueArtifactSummary(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): Promise<IssueArtifactSummary> {
   return await readJsonFile<IssueArtifactSummary>(
-    deriveIssueArtifactPaths(workspaceRoot, issueNumber).issueFile,
+    deriveIssueArtifactPaths(instance, issueNumber).issueFile,
   );
 }
 
 export async function readIssueArtifactEvents(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): Promise<readonly IssueArtifactEvent[]> {
-  const filePath = deriveIssueArtifactPaths(
-    workspaceRoot,
-    issueNumber,
-  ).eventsFile;
+  const filePath = deriveIssueArtifactPaths(instance, issueNumber).eventsFile;
   const raw = await fs.readFile(filePath, "utf8");
   return raw
     .split("\n")
@@ -497,37 +490,37 @@ export async function readIssueArtifactEvents(
 }
 
 export async function readIssueArtifactAttempt(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
   attemptNumber: number,
 ): Promise<IssueArtifactAttemptSnapshot> {
   return await readJsonFile<IssueArtifactAttemptSnapshot>(
     path.join(
-      deriveIssueArtifactPaths(workspaceRoot, issueNumber).attemptsDir,
+      deriveIssueArtifactPaths(instance, issueNumber).attemptsDir,
       `${attemptNumber.toString()}.json`,
     ),
   );
 }
 
 export async function readIssueArtifactSession(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
   sessionId: string,
 ): Promise<IssueArtifactSessionSnapshot> {
   return await readIssueArtifactSessionFile(
     path.join(
-      deriveIssueArtifactPaths(workspaceRoot, issueNumber).sessionsDir,
+      deriveIssueArtifactPaths(instance, issueNumber).sessionsDir,
       `${encodeSessionFileName(sessionId)}.json`,
     ),
   );
 }
 
 export async function readIssueArtifactLogPointers(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): Promise<IssueArtifactLogPointersDocument> {
   return await readJsonFile<IssueArtifactLogPointersDocument>(
-    deriveIssueArtifactPaths(workspaceRoot, issueNumber).logPointersFile,
+    deriveIssueArtifactPaths(instance, issueNumber).logPointersFile,
   );
 }
 

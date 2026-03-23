@@ -1,3 +1,5 @@
+import path from "node:path";
+import { ConfigError } from "./errors.js";
 import type { RuntimeIssue } from "./issue.js";
 import type { HandoffLifecycle } from "./handoff.js";
 
@@ -140,8 +142,29 @@ export interface ObservabilityConfig {
   readonly renderIntervalMs: number;
 }
 
+export interface RuntimeInstancePaths {
+  readonly instanceRoot: string;
+  readonly workflowRoot: string;
+  readonly tempRoot: string;
+  readonly varRoot: string;
+  readonly runtimeRoot: string;
+  readonly runtimeWorkflowPath: string;
+  readonly workspaceRoot: string;
+  readonly statusFilePath: string;
+  readonly startupFilePath: string;
+  readonly githubMirrorPath: string;
+  readonly factoryArtifactsRoot: string;
+  readonly issueArtifactsRoot: string;
+  readonly reportsRoot: string;
+  readonly issueReportsRoot: string;
+  readonly campaignReportsRoot: string;
+}
+
+export type RuntimeInstanceInput = RuntimeInstancePaths | string;
+
 export interface ResolvedConfig {
   readonly workflowPath: string;
+  readonly instance: RuntimeInstancePaths;
   readonly tracker: TrackerConfig;
   readonly polling: PollingConfig;
   readonly workspace: WorkspaceConfig;
@@ -153,6 +176,87 @@ export interface ResolvedConfig {
 export interface WorkflowDefinition {
   readonly config: ResolvedConfig;
   readonly promptTemplate: string;
+}
+
+export function deriveInstanceRootFromWorkflowPath(
+  workflowPath: string,
+): string {
+  const resolvedWorkflowPath = path.resolve(workflowPath);
+  const workflowRoot = path.dirname(resolvedWorkflowPath);
+  if (
+    path.basename(resolvedWorkflowPath) === "WORKFLOW.md" &&
+    path.basename(workflowRoot) === "factory-main" &&
+    path.basename(path.dirname(workflowRoot)) === ".tmp"
+  ) {
+    return path.dirname(path.dirname(workflowRoot));
+  }
+  return workflowRoot;
+}
+
+export function deriveRuntimeInstancePaths(args: {
+  readonly workflowPath: string;
+  readonly workspaceRoot: string;
+}): RuntimeInstancePaths {
+  const resolvedWorkflowPath = path.resolve(args.workflowPath);
+  const workflowRoot = path.dirname(resolvedWorkflowPath);
+  const instanceRoot = deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
+  const tempRoot = path.join(instanceRoot, ".tmp");
+  const varRoot = path.join(instanceRoot, ".var");
+  const runtimeRoot = path.join(tempRoot, "factory-main");
+  const reportsRoot = path.join(varRoot, "reports");
+
+  return {
+    instanceRoot,
+    workflowRoot,
+    tempRoot,
+    varRoot,
+    runtimeRoot,
+    runtimeWorkflowPath: path.join(runtimeRoot, "WORKFLOW.md"),
+    workspaceRoot: path.resolve(args.workspaceRoot),
+    statusFilePath: path.join(tempRoot, "status.json"),
+    startupFilePath: path.join(tempRoot, "startup.json"),
+    githubMirrorPath: path.join(tempRoot, "github", "upstream"),
+    factoryArtifactsRoot: path.join(varRoot, "factory"),
+    issueArtifactsRoot: path.join(varRoot, "factory", "issues"),
+    reportsRoot,
+    issueReportsRoot: path.join(reportsRoot, "issues"),
+    campaignReportsRoot: path.join(reportsRoot, "campaigns"),
+  };
+}
+
+export function coerceRuntimeInstancePaths(
+  input: RuntimeInstanceInput,
+): RuntimeInstancePaths {
+  if (typeof input !== "string") {
+    return input;
+  }
+
+  const workspaceRoot = path.resolve(input);
+  let current = workspaceRoot;
+  let instanceRoot = path.dirname(workspaceRoot);
+
+  for (;;) {
+    const parent = path.dirname(current);
+    if (path.basename(parent) === ".tmp") {
+      instanceRoot = path.dirname(parent);
+      break;
+    }
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
+  if (!workspaceRoot.startsWith(path.join(instanceRoot, ".tmp", ""))) {
+    throw new ConfigError(
+      `Cannot infer Symphony instance paths from ${workspaceRoot}; pass resolved config.instance when workspace.root is outside the instance .tmp directory.`,
+    );
+  }
+
+  return deriveRuntimeInstancePaths({
+    workflowPath: path.join(instanceRoot, "WORKFLOW.md"),
+    workspaceRoot,
+  });
 }
 
 export function getCodexRemoteWorkerHosts(
@@ -196,4 +300,10 @@ export interface PromptBuilder {
     readonly maxTurns: number;
     readonly pullRequest: HandoffLifecycle | null;
   }): Promise<string>;
+}
+
+export function getConfigInstancePaths(
+  config: ResolvedConfig,
+): RuntimeInstancePaths {
+  return config.instance;
 }

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { IntegrationError } from "../domain/errors.js";
+import type { RuntimeInstanceInput } from "../domain/workflow.js";
 import type { IssueArtifactLogPointer } from "../observability/issue-artifacts.js";
 import {
   loadIssueArtifacts,
@@ -98,7 +99,8 @@ export interface FactoryRunsPublicationMetadata {
 }
 
 export interface PublishIssueToFactoryRunsOptions {
-  readonly workspaceRoot: string;
+  readonly instance?: RuntimeInstanceInput;
+  readonly workspaceRoot?: string;
   readonly sourceRoot: string;
   readonly archiveRoot: string;
   readonly issueNumber: number;
@@ -158,12 +160,18 @@ export async function publishIssueToFactoryRuns(
   const sourceRoot = path.resolve(options.sourceRoot);
   const archiveRoot = path.resolve(options.archiveRoot);
   const publishedAt = options.publishedAt ?? new Date().toISOString();
+  const instance = options.instance ?? options.workspaceRoot;
+  if (instance === undefined) {
+    throw new IntegrationError(
+      "publishIssueToFactoryRuns requires either instance or workspaceRoot",
+    );
+  }
 
   await validateArchiveRoot(archiveRoot);
 
   const [reportInput, loadedArtifacts, sourceRevision] = await Promise.all([
-    readIssueReport(options.workspaceRoot, options.issueNumber),
-    loadIssueArtifacts(options.workspaceRoot, options.issueNumber),
+    readIssueReport(instance, options.issueNumber),
+    loadIssueArtifacts(instance, options.issueNumber),
     collectSourceRevision(sourceRoot),
   ]);
 

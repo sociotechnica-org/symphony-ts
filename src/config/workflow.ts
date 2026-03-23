@@ -10,6 +10,10 @@ import {
   buildPromptIssueContext,
   buildPromptPullRequestContext,
 } from "../tracker/prompt-context.js";
+import {
+  deriveInstanceRootFromWorkflowPath,
+  deriveRuntimeInstancePaths,
+} from "../domain/workflow.js";
 import type {
   AgentRunnerConfig,
   CodexRemoteExecutionConfig,
@@ -20,6 +24,7 @@ import type {
   PromptBuilder,
   QueuePriorityConfig,
   ResolvedConfig,
+  RuntimeInstancePaths,
   SshWorkerHostConfig,
   TrackerConfig,
   WorkspaceRetentionMode,
@@ -363,7 +368,7 @@ function resolveRepoUrl(
   explicitRepoUrl: unknown,
   derivedRepoUrl: string | undefined,
   envOverrideActive: boolean,
-  workflowPath: string,
+  workflowRoot: string,
 ): string {
   // When SYMPHONY_REPO is set, the derived URL always wins so the factory
   // polls, clones, and pushes to the same repo.
@@ -390,18 +395,18 @@ function resolveRepoUrl(
 
   return resolveWorkspaceRepoUrl(
     requireString(explicitRepoUrl, "workspace.repo_url"),
-    workflowPath,
+    workflowRoot,
   );
 }
 
 function resolveWorkspaceRepoUrl(
   repoUrl: string,
-  workflowPath: string,
+  workflowRoot: string,
 ): string {
   if (isRemoteRepoUrl(repoUrl)) {
     return repoUrl;
   }
-  return path.resolve(path.dirname(workflowPath), repoUrl);
+  return path.resolve(workflowRoot, repoUrl);
 }
 
 function isRemoteRepoUrl(repoUrl: string): boolean {
@@ -458,6 +463,9 @@ function resolveObservabilityConfig(
 }
 
 function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
+  const resolvedWorkflowPath = path.resolve(workflowPath);
+  const workflowRoot = path.dirname(resolvedWorkflowPath);
+  const instanceRoot = deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
   const tracker = coerceOptionalObject(raw.tracker, "tracker");
   const polling = coerceOptionalObject(raw.polling, "polling");
   const workspace = coerceOptionalObject(raw.workspace, "workspace");
@@ -524,16 +532,17 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   };
   const resolvedWatchdog = resolveWatchdogConfig(polling["watchdog"]);
   const agentCommand = requireString(agent["command"], "agent.command");
+  const resolvedWorkspaceRoot = path.resolve(
+    instanceRoot,
+    requireString(workspace["root"], "workspace.root"),
+  );
   const resolvedWorkspace = {
-    root: path.resolve(
-      path.dirname(workflowPath),
-      requireString(workspace["root"], "workspace.root"),
-    ),
+    root: resolvedWorkspaceRoot,
     repoUrl: resolveRepoUrl(
       workspace["repo_url"],
       derivedRepoUrl,
       repoOverride !== undefined,
-      workflowPath,
+      workflowRoot,
     ),
     branchPrefix: requireString(
       workspace["branch_prefix"],
@@ -549,7 +558,11 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   );
 
   const resolved: ResolvedConfig = {
-    workflowPath,
+    workflowPath: resolvedWorkflowPath,
+    instance: deriveRuntimeInstancePaths({
+      workflowPath: resolvedWorkflowPath,
+      workspaceRoot: resolvedWorkspaceRoot,
+    }),
     tracker: resolvedTracker,
     polling:
       resolvedWatchdog === undefined
@@ -1189,15 +1202,27 @@ export async function loadWorkflow(
 export async function loadWorkflowWorkspaceRoot(
   workflowPath: string,
 ): Promise<string> {
+  return (await loadWorkflowInstancePaths(workflowPath)).workspaceRoot;
+}
+
+export async function loadWorkflowInstancePaths(
+  workflowPath: string,
+): Promise<RuntimeInstancePaths> {
   const parsed = await readParsedWorkflow(workflowPath);
   const workspace = coerceOptionalObject(
     parsed.frontMatter.workspace,
     "workspace",
   );
-  return path.resolve(
-    path.dirname(workflowPath),
+  const resolvedWorkflowPath = path.resolve(workflowPath);
+  const instanceRoot = deriveInstanceRootFromWorkflowPath(resolvedWorkflowPath);
+  const workspaceRoot = path.resolve(
+    instanceRoot,
     requireString(workspace["root"], "workspace.root"),
   );
+  return deriveRuntimeInstancePaths({
+    workflowPath: resolvedWorkflowPath,
+    workspaceRoot,
+  });
 }
 
 function exhaustiveTrackerConfig(tracker: never): never {

@@ -15,6 +15,21 @@ import {
   type RunnerRunOptions,
 } from "./service.js";
 
+function signalLocalProcessTree(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, signal);
+    return;
+  } catch {
+    // Fall through to direct child signaling when the process group is gone or
+    // the platform/runtime cannot address it.
+  }
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // Ignore races where the runner exits between the liveness check and signal.
+  }
+}
+
 function tryParseStdoutEvent(line: string): RunUpdateEvent | undefined {
   const trimmed = line.trim();
   if (trimmed === "") return undefined;
@@ -87,6 +102,7 @@ export async function executeLocalRunnerCommand(
   return await new Promise<RunnerExecutionResult>((resolve, reject) => {
     const child = spawn("bash", ["-lc", command], {
       cwd: workspacePath,
+      detached: true,
       env: {
         ...process.env,
         ...createRunnerEnvironment(
@@ -128,7 +144,11 @@ export async function executeLocalRunnerCommand(
       if (child.exitCode !== null || child.signalCode !== null) {
         return;
       }
-      child.kill("SIGTERM");
+      if (child.pid !== undefined) {
+        signalLocalProcessTree(child.pid, "SIGTERM");
+      } else {
+        child.kill("SIGTERM");
+      }
       if (forcedKillTimeout !== null) {
         return;
       }
@@ -138,7 +158,11 @@ export async function executeLocalRunnerCommand(
           if (aborted && !timedOut) {
             forcedShutdown = true;
           }
-          child.kill("SIGKILL");
+          if (child.pid !== undefined) {
+            signalLocalProcessTree(child.pid, "SIGKILL");
+          } else {
+            child.kill("SIGKILL");
+          }
         }
       }, RUNNER_SHUTDOWN_GRACE_MS);
     };

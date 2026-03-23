@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ObservabilityError } from "../domain/errors.js";
+import {
+  coerceRuntimeInstancePaths,
+  type RuntimeInstanceInput,
+} from "../domain/workflow.js";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "./atomic-file.js";
 import type { IssueReportEnricher } from "./issue-report-enrichment.js";
 import { applyIssueReportEnrichers } from "./issue-report-enrichment.js";
@@ -15,10 +19,7 @@ import type {
   IssueArtifactSessionSnapshot,
   IssueArtifactSummary,
 } from "./issue-artifacts.js";
-import {
-  deriveFactoryRuntimeRoot,
-  deriveIssueArtifactPaths,
-} from "./issue-artifacts.js";
+import { deriveIssueArtifactPaths } from "./issue-artifacts.js";
 import {
   createRunnerAccountingSnapshot,
   sumIfAllPresent,
@@ -223,20 +224,16 @@ export interface GeneratedIssueReport {
   readonly outputPaths: IssueReportPaths;
 }
 
-export function deriveIssueReportsRoot(workspaceRoot: string): string {
-  return path.join(
-    path.dirname(deriveFactoryRuntimeRoot(workspaceRoot)),
-    "reports",
-    "issues",
-  );
+export function deriveIssueReportsRoot(instance: RuntimeInstanceInput): string {
+  return coerceRuntimeInstancePaths(instance).issueReportsRoot;
 }
 
 export function deriveIssueReportPaths(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): IssueReportPaths {
   const issueRoot = path.join(
-    deriveIssueReportsRoot(workspaceRoot),
+    deriveIssueReportsRoot(instance),
     issueNumber.toString(),
   );
   return {
@@ -247,21 +244,22 @@ export function deriveIssueReportPaths(
 }
 
 export async function generateIssueReport(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
   options?: {
     readonly generatedAt?: string | undefined;
     readonly enrichers?: readonly IssueReportEnricher[] | undefined;
   },
 ): Promise<GeneratedIssueReport> {
-  const loaded = await loadIssueArtifacts(workspaceRoot, issueNumber);
-  const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
+  const resolvedInstance = coerceRuntimeInstancePaths(instance);
+  const loaded = await loadIssueArtifacts(resolvedInstance, issueNumber);
+  const outputPaths = deriveIssueReportPaths(resolvedInstance, issueNumber);
   const generatedAt = options?.generatedAt ?? new Date().toISOString();
   const canonicalReport = buildIssueReport(loaded, outputPaths, generatedAt);
   const report = await applyIssueReportEnrichers(
     canonicalReport,
     {
-      workspaceRoot,
+      workspaceRoot: resolvedInstance.workspaceRoot,
       loaded,
     },
     options?.enrichers ?? [],
@@ -275,14 +273,14 @@ export async function generateIssueReport(
 }
 
 export async function writeIssueReport(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
   options?: {
     readonly generatedAt?: string | undefined;
     readonly enrichers?: readonly IssueReportEnricher[] | undefined;
   },
 ): Promise<GeneratedIssueReport> {
-  const generated = await generateIssueReport(workspaceRoot, issueNumber, {
+  const generated = await generateIssueReport(instance, issueNumber, {
     generatedAt: options?.generatedAt,
     enrichers: options?.enrichers,
   });
@@ -300,10 +298,10 @@ export async function writeIssueReport(
 }
 
 export async function readIssueReportDocument(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): Promise<StoredIssueReportDocument> {
-  const outputPaths = deriveIssueReportPaths(workspaceRoot, issueNumber);
+  const outputPaths = deriveIssueReportPaths(instance, issueNumber);
   const rawReportJson = await readRequiredIssueReportFile(
     outputPaths.reportJsonFile,
     issueNumber,
@@ -335,14 +333,14 @@ export async function readIssueReportDocument(
 }
 
 export async function readIssueReport(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): Promise<StoredIssueReport> {
   const [storedDocumentResult, rawReportMarkdownResult] =
     await Promise.allSettled([
-      readIssueReportDocument(workspaceRoot, issueNumber),
+      readIssueReportDocument(instance, issueNumber),
       readRequiredIssueReportFile(
-        deriveIssueReportPaths(workspaceRoot, issueNumber).reportMarkdownFile,
+        deriveIssueReportPaths(instance, issueNumber).reportMarkdownFile,
         issueNumber,
         "markdown",
       ),
@@ -413,10 +411,10 @@ async function readRequiredIssueReportFile(
 }
 
 export async function loadIssueArtifacts(
-  workspaceRoot: string,
+  instance: RuntimeInstanceInput,
   issueNumber: number,
 ): Promise<LoadedIssueArtifacts> {
-  const paths = deriveIssueArtifactPaths(workspaceRoot, issueNumber);
+  const paths = deriveIssueArtifactPaths(instance, issueNumber);
 
   const issueRootStat = await fs.stat(paths.issueRoot).catch((error) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {

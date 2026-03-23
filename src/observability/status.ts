@@ -5,6 +5,10 @@ import { ObservabilityError } from "../domain/errors.js";
 import type { ActiveRunExecutionOwner } from "../domain/execution-owner.js";
 import type { DispatchPressureStateSnapshot } from "../domain/transient-failure.js";
 import {
+  coerceRuntimeInstancePaths,
+  type RuntimeInstanceInput,
+} from "../domain/workflow.js";
+import {
   parseFactoryRuntimeIdentity,
   renderFactoryRuntimeIdentity,
   type FactoryRuntimeIdentity,
@@ -272,12 +276,8 @@ export interface FactoryStatusFreshnessAssessment {
   readonly publicationState: FactoryStatusPublicationState | null;
 }
 
-export function deriveStatusFilePath(workspaceRoot: string): string {
-  const parent = path.dirname(workspaceRoot);
-  if (parent === workspaceRoot) {
-    return path.join(workspaceRoot, "status.json");
-  }
-  return path.join(parent, "status.json");
+export function deriveStatusFilePath(instance: RuntimeInstanceInput): string {
+  return coerceRuntimeInstancePaths(instance).statusFilePath;
 }
 
 export async function writeFactoryStatusSnapshot(
