@@ -65,9 +65,11 @@ describe("watchFactory", () => {
     const writes: string[] = [];
     const listeners = new Map<NodeJS.Signals, () => void>();
     let iterations = 0;
+    const inspectFactoryControl = vi.fn(async () => createSnapshot());
 
     await watchFactory({
-      inspectFactoryControl: vi.fn(async () => createSnapshot()),
+      workflowPath: "/repo/WORKFLOW.md",
+      inspectFactoryControl,
       renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
       writeStdout: (chunk) => {
         writes.push(chunk);
@@ -91,6 +93,12 @@ describe("watchFactory", () => {
     expect(writes[0]).toContain("Detached factory watch");
     expect(writes[1]).toContain("Factory control: running");
     expect(listeners.size).toBe(0);
+    expect(inspectFactoryControl).toHaveBeenNthCalledWith(1, {
+      workflowPath: "/repo/WORKFLOW.md",
+    });
+    expect(inspectFactoryControl).toHaveBeenNthCalledWith(2, {
+      workflowPath: "/repo/WORKFLOW.md",
+    });
   });
 
   it("removes its own signal handlers when interrupted", async () => {

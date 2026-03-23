@@ -14,6 +14,7 @@ STATUS_MD="$RALPH_DIR/status.md"
 SCRATCHPAD="$RALPH_DIR/operator-scratchpad.md"
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
+WORKFLOW_PATH="${SYMPHONY_OPERATOR_WORKFLOW_PATH:-}"
 DEFAULT_OPERATOR_COMMAND="codex exec --dangerously-bypass-approvals-and-sandbox -C . -"
 OPERATOR_COMMAND="${SYMPHONY_OPERATOR_COMMAND:-$DEFAULT_OPERATOR_COMMAND}"
 RECORDING_SETTLE_SECONDS=1
@@ -29,17 +30,19 @@ NEXT_WAKE_AT=""
 
 usage() {
   cat <<'EOF'
-Usage: operator-loop.sh [--once] [--interval-seconds <seconds>] [--help]
+Usage: operator-loop.sh [--once] [--interval-seconds <seconds>] [--workflow <path>] [--help]
 
 Environment:
   SYMPHONY_OPERATOR_COMMAND           Command that reads the operator prompt from stdin.
                                       Default: codex exec --dangerously-bypass-approvals-and-sandbox -C . -
                                       Warning: the default bypasses Codex approvals and sandboxing.
   SYMPHONY_OPERATOR_INTERVAL_SECONDS  Sleep interval for continuous mode. Default: 300
+  SYMPHONY_OPERATOR_WORKFLOW_PATH     Optional WORKFLOW.md path for the target Symphony instance.
 
 Examples:
   pnpm operator
   pnpm operator:once
+  pnpm operator -- --workflow ../target-repo/WORKFLOW.md
   SYMPHONY_OPERATOR_INTERVAL_SECONDS=60 pnpm operator
 EOF
 }
@@ -62,6 +65,10 @@ now_utc() {
 
 future_utc() {
   node -e 'const interval = Number(process.argv[1]); if (!Number.isInteger(interval) || interval <= 0) process.exit(1); console.log(new Date(Date.now() + interval * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"));' "$1"
+}
+
+resolve_path() {
+  node -p 'require("node:path").resolve(process.argv[1])' "$1"
 }
 
 pid_is_live() {
@@ -89,6 +96,7 @@ write_status() {
   "command": "$(json_escape "$OPERATOR_COMMAND")",
   "promptFile": "$(json_escape "$PROMPT_FILE")",
   "scratchpad": "$(json_escape "$SCRATCHPAD")",
+  "selectedWorkflowPath": $(if [ -n "$WORKFLOW_PATH" ]; then printf '"%s"' "$(json_escape "$WORKFLOW_PATH")"; else printf 'null'; fi),
   "lastCycle": {
     "startedAt": $(if [ -n "$LAST_CYCLE_STARTED_AT" ]; then printf '"%s"' "$(json_escape "$LAST_CYCLE_STARTED_AT")"; else printf 'null'; fi),
     "finishedAt": $(if [ -n "$LAST_CYCLE_FINISHED_AT" ]; then printf '"%s"' "$(json_escape "$LAST_CYCLE_FINISHED_AT")"; else printf 'null'; fi),
@@ -108,6 +116,7 @@ EOF
 - Repo root: $REPO_ROOT
 - Mode: $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'once'; else printf 'continuous'; fi)
 - Interval seconds: $INTERVAL_SECONDS
+- Selected workflow: ${WORKFLOW_PATH:-n/a}
 - Scratchpad: $SCRATCHPAD
 - Prompt: $PROMPT_FILE
 - Last cycle started: ${LAST_CYCLE_STARTED_AT:-n/a}
@@ -202,6 +211,7 @@ run_cycle() {
     printf '== Symphony operator cycle ==\n'
     printf 'started_at=%s\n' "$LAST_CYCLE_STARTED_AT"
     printf 'repo_root=%s\n' "$REPO_ROOT"
+    printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
     printf 'command=%s\n' "$OPERATOR_COMMAND"
     printf 'prompt=%s\n' "$PROMPT_FILE"
     printf '\n'
@@ -216,6 +226,7 @@ run_cycle() {
     export SYMPHONY_OPERATOR_STATUS_MD="$STATUS_MD"
     export SYMPHONY_OPERATOR_LOG_DIR="$LOG_DIR"
     export SYMPHONY_OPERATOR_PROMPT_FILE="$PROMPT_FILE"
+    export SYMPHONY_OPERATOR_WORKFLOW_PATH="$WORKFLOW_PATH"
     # Intentionally use a login shell so PATH-managed runner installs such as
     # codex or claude remain discoverable during unattended operator cycles.
     bash -l -c "$OPERATOR_COMMAND" <"$PROMPT_FILE"
@@ -257,6 +268,14 @@ while [ $# -gt 0 ]; do
       INTERVAL_SECONDS="$2"
       shift 2
       ;;
+    --workflow)
+      if [ $# -lt 2 ]; then
+        echo "operator-loop: --workflow requires a value" >&2
+        exit 1
+      fi
+      WORKFLOW_PATH="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -282,6 +301,10 @@ fi
 if ! command -v node >/dev/null 2>&1; then
   echo "operator-loop: node not found in PATH; required for timestamp calculation" >&2
   exit 1
+fi
+
+if [ -n "$WORKFLOW_PATH" ]; then
+  WORKFLOW_PATH="$(resolve_path "$WORKFLOW_PATH")"
 fi
 
 warn_default_command

@@ -76,6 +76,14 @@ pnpm tsx bin/symphony.ts factory restart
 pnpm tsx bin/symphony.ts factory stop
 ```
 
+From a separate engine checkout, target a project-local instance explicitly:
+
+```bash
+pnpm tsx bin/symphony.ts factory status --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory watch --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory restart --workflow ../target-repo/WORKFLOW.md
+```
+
 `factory start` launches the same startup-preparation path as `symphony run`
 and surfaces startup preparation/failure details through `factory status`
 instead of relying on a separate wrapper command.
@@ -122,6 +130,7 @@ entry point instead of any local `.ralph/` script:
 ```bash
 pnpm operator        # continuous wake-up loop
 pnpm operator:once   # single operator wake-up cycle
+pnpm operator -- --workflow ../target-repo/WORKFLOW.md
 ```
 
 The checked-in loop lives under `skills/symphony-operator/`. `.ralph/` remains
