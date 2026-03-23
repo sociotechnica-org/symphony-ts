@@ -707,7 +707,7 @@ function isFactoryWorkflowRoot(candidateRoot: string): boolean {
     return true;
   }
 
-  let current = path.dirname(resolvedRoot);
+  let current = resolvedRoot;
   for (;;) {
     if (path.basename(current) === ".tmp") {
       return false;
