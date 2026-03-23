@@ -102,9 +102,9 @@ pnpm operator:once
 
 `pnpm operator` runs the continuous wake-up loop. `pnpm operator:once` runs one
 operator cycle and exits. The loop writes only local/generated artifacts under
-`.ralph/` such as `operator-scratchpad.md`, `status.json`, `status.md`,
-`logs/`, and lock files; the durable tooling and prompt live in
-`skills/symphony-operator/`.
+`.ralph/instances/<instance-key>/` such as `operator-scratchpad.md`,
+`status.json`, `status.md`, `logs/`, and lock files; the durable tooling and
+prompt live in `skills/symphony-operator/`.
 This entry point currently expects a Unix-like shell environment such as macOS,
 Linux, or WSL/Git Bash on Windows.
 
@@ -127,7 +127,7 @@ factory runtime: it selects an installed UTF-8 locale for detached startup,
 launches GNU Screen with `-U`, and fails clearly when the host cannot provide a
 usable UTF-8 locale.
 
-Do not use raw `screen -r symphony-factory` as the normal watch path. That
+Do not use raw `screen -r <instance-session-name>` as the normal watch path. That
 attach path gives your terminal direct foreground ownership of the worker, so
 an accidental `Ctrl-C` can stop the detached factory.
 

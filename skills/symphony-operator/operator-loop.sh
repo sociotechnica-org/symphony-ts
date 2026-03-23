@@ -6,12 +6,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROMPT_FILE="$SCRIPT_DIR/operator-prompt.md"
 RALPH_DIR="$REPO_ROOT/.ralph"
-LOG_DIR="$RALPH_DIR/logs"
-LOCK_DIR="$RALPH_DIR/operator-loop.lock"
-LOCK_INFO_FILE="$LOCK_DIR/owner"
-STATUS_JSON="$RALPH_DIR/status.json"
-STATUS_MD="$RALPH_DIR/status.md"
-SCRATCHPAD="$RALPH_DIR/operator-scratchpad.md"
+INSTANCE_STATE_RESOLVER="$REPO_ROOT/bin/resolve-operator-instance.ts"
+INSTANCE_KEY=""
+DETACHED_SESSION_NAME=""
+INSTANCE_STATE_ROOT=""
+LOG_DIR=""
+LOCK_DIR=""
+LOCK_INFO_FILE=""
+STATUS_JSON=""
+STATUS_MD=""
+SCRATCHPAD=""
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
 WORKFLOW_PATH="${SYMPHONY_OPERATOR_WORKFLOW_PATH:-}"
@@ -71,6 +75,41 @@ resolve_path() {
   node -p 'require("node:path").resolve(process.argv[1])' "$1"
 }
 
+resolve_instance_state() {
+  local metadata_json metadata_exports
+  metadata_json="$(
+    pnpm tsx "$INSTANCE_STATE_RESOLVER" \
+      --workflow "$WORKFLOW_PATH" \
+      --operator-repo-root "$REPO_ROOT"
+  )"
+  metadata_exports="$(
+    printf '%s' "$metadata_json" | node -e '
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(0, "utf8"));
+const mappings = {
+  workflowPath: "WORKFLOW_PATH",
+  instanceKey: "INSTANCE_KEY",
+  detachedSessionName: "DETACHED_SESSION_NAME",
+  operatorStateRoot: "INSTANCE_STATE_ROOT",
+  logDir: "LOG_DIR",
+  lockDir: "LOCK_DIR",
+  lockInfoFile: "LOCK_INFO_FILE",
+  statusJsonPath: "STATUS_JSON",
+  statusMdPath: "STATUS_MD",
+  scratchpadPath: "SCRATCHPAD",
+};
+for (const [jsonKey, shellKey] of Object.entries(mappings)) {
+  const value = data[jsonKey];
+  if (typeof value !== "string") {
+    throw new Error(`Expected string for ${jsonKey}`);
+  }
+  console.log(`${shellKey}=${JSON.stringify(value)}`);
+}
+'
+  )"
+  eval "$metadata_exports"
+}
+
 pid_is_live() {
   local pid="${1:-}"
   [[ "$pid" =~ ^[0-9]+$ ]] || return 1
@@ -90,6 +129,9 @@ write_status() {
   "message": "$(json_escape "$message")",
   "updatedAt": "$(json_escape "$updated_at")",
   "repoRoot": "$(json_escape "$REPO_ROOT")",
+  "instanceKey": "$(json_escape "$INSTANCE_KEY")",
+  "detachedSessionName": "$(json_escape "$DETACHED_SESSION_NAME")",
+  "operatorStateRoot": "$(json_escape "$INSTANCE_STATE_ROOT")",
   "pid": $$,
   "runOnce": $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'true'; else printf 'false'; fi),
   "intervalSeconds": $INTERVAL_SECONDS,
@@ -114,6 +156,9 @@ EOF
 - Message: $message
 - Updated: $updated_at
 - Repo root: $REPO_ROOT
+- Instance key: $INSTANCE_KEY
+- Detached session: $DETACHED_SESSION_NAME
+- Operator state root: $INSTANCE_STATE_ROOT
 - Mode: $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'once'; else printf 'continuous'; fi)
 - Interval seconds: $INTERVAL_SECONDS
 - Selected workflow: ${WORKFLOW_PATH:-n/a}
@@ -211,6 +256,9 @@ run_cycle() {
     printf '== Symphony operator cycle ==\n'
     printf 'started_at=%s\n' "$LAST_CYCLE_STARTED_AT"
     printf 'repo_root=%s\n' "$REPO_ROOT"
+    printf 'instance_key=%s\n' "$INSTANCE_KEY"
+    printf 'detached_session=%s\n' "$DETACHED_SESSION_NAME"
+    printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
     printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
     printf 'command=%s\n' "$OPERATOR_COMMAND"
     printf 'prompt=%s\n' "$PROMPT_FILE"
@@ -221,6 +269,9 @@ run_cycle() {
   (
     cd "$REPO_ROOT"
     export SYMPHONY_OPERATOR_REPO_ROOT="$REPO_ROOT"
+    export SYMPHONY_OPERATOR_INSTANCE_KEY="$INSTANCE_KEY"
+    export SYMPHONY_OPERATOR_DETACHED_SESSION_NAME="$DETACHED_SESSION_NAME"
+    export SYMPHONY_OPERATOR_STATE_ROOT="$INSTANCE_STATE_ROOT"
     export SYMPHONY_OPERATOR_SCRATCHPAD="$SCRATCHPAD"
     export SYMPHONY_OPERATOR_STATUS_JSON="$STATUS_JSON"
     export SYMPHONY_OPERATOR_STATUS_MD="$STATUS_MD"
@@ -298,6 +349,11 @@ if [ ! -f "$PROMPT_FILE" ]; then
   exit 1
 fi
 
+if [ ! -f "$INSTANCE_STATE_RESOLVER" ]; then
+  echo "operator-loop: instance-state resolver not found: $INSTANCE_STATE_RESOLVER" >&2
+  exit 1
+fi
+
 if ! command -v node >/dev/null 2>&1; then
   echo "operator-loop: node not found in PATH; required for timestamp calculation" >&2
   exit 1
@@ -305,8 +361,11 @@ fi
 
 if [ -n "$WORKFLOW_PATH" ]; then
   WORKFLOW_PATH="$(resolve_path "$WORKFLOW_PATH")"
+else
+  WORKFLOW_PATH="$(resolve_path "$REPO_ROOT/WORKFLOW.md")"
 fi
 
+resolve_instance_state
 warn_default_command
 ensure_runtime_paths
 trap 'release_lock' EXIT

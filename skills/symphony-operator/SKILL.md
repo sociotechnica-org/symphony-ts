@@ -19,7 +19,8 @@ Supported repo-owned entry point:
 
 The checked-in loop and prompt live next to this skill under
 `skills/symphony-operator/`. `.ralph/` is local/generated-only state for the
-scratchpad, status snapshots, logs, and loop lock files.
+instance-scoped scratchpad, status snapshots, logs, and loop lock files under
+`.ralph/instances/<instance-key>/`.
 
 ## Scope
 
@@ -28,11 +29,12 @@ scratchpad, status snapshots, logs, and loop lock files.
 - Drive PRs through CI and automated review to a mergeable state.
 - Handle `plan-ready` issues: review plans, request changes when needed, and approve when ready.
 - Keep GitHub as a thin queue and rely on Symphony's own polling and concurrency.
-- Maintain a persistent local operator notebook in `.ralph/operator-scratchpad.md`.
+- Maintain a persistent local operator notebook in the selected instance's
+  `.ralph/instances/<instance-key>/operator-scratchpad.md`.
 
 ## Wake-Up Workflow
 
-1. Read `.ralph/operator-scratchpad.md` first so the latest operator context survives session loss and compaction.
+1. Read the selected instance's scratchpad first so the latest operator context survives session loss and compaction.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
 4. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
@@ -61,7 +63,7 @@ scratchpad, status snapshots, logs, and loop lock files.
 - Treat `docs/guides/operator-runbook.md` as the canonical daily-use procedure and keep this skill focused on operator policy, checkpoints, and escalation.
 - Treat the factory-control surface as the primary local runtime contract; use ad hoc `screen`, `ps`, or `pkill` inspection only when the control command is unavailable or inconsistent.
 - In a wake-up cycle, favor short, bounded inspection commands over long-running watchers. If a secondary GitHub or watch-surface probe is slow or non-terminal, stop and continue from the latest successful control-surface read instead of waiting indefinitely.
-- Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring; do not use raw `screen -r symphony-factory` as the normal watch path because `Ctrl-C` there can kill the worker.
+- Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring; do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can kill the worker.
 - Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
 - Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart` over manual `screen` and process cleanup.
 - Treat detached startup locale handling as repo-owned behavior: the supported factory-control path selects an installed UTF-8 locale, launches `screen -U`, and should fail clearly rather than relying on shell-local locale folklore.
@@ -122,10 +124,10 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 
 Before finishing each wake-up:
 
-1. update `.ralph/operator-scratchpad.md` with current state, open risks, and the next operator checks,
+1. update the selected instance scratchpad with current state, open risks, and the next operator checks,
 2. ask whether this cycle revealed something missing or ambiguous in this skill or the operator prompt,
 3. distinguish between:
    - durable process rules or generally correct operator behavior, which belong in this skill or the operator prompt,
-   - transient factory facts, temporary workarounds, and run-specific context, which belong in `.ralph/operator-scratchpad.md`,
+   - transient factory facts, temporary workarounds, and run-specific context, which belong in the selected instance scratchpad,
 4. if a durable rule needs to change, make the improvement through the normal PR flow,
 5. and record the result in the final status summary.

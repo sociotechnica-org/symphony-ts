@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { deriveSymphonyInstanceIdentity } from "../../src/domain/instance-identity.js";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import type { StartupSnapshot } from "../../src/startup/service.js";
 import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
@@ -24,6 +25,8 @@ import {
   type ScreenSessionSnapshot,
 } from "../../src/cli/factory-control.js";
 import { createTempDir } from "../support/git.js";
+
+const LEGACY_TEST_SESSION_NAME = "symphony-factory";
 
 function createStatusSnapshot(
   workerPid: number,
@@ -128,6 +131,7 @@ function createControlDeps(
       ].includes(targetPath),
     loadWorkflowWorkspaceRoot: async () => instancePaths.workspaceRoot,
     loadWorkflowInstancePaths: async () => instancePaths,
+    deriveSessionName: () => LEGACY_TEST_SESSION_NAME,
     readFile: async (filePath) => {
       if (filePath === statusFilePath) {
         if (options.snapshot === null) {
@@ -448,6 +452,63 @@ Prompt body
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("derives a distinct detached session name per selected instance", async () => {
+    const firstDir = await createTempDir("symphony-factory-instance-a-");
+    const secondDir = await createTempDir("symphony-factory-instance-b-");
+    const workflowContent = `---
+tracker:
+  kind: github-bootstrap
+  repo: sociotechnica-org/symphony-ts
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+workspace:
+  root: ./.tmp/workspaces
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`;
+
+    await fs.writeFile(
+      path.join(firstDir, "WORKFLOW.md"),
+      workflowContent,
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(secondDir, "WORKFLOW.md"),
+      workflowContent,
+      "utf8",
+    );
+
+    try {
+      const first = await resolveFactoryPaths({
+        workflowPath: path.join(firstDir, "WORKFLOW.md"),
+      });
+      const second = await resolveFactoryPaths({
+        workflowPath: path.join(secondDir, "WORKFLOW.md"),
+      });
+
+      expect(first.sessionName).toBe(
+        deriveSymphonyInstanceIdentity(firstDir).detachedSessionName,
+      );
+      expect(second.sessionName).toBe(
+        deriveSymphonyInstanceIdentity(secondDir).detachedSessionName,
+      );
+      expect(first.sessionName).not.toBe(second.sessionName);
+    } finally {
+      await fs.rm(firstDir, { recursive: true, force: true });
+      await fs.rm(secondDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("process parsing helpers", () => {
@@ -739,6 +800,49 @@ describe("inspectFactoryControl", () => {
     expect(snapshot.controlState).toBe("degraded");
     expect(snapshot.snapshotFreshness.freshness).toBe("unavailable");
     expect(snapshot.snapshotFreshness.reason).toBe("startup-in-progress");
+  });
+
+  it("ignores another instance's detached session while inspecting the selected instance", async () => {
+    const snapshot = await inspectFactoryControl({
+      ...createControlDeps({
+        sessions: [
+          {
+            id: "9001.symphony-factory",
+            pid: 9001,
+            name: "symphony-factory",
+            state: "Detached",
+          },
+          {
+            id: "9101.symphony-factory-project-b-deadbeef01",
+            pid: 9101,
+            name: "symphony-factory-project-b-deadbeef01",
+            state: "Detached",
+          },
+        ],
+        processes: [
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          { pid: 9002, ppid: 9001, command: "pnpm tsx bin/symphony.ts run" },
+          {
+            pid: 9101,
+            ppid: 1,
+            command: "screen -dmS symphony-factory-project-b-deadbeef01",
+          },
+          { pid: 9102, ppid: 9101, command: "pnpm tsx bin/symphony.ts run" },
+        ],
+        snapshot: createStatusSnapshot(9002),
+      }),
+    });
+
+    expect(snapshot.controlState).toBe("running");
+    expect(snapshot.sessions).toEqual([
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+    ]);
+    expect(snapshot.processIds).toEqual([9001, 9002]);
   });
 
   it("reports offline startup snapshots as stale startup failures", async () => {
@@ -1531,6 +1635,112 @@ describe("stopFactory", () => {
         { pid: 9002, signal: "SIGTERM" },
         { pid: workerPid, signal: "SIGTERM" },
         { pid: 9102, signal: "SIGTERM" },
+      ]),
+    );
+    expect(result.kind).toBe("stopped");
+    expect(result.status.controlState).toBe("stopped");
+  });
+
+  it("stops only the selected instance when another detached session is healthy", async () => {
+    const workerPid = 9101;
+    const otherSessionName = "symphony-factory-project-b-deadbeef01";
+    const sessionsState: ScreenSessionSnapshot[] = [
+      {
+        id: "9001.symphony-factory",
+        pid: 9001,
+        name: "symphony-factory",
+        state: "Detached",
+      },
+      {
+        id: `9201.${otherSessionName}`,
+        pid: 9201,
+        name: otherSessionName,
+        state: "Detached",
+      },
+    ];
+    const processesState: HostProcessSnapshot[] = [
+      { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+      { pid: 9002, ppid: 9001, command: "pnpm tsx bin/symphony.ts run" },
+      { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+      {
+        pid: 9201,
+        ppid: 1,
+        command: `screen -dmS ${otherSessionName}`,
+      },
+      { pid: 9202, ppid: 9201, command: "pnpm tsx bin/symphony.ts run" },
+    ];
+    const quitCalls: string[] = [];
+    const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+
+    const result = await stopFactory({
+      ...createControlDeps({
+        sessions: sessionsState,
+        processes: processesState,
+        snapshot: createStatusSnapshot(workerPid),
+        quitScreenSession: async (sessionId) => {
+          quitCalls.push(sessionId);
+          const remainingSessions = sessionsState.filter(
+            (session) => session.id !== sessionId,
+          );
+          sessionsState.splice(0, sessionsState.length, ...remainingSessions);
+          const remainingProcesses = processesState.filter(
+            (processSnapshot) => processSnapshot.pid !== 9001,
+          );
+          processesState.splice(
+            0,
+            processesState.length,
+            ...remainingProcesses,
+          );
+        },
+        signalProcess: (pid, signal) => {
+          signals.push({ pid, signal });
+          const index = processesState.findIndex(
+            (processSnapshot) => processSnapshot.pid === pid,
+          );
+          if (index >= 0) {
+            processesState.splice(index, 1);
+          }
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async () => {
+        if (
+          processesState.some(
+            (processSnapshot) => processSnapshot.pid === workerPid,
+          )
+        ) {
+          return `${JSON.stringify(createStatusSnapshot(workerPid), null, 2)}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(quitCalls).toEqual(["9001.symphony-factory"]);
+    expect(signals).toEqual(
+      expect.arrayContaining([
+        { pid: 9002, signal: "SIGTERM" },
+        { pid: workerPid, signal: "SIGTERM" },
+      ]),
+    );
+    expect(signals).not.toEqual(
+      expect.arrayContaining([{ pid: 9202, signal: "SIGTERM" }]),
+    );
+    expect(processesState).toEqual(
+      expect.arrayContaining([
+        { pid: 9201, ppid: 1, command: `screen -dmS ${otherSessionName}` },
+        { pid: 9202, ppid: 9201, command: "pnpm tsx bin/symphony.ts run" },
       ]),
     );
     expect(result.kind).toBe("stopped");

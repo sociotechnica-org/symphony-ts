@@ -36,7 +36,7 @@ Normal path rules:
 
 - Treat `factory status --json` as the primary source of truth.
 - Use `factory watch` as the supported live read-only monitor.
-- Do not use raw `screen -r symphony-factory` as the normal watch path because `Ctrl-C` there can stop the detached worker.
+- Do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can stop the detached worker.
 - Prefer `factory start|stop|restart` over ad hoc `screen`, `ps`, or `pkill`.
 
 ## Daily Loop
@@ -149,6 +149,11 @@ Those paths are instance-owned. The repository containing the active
 `WORKFLOW.md` is the instance root, and its `.tmp/`, `.var/`, and
 `.tmp/factory-main` directories are the local runtime surface for that one
 instance.
+
+Operator-loop generated state is separate from that runtime surface. It stays
+under the operator checkout's `.ralph/instances/<instance-key>/` tree so two
+operator loops targeting different instances do not overwrite each other's
+scratchpad, status, logs, or lock files.
 
 Workspace retention is config-driven. By default, failures stay inspectable and successes are cleaned up. If you need to inspect a successful workspace, temporarily set `workspace.retention.on_success: retain` before the run.
 

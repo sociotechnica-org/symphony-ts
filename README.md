@@ -103,8 +103,8 @@ installed UTF-8 locale and starts GNU Screen with `-U`. If the host does not
 provide any usable UTF-8 locale, `factory start` / `factory restart` fail
 clearly instead of silently launching a mojibake-prone TUI.
 
-For detached monitoring, do not use raw `screen -r symphony-factory` as the
-normal watch path. Attaching that way gives your terminal the worker's
+For detached monitoring, do not use raw `screen -r <instance-session-name>` as
+the normal watch path. Attaching that way gives your terminal the worker's
 foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
 
 The status snapshot includes normalized runner visibility for active issues,
@@ -134,7 +134,8 @@ pnpm operator -- --workflow ../target-repo/WORKFLOW.md
 ```
 
 The checked-in loop lives under `skills/symphony-operator/`. `.ralph/` remains
-local/generated-only for scratch notes, loop status, logs, and lock files.
+local/generated-only for per-instance scratch notes, loop status, logs, and
+lock files under `.ralph/instances/<instance-key>/`.
 The current entry point requires a Unix-like shell environment such as macOS,
 Linux, or WSL/Git Bash on Windows.
 
