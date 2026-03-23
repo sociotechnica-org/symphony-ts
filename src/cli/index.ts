@@ -49,16 +49,19 @@ export type CliArgs =
       readonly command: "factory";
       readonly action: "start" | "stop" | "restart";
       readonly format: "human" | "json";
+      readonly workflowPath: string | null;
     }
   | {
       readonly command: "factory";
       readonly action: "watch";
       readonly format: "human";
+      readonly workflowPath: string | null;
     }
   | {
       readonly command: "factory";
       readonly action: "status";
       readonly format: "human" | "json";
+      readonly workflowPath: string | null;
     };
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -94,21 +97,26 @@ export function parseArgs(argv: readonly string[]): CliArgs {
 
   if (command === "factory") {
     const action = args[1];
+    const workflowPath = readOptionValue(args, "--workflow");
+    const resolvedWorkflowPath =
+      workflowPath === null ? null : path.resolve(process.cwd(), workflowPath);
     if (action === "start" || action === "stop" || action === "restart") {
       return {
         command: "factory",
         action,
         format: args.includes("--json") ? "json" : "human",
+        workflowPath: resolvedWorkflowPath,
       };
     }
     if (action === "watch") {
       if (args.includes("--json")) {
-        throw new Error("Usage: symphony factory watch");
+        throw new Error("Usage: symphony factory watch [--workflow <path>]");
       }
       return {
         command: "factory",
         action: "watch",
         format: "human",
+        workflowPath: resolvedWorkflowPath,
       };
     }
     if (action === "status") {
@@ -116,10 +124,11 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         command: "factory",
         action: "status",
         format: args.includes("--json") ? "json" : "human",
+        workflowPath: resolvedWorkflowPath,
       };
     }
     throw new Error(
-      "Usage: symphony factory <start|stop|restart|status> [--json]\n       symphony factory watch",
+      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory watch [--workflow <path>]",
     );
   }
 
@@ -134,7 +143,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
     case "factory":
       switch (args.action) {
         case "start": {
-          const result = await startFactory();
+          const result = await startFactory({
+            workflowPath: args.workflowPath,
+          });
           process.stdout.write(
             `Factory ${
               result.kind === "started"
@@ -156,7 +167,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         }
 
         case "stop": {
-          const result = await stopFactory();
+          const result = await stopFactory({
+            workflowPath: args.workflowPath,
+          });
           process.stdout.write(
             `Factory ${
               result.status.controlState === "degraded"
@@ -181,7 +194,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         }
 
         case "restart": {
-          const stopResult = await stopFactory();
+          const stopResult = await stopFactory({
+            workflowPath: args.workflowPath,
+          });
           if (stopResult.status.controlState === "degraded") {
             process.stdout.write(
               "Factory restart blocked because stop left the runtime degraded.\n",
@@ -200,7 +215,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
             return;
           }
 
-          const startResult = await startFactory();
+          const startResult = await startFactory({
+            workflowPath: args.workflowPath,
+          });
           const verb =
             startResult.kind === "blocked-degraded"
               ? "restart blocked by degraded cleanup"
@@ -230,7 +247,9 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         }
 
         case "status": {
-          const snapshot = await inspectFactoryControl();
+          const snapshot = await inspectFactoryControl({
+            workflowPath: args.workflowPath,
+          });
           process.stdout.write(
             renderFactoryControlStatus(snapshot, {
               format: args.format,
@@ -241,7 +260,7 @@ export async function runCli(argv: readonly string[]): Promise<void> {
         }
 
         case "watch":
-          await watchFactory();
+          await watchFactory({ workflowPath: args.workflowPath });
           return;
       }
       return;

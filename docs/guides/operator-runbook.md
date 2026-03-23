@@ -15,11 +15,21 @@ pnpm tsx bin/symphony.ts factory restart
 pnpm tsx bin/symphony.ts factory stop
 ```
 
+From an engine checkout that is not the active instance root, pass an explicit
+selector:
+
+```bash
+pnpm tsx bin/symphony.ts factory status --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory watch --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory restart --workflow ../target-repo/WORKFLOW.md
+```
+
 Use the repo-owned operator loop when you want repeated wake-up cycles:
 
 ```bash
 pnpm operator
 pnpm operator:once
+pnpm operator -- --workflow ../target-repo/WORKFLOW.md
 ```
 
 Normal path rules:
@@ -33,8 +43,8 @@ Normal path rules:
 
 Run this sequence at the start of each operator pass:
 
-1. Inspect `pnpm tsx bin/symphony.ts factory status --json`.
-2. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`.
+1. Inspect `pnpm tsx bin/symphony.ts factory status --json`, appending `--workflow <path>` whenever the operator checkout is not the target instance root.
+2. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
 3. Check for operator-gated work the factory cannot clear by itself:
    - active issues in `awaiting-human-handoff`
    - active issues or PRs in `awaiting-landing-command`
@@ -51,6 +61,13 @@ Start or restart from the repo root:
 ```bash
 pnpm tsx bin/symphony.ts factory start
 pnpm tsx bin/symphony.ts factory restart
+```
+
+From another checkout, target the intended instance directly:
+
+```bash
+pnpm tsx bin/symphony.ts factory start --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory restart --workflow ../target-repo/WORKFLOW.md
 ```
 
 Healthy detached operation should show:

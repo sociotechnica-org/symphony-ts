@@ -205,6 +205,67 @@ afterEach(() => {
 });
 
 describe("resolveFactoryPaths", () => {
+  it("resolves an explicit workflow path without relying on cwd discovery", async () => {
+    const tempDir = await createTempDir("symphony-factory-paths-");
+    const otherDir = await createTempDir("symphony-factory-paths-other-");
+    const workflowContent = `---
+tracker:
+  kind: github-bootstrap
+  repo: sociotechnica-org/symphony-ts
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+workspace:
+  root: ./.tmp/workspaces
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}
+---
+Prompt body
+`;
+
+    await fs.mkdir(path.join(tempDir, ".tmp", "factory-main"), {
+      recursive: true,
+    });
+    await fs.mkdir(path.join(otherDir, ".tmp", "factory-main"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(tempDir, "WORKFLOW.md"),
+      workflowContent,
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(otherDir, "WORKFLOW.md"),
+      workflowContent,
+      "utf8",
+    );
+
+    try {
+      const paths = await resolveFactoryPaths({
+        cwd: () => otherDir,
+        workflowPath: path.join(tempDir, "WORKFLOW.md"),
+      });
+      expect(paths.repoRoot).toBe(tempDir);
+      expect(paths.runtimeRoot).toBe(
+        path.join(tempDir, ".tmp", "factory-main"),
+      );
+      expect(paths.workflowPath).toBe(path.join(tempDir, "WORKFLOW.md"));
+      expect(paths.statusFilePath).toBe(
+        path.join(tempDir, ".tmp", "status.json"),
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(otherDir, { recursive: true, force: true });
+    }
+  });
+
   it("finds the outer repo root from a nested working directory", async () => {
     const tempDir = await createTempDir("symphony-factory-paths-");
     const runtimeRoot = path.join(tempDir, ".tmp", "factory-main");

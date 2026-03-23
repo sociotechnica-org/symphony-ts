@@ -118,6 +118,7 @@ export interface FactoryUtf8LocaleSelection {
 }
 
 export interface FactoryControlDeps {
+  readonly workflowPath?: string | null;
   readonly cwd?: () => string;
   readonly environment?: () => NodeJS.ProcessEnv;
   readonly pathExists?: (targetPath: string) => Promise<boolean>;
@@ -154,7 +155,10 @@ export async function resolveFactoryPaths(
   const loadInstancePaths =
     deps.loadWorkflowInstancePaths ?? loadWorkflowInstancePaths;
 
-  const workflowPath = await findFactoryWorkflowPath(cwd(), pathExists);
+  const workflowPath =
+    deps.workflowPath === undefined || deps.workflowPath === null
+      ? await findFactoryWorkflowPath(cwd(), pathExists)
+      : path.resolve(deps.workflowPath);
   const instance =
     loadWorkspaceRoot !== undefined
       ? deriveRuntimeInstancePaths({

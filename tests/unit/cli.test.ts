@@ -196,6 +196,7 @@ describe("parseArgs", () => {
       command: "factory",
       action: "status",
       format: "json",
+      workflowPath: null,
     });
   });
 
@@ -205,6 +206,7 @@ describe("parseArgs", () => {
       command: "factory",
       action: "restart",
       format: "human",
+      workflowPath: null,
     });
   });
 
@@ -214,6 +216,7 @@ describe("parseArgs", () => {
       command: "factory",
       action: "watch",
       format: "human",
+      workflowPath: null,
     });
   });
 
@@ -222,11 +225,13 @@ describe("parseArgs", () => {
       command: "factory",
       action: "start",
       format: "human",
+      workflowPath: null,
     });
     expect(parseArgs(["node", "symphony", "factory", "stop"])).toEqual({
       command: "factory",
       action: "stop",
       format: "human",
+      workflowPath: null,
     });
   });
 
@@ -237,6 +242,7 @@ describe("parseArgs", () => {
       command: "factory",
       action: "start",
       format: "json",
+      workflowPath: null,
     });
     expect(
       parseArgs(["node", "symphony", "factory", "stop", "--json"]),
@@ -244,6 +250,7 @@ describe("parseArgs", () => {
       command: "factory",
       action: "stop",
       format: "json",
+      workflowPath: null,
     });
     expect(
       parseArgs(["node", "symphony", "factory", "restart", "--json"]),
@@ -251,24 +258,75 @@ describe("parseArgs", () => {
       command: "factory",
       action: "restart",
       format: "json",
+      workflowPath: null,
+    });
+  });
+
+  it("parses --workflow for every factory action", () => {
+    const workflowPath = path.resolve("/tmp/project/WORKFLOW.md");
+
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "factory",
+        "start",
+        "--workflow",
+        "/tmp/project/WORKFLOW.md",
+      ]),
+    ).toEqual({
+      command: "factory",
+      action: "start",
+      format: "human",
+      workflowPath,
+    });
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "factory",
+        "status",
+        "--workflow",
+        "/tmp/project/WORKFLOW.md",
+      ]),
+    ).toEqual({
+      command: "factory",
+      action: "status",
+      format: "human",
+      workflowPath,
+    });
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "factory",
+        "watch",
+        "--workflow",
+        "/tmp/project/WORKFLOW.md",
+      ]),
+    ).toEqual({
+      command: "factory",
+      action: "watch",
+      format: "human",
+      workflowPath,
     });
   });
 
   it("shows factory-specific usage for missing or unknown factory actions", () => {
     expect(() => parseArgs(["node", "symphony", "factory"])).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json]\n       symphony factory watch",
+      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory watch [--workflow <path>]",
     );
     expect(() =>
       parseArgs(["node", "symphony", "factory", "deploy"]),
     ).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json]\n       symphony factory watch",
+      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory watch [--workflow <path>]",
     );
   });
 
   it("rejects --json for factory watch", () => {
     expect(() =>
       parseArgs(["node", "symphony", "factory", "watch", "--json"]),
-    ).toThrowError("Usage: symphony factory watch");
+    ).toThrowError("Usage: symphony factory watch [--workflow <path>]");
   });
 });
 
@@ -766,65 +824,67 @@ describe("runCli run", () => {
 describe("runCli factory", () => {
   it("renders a precise restart message when the factory is already running again", async () => {
     vi.resetModules();
+    const startFactory = vi.fn(async () => ({
+      kind: "already-running",
+      status: {
+        controlState: "running",
+        paths: {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
+        },
+        sessionName: "symphony-factory",
+        sessions: [],
+        workerAlive: false,
+        startup: null,
+        snapshotFreshness: {
+          freshness: "unavailable",
+          reason: "missing-snapshot",
+          summary: "No runtime snapshot is available.",
+          workerAlive: null,
+          publicationState: null,
+        },
+        statusSnapshot: null,
+        processIds: [],
+        problems: [],
+      },
+    }));
+    const stopFactory = vi.fn(async () => ({
+      kind: "already-stopped",
+      status: {
+        controlState: "stopped",
+        paths: {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
+        },
+        sessionName: "symphony-factory",
+        sessions: [],
+        workerAlive: false,
+        startup: null,
+        snapshotFreshness: {
+          freshness: "unavailable",
+          reason: "missing-snapshot",
+          summary: "No runtime snapshot is available.",
+          workerAlive: null,
+          publicationState: null,
+        },
+        statusSnapshot: null,
+        processIds: [],
+        problems: [],
+      },
+      terminatedPids: [],
+    }));
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
-      startFactory: vi.fn(async () => ({
-        kind: "already-running",
-        status: {
-          controlState: "running",
-          paths: {
-            repoRoot: "/repo",
-            runtimeRoot: "/repo/.tmp/factory-main",
-            workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
-            statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
-            startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
-          },
-          sessionName: "symphony-factory",
-          sessions: [],
-          workerAlive: false,
-          startup: null,
-          snapshotFreshness: {
-            freshness: "unavailable",
-            reason: "missing-snapshot",
-            summary: "No runtime snapshot is available.",
-            workerAlive: null,
-            publicationState: null,
-          },
-          statusSnapshot: null,
-          processIds: [],
-          problems: [],
-        },
-      })),
-      stopFactory: vi.fn(async () => ({
-        kind: "already-stopped",
-        status: {
-          controlState: "stopped",
-          paths: {
-            repoRoot: "/repo",
-            runtimeRoot: "/repo/.tmp/factory-main",
-            workflowPath: "/repo/.tmp/factory-main/WORKFLOW.md",
-            statusFilePath: "/repo/.tmp/factory-main/.tmp/status.json",
-            startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
-          },
-          sessionName: "symphony-factory",
-          sessions: [],
-          workerAlive: false,
-          startup: null,
-          snapshotFreshness: {
-            freshness: "unavailable",
-            reason: "missing-snapshot",
-            summary: "No runtime snapshot is available.",
-            workerAlive: null,
-            publicationState: null,
-          },
-          statusSnapshot: null,
-          processIds: [],
-          problems: [],
-        },
-        terminatedPids: [],
-      })),
+      startFactory,
+      stopFactory,
     }));
 
     const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
@@ -842,6 +902,8 @@ describe("runCli factory", () => {
     await mockedRunCli(["node", "symphony", "factory", "restart"]);
 
     expect(stdout.join("")).toContain("Factory was already running.");
+    expect(stopFactory).toHaveBeenCalledWith({ workflowPath: null });
+    expect(startFactory).toHaveBeenCalledWith({ workflowPath: null });
   });
 
   it("renders factory start status as JSON when requested", async () => {
@@ -1116,6 +1178,74 @@ describe("runCli factory", () => {
 
     await mockedRunCli(["node", "symphony", "factory", "watch"]);
 
-    expect(watchFactory).toHaveBeenCalledTimes(1);
+    expect(watchFactory).toHaveBeenCalledWith({ workflowPath: null });
+  });
+
+  it("forwards explicit workflow selection to factory control and watch commands", async () => {
+    vi.resetModules();
+    const workflowPath = "/tmp/project/WORKFLOW.md";
+    const startFactory = vi.fn(async () => ({
+      kind: "started",
+      status: createFactoryControlSnapshot("running"),
+    }));
+    const stopFactory = vi.fn(async () => ({
+      kind: "stopped",
+      status: createFactoryControlSnapshot("stopped"),
+      terminatedPids: [],
+    }));
+    const inspectFactoryControl = vi.fn(async () =>
+      createFactoryControlSnapshot("stopped"),
+    );
+    const watchFactory = vi.fn(async () => {});
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl,
+      renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
+      startFactory,
+      stopFactory,
+    }));
+    vi.doMock("../../src/cli/factory-watch.js", () => ({
+      watchFactory,
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli([
+      "node",
+      "symphony",
+      "factory",
+      "start",
+      "--workflow",
+      workflowPath,
+    ]);
+    await mockedRunCli([
+      "node",
+      "symphony",
+      "factory",
+      "stop",
+      "--workflow",
+      workflowPath,
+    ]);
+    await mockedRunCli([
+      "node",
+      "symphony",
+      "factory",
+      "status",
+      "--workflow",
+      workflowPath,
+    ]);
+    await mockedRunCli([
+      "node",
+      "symphony",
+      "factory",
+      "watch",
+      "--workflow",
+      workflowPath,
+    ]);
+
+    expect(startFactory).toHaveBeenCalledWith({ workflowPath });
+    expect(stopFactory).toHaveBeenCalledWith({ workflowPath });
+    expect(inspectFactoryControl).toHaveBeenCalledWith({ workflowPath });
+    expect(watchFactory).toHaveBeenCalledWith({ workflowPath });
   });
 });

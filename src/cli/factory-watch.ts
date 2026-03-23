@@ -8,7 +8,10 @@ import { isAbortError } from "../support/abort.js";
 const DEFAULT_WATCH_INTERVAL_MS = 1_000;
 
 export interface FactoryWatchDeps {
-  readonly inspectFactoryControl?: () => Promise<FactoryControlStatusSnapshot>;
+  readonly workflowPath?: string | null;
+  readonly inspectFactoryControl?: (options?: {
+    readonly workflowPath?: string | null;
+  }) => Promise<FactoryControlStatusSnapshot>;
   readonly renderFactoryControlStatus?: (
     snapshot: FactoryControlStatusSnapshot,
     options?: {
@@ -46,7 +49,11 @@ export async function watchFactory(deps: FactoryWatchDeps = {}): Promise<void> {
 
   try {
     while (!abortController.signal.aborted) {
-      const body = await inspect()
+      const inspectOptions =
+        deps.workflowPath === undefined
+          ? undefined
+          : { workflowPath: deps.workflowPath };
+      const body = await inspect(inspectOptions)
         .then((snapshot) => render(snapshot, { format: "human" }))
         .catch((error: unknown) => renderWatchError(error));
       const frame = renderWatchFrame(body, isStdoutTTY(), clearScreen);
