@@ -40,7 +40,7 @@ Run this sequence at the start of each operator pass:
    - active issues or PRs in `awaiting-landing-command`
 4. If the detached runtime is stopped or degraded, repair that first.
 5. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
-6. After a merge, fast-forward the root checkout and `.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
+6. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
 
@@ -127,6 +127,11 @@ Canonical local evidence lives under:
 - `.var/factory/issues/<issue-number>/` for per-issue canonical artifacts
 - `.var/reports/issues/<issue-number>/` for generated reports
 - `.tmp/workspaces/<issue-number>/` for retained workspaces when retention keeps them
+
+Those paths are instance-owned. The repository containing the active
+`WORKFLOW.md` is the instance root, and its `.tmp/`, `.var/`, and
+`.tmp/factory-main` directories are the local runtime surface for that one
+instance.
 
 Workspace retention is config-driven. By default, failures stay inspectable and successes are cleaned up. If you need to inspect a successful workspace, temporarily set `workspace.retention.on_success: retain` before the run.
 

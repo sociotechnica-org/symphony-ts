@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import {
   ISSUE_ARTIFACT_SCHEMA_VERSION,
   LocalIssueArtifactStore,
@@ -54,6 +55,23 @@ export function deriveWorkspaceRoot(rootDir: string): string {
   return path.join(rootDir, ".tmp", "workspaces");
 }
 
+export function deriveReportInstance(rootDir: string) {
+  return deriveRuntimeInstancePaths({
+    workflowPath: path.join(rootDir, "WORKFLOW.md"),
+    workspaceRoot: deriveWorkspaceRoot(rootDir),
+  });
+}
+
+function deriveInstanceFromWorkspaceRoot(workspaceRoot: string) {
+  return deriveRuntimeInstancePaths({
+    workflowPath: path.join(
+      path.dirname(path.dirname(workspaceRoot)),
+      "WORKFLOW.md",
+    ),
+    workspaceRoot,
+  });
+}
+
 export function deriveCodexSessionsRoot(rootDir: string): string {
   return path.join(rootDir, ".codex", "sessions");
 }
@@ -72,7 +90,9 @@ export async function seedSuccessfulIssueArtifacts(
     readonly accounting?: RunnerAccountingSnapshot | undefined;
   },
 ): Promise<void> {
-  const store = new LocalIssueArtifactStore(workspaceRoot);
+  const store = new LocalIssueArtifactStore(
+    deriveInstanceFromWorkspaceRoot(workspaceRoot),
+  );
   const issueIdentifier = `sociotechnica-org/symphony-ts#${issueNumber.toString()}`;
   const issueUrl = `https://github.com/sociotechnica-org/symphony-ts/issues/${issueNumber.toString()}`;
   const branch = `symphony/${issueNumber.toString()}`;
@@ -401,7 +421,10 @@ export async function seedSessionAnchoredPartialArtifacts(
   workspaceRoot: string,
   issueNumber: number,
 ): Promise<void> {
-  const paths = deriveIssueArtifactPaths(workspaceRoot, issueNumber);
+  const paths = deriveIssueArtifactPaths(
+    deriveInstanceFromWorkspaceRoot(workspaceRoot),
+    issueNumber,
+  );
   const sessionId = `issue-${issueNumber.toString()}-session-1`;
 
   await fs.mkdir(paths.attemptsDir, { recursive: true });
@@ -484,7 +507,10 @@ export async function seedLateUnfinishedSessionArtifacts(
     readonly startedAt?: string | undefined;
   },
 ): Promise<void> {
-  const paths = deriveIssueArtifactPaths(workspaceRoot, issueNumber);
+  const paths = deriveIssueArtifactPaths(
+    deriveInstanceFromWorkspaceRoot(workspaceRoot),
+    issueNumber,
+  );
   const sessionId = `issue-${issueNumber.toString()}-session-1`;
   const startedAt = options?.startedAt ?? "2026-03-09T22:00:00.000Z";
 

@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   createPromptBuilder,
+  loadWorkflowInstancePaths,
   loadWorkflow,
-  loadWorkflowWorkspaceRoot,
 } from "../config/workflow.js";
 import { getCodexRemoteWorkerHosts } from "../domain/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
@@ -450,8 +450,8 @@ function applyFactoryControlExitCode(
 }
 
 async function resolveStatusFilePath(workflowPath: string): Promise<string> {
-  const workspaceRoot = await loadWorkflowWorkspaceRoot(workflowPath);
-  return deriveStatusFilePath(workspaceRoot);
+  const instance = await loadWorkflowInstancePaths(workflowPath);
+  return deriveStatusFilePath(instance);
 }
 
 function readOptionValue(args: readonly string[], flag: string): string | null {

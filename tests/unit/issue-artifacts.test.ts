@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { coerceRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import { ObservabilityError } from "../../src/domain/errors.js";
 import {
   ISSUE_ARTIFACT_SCHEMA_VERSION,
   LocalIssueArtifactStore,
-  deriveFactoryRuntimeRoot,
+  deriveFactoryArtifactsRoot,
   deriveIssueArtifactPaths,
   deriveIssueArtifactsRoot,
   readIssueArtifactAttempt,
@@ -23,6 +24,10 @@ async function createWorkspaceRoot(): Promise<string> {
   const tempDir = await createTempDir("symphony-issue-artifacts-");
   tempRoots.push(tempDir);
   return path.join(tempDir, ".tmp", "workspaces");
+}
+
+function deriveInstanceFromWorkspaceRoot(workspaceRoot: string) {
+  return coerceRuntimeInstancePaths(workspaceRoot);
 }
 
 afterEach(async () => {
@@ -44,26 +49,27 @@ describe("issue artifacts", () => {
     );
     const nonTmpWorkspaceRoot = path.join("/repo", "local-workspaces");
 
-    expect(deriveFactoryRuntimeRoot(workspaceRoot)).toBe(
+    expect(deriveFactoryArtifactsRoot(deriveInstanceFromWorkspaceRoot(workspaceRoot))).toBe(
       path.join("/repo", ".var", "factory"),
     );
-    expect(deriveFactoryRuntimeRoot(nestedWorkspaceRoot)).toBe(
+    expect(deriveFactoryArtifactsRoot(deriveInstanceFromWorkspaceRoot(nestedWorkspaceRoot))).toBe(
       path.join("/repo", ".var", "factory"),
     );
-    expect(deriveFactoryRuntimeRoot(nonTmpWorkspaceRoot)).toBe(
+    expect(deriveFactoryArtifactsRoot(deriveInstanceFromWorkspaceRoot(nonTmpWorkspaceRoot))).toBe(
       path.join("/repo", ".var", "factory"),
     );
-    expect(deriveIssueArtifactsRoot(workspaceRoot)).toBe(
+    expect(deriveIssueArtifactsRoot(deriveInstanceFromWorkspaceRoot(workspaceRoot))).toBe(
       path.join("/repo", ".var", "factory", "issues"),
     );
-    expect(deriveIssueArtifactPaths(workspaceRoot, 43).issueRoot).toBe(
+    expect(deriveIssueArtifactPaths(deriveInstanceFromWorkspaceRoot(workspaceRoot), 43).issueRoot).toBe(
       path.join("/repo", ".var", "factory", "issues", "43"),
     );
   });
 
   it("writes the base layout and suppresses duplicate consecutive lifecycle events", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const store = new LocalIssueArtifactStore(workspaceRoot);
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const store = new LocalIssueArtifactStore(instance);
     const firstObservedAt = "2026-03-09T10:00:00.000Z";
     const secondObservedAt = "2026-03-09T10:05:00.000Z";
 
@@ -121,20 +127,20 @@ describe("issue artifacts", () => {
       ],
     });
 
-    const summary = await readIssueArtifactSummary(workspaceRoot, 43);
+    const summary = await readIssueArtifactSummary(instance, 43);
     expect(summary.firstObservedAt).toBe(firstObservedAt);
     expect(summary.lastUpdatedAt).toBe(secondObservedAt);
     expect(summary.latestAttemptNumber).toBe(1);
     expect(summary.branch).toBe("symphony/43");
 
-    const events = await readIssueArtifactEvents(workspaceRoot, 43);
+    const events = await readIssueArtifactEvents(instance, 43);
     expect(events).toHaveLength(1);
     expect(events[0]?.kind).toBe("plan-ready");
 
-    const logPointers = await readIssueArtifactLogPointers(workspaceRoot, 43);
+    const logPointers = await readIssueArtifactLogPointers(instance, 43);
     expect(logPointers.sessions).toEqual({});
 
-    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const paths = deriveIssueArtifactPaths(instance, 43);
     await expect(fs.stat(paths.attemptsDir)).resolves.toBeDefined();
     await expect(fs.stat(paths.sessionsDir)).resolves.toBeDefined();
     await expect(fs.stat(paths.logsDir)).resolves.toBeDefined();
@@ -142,7 +148,8 @@ describe("issue artifacts", () => {
 
   it("writes attempt, session, and pointer snapshots with session-id-safe filenames", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const store = new LocalIssueArtifactStore(workspaceRoot);
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const store = new LocalIssueArtifactStore(instance);
     const observedAt = "2026-03-09T10:10:00.000Z";
     const sessionId = "sociotechnica-org/symphony-ts#43/attempt-1/abc";
 
@@ -220,15 +227,11 @@ describe("issue artifacts", () => {
       },
     });
 
-    const attempt = await readIssueArtifactAttempt(workspaceRoot, 43, 1);
+    const attempt = await readIssueArtifactAttempt(instance, 43, 1);
     expect(attempt.runnerPid).toBe(1234);
     expect(attempt.pullRequest?.number).toBe(99);
 
-    const session = await readIssueArtifactSession(
-      workspaceRoot,
-      43,
-      sessionId,
-    );
+    const session = await readIssueArtifactSession(instance, 43, sessionId);
     expect(session.provider).toBe("local-runner");
     expect(session.finishedAt).toBe(observedAt);
     expect(session.accounting).toEqual({
@@ -239,11 +242,11 @@ describe("issue artifacts", () => {
       costUsd: null,
     });
 
-    const logPointers = await readIssueArtifactLogPointers(workspaceRoot, 43);
+    const logPointers = await readIssueArtifactLogPointers(instance, 43);
     expect(logPointers.sessions[sessionId]?.sessionId).toBe(sessionId);
 
     const sessionPath = path.join(
-      deriveIssueArtifactPaths(workspaceRoot, 43).sessionsDir,
+      deriveIssueArtifactPaths(instance, 43).sessionsDir,
       `${encodeURIComponent(sessionId)}.json`,
     );
     await expect(fs.stat(sessionPath)).resolves.toBeDefined();
@@ -251,22 +254,24 @@ describe("issue artifacts", () => {
 
   it("wraps malformed event JSONL reads in an observability error", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const paths = deriveIssueArtifactPaths(instance, 43);
 
     await fs.mkdir(paths.issueRoot, { recursive: true });
     await fs.writeFile(paths.eventsFile, "{not-json}\n", "utf8");
 
-    await expect(readIssueArtifactEvents(workspaceRoot, 43)).rejects.toThrow(
+    await expect(readIssueArtifactEvents(instance, 43)).rejects.toThrow(
       ObservabilityError,
     );
-    await expect(readIssueArtifactEvents(workspaceRoot, 43)).rejects.toThrow(
+    await expect(readIssueArtifactEvents(instance, 43)).rejects.toThrow(
       paths.eventsFile,
     );
   });
 
   it("backfills latestTurnNumber from the latest session snapshot when finalizing an attempt", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const store = new LocalIssueArtifactStore(workspaceRoot);
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const store = new LocalIssueArtifactStore(instance);
     const sessionId = "sociotechnica-org/symphony-ts#43/attempt-1";
 
     await store.recordObservation({
@@ -321,13 +326,14 @@ describe("issue artifacts", () => {
       },
     });
 
-    const attempt = await readIssueArtifactAttempt(workspaceRoot, 43, 1);
+    const attempt = await readIssueArtifactAttempt(instance, 43, 1);
     expect(attempt.latestTurnNumber).toBe(3);
   });
 
   it("backfills transport metadata for legacy session snapshots", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const paths = deriveIssueArtifactPaths(instance, 43);
     const sessionId = "legacy-session";
 
     await fs.mkdir(paths.sessionsDir, { recursive: true });
@@ -358,11 +364,7 @@ describe("issue artifacts", () => {
       "utf8",
     );
 
-    const session = await readIssueArtifactSession(
-      workspaceRoot,
-      43,
-      sessionId,
-    );
+    const session = await readIssueArtifactSession(instance, 43, sessionId);
 
     expect(session.transport).toEqual(
       createRunnerTransportMetadata("local-stdio-session", {
@@ -374,7 +376,8 @@ describe("issue artifacts", () => {
 
   it("does not invent a controllable local process for legacy sessions without appServerPid", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const paths = deriveIssueArtifactPaths(instance, 43);
     const sessionId = "legacy-session-no-pid";
 
     await fs.mkdir(paths.sessionsDir, { recursive: true });
@@ -405,11 +408,7 @@ describe("issue artifacts", () => {
       "utf8",
     );
 
-    const session = await readIssueArtifactSession(
-      workspaceRoot,
-      43,
-      sessionId,
-    );
+    const session = await readIssueArtifactSession(instance, 43, sessionId);
 
     expect(session.transport).toEqual(
       createRunnerTransportMetadata("local-process", {
@@ -420,7 +419,8 @@ describe("issue artifacts", () => {
 
   it("normalizes missing legacy backend thread fields to null", async () => {
     const workspaceRoot = await createWorkspaceRoot();
-    const paths = deriveIssueArtifactPaths(workspaceRoot, 43);
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const paths = deriveIssueArtifactPaths(instance, 43);
     const sessionId = "legacy-session-missing-thread-fields";
 
     await fs.mkdir(paths.sessionsDir, { recursive: true });
@@ -449,11 +449,7 @@ describe("issue artifacts", () => {
       "utf8",
     );
 
-    const session = await readIssueArtifactSession(
-      workspaceRoot,
-      43,
-      sessionId,
-    );
+    const session = await readIssueArtifactSession(instance, 43, sessionId);
 
     expect(session.backendThreadId).toBeNull();
     expect(session.latestTurnId).toBeNull();

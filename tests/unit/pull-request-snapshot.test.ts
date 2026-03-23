@@ -378,7 +378,7 @@ describe("createPullRequestSnapshot", () => {
       approvedReviewBotLogins: ["devin-ai-integration"],
     });
 
-    expect(snapshot.requiredApprovedReviewSatisfied).toBe(true);
+    expect(snapshot.requiredApprovedReviewCoverage).toBe("satisfied");
     expect(snapshot.observedApprovedReviewBotLogins).toEqual([
       "devin-ai-integration",
     ]);

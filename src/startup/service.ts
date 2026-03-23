@@ -1,7 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceSource } from "../domain/workspace.js";
-import type { ResolvedConfig } from "../domain/workflow.js";
+import {
+  coerceRuntimeInstancePaths,
+  getConfigInstancePaths,
+  type ResolvedConfig,
+  type RuntimeInstanceInput,
+} from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import {
   collectFactoryRuntimeIdentity,
@@ -87,12 +92,8 @@ class NoOpStartupPreparer implements StartupPreparer {
   }
 }
 
-export function deriveStartupFilePath(workspaceRoot: string): string {
-  const parent = path.dirname(workspaceRoot);
-  if (parent === workspaceRoot) {
-    return path.join(workspaceRoot, "startup.json");
-  }
-  return path.join(parent, "startup.json");
+export function deriveStartupFilePath(instance: RuntimeInstanceInput): string {
+  return coerceRuntimeInstancePaths(instance).startupFilePath;
 }
 
 export async function writeStartupSnapshot(
@@ -161,10 +162,12 @@ export async function runStartupPreparation(options: {
   readonly workerPid?: number;
 }): Promise<StartupPreparationOutcome> {
   const preparer = options.preparer ?? createStartupPreparer(options.config);
+  const instance = getConfigInstancePaths(options.config);
   const workerPid = options.workerPid ?? process.pid;
-  const artifactPath = deriveStartupFilePath(options.config.workspace.root);
-  // `workflowPath` resolves to `<runtime-checkout>/symphony.yml` in the
-  // detached factory layout, so its parent is the live runtime checkout root.
+  const artifactPath = deriveStartupFilePath(instance);
+  // The workflow file may be loaded from either the instance root or the live
+  // runtime checkout; the workflow file's parent identifies the code checkout
+  // that is actually running right now.
   const runtimeIdentity = await collectFactoryRuntimeIdentity(
     path.dirname(options.config.workflowPath),
   );

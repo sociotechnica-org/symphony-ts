@@ -15,6 +15,7 @@ import type {
   PromptBuilder,
   ResolvedConfig,
 } from "../../src/domain/workflow.js";
+import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
 import {
   NullLivenessProbe,
@@ -120,6 +121,14 @@ function createRunnerVisibilityProbe(): LivenessProbe {
 
 const baseConfig: ResolvedConfig = {
   workflowPath: "/tmp/WORKFLOW.md",
+  instance: deriveRuntimeInstancePaths({
+    workflowPath: "/tmp/WORKFLOW.md",
+    workspaceRoot: path.join(
+      "/tmp",
+      `symphony-orchestrator-test-${process.pid}`,
+      "workspaces",
+    ),
+  }),
   tracker: {
     kind: "github-bootstrap",
     repo: "sociotechnica-org/symphony-ts",
@@ -139,11 +148,7 @@ const baseConfig: ResolvedConfig = {
     },
   },
   workspace: {
-    root: path.join(
-      "/tmp",
-      `symphony-orchestrator-test-${process.pid}`,
-      "workspaces",
-    ),
+    root: path.join("/tmp", `symphony-orchestrator-test-${process.pid}`, "workspaces"),
     repoUrl: "/tmp/remote.git",
     branchPrefix: "symphony/",
     retention: {

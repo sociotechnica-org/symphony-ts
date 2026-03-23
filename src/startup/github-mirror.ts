@@ -3,7 +3,12 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import type { LocalPathWorkspaceSource } from "../domain/workspace.js";
-import type { ResolvedConfig } from "../domain/workflow.js";
+import {
+  coerceRuntimeInstancePaths,
+  getConfigInstancePaths,
+  type ResolvedConfig,
+  type RuntimeInstanceInput,
+} from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import type { StartupPreparationResult, StartupPreparer } from "./service.js";
 
@@ -77,8 +82,8 @@ async function resolveSourceDefaultBranch(
   return match[1].trim();
 }
 
-export function deriveGitHubMirrorPath(workspaceRoot: string): string {
-  return path.join(path.dirname(workspaceRoot), "github", "upstream");
+export function deriveGitHubMirrorPath(instance: RuntimeInstanceInput): string {
+  return coerceRuntimeInstancePaths(instance).githubMirrorPath;
 }
 
 function createMirrorWorkspaceSource(
@@ -99,7 +104,9 @@ export class GitHubMirrorStartupPreparer implements StartupPreparer {
     readonly signal?: AbortSignal | undefined;
   }): Promise<StartupPreparationResult> {
     const sourceRepoUrl = context.config.workspace.repoUrl;
-    const mirrorPath = deriveGitHubMirrorPath(context.config.workspace.root);
+    const mirrorPath = deriveGitHubMirrorPath(
+      getConfigInstancePaths(context.config),
+    );
     const mirrorParent = path.dirname(mirrorPath);
 
     try {

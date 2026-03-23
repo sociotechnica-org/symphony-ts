@@ -4,7 +4,10 @@ import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import { getPreparedWorkspacePath } from "../../src/domain/workspace.js";
-import type { ResolvedConfig } from "../../src/domain/workflow.js";
+import {
+  deriveRuntimeInstancePaths,
+  type ResolvedConfig,
+} from "../../src/domain/workflow.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {
   GitHubMirrorStartupPreparer,
@@ -37,8 +40,14 @@ function createConfig(
   repoUrl: string,
   trackerKind: "github" | "github-bootstrap" = "github-bootstrap",
 ): ResolvedConfig {
+  const workflowPath = path.join(root, "WORKFLOW.md");
+  const workspaceRoot = path.join(root, ".tmp", "workspaces");
   return {
-    workflowPath: path.join(root, "WORKFLOW.md"),
+    workflowPath,
+    instance: deriveRuntimeInstancePaths({
+      workflowPath,
+      workspaceRoot,
+    }),
     tracker: {
       kind: trackerKind,
       repo: "sociotechnica-org/symphony-ts",
@@ -55,7 +64,7 @@ function createConfig(
       retry: { maxAttempts: 1, backoffMs: 0 },
     },
     workspace: {
-      root: path.join(root, ".tmp", "workspaces"),
+      root: workspaceRoot,
       repoUrl,
       branchPrefix: "symphony/",
       retention: {
@@ -142,18 +151,18 @@ describe("startup service", () => {
       expect(outcome.provider).toBe("github-bootstrap/local-mirror");
       expect(outcome.workspaceSourceOverride).toEqual({
         kind: "local-path",
-        path: deriveGitHubMirrorPath(config.workspace.root),
+        path: deriveGitHubMirrorPath(config.instance),
       });
 
       const mirrorResult = await execFile(
         "git",
         ["rev-parse", "--is-bare-repository"],
-        { cwd: deriveGitHubMirrorPath(config.workspace.root) },
+        { cwd: deriveGitHubMirrorPath(config.instance) },
       );
       expect(mirrorResult.stdout.trim()).toBe("true");
 
       const snapshot = await readStartupSnapshot(
-        deriveStartupFilePath(config.workspace.root),
+        deriveStartupFilePath(config.instance),
       );
       expect(snapshot).toMatchObject({
         state: "ready",
@@ -237,7 +246,7 @@ describe("startup service", () => {
         { cwd: secondWorkspacePath },
       );
       expect(remoteUrl.stdout.trim()).toBe(
-        deriveGitHubMirrorPath(config.workspace.root),
+        deriveGitHubMirrorPath(config.instance),
       );
     } finally {
       await fs.rm(runtimeRoot, { recursive: true, force: true });
@@ -263,9 +272,7 @@ describe("startup service", () => {
       expect(outcome.provider).toBe("github-bootstrap/local-mirror");
       expect(outcome.summary).toContain("GitHub bootstrap mirror setup failed");
       expect(outcome.summary).toContain(config.workspace.repoUrl);
-      expect(outcome.summary).toContain(
-        deriveGitHubMirrorPath(config.workspace.root),
-      );
+      expect(outcome.summary).toContain(deriveGitHubMirrorPath(config.instance));
     } finally {
       await fs.rm(runtimeRoot, { recursive: true, force: true });
     }
@@ -294,7 +301,7 @@ describe("startup service", () => {
 
       expect(outcome.kind).toBe("failed");
       const raw = await fs.readFile(
-        deriveStartupFilePath(config.workspace.root),
+        deriveStartupFilePath(config.instance),
         "utf8",
       );
       expect(parseStartupSnapshotContent(raw, "startup.json")).toMatchObject({
@@ -334,7 +341,7 @@ describe("startup service", () => {
       ).rejects.toSatisfy((error: unknown) => isAbortError(error));
 
       const snapshot = await readStartupSnapshot(
-        deriveStartupFilePath(config.workspace.root),
+        deriveStartupFilePath(config.instance),
       );
       expect(snapshot).toMatchObject({
         state: "preparing",

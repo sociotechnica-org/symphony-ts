@@ -17,6 +17,7 @@ OpenAI released [the Symphony spec](https://github.com/openai/symphony) to addre
   The `codex` adapter now treats `codex app-server` as its primary structured transport boundary for startup, continuation turns, approvals, streaming events, and shutdown.
   Codex app-server sessions now also advertise one first-party dynamic tool, `tracker_current_context`, which returns sanitized current issue and PR context through Symphony's runner/tracker boundary instead of shell affordances.
 - **State lives in the tracker.** The entire factory state — what's in progress, what's done, what failed — lives in your tracker (GitHub Issues or Linear) instead of a separate control plane. Today's bootstrap runtime is designed for one local factory instance; broader multi-instance coordination is planned.
+- **Each `WORKFLOW.md` owns one local instance.** The repository containing `WORKFLOW.md` is the instance root. Its `.tmp/`, `.var/`, and detached runtime checkout under `.tmp/factory-main` belong to that instance, so one engine checkout can operate against many target repositories without sharing local runtime state.
 - **Visibility.** The tracker gives you real-time visibility into the whole factory. A local status surface shows worker-level detail.
 - **It builds itself.** Symphony works `symphony-ts` issues and opens PRs back into this repo. The [self-hosting loop](docs/guides/self-hosting-loop.md) is how we develop it.
 
@@ -39,6 +40,8 @@ export SYMPHONY_REPO=your-org/your-repo
 ```
 
 See [Configuration](#configuration) for all available fields.
+
+The repository containing that `WORKFLOW.md` is the local Symphony instance root. Relative runtime paths such as `workspace.root: ./.tmp/workspaces` resolve from that owning repository, and Symphony keeps instance-local artifacts under that same repository's `.tmp/` and `.var/` trees.
 
 Run one poll cycle:
 
@@ -81,7 +84,7 @@ For the canonical detached-runtime operating procedure and failure rehearsals,
 see [Operator Runbook](docs/guides/operator-runbook.md) and
 [Failure Drills](docs/guides/failure-drills.md).
 
-These commands target the checked-out runtime under `.tmp/factory-main`. Use
+These commands target the checked-out runtime under `<instance-root>/.tmp/factory-main`. Use
 `status` when you want the raw runtime snapshot for a specific workflow path,
 and use `factory status` when you want the detached runtime control state plus
 the embedded status snapshot. Operators should generally start with
@@ -206,6 +209,7 @@ If expected reviewer apps are configured and never produce qualifying output on 
 If a run fails, Symphony retries. After retries are exhausted, it marks the issue `symphony:failed`.
 
 Active run ownership is persisted locally as a transport-aware execution-owner record. On restart, Symphony reconciles `symphony:running` issues against local state, recovers orphaned runs, and resumes or fails them cleanly without assuming every execution owns a local runner PID. Per-issue reporting artifacts are written to `.var/factory/issues/` so they survive workspace cleanup. Generated per-issue reports are written under `.var/reports/issues/<issue-number>/` when the report command is run.
+Those paths are instance-owned: for any given run they live under the repository that owns the active `WORKFLOW.md`, not under a shared engine-global temp root.
 
 ## Configuration
 
