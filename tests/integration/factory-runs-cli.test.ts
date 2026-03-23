@@ -228,7 +228,10 @@ Prompt body
       "symphony-ts",
       "issues",
       "44",
-      deriveFactoryRunsPublicationId("2026-03-09T10:25:30.123Z", runtimeHeadSha),
+      deriveFactoryRunsPublicationId(
+        "2026-03-09T10:25:30.123Z",
+        runtimeHeadSha,
+      ),
     );
     const metadata = JSON.parse(
       await fs.readFile(path.join(publicationRoot, "metadata.json"), "utf8"),

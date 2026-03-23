@@ -237,9 +237,7 @@ describe("factory status helpers", () => {
           workspaceRoot: path.join("/", ".tmp", "workspaces"),
         }),
       ),
-    ).toBe(
-      path.join("/", ".tmp", "status.json"),
-    );
+    ).toBe(path.join("/", ".tmp", "status.json"));
   });
 
   it("writes and reads the JSON snapshot contract", async () => {
