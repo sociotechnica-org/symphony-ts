@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { loadWorkflowInstancePaths } from "../config/workflow.js";
+import { deriveSymphonyInstanceIdentity } from "../domain/instance-identity.js";
 import {
   deriveRuntimeInstancePaths,
   type RuntimeInstancePaths,
@@ -30,7 +31,6 @@ import {
 const execFile = promisify(execFileCallback);
 
 export const FACTORY_RUNTIME_DIRECTORY = path.join(".tmp", "factory-main");
-export const FACTORY_SCREEN_SESSION_NAME = "symphony-factory";
 export const FACTORY_RUN_GUARDRAILS_ACK_FLAG =
   "--i-understand-that-this-will-be-running-without-the-usual-guardrails";
 const START_TIMEOUT_MS = 15_000;
@@ -44,6 +44,10 @@ export interface FactoryPaths {
   readonly statusFilePath: string;
   readonly startupFilePath: string;
   readonly instance?: RuntimeInstancePaths;
+}
+
+interface ResolvedFactoryPaths extends FactoryPaths {
+  readonly sessionName: string;
 }
 
 export interface HostProcessSnapshot {
@@ -128,6 +132,7 @@ export interface FactoryControlDeps {
   readonly loadWorkflowInstancePaths?: (
     workflowPath: string,
   ) => Promise<RuntimeInstancePaths>;
+  readonly deriveSessionName?: (instance: RuntimeInstancePaths) => string;
   readonly readFile?: (filePath: string, encoding: "utf8") => Promise<string>;
   readonly listProcesses?: () => Promise<readonly HostProcessSnapshot[]>;
   readonly listScreenSessions?: () => Promise<readonly ScreenSessionSnapshot[]>;
@@ -148,12 +153,17 @@ export interface FactoryControlDeps {
 
 export async function resolveFactoryPaths(
   deps: FactoryControlDeps = {},
-): Promise<FactoryPaths> {
+): Promise<ResolvedFactoryPaths> {
   const cwd = deps.cwd ?? (() => process.cwd());
   const pathExists = deps.pathExists ?? defaultPathExists;
   const loadWorkspaceRoot = deps.loadWorkflowWorkspaceRoot;
   const loadInstancePaths =
     deps.loadWorkflowInstancePaths ?? loadWorkflowInstancePaths;
+  const deriveSessionName =
+    deps.deriveSessionName ??
+    ((instance: RuntimeInstancePaths) =>
+      deriveSymphonyInstanceIdentity(instance.instanceRoot)
+        .detachedSessionName);
 
   const workflowPath =
     deps.workflowPath === undefined || deps.workflowPath === null
@@ -185,6 +195,7 @@ export async function resolveFactoryPaths(
     repoRoot,
     runtimeRoot,
     workflowPath,
+    sessionName: deriveSessionName(instance),
     statusFilePath: deriveStatusFilePath(instance),
     startupFilePath: deriveStartupFilePath(instance),
     instance,
@@ -249,7 +260,7 @@ export async function startFactory(
 
   await launchScreenSession({
     runtimeRoot: paths.runtimeRoot,
-    sessionName: FACTORY_SCREEN_SESSION_NAME,
+    sessionName: paths.sessionName,
     command: createFactoryRunCommand(),
     env: launchEnvironment,
   });
@@ -456,7 +467,7 @@ export function collectDescendantProcessIds(
 }
 
 async function inspectFactoryControlAtPaths(
-  paths: FactoryPaths,
+  paths: ResolvedFactoryPaths,
   deps: FactoryControlDeps,
 ): Promise<FactoryControlStatusSnapshot> {
   const listProcesses = deps.listProcesses ?? defaultListProcesses;
@@ -472,7 +483,7 @@ async function inspectFactoryControlAtPaths(
   ]);
 
   const matchingSessions = sessions.filter(
-    (session) => session.name === FACTORY_SCREEN_SESSION_NAME,
+    (session) => session.name === paths.sessionName,
   );
   const liveSessions = matchingSessions.filter(
     (session) => !/^dead$/i.test(session.state),
@@ -487,7 +498,7 @@ async function inspectFactoryControlAtPaths(
 
   if (liveSessions.length > 1) {
     problems.push(
-      `multiple detached screen sessions match ${FACTORY_SCREEN_SESSION_NAME}`,
+      `multiple detached screen sessions match ${paths.sessionName}`,
     );
   }
   if (snapshotRead.error !== null) {
@@ -558,10 +569,19 @@ async function inspectFactoryControlAtPaths(
     }
   }
 
+  const publicPaths: FactoryPaths = {
+    repoRoot: paths.repoRoot,
+    runtimeRoot: paths.runtimeRoot,
+    workflowPath: paths.workflowPath,
+    statusFilePath: paths.statusFilePath,
+    startupFilePath: paths.startupFilePath,
+    ...(paths.instance === undefined ? {} : { instance: paths.instance }),
+  };
+
   return {
     controlState,
-    paths,
-    sessionName: FACTORY_SCREEN_SESSION_NAME,
+    paths: publicPaths,
+    sessionName: paths.sessionName,
     sessions: liveSessions,
     workerAlive,
     startup,
@@ -573,7 +593,7 @@ async function inspectFactoryControlAtPaths(
 }
 
 async function stopFactoryAtPaths(
-  paths: FactoryPaths,
+  paths: ResolvedFactoryPaths,
   deps: FactoryControlDeps,
 ): Promise<FactoryControlStopResult> {
   const listProcesses = deps.listProcesses ?? defaultListProcesses;

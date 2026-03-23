@@ -5,7 +5,7 @@ Run exactly one wake-up cycle, then stop.
 Required workflow:
 
 1. Read `skills/symphony-operator/SKILL.md`.
-2. Read `.ralph/operator-scratchpad.md` if it exists.
+2. Read the instance-scoped scratchpad at `SYMPHONY_OPERATOR_SCRATCHPAD` if it exists.
 3. If `SYMPHONY_OPERATOR_WORKFLOW_PATH` is set, append `--workflow "$SYMPHONY_OPERATOR_WORKFLOW_PATH"` to each `symphony` factory-control command that targets an instance.
 4. Inspect the detached factory via `pnpm tsx bin/symphony.ts factory status --json` as the primary source of truth.
 5. Use bounded, one-shot inspection commands during this wake-up. Do not use long-running watch/follow commands in the critical path; if a secondary probe is slow or non-terminal, proceed from the latest successful control snapshot.
@@ -17,7 +17,7 @@ Required workflow:
    - post `/land` on any PR waiting in `awaiting-landing-command` once it is green and review-clean,
    - and after any successful landing, pull latest `origin/main`, refresh `.tmp/factory-main`, and restart the detached factory from that merged code.
 10. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
-11. Update `.ralph/operator-scratchpad.md` before finishing the cycle.
+11. Update `SYMPHONY_OPERATOR_SCRATCHPAD` before finishing the cycle.
 
 Constraints:
 
