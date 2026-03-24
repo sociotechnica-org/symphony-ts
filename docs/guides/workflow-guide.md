@@ -179,6 +179,9 @@ Suggested sub-sections:
 - work items come from supported tracker backends only
 - today that means GitHub issues or Linear work items
 - there is no generic “arbitrary task inbox” backend yet
+- one `WORKFLOW.md` selects one tracker backend at a time
+- a single workflow does not currently combine GitHub and Linear or pull work
+  from multiple tracker sources in one runtime loop
 
 ### 8.2 Repository and Delivery Constraints
 
@@ -186,6 +189,14 @@ Suggested sub-sections:
 - the current software-factory path assumes one branch and one PR per work
   item
 - checks, reviews, and landing are first-class runtime concepts today
+- one work item still maps to one outer delivery loop:
+  - one issue
+  - one workspace
+  - one branch
+  - one PR
+  - one landing outcome
+- the current lifecycle model is PR-centric and uses a fixed set of runtime
+  handoff states rather than user-defined station names
 
 ### 8.3 Runtime Gate Constraints
 
@@ -193,8 +204,22 @@ Suggested sub-sections:
 - review and landing gates are runtime-owned, not just prompt conventions
 - some parts are configurable through frontmatter, but others are currently
   built into the orchestration model
+- landing is an explicit runtime operation with built-in blocked reasons
+  rather than a free-form prompt decision
+- prompt text can influence worker behavior, but it does not replace the
+  runtime’s check, review, and landing policy engine
 
-### 8.4 Fit Assessment
+### 8.4 Coordination Model Constraints
+
+- the queue is currently a queue of work items, not a queue of workflow
+  stations or subtasks
+- one workflow has one runner configuration at a time; the runtime does not
+  switch runners per internal stage
+- one prepared workspace is still the main execution unit for a work item
+- queue priority changes ordering among ready items, but it does not create
+  new topology or alternative workflow paths
+
+### 8.5 Fit Assessment
 
 - explain what kinds of workflows are a strong fit
 - explain what kinds of workflows are possible only as prompt-level
