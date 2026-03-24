@@ -102,6 +102,7 @@ function createControlDeps(
     readonly quitScreenSession?: FactoryControlDeps["quitScreenSession"];
     readonly signalProcess?: FactoryControlDeps["signalProcess"];
     readonly sleep?: FactoryControlDeps["sleep"];
+    readonly ensureDirectory?: FactoryControlDeps["ensureDirectory"];
   } = {},
 ): FactoryControlDeps {
   const repoRoot = "/repo";
@@ -180,6 +181,7 @@ function createControlDeps(
     listAvailableLocales: async () =>
       options.availableLocales ?? ["en_US.UTF-8", "C", "POSIX"],
     removeFile: options.removeFile ?? (async () => {}),
+    ensureDirectory: options.ensureDirectory ?? (async () => {}),
     sleep: options.sleep ?? (async () => {}),
     isProcessAlive: (pid) =>
       (options.processes ?? []).some(
@@ -998,11 +1000,13 @@ describe("inspectFactoryControl", () => {
 
 describe("createFactoryRunCommand", () => {
   it("builds the detached run command with the required guardrails acknowledgment", () => {
-    expect(createFactoryRunCommand()).toEqual([
+    expect(createFactoryRunCommand("/tmp/target/WORKFLOW.md")).toEqual([
       "pnpm",
       "tsx",
-      "bin/symphony.ts",
+      expect.stringMatching(/bin\/symphony\.ts$/u),
       "run",
+      "--workflow",
+      "/tmp/target/WORKFLOW.md",
       "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
     ]);
   });
@@ -1011,7 +1015,7 @@ describe("createFactoryRunCommand", () => {
     expect(
       createFactoryScreenLaunchCommand(
         "symphony-factory",
-        createFactoryRunCommand(),
+        createFactoryRunCommand("/tmp/target/WORKFLOW.md"),
       ),
     ).toEqual([
       "-U",
@@ -1019,8 +1023,10 @@ describe("createFactoryRunCommand", () => {
       "symphony-factory",
       "pnpm",
       "tsx",
-      "bin/symphony.ts",
+      expect.stringMatching(/bin\/symphony\.ts$/u),
       "run",
+      "--workflow",
+      "/tmp/target/WORKFLOW.md",
       "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
     ]);
   });
@@ -1058,6 +1064,7 @@ describe("startFactory", () => {
     let currentSnapshot: FactoryStatusSnapshot | null = null;
     const launched: Array<{
       runtimeRoot: string;
+      launchCwd: string;
       sessionName: string;
       command: readonly string[];
       env: NodeJS.ProcessEnv;
@@ -1112,8 +1119,9 @@ describe("startFactory", () => {
     expect(launched).toHaveLength(1);
     expect(launched[0]).toEqual({
       runtimeRoot: "/repo/.tmp/factory-main",
+      launchCwd: expect.stringMatching(/symphony-ts$/u),
       sessionName: "symphony-factory",
-      command: createFactoryRunCommand(),
+      command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
       env: expect.objectContaining({
         LANG: "en_US.UTF-8",
         LC_ALL: "en_US.UTF-8",
@@ -1122,6 +1130,98 @@ describe("startFactory", () => {
     });
     expect(result.kind).toBe("started");
     expect(result.status.controlState).toBe("running");
+  });
+
+  it("launches a third-party instance from the engine checkout with an explicit workflow path", async () => {
+    const launched: Array<{
+      runtimeRoot: string;
+      launchCwd: string;
+      sessionName: string;
+      command: readonly string[];
+      env: NodeJS.ProcessEnv;
+    }> = [];
+    let statusPublished = false;
+
+    const result = await startFactory({
+      workflowPath: "/target-project/WORKFLOW.md",
+      cwd: () => "/engine-checkout",
+      pathExists: async () => true,
+      loadWorkflowInstancePaths: async () =>
+        deriveRuntimeInstancePaths({
+          workflowPath: "/target-project/WORKFLOW.md",
+          workspaceRoot: "/target-project/.tmp/workspaces",
+        }),
+      deriveSessionName: () => "symphony-factory-target-project",
+      readFile: async (filePath) => {
+        if (
+          filePath === "/target-project/.tmp/status.json" &&
+          statusPublished
+        ) {
+          return `${JSON.stringify(
+            createStatusSnapshot(9101, {
+              factoryState: "running",
+            }),
+            null,
+            2,
+          )}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      listProcesses: async () =>
+        statusPublished
+          ? [
+              {
+                pid: 9101,
+                ppid: 9002,
+                command: "node /engine-checkout/bin/symphony.ts run",
+              },
+            ]
+          : [],
+      listScreenSessions: async () =>
+        statusPublished
+          ? [
+              {
+                id: "9001.symphony-factory-target-project",
+                pid: 9001,
+                name: "symphony-factory-target-project",
+                state: "Detached",
+              },
+            ]
+          : [],
+      listAvailableLocales: async () => ["en_US.UTF-8", "C"],
+      ensureDirectory: async () => {},
+      removeFile: async () => {},
+      launchScreenSession: async (options) => {
+        launched.push(options);
+        statusPublished = true;
+      },
+      isProcessAlive: () => true,
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(launched).toEqual([
+      {
+        runtimeRoot: "/target-project/.tmp/factory-main",
+        launchCwd: expect.stringMatching(/symphony-ts$/u),
+        sessionName: "symphony-factory-target-project",
+        command: createFactoryRunCommand("/target-project/WORKFLOW.md"),
+        env: expect.objectContaining({
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          LC_CTYPE: "en_US.UTF-8",
+        }),
+      },
+    ]);
+    expect(result.kind).toBe("started");
+    expect(result.status.paths.repoRoot).toBe("/target-project");
   });
 
   it("keeps waiting while the restarted runtime only has an initializing snapshot", async () => {
@@ -1455,6 +1555,7 @@ describe("startFactory", () => {
   it("times out when the detached runtime never becomes healthy after launch", async () => {
     const launched: Array<{
       runtimeRoot: string;
+      launchCwd: string;
       sessionName: string;
       command: readonly string[];
       env: NodeJS.ProcessEnv;
@@ -1476,8 +1577,9 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/repo/.tmp/factory-main",
+        launchCwd: expect.stringMatching(/symphony-ts$/u),
         sessionName: "symphony-factory",
-        command: createFactoryRunCommand(),
+        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
           LC_ALL: "en_US.UTF-8",
@@ -1490,6 +1592,7 @@ describe("startFactory", () => {
   it("normalizes a bad inherited locale before launching the detached runtime", async () => {
     const launched: Array<{
       runtimeRoot: string;
+      launchCwd: string;
       sessionName: string;
       command: readonly string[];
       env: NodeJS.ProcessEnv;
@@ -1517,8 +1620,9 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/repo/.tmp/factory-main",
+        launchCwd: expect.stringMatching(/symphony-ts$/u),
         sessionName: "symphony-factory",
-        command: createFactoryRunCommand(),
+        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
         env: expect.objectContaining({
           TERM: "screen-256color",
           LANG: "en_US.UTF-8",
@@ -1966,6 +2070,7 @@ describe("factory restart launch contract", () => {
     let currentSnapshot: FactoryStatusSnapshot | null = null;
     const launches: Array<{
       runtimeRoot: string;
+      launchCwd: string;
       sessionName: string;
       command: readonly string[];
       env: NodeJS.ProcessEnv;
@@ -2050,7 +2155,7 @@ describe("factory restart launch contract", () => {
     expect(launches).toHaveLength(2);
     expect(launches).toEqual([
       expect.objectContaining({
-        command: createFactoryRunCommand(),
+        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
           LC_ALL: "en_US.UTF-8",
@@ -2058,7 +2163,7 @@ describe("factory restart launch contract", () => {
         }),
       }),
       expect.objectContaining({
-        command: createFactoryRunCommand(),
+        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
           LC_ALL: "en_US.UTF-8",

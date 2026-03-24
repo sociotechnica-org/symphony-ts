@@ -1,4 +1,3 @@
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   createActiveRunExecutionOwner,
@@ -336,9 +335,11 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#livenessProbe = livenessProbe ?? null;
     this.#runtimeIdentity = Promise.resolve(
       runtimeIdentity ??
-        // `workflowPath` resolves to `<runtime-checkout>/symphony.yml` in the
-        // detached factory layout, so its parent is the live runtime checkout root.
-        collectFactoryRuntimeIdentity(path.dirname(config.workflowPath)),
+        // The running process cwd identifies the code checkout that launched the
+        // current worker. This may differ from the repository that owns
+        // WORKFLOW.md when one shared engine checkout targets a separate
+        // project-local instance.
+        collectFactoryRuntimeIdentity(process.cwd()),
     );
   }
 

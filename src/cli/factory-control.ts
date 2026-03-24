@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { loadWorkflowInstancePaths } from "../config/workflow.js";
 import { deriveSymphonyInstanceIdentity } from "../domain/instance-identity.js";
@@ -33,6 +34,11 @@ const execFile = promisify(execFileCallback);
 export const FACTORY_RUNTIME_DIRECTORY = path.join(".tmp", "factory-main");
 export const FACTORY_RUN_GUARDRAILS_ACK_FLAG =
   "--i-understand-that-this-will-be-running-without-the-usual-guardrails";
+const ENGINE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+);
 const START_TIMEOUT_MS = 15_000;
 const STOP_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_MS = 250;
@@ -139,6 +145,7 @@ export interface FactoryControlDeps {
   readonly listAvailableLocales?: () => Promise<readonly string[]>;
   readonly launchScreenSession?: (options: {
     readonly runtimeRoot: string;
+    readonly launchCwd: string;
     readonly sessionName: string;
     readonly command: readonly string[];
     readonly env: NodeJS.ProcessEnv;
@@ -146,6 +153,7 @@ export interface FactoryControlDeps {
   readonly quitScreenSession?: (sessionId: string) => Promise<void>;
   readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
   readonly removeFile?: (filePath: string) => Promise<void>;
+  readonly ensureDirectory?: (directoryPath: string) => Promise<void>;
   readonly isProcessAlive?: (pid: number) => boolean;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly now?: () => number;
@@ -243,6 +251,7 @@ export async function startFactory(
   const listAvailableLocales =
     deps.listAvailableLocales ?? defaultListAvailableLocales;
   const removeFile = deps.removeFile ?? defaultRemoveFile;
+  const ensureDirectory = deps.ensureDirectory ?? defaultEnsureDirectory;
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? (() => Date.now());
   const launchEnvironment = createFactoryLaunchEnvironment(
@@ -255,13 +264,15 @@ export async function startFactory(
     }),
   );
 
+  await ensureDirectory(paths.runtimeRoot);
   await removeFile(paths.statusFilePath);
   await removeFile(paths.startupFilePath);
 
   await launchScreenSession({
     runtimeRoot: paths.runtimeRoot,
+    launchCwd: ENGINE_ROOT,
     sessionName: paths.sessionName,
-    command: createFactoryRunCommand(),
+    command: createFactoryRunCommand(paths.workflowPath),
     env: launchEnvironment,
   });
 
@@ -1008,6 +1019,7 @@ async function defaultListAvailableLocales(): Promise<readonly string[]> {
 
 async function defaultLaunchScreenSession(options: {
   readonly runtimeRoot: string;
+  readonly launchCwd: string;
   readonly sessionName: string;
   readonly command: readonly string[];
   readonly env: NodeJS.ProcessEnv;
@@ -1016,7 +1028,7 @@ async function defaultLaunchScreenSession(options: {
     "screen",
     createFactoryScreenLaunchCommand(options.sessionName, options.command),
     {
-      cwd: options.runtimeRoot,
+      cwd: options.launchCwd,
       env: options.env,
       timeout: 5_000,
     },
@@ -1035,6 +1047,10 @@ async function defaultSleep(ms: number): Promise<void> {
 
 async function defaultRemoveFile(filePath: string): Promise<void> {
   await fs.rm(filePath, { force: true });
+}
+
+async function defaultEnsureDirectory(directoryPath: string): Promise<void> {
+  await fs.mkdir(directoryPath, { recursive: true });
 }
 
 function assessStartupSnapshot(
@@ -1095,12 +1111,16 @@ function isMissingScreenSessionError(error: unknown): boolean {
   );
 }
 
-export function createFactoryRunCommand(): readonly string[] {
+export function createFactoryRunCommand(
+  workflowPath: string,
+): readonly string[] {
   return [
     "pnpm",
     "tsx",
-    "bin/symphony.ts",
+    path.join(ENGINE_ROOT, "bin", "symphony.ts"),
     "run",
+    "--workflow",
+    workflowPath,
     FACTORY_RUN_GUARDRAILS_ACK_FLAG,
   ];
 }

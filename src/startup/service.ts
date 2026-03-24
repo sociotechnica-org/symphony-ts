@@ -165,12 +165,10 @@ export async function runStartupPreparation(options: {
   const instance = getConfigInstancePaths(options.config);
   const workerPid = options.workerPid ?? process.pid;
   const artifactPath = deriveStartupFilePath(instance);
-  // The workflow file may be loaded from either the instance root or the live
-  // runtime checkout; the workflow file's parent identifies the code checkout
-  // that is actually running right now.
-  const runtimeIdentity = await collectFactoryRuntimeIdentity(
-    path.dirname(options.config.workflowPath),
-  );
+  // The running process cwd identifies the code checkout that launched the
+  // current worker. This may differ from the repository that owns WORKFLOW.md
+  // when one shared engine checkout targets a separate project-local instance.
+  const runtimeIdentity = await collectFactoryRuntimeIdentity(process.cwd());
 
   options.logger.info("Startup preparation started", {
     provider: preparer.id,

@@ -169,7 +169,7 @@ describe("startup service", () => {
         workerPid: 3210,
         provider: "github-bootstrap/local-mirror",
         runtimeIdentity: {
-          checkoutPath: runtimeRoot,
+          checkoutPath: process.cwd(),
         },
       });
     } finally {
@@ -312,7 +312,7 @@ describe("startup service", () => {
         provider: "github-bootstrap/test-failure",
         summary: "Mirror refresh failed.",
         runtimeIdentity: {
-          checkoutPath: tempDir,
+          checkoutPath: process.cwd(),
         },
       });
     } finally {
@@ -350,7 +350,7 @@ describe("startup service", () => {
         workerPid: 9876,
         provider: "github-bootstrap/test-abort",
         runtimeIdentity: {
-          checkoutPath: tempDir,
+          checkoutPath: process.cwd(),
         },
       });
     } finally {
