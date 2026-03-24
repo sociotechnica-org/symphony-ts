@@ -564,25 +564,53 @@ Tests run in three layers: unit tests for pure logic, integration tests for adap
 
 ## Status & Roadmap
 
-**Current phase: 1.2** — single local instance, GitHub Issues and Linear trackers, detached factory control, and local multi-runner execution.
+This repository is in active construction, but the core local factory is already real. The table below is derived from the merged PR history in this repository and summarizes the capabilities that have actually landed so far.
 
-What works today:
+| Capability | Status |
+| --- | --- |
+| Local end-to-end GitHub issue -> branch -> PR -> merge loop | `done` |
+| Human plan-review station before substantial implementation | `done` |
+| Follows through on CI failures and review feedback until a PR is ready to land | `done` |
+| Human-controlled landing flow for merge-ready PRs | `done` |
+| Restart recovery and watchdog handling for stuck or interrupted runs | `done` |
+| Detached factory control CLI: `factory start|status|watch|restart|stop` | `done` |
+| Status TUI with live runner/session context | `done` |
+| Per-issue reports from local runtime artifacts | `done` |
+| Campaign digest reporting across issues | `done` |
+| `factory-runs` archive publication for reports and logs | `done` |
+| GitHub tracker adapter | `done` |
+| Linear tracker adapter | `done` |
+| Ready-queue prioritization from tracker metadata | `done` |
+| Generic command runner | `done` |
+| Claude Code runner | `done` |
+| Codex runner | `done` |
+| Remote Codex execution over SSH | `done` |
+| Multi-instance local factories from one Symphony engine checkout | `done` |
+| Installed Symphony engine distribution support | `done` |
+| Self-hosting: Symphony works `symphony-ts` issues and opens PRs back here | `done` |
+| Beads tracker adapter and Beads workflow contract | `coming` |
+| Detection/classification of stalled required checks instead of waiting forever | `coming` |
+| Operator message injection into active or resumable worker sessions | `coming` |
+| Broader remote execution backends beyond current SSH Codex support | `coming` |
+| Automated QA review station and review-station pluggability | `coming` |
+| Context Library hook | `coming` |
+| Molecule-aware dispatch | `coming` |
 
-- Full issue lifecycle from ready through landed PR
-- GitHub Issues and Linear tracker adapters
-- Plan review station with human approval gate
-- CI and automated review follow-up loop
-- Orphaned run recovery on restart
-- Local factory status surface and per-issue reporting
-- Safe detached factory watch surface via `symphony factory watch`
-- Self-hosting: Symphony builds itself
+The highest-signal roadmap items currently tracked in GitHub Issues are:
 
-What's planned:
+- [Phase 2: Beads Tracker Adapter + Beads Workflow Contract](https://github.com/sociotechnica-org/symphony-ts/issues/9)
+- [Detect and classify stalled required checks instead of waiting forever](https://github.com/sociotechnica-org/symphony-ts/issues/221)
+- [Support operator message injection into active or resumable worker sessions](https://github.com/sociotechnica-org/symphony-ts/issues/222)
+- [Phase 8: Remote Execution Backends](https://github.com/sociotechnica-org/symphony-ts/issues/15)
+- [Phase 1.3.5: Automated QA Review Station](https://github.com/sociotechnica-org/symphony-ts/issues/33)
+- [Future: Automated Review Station Evaluation And Pluggability](https://github.com/sociotechnica-org/symphony-ts/issues/36)
+- [Phase 5: Context Library Hook](https://github.com/sociotechnica-org/symphony-ts/issues/12)
+- [Phase 4: Molecule-Aware Dispatch](https://github.com/sociotechnica-org/symphony-ts/issues/11)
 
-- Remote worker backends (Devin, NiteShift, remote dev boxes)
-- Multi-instance coordination
-- Operator agent for factory-level oversight
-- Dashboard UI beyond terminal status
+For the repo-owned implementation record behind this evolving roadmap, see:
+
+- [`docs/plans/035-bootstrap-factory/plan.md`](docs/plans/035-bootstrap-factory/plan.md)
+- [`docs/plans/036-core-runtime-contracts/plan.md`](docs/plans/036-core-runtime-contracts/plan.md)
 
 ## Documentation
 
