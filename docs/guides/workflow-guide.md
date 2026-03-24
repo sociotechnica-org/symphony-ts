@@ -86,6 +86,10 @@ Suggested framing:
 - Link to a separate full frontmatter reference file that should eventually be
   the complete parser-aligned source of truth.
 
+Primary link:
+
+- [WORKFLOW Frontmatter Reference](./workflow-frontmatter-reference.md)
+
 This section should point to, and lightly summarize, a separate full reference
 document, such as:
 
