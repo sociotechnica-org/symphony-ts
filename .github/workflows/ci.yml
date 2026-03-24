@@ -32,9 +32,3 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-
-  check:
-    runs-on: ubuntu-latest
-    needs: [static, test]
-    steps:
-      - run: true
