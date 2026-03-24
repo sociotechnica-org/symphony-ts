@@ -64,6 +64,13 @@ export SYMPHONY_REPO=your-org/your-repo
 
 See [Configuration](#configuration) for all available fields.
 
+For deeper docs, use:
+
+- [Workflow Guide](docs/guides/workflow-guide.md) for workflow design,
+  runtime constraints, handoff stations, and examples
+- [WORKFLOW Frontmatter Reference](docs/guides/workflow-frontmatter-reference.md)
+  for the exhaustive YAML frontmatter contract
+
 The repository containing that `WORKFLOW.md` is the local Symphony instance root. Relative runtime paths such as `workspace.root: ./.tmp/workspaces` resolve from that owning repository, and Symphony keeps instance-local artifacts under that same repository's `.tmp/` and `.var/` trees.
 
 Run one poll cycle:
@@ -242,6 +249,14 @@ Those paths are instance-owned: for any given run they live under the repository
 ## Configuration
 
 Everything is configured in `WORKFLOW.md` — YAML front matter for the runtime, a [Liquid](https://liquidjs.com/) template for the agent prompt:
+
+Use this section for the common options. For the full parser-aligned frontmatter
+contract, defaults, constraints, and examples, see
+[WORKFLOW Frontmatter Reference](docs/guides/workflow-frontmatter-reference.md).
+
+For narrative guidance about how to shape workflows, multi-role prompt
+patterns, handoff stations, and current runtime constraints, see
+[Workflow Guide](docs/guides/workflow-guide.md).
 
 ```yaml
 tracker:
