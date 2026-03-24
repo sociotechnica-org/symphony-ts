@@ -175,6 +175,17 @@ describe("resolveAttachSession", () => {
       /factory control is degraded/,
     );
   });
+
+  it("fails clearly if running control reports an unexpected session count", () => {
+    const snapshot = {
+      ...createSnapshot(),
+      sessions: [],
+    } satisfies FactoryControlStatusSnapshot;
+
+    expect(() => resolveAttachSession(snapshot)).toThrowError(
+      /expected exactly one detached session/,
+    );
+  });
 });
 
 describe("attachFactory", () => {
@@ -247,10 +258,38 @@ describe("attachFactory", () => {
     expect(child.stdin.writes).toEqual([Buffer.from("a")]);
   });
 
+  it("forwards bytes before Ctrl-C and then detaches locally", async () => {
+    const { terminal, stdin } = createTerminal();
+    const child = new MockAttachChild();
+    const killChild = vi.fn(
+      (target: FactoryAttachChild, signal?: NodeJS.Signals) => {
+        target.kill(signal);
+      },
+    );
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      launchAttachChild: () => child,
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: vi.fn(),
+      offResize: vi.fn(),
+      killChild,
+    });
+
+    await waitForAsyncSetup();
+    stdin.emit("data", Buffer.from([0x61, 0x62, 0x03, 0x63]));
+    await attachPromise;
+
+    expect(child.stdin.writes).toEqual([Buffer.from("ab")]);
+    expect(killChild).toHaveBeenCalledWith(child, "SIGTERM");
+  });
+
   it("forwards SIGWINCH to the local attach child", async () => {
     const { terminal } = createTerminal();
     const child = new MockAttachChild();
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const signalProcess = vi.fn(() => true);
     let resizeListener: (() => void) | undefined;
 
     const attachPromise = attachFactory({
@@ -263,6 +302,7 @@ describe("attachFactory", () => {
         resizeListener = listener;
       },
       offResize: vi.fn(),
+      signalProcess,
       killChild: vi.fn((target, signal) => {
         target.kill(signal);
       }),
@@ -273,7 +313,38 @@ describe("attachFactory", () => {
     child.emit("exit", 0, null);
     await attachPromise;
 
-    expect(killSpy).toHaveBeenCalledWith(child.pid, "SIGWINCH");
+    expect(signalProcess).toHaveBeenCalledWith(child.pid, "SIGWINCH");
+  });
+
+  it("ignores resize forwarding after the attach child exits", async () => {
+    const { terminal } = createTerminal();
+    const child = new MockAttachChild();
+    const signalProcess = vi.fn(() => true);
+    let resizeListener: (() => void) | undefined;
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      launchAttachChild: () => child,
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: (listener) => {
+        resizeListener = listener;
+      },
+      offResize: vi.fn(),
+      signalProcess,
+      killChild: vi.fn((target, signal) => {
+        target.kill(signal);
+      }),
+    });
+
+    await waitForAsyncSetup();
+    child.pid = undefined;
+    resizeListener?.();
+    child.emit("exit", 0, null);
+    await attachPromise;
+
+    expect(signalProcess).not.toHaveBeenCalled();
   });
 
   it("requires an interactive terminal", async () => {

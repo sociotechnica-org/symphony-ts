@@ -59,6 +59,7 @@ export interface FactoryAttachDeps {
     child: FactoryAttachChild,
     signal?: NodeJS.Signals,
   ) => void;
+  readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
   readonly platform?: NodeJS.Platform;
 }
 
@@ -77,6 +78,8 @@ export async function attachFactory(
     deps.offResize ?? ((listener) => process.off("SIGWINCH", listener));
   const killChild =
     deps.killChild ?? ((child, signal = "SIGTERM") => child.kill(signal));
+  const signalProcess =
+    deps.signalProcess ?? ((pid, signal) => process.kill(pid, signal));
   const platform = deps.platform ?? process.platform;
   const launchAttachChild =
     deps.launchAttachChild ??
@@ -157,7 +160,7 @@ export async function attachFactory(
   const onResizeSignal = (): void => {
     if (child.pid !== undefined) {
       try {
-        process.kill(child.pid, "SIGWINCH");
+        signalProcess(child.pid, "SIGWINCH");
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code !== "ESRCH") {
@@ -168,12 +171,13 @@ export async function attachFactory(
   };
 
   const onStdinData = (chunk: Buffer): void => {
+    const forwardChunk = takeForwardChunkBeforeDetach(chunk);
+    if (forwardChunk !== null && childStdin !== null) {
+      childStdin.write(forwardChunk);
+    }
     if (containsLocalDetachByte(chunk)) {
       detachLocalClient();
       return;
-    }
-    if (childStdin !== null) {
-      childStdin.write(chunk);
     }
   };
 
@@ -255,6 +259,11 @@ export function resolveAttachSession(
       `Factory attach requires a running detached runtime for ${snapshot.paths.workflowPath}, but factory control is stopped. Use 'symphony factory start' or inspect with 'symphony factory status'.`,
     );
   }
+  if (snapshot.controlState === "running") {
+    throw new Error(
+      `Factory attach expected exactly one detached session for ${snapshot.paths.workflowPath}, but found ${snapshot.sessions.length.toString()} while factory control reported running.`,
+    );
+  }
   throw new Error(
     `Factory attach requires one healthy detached runtime for ${snapshot.paths.workflowPath}, but factory control is ${snapshot.controlState}.${detail}`,
   );
@@ -289,12 +298,19 @@ function defaultLaunchAttachChild(
     stderr: child.stderr,
     waitForExit: () =>
       new Promise((resolve, reject) => {
-        child.once("error", (error) => {
+        const onError = (error: Error): void => {
+          child.off("exit", onExit);
           reject(wrapAttachLaunchError(error));
-        });
-        child.once("exit", (code, signal) => {
+        };
+        const onExit = (
+          code: number | null,
+          signal: NodeJS.Signals | null,
+        ): void => {
+          child.off("error", onError);
           resolve({ code, signal });
-        });
+        };
+        child.once("error", onError);
+        child.once("exit", onExit);
       }),
     kill: (signal) => {
       child.kill(signal);
@@ -304,6 +320,17 @@ function defaultLaunchAttachChild(
 
 function containsLocalDetachByte(chunk: Buffer): boolean {
   return [...chunk].some((byte) => LOCAL_DETACH_BYTES.has(byte));
+}
+
+function takeForwardChunkBeforeDetach(chunk: Buffer): Buffer | null {
+  const detachOffset = chunk.findIndex((byte) => LOCAL_DETACH_BYTES.has(byte));
+  if (detachOffset === -1) {
+    return chunk;
+  }
+  if (detachOffset === 0) {
+    return null;
+  }
+  return chunk.subarray(0, detachOffset);
 }
 
 function escapeShellCommand(args: readonly string[]): string {
