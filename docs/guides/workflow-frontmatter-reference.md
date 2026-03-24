@@ -50,6 +50,9 @@ observability:
 The frontmatter must parse to a YAML mapping/object. A missing or malformed
 frontmatter block is invalid.
 
+This `File Shape` example is abbreviated to show structure only. For a complete
+working config, see [Minimal GitHub Example](#minimal-github-example) below.
+
 ## Top-Level Sections
 
 The parser recognizes these top-level sections:
