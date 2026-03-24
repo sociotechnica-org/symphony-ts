@@ -62,43 +62,64 @@ Suggested framing:
 - Explain project-local `WORKFLOW.md` vs engine checkout usage.
 - Show how `--workflow <path>` selects an instance from a shared engine
   checkout.
+- Clarify that the simplest mental model is one running factory per
+  `WORKFLOW.md`, but one Symphony engine checkout can operate many workflows
+  at once.
+- Explain that teams may keep those workflows:
+  - in each target repository
+  - in a shared workflow-library directory
+  - or in another instance-rooted layout, as long as each workflow has its
+    own runtime state
+- Explain the tradeoff:
+  - per-repo `WORKFLOW.md` is the clearest default
+  - multiple workflows from one engine checkout are supported and useful, but
+    need explicit instance separation
 
-## 5. YAML Frontmatter Reference
+## 5. Frontmatter and Configuration Model
 
-- Document each frontmatter section:
-  - `tracker`
-  - `polling`
-  - `workspace`
-  - `hooks`
-  - `agent`
-  - `observability`
-- Include field-by-field explanation and defaults where relevant.
-- Keep this aligned with the actual parser contract in code.
+- Explain the role of YAML frontmatter at a narrative level:
+  - what it configures
+  - what it cannot change
+  - which options most directly affect workflow behavior
+- Keep this section focused on workflow design and operator understanding,
+  not exhaustive field-by-field reference.
+- Link to a separate full frontmatter reference file that should eventually be
+  the complete parser-aligned source of truth.
 
-This section should eventually split into:
+This section should point to, and lightly summarize, a separate full reference
+document, such as:
 
-### 5.1 `tracker`
+### 5.1 Full Frontmatter Reference
+
+- full YAML contract
+- defaults where relevant
+- parser-aligned option detail
+- examples of valid values
+
+This separate reference should eventually cover:
+
+### 5.2 `tracker`
 
 - GitHub and Linear modes
 - review bot configuration
 - approved review bot configuration
 - queue priority configuration
 
-### 5.2 `polling`
+### 5.3 `polling`
 
 - interval
 - concurrency
 - retry
 - watchdog
 
-### 5.3 `workspace`
+### 5.4 `workspace`
 
 - root
 - repo source
 - retention
 - worker host settings
 
-### 5.4 `agent`
+### 5.5 `agent`
 
 - runner kind
 - command
@@ -107,7 +128,7 @@ This section should eventually split into:
 - max turns
 - env
 
-### 5.5 `observability`
+### 5.6 `observability`
 
 - dashboard / refresh settings
 
@@ -140,7 +161,68 @@ Key themes to cover:
 - Clarify where prompt rendering fits into the runtime.
 - Clarify what is fixed by the runtime today vs what is prompt-controlled.
 
-## 8. Common Workflow Shapes That Work Well Today
+## 8. Built-In Symphony Constraints
+
+This section should make the current runtime assumptions explicit so readers
+can tell what kinds of work do and do not fit Symphony well today.
+
+It should answer:
+
+- what Symphony assumes even if the prompt body says nothing about it
+- what is configurable in frontmatter
+- what is currently hard-coded enough that users should design around it
+
+Suggested sub-sections:
+
+### 8.1 Work Source Constraints
+
+- work items come from supported tracker backends only
+- today that means GitHub issues or Linear work items
+- there is no generic “arbitrary task inbox” backend yet
+
+### 8.2 Repository and Delivery Constraints
+
+- Symphony expects a repository-backed workflow
+- the current software-factory path assumes one branch and one PR per work
+  item
+- checks, reviews, and landing are first-class runtime concepts today
+
+### 8.3 Runtime Gate Constraints
+
+- required checks must reach acceptable terminal states
+- review and landing gates are runtime-owned, not just prompt conventions
+- some parts are configurable through frontmatter, but others are currently
+  built into the orchestration model
+
+### 8.4 Fit Assessment
+
+- explain what kinds of workflows are a strong fit
+- explain what kinds of workflows are possible only as prompt-level
+  approximations
+- explain what kinds of workflows do not fit well without deeper runtime
+  changes
+
+## 9. Human Handoff Stations
+
+- Explain the current human handoff stations Symphony already enforces:
+  - plan approval
+  - PR review
+  - `/land`
+- Explain whether each station is:
+  - required by default
+  - waivable
+  - skippable by configuration
+  - only partially configurable today
+- Explain how review bots fit into this.
+- Explain what kinds of human interaction are first-class today vs only
+  prompt-level conventions.
+- Explicitly discuss:
+  - whether plan approval can be skipped and how
+  - whether PR review can be relaxed and how far
+  - whether auto-land exists today or would require code changes
+  - how these choices interact with Symphony’s current runtime assumptions
+
+## 10. Common Workflow Shapes That Work Well Today
 
 This section should explicitly distinguish:
 
@@ -149,23 +231,23 @@ This section should explicitly distinguish:
 
 Suggested sub-sections:
 
-### 8.1 Standard Software Factory
+### 10.1 Standard Software Factory
 
 - single issue
 - single workspace
 - one branch / one PR
 - plan -> implement -> review -> land inside the current runtime
 
-### 8.2 Command-Heavy Maintenance Loop
+### 10.2 Command-Heavy Maintenance Loop
 
 - repos where the worker mostly runs commands, verifies, and patches
 
-### 8.3 Claude-Specific or Runner-Specific Repositories
+### 10.3 Claude-Specific or Runner-Specific Repositories
 
 - repositories whose prompt/body should assume `claude-code`
 - when repo-specific runner guidance belongs in the prompt
 
-### 8.4 Multi-Role Inner Sequence in One Run
+### 10.4 Multi-Role Inner Sequence in One Run
 
 - planner -> implementer -> reviewer
 - planner -> writer -> editor
@@ -173,7 +255,7 @@ Suggested sub-sections:
 
 This is the most important near-term section for current product usage.
 
-## 9. Multi-Role Prompt Patterns
+## 11. Multi-Role Prompt Patterns
 
 - Describe the intermediate pattern where Symphony still runs one outer
   issue/branch/PR loop, but the worker prompt encodes internal role phases.
@@ -187,65 +269,74 @@ Suggested patterns:
 - planner -> writer -> editor
 - spec -> implement -> simplify -> verify
 
+This section should explicitly recommend `planner -> implementer -> editor`
+as the default “advanced but current” pattern because it is the closest fit to
+Symphony’s current software-delivery runtime and gives the most immediate
+benefit.
+
 This section should also explain the limits of this approach:
 
 - good for one PR / one artifact flow
 - not true runtime-enforced workflow topology
 - not sufficient for branching, durable gates, or complex orchestration
 
-## 10. Human Review, Landing, and Gates
+## 12. Tracker-Specific Guidance
 
-- Explain the current human handoff stations Symphony already enforces:
-  - plan approval
-  - PR review
-  - `/land`
-- Explain how review bots fit into this.
-- Explain what kinds of human interaction are first-class today vs only
-  prompt-level conventions.
-
-## 11. Tracker-Specific Guidance
-
-### 11.1 GitHub
+### 12.1 GitHub
 
 - issue labels
 - PR lifecycle
 - check/review/landing semantics
 - project priority ordering
 
-### 11.2 Linear
+### 12.2 Linear
 
 - active/terminal state expectations
 - how Linear differs from GitHub’s PR-centric loop
 
-## 12. Runner-Specific Guidance
+## 13. Runner-Specific Guidance
 
-### 12.1 Codex
+### 13.1 Codex
 
 - app-server assumptions
 - continuation behavior
 - token / accounting implications
 
-### 12.2 Claude Code
+### 13.2 Claude Code
 
 - command shape
 - prompt transport assumptions
 - repo cases where Claude-specific behavior belongs in the prompt
 
-### 12.3 Generic Command
+### 13.3 Generic Command
 
 - when to use it
 - limits compared with first-class runners
 
-## 13. Multi-Instance Usage
+## 14. Multi-Instance and Multi-Workflow Usage
 
 - Explain how one engine checkout can operate many repositories.
 - Show commands using `--workflow`.
 - Clarify that each target project owns its own `WORKFLOW.md`.
 - Clarify that detached watch/control is instance-scoped.
+- Explain that one engine checkout can also operate many workflows at once,
+  even if those workflows are not all checked into the engine repository.
+- Show patterns such as:
+  - one workflow per target repository
+  - one shared workflow-library directory
+  - several concurrent local factories from the same engine checkout
+- Explain when this is a good idea and when it may become operationally
+  confusing.
 
-## 14. Examples
+## 15. Examples
 
-This section should eventually contain complete examples, such as:
+This section should eventually contain excerpts from checked-in example files,
+with direct links to the full examples for copy-paste and adaptation.
+
+Examples should live in separate checked-in files so they can be copied
+directly, validated over time, and referenced from README and this guide.
+
+This section should eventually contain example excerpts such as:
 
 - minimal self-hosting `symphony-ts`
 - GitHub third-party repo
@@ -253,7 +344,15 @@ This section should eventually contain complete examples, such as:
 - planner -> implementer -> reviewer inner-loop prompt
 - planner -> writer -> editor inner-loop prompt
 
-## 15. Anti-Patterns
+Possible example-file layout:
+
+- `docs/examples/workflows/self-hosting-symphony.md`
+- `docs/examples/workflows/github-third-party.md`
+- `docs/examples/workflows/claude-only-project.md`
+- `docs/examples/workflows/planner-implementer-editor.md`
+- `docs/examples/workflows/planner-writer-editor.md`
+
+## 16. Anti-Patterns
 
 - giant vague prompts with no explicit completion bar
 - repo policy hidden only in prompt text when it belongs in `AGENTS.md`
@@ -262,7 +361,7 @@ This section should eventually contain complete examples, such as:
   topology
 - copying the root `symphony-ts` workflow blindly into unrelated repos
 
-## 16. Migration Path
+## 17. Migration Path
 
 - ad hoc interactive agent
 - repeated manual interaction
@@ -274,7 +373,7 @@ This section should eventually contain complete examples, such as:
 This section should connect directly to the broader “Why Factory” conceptual
 material.
 
-## 17. Future Direction
+## 18. Future Direction
 
 - Acknowledge that Symphony may later support richer workflow/station
   definitions beyond today’s single-prompt contract.
@@ -283,8 +382,9 @@ material.
 
 ## Questions To Resolve While Expanding This Guide
 
-- How much frontmatter reference should live here vs README?
-- Should the YAML reference become generated from code/tests later?
-- Should the multi-role examples live inline here or in separate example files?
-- Should we explicitly recommend planner -> implementer -> editor as the
-  default “advanced but current” pattern?
+- Should we open a follow-up issue to generate the full YAML/frontmatter
+  reference from code/tests so it stays parser-aligned automatically?
+- What is the right permanent location and naming scheme for checked-in
+  workflow example files?
+- Which constraints belong directly in this guide versus a separate “current
+  runtime limits” concept document?
