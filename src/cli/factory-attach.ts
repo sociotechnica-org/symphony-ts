@@ -1,0 +1,337 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  inspectFactoryControl,
+  type FactoryControlStatusSnapshot,
+} from "./factory-control.js";
+
+const LOCAL_DETACH_BYTES = new Set([0x03]);
+
+export interface FactoryAttachTerminal {
+  readonly stdin: {
+    readonly isTTY?: boolean;
+    setRawMode?: (mode: boolean) => void;
+    resume: () => void;
+    pause: () => void;
+    on: (event: "data", listener: (chunk: Buffer) => void) => void;
+    off: (event: "data", listener: (chunk: Buffer) => void) => void;
+  };
+  readonly stdout: {
+    readonly isTTY?: boolean;
+    write: (chunk: string | Uint8Array) => boolean;
+  };
+  readonly stderr: {
+    write: (chunk: string | Uint8Array) => boolean;
+  };
+}
+
+export interface FactoryAttachInput {
+  write: (chunk: string | Uint8Array) => boolean;
+}
+
+export interface FactoryAttachOutput {
+  on: (event: "data", listener: (chunk: Buffer) => void) => void;
+}
+
+export interface FactoryAttachChild {
+  readonly pid: number | undefined;
+  readonly stdin: FactoryAttachInput | null;
+  readonly stdout: FactoryAttachOutput | null;
+  readonly stderr: FactoryAttachOutput | null;
+  readonly waitForExit: () => Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+  }>;
+  readonly kill: (signal?: NodeJS.Signals) => void;
+}
+
+export interface FactoryAttachDeps {
+  readonly workflowPath?: string | null;
+  readonly inspectFactoryControl?: (options?: {
+    readonly workflowPath?: string | null;
+  }) => Promise<FactoryControlStatusSnapshot>;
+  readonly launchAttachChild?: (sessionId: string) => FactoryAttachChild;
+  readonly terminal?: FactoryAttachTerminal;
+  readonly onSignal?: (signal: NodeJS.Signals, listener: () => void) => void;
+  readonly offSignal?: (signal: NodeJS.Signals, listener: () => void) => void;
+  readonly onResize?: (listener: () => void) => void;
+  readonly offResize?: (listener: () => void) => void;
+  readonly killChild?: (
+    child: FactoryAttachChild,
+    signal?: NodeJS.Signals,
+  ) => void;
+  readonly platform?: NodeJS.Platform;
+}
+
+export async function attachFactory(
+  deps: FactoryAttachDeps = {},
+): Promise<void> {
+  const inspect = deps.inspectFactoryControl ?? inspectFactoryControl;
+  const terminal = deps.terminal ?? defaultTerminal();
+  const onSignal =
+    deps.onSignal ?? ((signal, listener) => process.on(signal, listener));
+  const offSignal =
+    deps.offSignal ?? ((signal, listener) => process.off(signal, listener));
+  const onResize =
+    deps.onResize ?? ((listener) => process.on("SIGWINCH", listener));
+  const offResize =
+    deps.offResize ?? ((listener) => process.off("SIGWINCH", listener));
+  const killChild =
+    deps.killChild ?? ((child, signal = "SIGTERM") => child.kill(signal));
+  const platform = deps.platform ?? process.platform;
+  const launchAttachChild =
+    deps.launchAttachChild ??
+    ((sessionId) => defaultLaunchAttachChild(sessionId, platform));
+
+  if (!terminal.stdin.isTTY || !terminal.stdout.isTTY) {
+    throw new Error(
+      "Factory attach requires an interactive TTY on stdin and stdout.",
+    );
+  }
+  if (typeof terminal.stdin.setRawMode !== "function") {
+    throw new Error(
+      "Factory attach requires terminal raw-mode support on stdin.",
+    );
+  }
+
+  const inspectOptions =
+    deps.workflowPath === undefined
+      ? undefined
+      : { workflowPath: deps.workflowPath };
+  const status = await inspect(inspectOptions);
+  const targetSession = resolveAttachSession(status);
+
+  terminal.stderr.write(
+    "Factory attach: Ctrl-C exits this attach client only.\n",
+  );
+
+  const child = launchAttachChild(targetSession.id);
+  const stdout = child.stdout;
+  const stderr = child.stderr;
+  const childStdin = child.stdin;
+
+  if (stdout !== null) {
+    stdout.on("data", (chunk) => {
+      terminal.stdout.write(chunk);
+    });
+  }
+  if (stderr !== null) {
+    stderr.on("data", (chunk) => {
+      terminal.stderr.write(chunk);
+    });
+  }
+
+  let detachedLocally = false;
+  let terminalRestored = false;
+  const restoreErrors: Error[] = [];
+
+  const restoreTerminal = (): void => {
+    if (terminalRestored) {
+      return;
+    }
+    terminalRestored = true;
+    try {
+      terminal.stdin.off("data", onStdinData);
+      terminal.stdin.setRawMode?.(false);
+      terminal.stdin.pause();
+    } catch (error) {
+      restoreErrors.push(error as Error);
+    }
+    offSignal("SIGINT", onInterruptSignal);
+    offSignal("SIGTERM", onInterruptSignal);
+    offResize(onResizeSignal);
+  };
+
+  const detachLocalClient = (): void => {
+    if (detachedLocally) {
+      return;
+    }
+    detachedLocally = true;
+    restoreTerminal();
+    killChild(child, "SIGTERM");
+  };
+
+  const onInterruptSignal = (): void => {
+    detachLocalClient();
+  };
+
+  const onResizeSignal = (): void => {
+    if (child.pid !== undefined) {
+      try {
+        process.kill(child.pid, "SIGWINCH");
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ESRCH") {
+          throw error;
+        }
+      }
+    }
+  };
+
+  const onStdinData = (chunk: Buffer): void => {
+    if (containsLocalDetachByte(chunk)) {
+      detachLocalClient();
+      return;
+    }
+    if (childStdin !== null) {
+      childStdin.write(chunk);
+    }
+  };
+
+  onSignal("SIGINT", onInterruptSignal);
+  onSignal("SIGTERM", onInterruptSignal);
+  onResize(onResizeSignal);
+
+  terminal.stdin.setRawMode(true);
+  terminal.stdin.resume();
+  terminal.stdin.on("data", onStdinData);
+
+  try {
+    const { code, signal } = await child.waitForExit();
+    restoreTerminal();
+    if (restoreErrors.length > 0) {
+      throw new Error(
+        `Factory attach restored the worker safely but failed to restore the local terminal cleanly: ${restoreErrors[0]!.message}`,
+        { cause: restoreErrors[0] },
+      );
+    }
+    if (code === 0 || signal === "SIGTERM") {
+      return;
+    }
+    throw new Error(
+      `Factory attach ended unexpectedly${renderExitDetail(code, signal)}.`,
+    );
+  } finally {
+    restoreTerminal();
+  }
+}
+
+export function createFactoryAttachCommand(
+  sessionId: string,
+  platform: NodeJS.Platform,
+): {
+  readonly command: string;
+  readonly args: readonly string[];
+} {
+  if (platform === "darwin") {
+    return {
+      command: "script",
+      args: ["-q", "/dev/null", "screen", "-x", sessionId],
+    };
+  }
+  if (platform === "linux") {
+    return {
+      command: "script",
+      args: [
+        "-q",
+        "-f",
+        "-e",
+        "-c",
+        escapeShellCommand(["screen", "-x", sessionId]),
+        "/dev/null",
+      ],
+    };
+  }
+  throw new Error(
+    `Factory attach is only supported on macOS and Linux today; got ${platform}.`,
+  );
+}
+
+export function resolveAttachSession(
+  snapshot: FactoryControlStatusSnapshot,
+): FactoryControlStatusSnapshot["sessions"][number] {
+  if (snapshot.controlState === "running" && snapshot.sessions.length === 1) {
+    const session = snapshot.sessions[0];
+    if (session !== undefined) {
+      return session;
+    }
+  }
+
+  const detail =
+    snapshot.problems.length > 0
+      ? ` Problems: ${snapshot.problems.join(" | ")}`
+      : "";
+  if (snapshot.controlState === "stopped") {
+    throw new Error(
+      `Factory attach requires a running detached runtime for ${snapshot.paths.workflowPath}, but factory control is stopped. Use 'symphony factory start' or inspect with 'symphony factory status'.`,
+    );
+  }
+  throw new Error(
+    `Factory attach requires one healthy detached runtime for ${snapshot.paths.workflowPath}, but factory control is ${snapshot.controlState}.${detail}`,
+  );
+}
+
+function defaultTerminal(): FactoryAttachTerminal {
+  return {
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr,
+  };
+}
+
+function defaultLaunchAttachChild(
+  sessionId: string,
+  platform: NodeJS.Platform,
+): FactoryAttachChild {
+  const { command, args } = createFactoryAttachCommand(sessionId, platform);
+  let child: ChildProcessWithoutNullStreams;
+  try {
+    child = spawn(command, [...args], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+  } catch (error) {
+    throw wrapAttachLaunchError(error as Error);
+  }
+  return {
+    pid: child.pid,
+    stdin: child.stdin,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    waitForExit: () =>
+      new Promise((resolve, reject) => {
+        child.once("error", (error) => {
+          reject(wrapAttachLaunchError(error));
+        });
+        child.once("exit", (code, signal) => {
+          resolve({ code, signal });
+        });
+      }),
+    kill: (signal) => {
+      child.kill(signal);
+    },
+  };
+}
+
+function containsLocalDetachByte(chunk: Buffer): boolean {
+  return [...chunk].some((byte) => LOCAL_DETACH_BYTES.has(byte));
+}
+
+function escapeShellCommand(args: readonly string[]): string {
+  return args.map((value) => `'${value.replace(/'/g, `'\\''`)}'`).join(" ");
+}
+
+function wrapAttachLaunchError(error: Error): Error {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT" || code === "ENOEXEC") {
+    return new Error(
+      "Factory attach requires the local 'script' terminal helper. Install a Unix 'script' command before using 'symphony factory attach'.",
+      { cause: error },
+    );
+  }
+  return new Error("Factory attach could not start the local attach broker.", {
+    cause: error,
+  });
+}
+
+function renderExitDetail(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): string {
+  if (signal !== null) {
+    return ` (signal ${signal})`;
+  }
+  if (code !== null) {
+    return ` (exit ${code.toString()})`;
+  }
+  return "";
+}

@@ -199,16 +199,16 @@ This issue does not change the detached factory runtime state machine. It adds a
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Detached-control facts available | Expected decision |
-| --- | --- | --- | --- |
-| Target instance has one healthy detached session | selected workflow path, local TTY, attach helper/backend available | `factory status` equivalent reports one matching session | start brokered attach and render the full TUI |
-| Target instance is stopped | selected workflow path, local TTY | no matching session / stopped control state | fail clearly and direct the operator to `factory start` or `factory status` |
-| Target instance is degraded with multiple matching sessions | selected workflow path | degraded control snapshot with multiple matching sessions | fail clearly; require operator cleanup through existing control path rather than attaching ambiguously |
-| Operator presses `Ctrl-C` while attached | local client receives interrupt byte/signal | worker session remains otherwise healthy | detach the client, restore terminal state, leave detached runtime alive |
-| Operator terminal resizes while attached | local width/height change | active detached session | propagate resize through the broker so the foreground TUI reflows |
-| Attach helper/PTY wrapper is unavailable on host | host command/path probe fails | detached session may still be healthy | fail clearly with actionable local-host guidance; do not fall back to unsafe raw attach |
-| Attach child exits unexpectedly while worker remains alive | attach subprocess exit status / EOF | detached control still shows live session | report attach failure locally; do not stop the worker |
-| Local terminal restoration fails during detach | raw-mode / stdio restore error | detached worker may still be healthy | report degraded local cleanup clearly while prioritizing worker safety |
+| Observed condition                                          | Local facts available                                              | Detached-control facts available                          | Expected decision                                                                                      |
+| ----------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Target instance has one healthy detached session            | selected workflow path, local TTY, attach helper/backend available | `factory status` equivalent reports one matching session  | start brokered attach and render the full TUI                                                          |
+| Target instance is stopped                                  | selected workflow path, local TTY                                  | no matching session / stopped control state               | fail clearly and direct the operator to `factory start` or `factory status`                            |
+| Target instance is degraded with multiple matching sessions | selected workflow path                                             | degraded control snapshot with multiple matching sessions | fail clearly; require operator cleanup through existing control path rather than attaching ambiguously |
+| Operator presses `Ctrl-C` while attached                    | local client receives interrupt byte/signal                        | worker session remains otherwise healthy                  | detach the client, restore terminal state, leave detached runtime alive                                |
+| Operator terminal resizes while attached                    | local width/height change                                          | active detached session                                   | propagate resize through the broker so the foreground TUI reflows                                      |
+| Attach helper/PTY wrapper is unavailable on host            | host command/path probe fails                                      | detached session may still be healthy                     | fail clearly with actionable local-host guidance; do not fall back to unsafe raw attach                |
+| Attach child exits unexpectedly while worker remains alive  | attach subprocess exit status / EOF                                | detached control still shows live session                 | report attach failure locally; do not stop the worker                                                  |
+| Local terminal restoration fails during detach              | raw-mode / stdio restore error                                     | detached worker may still be healthy                      | report degraded local cleanup clearly while prioritizing worker safety                                 |
 
 ## Storage / Persistence Contract
 

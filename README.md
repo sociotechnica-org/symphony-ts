@@ -94,6 +94,7 @@ Control or inspect the local detached factory runtime from the engine checkout:
 pnpm tsx bin/symphony.ts factory start --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory status --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory watch --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory attach --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory status --json --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory restart --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory stop --workflow ../target-repo/WORKFLOW.md
@@ -114,7 +115,8 @@ These commands target the checked-out runtime under `<instance-root>/.tmp/factor
 `status` when you want the raw runtime snapshot for a specific workflow path,
 and use `factory status` when you want the detached runtime control state plus
 the embedded status snapshot. Operators should generally start with
-`factory status`, then use `factory watch` for continuous monitoring.
+`factory status`, then use `factory watch` for continuous monitoring and
+`factory attach` when they need the full-screen TUI for a detached instance.
 
 The supported detached control path now normalizes the launched runtime to an
 installed UTF-8 locale and starts GNU Screen with `-U`. If the host does not
@@ -124,6 +126,8 @@ clearly instead of silently launching a mojibake-prone TUI.
 For detached monitoring, do not use raw `screen -r <instance-session-name>` as
 the normal watch path. Attaching that way gives your terminal the worker's
 foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
+Use `factory attach` instead when you need the full graphical TUI for a
+detached instance; it keeps `Ctrl-C` scoped to the foreground attach client.
 
 The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, provider identity, execution transport,
@@ -566,35 +570,35 @@ Tests run in three layers: unit tests for pure logic, integration tests for adap
 
 This repository is in active construction, but the core local factory is already real. The table below is derived from the merged PR history in this repository and summarizes the capabilities that have actually landed so far.
 
-| Capability                                                                                                          | Status   |
-| ------------------------------------------------------------------------------------------------------------------- | -------- |
-| Local end-to-end GitHub issue -> branch -> PR -> merge loop                                                         | `done`   |
-| Human plan-review station before substantial implementation                                                         | `done`   |
-| Follows through on CI failures and review feedback until a PR is ready to land                                      | `done`   |
-| Human-controlled landing flow for merge-ready PRs                                                                   | `done`   |
-| Restart recovery and watchdog handling for stuck or interrupted runs                                                | `done`   |
-| Detached factory control CLI: `factory start`, `factory status`, `factory watch`, `factory restart`, `factory stop` | `done`   |
-| Status TUI with live runner/session context                                                                         | `done`   |
-| Per-issue reports from local runtime artifacts                                                                      | `done`   |
-| Campaign digest reporting across issues                                                                             | `done`   |
-| `factory-runs` archive publication for reports and logs                                                             | `done`   |
-| GitHub tracker adapter                                                                                              | `done`   |
-| Linear tracker adapter                                                                                              | `done`   |
-| Ready-queue prioritization from tracker metadata                                                                    | `done`   |
-| Generic command runner                                                                                              | `done`   |
-| Claude Code runner                                                                                                  | `done`   |
-| Codex runner                                                                                                        | `done`   |
-| Remote Codex execution over SSH                                                                                     | `done`   |
-| Multi-instance local factories from one Symphony engine checkout                                                    | `done`   |
-| Installed Symphony engine distribution support                                                                      | `done`   |
-| Self-hosting: Symphony works `symphony-ts` issues and opens PRs back here                                           | `done`   |
-| Beads tracker adapter and Beads workflow contract                                                                   | `coming` |
-| Detection/classification of stalled required checks instead of waiting forever                                      | `coming` |
-| Operator message injection into active or resumable worker sessions                                                 | `coming` |
-| Broader remote execution backends beyond current SSH Codex support                                                  | `coming` |
-| Automated QA review station and review-station pluggability                                                         | `coming` |
-| Context Library hook                                                                                                | `coming` |
-| Molecule-aware dispatch                                                                                             | `coming` |
+| Capability                                                                                                                            | Status   |
+| ------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Local end-to-end GitHub issue -> branch -> PR -> merge loop                                                                           | `done`   |
+| Human plan-review station before substantial implementation                                                                           | `done`   |
+| Follows through on CI failures and review feedback until a PR is ready to land                                                        | `done`   |
+| Human-controlled landing flow for merge-ready PRs                                                                                     | `done`   |
+| Restart recovery and watchdog handling for stuck or interrupted runs                                                                  | `done`   |
+| Detached factory control CLI: `factory start`, `factory status`, `factory watch`, `factory attach`, `factory restart`, `factory stop` | `done`   |
+| Status TUI with live runner/session context                                                                                           | `done`   |
+| Per-issue reports from local runtime artifacts                                                                                        | `done`   |
+| Campaign digest reporting across issues                                                                                               | `done`   |
+| `factory-runs` archive publication for reports and logs                                                                               | `done`   |
+| GitHub tracker adapter                                                                                                                | `done`   |
+| Linear tracker adapter                                                                                                                | `done`   |
+| Ready-queue prioritization from tracker metadata                                                                                      | `done`   |
+| Generic command runner                                                                                                                | `done`   |
+| Claude Code runner                                                                                                                    | `done`   |
+| Codex runner                                                                                                                          | `done`   |
+| Remote Codex execution over SSH                                                                                                       | `done`   |
+| Multi-instance local factories from one Symphony engine checkout                                                                      | `done`   |
+| Installed Symphony engine distribution support                                                                                        | `done`   |
+| Self-hosting: Symphony works `symphony-ts` issues and opens PRs back here                                                             | `done`   |
+| Beads tracker adapter and Beads workflow contract                                                                                     | `coming` |
+| Detection/classification of stalled required checks instead of waiting forever                                                        | `coming` |
+| Operator message injection into active or resumable worker sessions                                                                   | `coming` |
+| Broader remote execution backends beyond current SSH Codex support                                                                    | `coming` |
+| Automated QA review station and review-station pluggability                                                                           | `coming` |
+| Context Library hook                                                                                                                  | `coming` |
+| Molecule-aware dispatch                                                                                                               | `coming` |
 
 The highest-signal roadmap items currently tracked in GitHub Issues are:
 
