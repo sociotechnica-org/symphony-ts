@@ -140,6 +140,62 @@ The internal runtime should converge on a small set of normalized concepts:
 
 Adapters can hold extra data internally, but the orchestrator should consume stable internal types.
 
+## Handoff Lifecycle
+
+One work item also carries a normalized handoff lifecycle that abstracts over
+tracker-specific review and landing mechanics. The lifecycle kind is defined in
+`src/domain/handoff.ts` and is intentionally richer than a tracker's native
+issue status. GitHub and Linear adapters normalize their own signals into this
+shared shape so the orchestrator can make decisions without embedding
+tracker-specific policy branches.
+
+```mermaid
+stateDiagram-v2
+    [*] --> missing_target
+
+    missing_target: missing-target
+    awaiting_human_handoff: awaiting-human-handoff
+    awaiting_human_review: awaiting-human-review
+    awaiting_system_checks: awaiting-system-checks
+    degraded_review_infrastructure: degraded-review-infrastructure
+    awaiting_landing_command: awaiting-landing-command
+    awaiting_landing: awaiting-landing
+    rework_required: rework-required
+    handoff_ready: handoff-ready
+
+    missing_target --> awaiting_human_handoff: branch/PR target exists
+
+    awaiting_human_handoff --> awaiting_human_review: review phase active
+    awaiting_human_handoff --> awaiting_system_checks: review already satisfied
+    awaiting_human_handoff --> rework_required: requested changes
+
+    awaiting_human_review --> awaiting_system_checks: review clean
+    awaiting_human_review --> rework_required: actionable feedback
+    awaiting_human_review --> degraded_review_infrastructure: expected reviewer system stalled
+
+    awaiting_system_checks --> awaiting_landing_command: required checks passed
+    awaiting_system_checks --> rework_required: checks failed
+    awaiting_system_checks --> degraded_review_infrastructure: expected reviewer system missing after checks settled
+
+    awaiting_landing_command --> awaiting_landing: explicit landing signal
+    awaiting_landing_command --> rework_required: new review feedback or failing checks
+    awaiting_landing_command --> degraded_review_infrastructure: landing prerequisites depend on missing reviewer output
+
+    awaiting_landing --> handoff_ready: merge observed
+    awaiting_landing --> awaiting_system_checks: mergeability or checks changed
+    awaiting_landing --> rework_required: landing guard found blocking failures
+
+    rework_required --> awaiting_human_review: follow-up commit pushed
+    rework_required --> awaiting_system_checks: follow-up commit satisfied review requirements directly
+    rework_required --> awaiting_human_handoff: tracker policy reopens initial handoff stage
+```
+
+This lifecycle is not the same thing as queue ownership. Queue membership such
+as `ready`, `running`, and `failed` still lives at the tracker edge. The
+handoff lifecycle is the orchestrator-facing interpretation of "where this work
+currently sits" once Symphony inspects the branch, PR, checks, and review
+signals.
+
 ## Dependency Rules
 
 1. The orchestrator depends on service interfaces, not concrete adapters.
