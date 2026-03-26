@@ -44,6 +44,17 @@ const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
   greptileSummaryHeading: /<h3\b[^>]*>\s*Greptile Summary\s*<\/h3>/i,
 } as const;
 
+const APPROVED_REVIEW_BOT_STATUS_CONTEXTS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "devin-ai-integration": ["Devin Review"],
+  "greptile-apps": ["Greptile Review"],
+  "greptile[bot]": ["Greptile Review"],
+  cursor: ["Cursor Bugbot"],
+  "cursor[bot]": ["Cursor Bugbot"],
+  "bugbot[bot]": ["Cursor Bugbot"],
+} as const;
+
 function isActionableBotReviewComment(body: string): boolean {
   const normalized = body.trim();
   return (
@@ -85,6 +96,29 @@ function isHumanLandingApprover(
       authorAssociation === "MEMBER" ||
       authorAssociation === "COLLABORATOR")
   );
+}
+
+function observedApprovedReviewBotLoginsFromChecks(
+  checks: readonly PullRequestCheck[],
+  approvedReviewBotLogins: ReadonlySet<string>,
+): readonly string[] {
+  if (approvedReviewBotLogins.size === 0) {
+    return [];
+  }
+
+  const successfulCheckNames = new Set(
+    checks
+      .filter((check) => check.status === "success")
+      .map((check) => check.name),
+  );
+
+  return [...approvedReviewBotLogins].filter((login) => {
+    const statusContexts = APPROVED_REVIEW_BOT_STATUS_CONTEXTS[login];
+    return (
+      statusContexts !== undefined &&
+      statusContexts.some((context) => successfulCheckNames.has(context))
+    );
+  });
 }
 
 export function createPullRequestSnapshot(input: {
@@ -234,6 +268,10 @@ export function createPullRequestSnapshot(input: {
                   );
                 })
                 .map((review) => review.author!.login),
+              ...observedApprovedReviewBotLoginsFromChecks(
+                input.checks,
+                approvedReviewBotLogins,
+              ),
             ].map((login) => login.toLowerCase()),
           ),
         ];
