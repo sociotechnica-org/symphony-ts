@@ -4,6 +4,7 @@ import type {
   PullRequestReviewState,
 } from "../../src/tracker/github-client.js";
 import { createPullRequestSnapshot } from "../../src/tracker/pull-request-snapshot.js";
+import type { PullRequestCheck } from "../../src/domain/pull-request.js";
 
 function createReviewState(
   comments: ReadonlyArray<{
@@ -82,6 +83,13 @@ const pullRequest: GitHubPullRequestResponse = {
     ref: "symphony/19",
     sha: "sha-1",
   },
+};
+
+const successfulDevinCheck: PullRequestCheck = {
+  name: "Devin Review",
+  status: "success",
+  conclusion: "success",
+  detailsUrl: "https://example.test/checks/devin",
 };
 
 describe("createPullRequestSnapshot", () => {
@@ -382,6 +390,87 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedApprovedReviewBotLogins).toEqual([
       "devin-ai-integration",
     ]);
+  });
+
+  it("records required approved bot review presence from a successful reviewer-app status context on the current head", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [
+            {
+              author: { login: "devin-ai-integration" },
+              body: "## ✅ Devin Review: No Issues Found",
+              submittedAt: "2026-03-06T01:00:00.000Z",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredApprovedReviewCoverage).toBe("satisfied");
+    expect(snapshot.observedApprovedReviewBotLogins).toEqual([
+      "devin-ai-integration",
+    ]);
+  });
+
+  it("does not treat unrelated successful status contexts as approved reviewer coverage", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [
+        {
+          name: "check",
+          status: "success",
+          conclusion: "success",
+          detailsUrl: "https://example.test/checks/ci",
+        },
+      ],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredApprovedReviewCoverage).toBe("missing");
+    expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
   });
 
   it("detects a human /land command on the current PR head", () => {
