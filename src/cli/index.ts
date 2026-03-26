@@ -31,6 +31,7 @@ import {
   startFactory,
   stopFactory,
 } from "./factory-control.js";
+import { attachFactory } from "./factory-attach.js";
 import { watchFactory } from "./factory-watch.js";
 import { scaffoldWorkflow, renderScaffoldWorkflowResult } from "./init.js";
 import {
@@ -66,6 +67,12 @@ export type CliArgs =
   | {
       readonly command: "factory";
       readonly action: "watch";
+      readonly format: "human";
+      readonly workflowPath: string | null;
+    }
+  | {
+      readonly command: "factory";
+      readonly action: "attach";
       readonly format: "human";
       readonly workflowPath: string | null;
     }
@@ -163,6 +170,17 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         workflowPath: resolvedWorkflowPath,
       };
     }
+    if (action === "attach") {
+      if (args.includes("--json")) {
+        throw new Error("Usage: symphony factory attach [--workflow <path>]");
+      }
+      return {
+        command: "factory",
+        action: "attach",
+        format: "human",
+        workflowPath: resolvedWorkflowPath,
+      };
+    }
     if (action === "status") {
       return {
         command: "factory",
@@ -172,7 +190,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       };
     }
     throw new Error(
-      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory watch [--workflow <path>]",
+      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
     );
   }
 
@@ -316,6 +334,10 @@ export async function runCli(argv: readonly string[]): Promise<void> {
 
         case "watch":
           await watchFactory({ workflowPath: args.workflowPath });
+          return;
+
+        case "attach":
+          await attachFactory({ workflowPath: args.workflowPath });
           return;
       }
       return;

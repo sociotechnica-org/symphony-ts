@@ -125,7 +125,8 @@ right now?"; for detached control it refers to `<instance-root>/.tmp/factory-mai
 operator checkout you are typing in.
 
 For self-hosting operations, prefer `factory status` first, then `factory watch`
-when you want a live read-only monitor.
+when you want a live read-only monitor, and `factory attach` when you need the
+full-screen TUI for a detached instance.
 
 The supported detached control path owns the UTF-8 terminal contract for the
 factory runtime: it selects an installed UTF-8 locale for detached startup,
@@ -136,9 +137,14 @@ Do not use raw `screen -r <instance-session-name>` as the normal watch path. Tha
 attach path gives your terminal direct foreground ownership of the worker, so
 an accidental `Ctrl-C` can stop the detached factory.
 
+Use `factory attach` instead when you need the full graphical TUI after a
+detached start. That attach path keeps `Ctrl-C` scoped to the foreground attach
+client instead of the worker.
+
 The operator loop sits above those factory-control commands; it should inspect
 and supervise the detached runtime through `factory status` / `factory watch`
-rather than reimplementing scheduler or runner logic.
+rather than reimplementing scheduler or runner logic. `factory attach` is for
+human deep inspection, not for automation.
 
 ### 5. Watch the issue lifecycle
 

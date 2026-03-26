@@ -309,6 +309,16 @@ describe("parseArgs", () => {
     });
   });
 
+  it("parses the factory attach command", () => {
+    const args = parseArgs(["node", "symphony", "factory", "attach"]);
+    expect(args).toEqual({
+      command: "factory",
+      action: "attach",
+      format: "human",
+      workflowPath: null,
+    });
+  });
+
   it("parses the factory start and stop commands", () => {
     expect(parseArgs(["node", "symphony", "factory", "start"])).toEqual({
       command: "factory",
@@ -399,16 +409,31 @@ describe("parseArgs", () => {
       format: "human",
       workflowPath,
     });
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "factory",
+        "attach",
+        "--workflow",
+        "/tmp/project/WORKFLOW.md",
+      ]),
+    ).toEqual({
+      command: "factory",
+      action: "attach",
+      format: "human",
+      workflowPath,
+    });
   });
 
   it("shows factory-specific usage for missing or unknown factory actions", () => {
     expect(() => parseArgs(["node", "symphony", "factory"])).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory watch [--workflow <path>]",
+      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
     );
     expect(() =>
       parseArgs(["node", "symphony", "factory", "deploy"]),
     ).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory watch [--workflow <path>]",
+      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
     );
   });
 
@@ -416,6 +441,12 @@ describe("parseArgs", () => {
     expect(() =>
       parseArgs(["node", "symphony", "factory", "watch", "--json"]),
     ).toThrowError("Usage: symphony factory watch [--workflow <path>]");
+  });
+
+  it("rejects --json for factory attach", () => {
+    expect(() =>
+      parseArgs(["node", "symphony", "factory", "attach", "--json"]),
+    ).toThrowError("Usage: symphony factory attach [--workflow <path>]");
   });
 });
 
@@ -1384,6 +1415,30 @@ describe("runCli factory", () => {
     expect(watchFactory).toHaveBeenCalledWith({ workflowPath: null });
   });
 
+  it("dispatches the factory attach command", async () => {
+    vi.resetModules();
+    const attachFactory = vi.fn(async () => {});
+
+    vi.doMock("../../src/cli/factory-control.js", () => ({
+      inspectFactoryControl: vi.fn(),
+      renderFactoryControlStatus: vi.fn(),
+      startFactory: vi.fn(),
+      stopFactory: vi.fn(),
+    }));
+    vi.doMock("../../src/cli/factory-watch.js", () => ({
+      watchFactory: vi.fn(),
+    }));
+    vi.doMock("../../src/cli/factory-attach.js", () => ({
+      attachFactory,
+    }));
+
+    const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
+
+    await mockedRunCli(["node", "symphony", "factory", "attach"]);
+
+    expect(attachFactory).toHaveBeenCalledWith({ workflowPath: null });
+  });
+
   it("forwards explicit workflow selection to factory control and watch commands", async () => {
     vi.resetModules();
     const workflowPath = "/tmp/project/WORKFLOW.md";
@@ -1400,6 +1455,7 @@ describe("runCli factory", () => {
       createFactoryControlSnapshot("stopped"),
     );
     const watchFactory = vi.fn(async () => {});
+    const attachFactory = vi.fn(async () => {});
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl,
@@ -1409,6 +1465,9 @@ describe("runCli factory", () => {
     }));
     vi.doMock("../../src/cli/factory-watch.js", () => ({
       watchFactory,
+    }));
+    vi.doMock("../../src/cli/factory-attach.js", () => ({
+      attachFactory,
     }));
 
     const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
@@ -1445,10 +1504,19 @@ describe("runCli factory", () => {
       "--workflow",
       workflowPath,
     ]);
+    await mockedRunCli([
+      "node",
+      "symphony",
+      "factory",
+      "attach",
+      "--workflow",
+      workflowPath,
+    ]);
 
     expect(startFactory).toHaveBeenCalledWith({ workflowPath });
     expect(stopFactory).toHaveBeenCalledWith({ workflowPath });
     expect(inspectFactoryControl).toHaveBeenCalledWith({ workflowPath });
     expect(watchFactory).toHaveBeenCalledWith({ workflowPath });
+    expect(attachFactory).toHaveBeenCalledWith({ workflowPath });
   });
 });

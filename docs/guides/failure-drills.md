@@ -6,7 +6,7 @@ Use [`operator-runbook.md`](./operator-runbook.md) as the daily-use companion.
 
 ## Ground Rules
 
-- Start from the checked-in control path: `factory status`, `factory watch`, `factory start`, `factory restart`, `factory stop`.
+- Start from the checked-in control path: `factory status`, `factory watch`, `factory attach`, `factory start`, `factory restart`, `factory stop`.
 - Treat `factory status --json` as the primary evidence source.
 - Use retained workspaces and `.var/factory/issues/` artifacts to confirm what happened.
 - Do not normalize raw `screen` attachment or ad hoc process cleanup into the procedure unless the supported control path is broken.

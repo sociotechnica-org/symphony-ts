@@ -11,6 +11,7 @@ pnpm tsx bin/symphony.ts factory start
 pnpm tsx bin/symphony.ts factory status
 pnpm tsx bin/symphony.ts factory status --json
 pnpm tsx bin/symphony.ts factory watch
+pnpm tsx bin/symphony.ts factory attach
 pnpm tsx bin/symphony.ts factory restart
 pnpm tsx bin/symphony.ts factory stop
 ```
@@ -21,6 +22,7 @@ selector:
 ```bash
 pnpm tsx bin/symphony.ts factory status --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory watch --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory attach --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory restart --workflow ../target-repo/WORKFLOW.md
 ```
 
@@ -51,6 +53,7 @@ Normal path rules:
 
 - Treat `factory status --json` as the primary source of truth.
 - Use `factory watch` as the supported live read-only monitor.
+- Use `factory attach` when you need the full-screen TUI for a detached instance.
 - Do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can stop the detached worker.
 - Prefer `factory start|stop|restart` over ad hoc `screen`, `ps`, or `pkill`.
 
@@ -60,12 +63,13 @@ Run this sequence at the start of each operator pass:
 
 1. Inspect `pnpm tsx bin/symphony.ts factory status --json`, appending `--workflow <path>` whenever the operator checkout is not the target instance root.
 2. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
-3. Check for operator-gated work the factory cannot clear by itself:
+3. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
+4. Check for operator-gated work the factory cannot clear by itself:
    - active issues in `awaiting-human-handoff`
    - active issues or PRs in `awaiting-landing-command`
-4. If the detached runtime is stopped or degraded, repair that first.
-5. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
-6. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
+5. If the detached runtime is stopped or degraded, repair that first.
+6. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
+7. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
 
@@ -97,6 +101,15 @@ Watch the live surface with:
 ```bash
 pnpm tsx bin/symphony.ts factory watch
 ```
+
+Recover the full-screen TUI safely with:
+
+```bash
+pnpm tsx bin/symphony.ts factory attach
+```
+
+`factory attach` is richer than `factory watch`, but it is still brokered:
+`Ctrl-C` exits the attach client without stopping the detached worker.
 
 Stop only through the supported command:
 
