@@ -477,12 +477,7 @@ async function compileMacOsAttachHelper(
     renamed = true;
   } finally {
     if (!renamed) {
-      await unlink(tempBinaryPath).catch((error) => {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT") {
-          throw error;
-        }
-      });
+      await unlink(tempBinaryPath).catch(() => {});
     }
   }
 }
