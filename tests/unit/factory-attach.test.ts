@@ -201,6 +201,15 @@ describe("FACTORY_ATTACH_MACOS_HELPER_SOURCE", () => {
       "if (errno == EIO) {\n          break;\n        }",
     );
   });
+
+  it("lets terminate signals interrupt select instead of restarting it", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "terminate_action.sa_flags = 0;",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "resize_action.sa_flags = SA_RESTART;",
+    );
+  });
 });
 
 describe("resolveAttachSession", () => {

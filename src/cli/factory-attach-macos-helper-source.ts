@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
   memset(&terminate_action, 0, sizeof(terminate_action));
   terminate_action.sa_handler = on_terminate_signal;
   sigemptyset(&terminate_action.sa_mask);
-  terminate_action.sa_flags = SA_RESTART;
+  terminate_action.sa_flags = 0;
   (void)sigaction(SIGINT, &terminate_action, NULL);
   (void)sigaction(SIGTERM, &terminate_action, NULL);
   (void)sigaction(SIGHUP, &terminate_action, NULL);
