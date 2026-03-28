@@ -88,6 +88,28 @@ async function remoteRefExists(cwd: string, refName: string): Promise<boolean> {
   }
 }
 
+async function configureOriginRemote(
+  cwd: string,
+  source: WorkspaceSource,
+  configuredRepoUrl: string,
+): Promise<void> {
+  if (source.kind !== "local-path") {
+    return;
+  }
+
+  if (source.path === configuredRepoUrl) {
+    return;
+  }
+
+  await execFileAsync(
+    "git",
+    ["remote", "set-url", "origin", configuredRepoUrl],
+    {
+      cwd,
+    },
+  );
+}
+
 async function resolveDefaultBranch(cwd: string): Promise<string> {
   try {
     const result = await execFileAsync(
@@ -152,9 +174,12 @@ export class LocalWorkspaceManager implements WorkspaceManager {
 
     if (!exists) {
       await execFileAsync("git", ["clone", sourceLocation, workspacePath]);
+      await configureOriginRemote(workspacePath, source, this.#config.repoUrl);
       for (const command of this.#afterCreate) {
         await runShell(command, workspacePath);
       }
+    } else {
+      await configureOriginRemote(workspacePath, source, this.#config.repoUrl);
     }
 
     await execFileAsync("git", ["fetch", "origin"], { cwd: workspacePath });

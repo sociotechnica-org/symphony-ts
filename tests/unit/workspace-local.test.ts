@@ -11,6 +11,7 @@ import {
   commitAllFiles,
   createSeedRemote,
   createTempDir,
+  readRemoteBranchFile,
 } from "../support/git.js";
 
 const execFile = promisify(execFileCallback);
@@ -138,6 +139,69 @@ describe("LocalWorkspaceManager", () => {
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repoints bootstrap mirror workspaces at the configured upstream before pushing", async () => {
+    const tempDir = await createTempDir("workspace-bootstrap-push-");
+    const remote = await createSeedRemote();
+    const mirrorPath = path.join(tempDir, "mirror.git");
+    const logger = new JsonLogger();
+
+    await execFile("git", ["clone", "--mirror", remote.remotePath, mirrorPath]);
+
+    const manager = new LocalWorkspaceManager(
+      {
+        root: path.join(tempDir, ".tmp", "workspaces"),
+        repoUrl: remote.remotePath,
+        branchPrefix: "symphony/",
+        retention: {
+          onSuccess: "retain",
+          onFailure: "retain",
+        },
+      },
+      [],
+      logger,
+      {
+        kind: "local-path",
+        path: mirrorPath,
+      },
+    );
+
+    try {
+      const prepared = await manager.prepareWorkspace({
+        issue: createIssue(10),
+      });
+      const workspacePath = getPreparedWorkspacePath(prepared);
+      if (workspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      const remoteUrl = await execFile("git", ["remote", "get-url", "origin"], {
+        cwd: workspacePath,
+      });
+      expect(remoteUrl.stdout.trim()).toBe(remote.remotePath);
+
+      await fs.writeFile(
+        path.join(workspacePath, "IMPLEMENTED.txt"),
+        "bootstrap push path\n",
+        "utf8",
+      );
+      await commitAllFiles(workspacePath, "bootstrap push");
+      await execFile("git", ["push", "origin", "HEAD:symphony/10"], {
+        cwd: workspacePath,
+      });
+
+      await expect(
+        readRemoteBranchFile(
+          remote.remotePath,
+          "symphony/10",
+          "IMPLEMENTED.txt",
+        ),
+      ).resolves.toContain("bootstrap push path");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
     }
   });
 
