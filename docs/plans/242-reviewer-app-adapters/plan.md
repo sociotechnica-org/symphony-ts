@@ -206,16 +206,16 @@ Each normalized reviewer snapshot also carries:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Required reviewer app has no current-head evidence and checks are still pending or in no-check stabilization | no landing attempt active | reviewer coverage = `missing`; check surface unsettled | stay in `awaiting-system-checks` |
-| Required reviewer app has no current-head evidence after checks settle | no landing attempt active | reviewer coverage = `missing`; check surface settled | report `degraded-review-infrastructure` |
-| Required reviewer app has a current-head running status/check but no terminal verdict yet | no landing attempt active | reviewer coverage = `observed`; status = `running`; verdict = `unknown` | stay in `awaiting-system-checks` |
-| Required reviewer app explicitly reports pass on current head | no landing attempt active | coverage = `observed`; status = `completed`; verdict = `pass`; unresolved feedback = none | allow `awaiting-landing-command` when other gates pass |
-| Required reviewer app explicitly reports issues on current head through a top-level review/comment without unresolved thread objects | no landing attempt active | coverage = `observed`; verdict = `issues-found`; actionable feedback > 0 or verdict gate fail | enter `rework-required` |
-| Reviewer app ran only on an older head, then a new commit landed | no landing attempt active or stale `/land` exists | current-head reviewer coverage = `missing` | fall back to waiting/degraded based on check-settled posture |
-| `/land` exists, but guarded landing re-check still sees required reviewer app `missing` or `completed-unknown` | landing approval recorded | required reviewer landing gate unsatisfied | block landing and return degraded/waiting lifecycle consistent with normalized state |
-| Compatibility adapter sees generic approved-bot review evidence but no explicit app-specific adapter configured | no landing attempt active | compatibility reviewer snapshot satisfies current policy | preserve current behavior while new adapter seam is adopted |
+| Observed condition                                                                                                                   | Local facts available                             | Normalized tracker facts available                                                            | Expected decision                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Required reviewer app has no current-head evidence and checks are still pending or in no-check stabilization                         | no landing attempt active                         | reviewer coverage = `missing`; check surface unsettled                                        | stay in `awaiting-system-checks`                                                     |
+| Required reviewer app has no current-head evidence after checks settle                                                               | no landing attempt active                         | reviewer coverage = `missing`; check surface settled                                          | report `degraded-review-infrastructure`                                              |
+| Required reviewer app has a current-head running status/check but no terminal verdict yet                                            | no landing attempt active                         | reviewer coverage = `observed`; status = `running`; verdict = `unknown`                       | stay in `awaiting-system-checks`                                                     |
+| Required reviewer app explicitly reports pass on current head                                                                        | no landing attempt active                         | coverage = `observed`; status = `completed`; verdict = `pass`; unresolved feedback = none     | allow `awaiting-landing-command` when other gates pass                               |
+| Required reviewer app explicitly reports issues on current head through a top-level review/comment without unresolved thread objects | no landing attempt active                         | coverage = `observed`; verdict = `issues-found`; actionable feedback > 0 or verdict gate fail | enter `rework-required`                                                              |
+| Reviewer app ran only on an older head, then a new commit landed                                                                     | no landing attempt active or stale `/land` exists | current-head reviewer coverage = `missing`                                                    | fall back to waiting/degraded based on check-settled posture                         |
+| `/land` exists, but guarded landing re-check still sees required reviewer app `missing` or `completed-unknown`                       | landing approval recorded                         | required reviewer landing gate unsatisfied                                                    | block landing and return degraded/waiting lifecycle consistent with normalized state |
+| Compatibility adapter sees generic approved-bot review evidence but no explicit app-specific adapter configured                      | no landing attempt active                         | compatibility reviewer snapshot satisfies current policy                                      | preserve current behavior while new adapter seam is adopted                          |
 
 ## Storage / Persistence Contract
 
@@ -264,11 +264,12 @@ Each normalized reviewer snapshot also carries:
 8. Update workflow docs/README/operator docs for the new reviewer-app config seam and deterministic landing policy.
 9. Add targeted tests across unit, integration, and e2e layers using shared fixtures/builders where reviewer-app surface setup repeats.
 10. Run local self-review and repository gates before PR update/open:
-   - `pnpm format:check`
-   - `pnpm lint`
-   - `pnpm typecheck`
-   - `pnpm test`
-   - `codex review --base origin/main` if available and reliable
+
+- `pnpm format:check`
+- `pnpm lint`
+- `pnpm typecheck`
+- `pnpm test`
+- `codex review --base origin/main` if available and reliable
 
 ## Tests And Acceptance Scenarios
 
