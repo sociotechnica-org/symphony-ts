@@ -459,7 +459,9 @@ export class BootstrapOrchestrator implements Orchestrator {
         liveRun,
       };
     });
-    const ticketIssueNumbers = new Set(tickets.map((entry) => entry.issueNumber));
+    const ticketIssueNumbers = new Set(
+      tickets.map((entry) => entry.issueNumber),
+    );
     for (const entry of running) {
       if (ticketIssueNumbers.has(entry.issueNumber)) {
         continue;

@@ -1483,7 +1483,9 @@ describe("BootstrapOrchestrator", () => {
             return createRunnerSessionDescription();
           },
           async run(): Promise<RunnerExecutionResult> {
-            throw new Error("run should not be called when startSession is used");
+            throw new Error(
+              "run should not be called when startSession is used",
+            );
           },
           async startSession(): Promise<LiveRunnerSession> {
             const sessionDescription = {
