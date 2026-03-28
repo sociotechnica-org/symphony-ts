@@ -16,6 +16,36 @@ import {
 
 const execFile = promisify(execFileCallback);
 
+async function withScrubbedGitIdentity<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = {
+    gitAuthorName: process.env["GIT_AUTHOR_NAME"],
+    gitAuthorEmail: process.env["GIT_AUTHOR_EMAIL"],
+    gitCommitterName: process.env["GIT_COMMITTER_NAME"],
+    gitCommitterEmail: process.env["GIT_COMMITTER_EMAIL"],
+    gitConfigGlobal: process.env["GIT_CONFIG_GLOBAL"],
+  };
+
+  delete process.env["GIT_AUTHOR_NAME"];
+  delete process.env["GIT_AUTHOR_EMAIL"];
+  delete process.env["GIT_COMMITTER_NAME"];
+  delete process.env["GIT_COMMITTER_EMAIL"];
+  process.env["GIT_CONFIG_GLOBAL"] = "/dev/null";
+
+  try {
+    return await operation();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 function createIssue(number: number) {
   return {
     id: String(number),
@@ -187,9 +217,11 @@ describe("LocalWorkspaceManager", () => {
         "bootstrap push path\n",
         "utf8",
       );
-      await commitAllFiles(workspacePath, "bootstrap push");
-      await execFile("git", ["push", "origin", "HEAD:symphony/10"], {
-        cwd: workspacePath,
+      await withScrubbedGitIdentity(async () => {
+        await commitAllFiles(workspacePath, "bootstrap push");
+        await execFile("git", ["push", "origin", "HEAD:symphony/10"], {
+          cwd: workspacePath,
+        });
       });
 
       await expect(

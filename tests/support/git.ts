@@ -6,6 +6,44 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+async function ensureLocalGitIdentity(repoRoot: string): Promise<void> {
+  const hasName = await execFileAsync(
+    "git",
+    ["config", "--local", "user.name"],
+    {
+      cwd: repoRoot,
+    },
+  )
+    .then(() => true)
+    .catch(() => false);
+  if (!hasName) {
+    await execFileAsync(
+      "git",
+      ["config", "--local", "user.name", "Symphony Test"],
+      {
+        cwd: repoRoot,
+      },
+    );
+  }
+
+  const hasEmail = await execFileAsync(
+    "git",
+    ["config", "--local", "user.email"],
+    {
+      cwd: repoRoot,
+    },
+  )
+    .then(() => true)
+    .catch(() => false);
+  if (!hasEmail) {
+    await execFileAsync(
+      "git",
+      ["config", "--local", "user.email", "symphony-test@example.com"],
+      { cwd: repoRoot },
+    );
+  }
+}
+
 export async function createTempDir(prefix: string): Promise<string> {
   return await fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
@@ -40,6 +78,7 @@ export async function commitAllFiles(
   repoRoot: string,
   message: string,
 ): Promise<string> {
+  await ensureLocalGitIdentity(repoRoot);
   await execFileAsync("git", ["add", "."], { cwd: repoRoot });
   await execFileAsync("git", ["commit", "-m", message], { cwd: repoRoot });
   const result = await execFileAsync("git", ["rev-parse", "HEAD"], {
