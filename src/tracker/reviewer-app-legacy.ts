@@ -13,6 +13,7 @@ const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
 const APPROVED_REVIEW_BOT_STATUS_CONTEXTS: Readonly<
   Record<string, readonly string[]>
 > = {
+  "devin-ai-integration": ["Devin Review"],
   "greptile-apps": ["Greptile Review"],
   "greptile[bot]": ["Greptile Review"],
   cursor: ["Cursor Bugbot"],

@@ -279,6 +279,39 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
   });
 
+  it("preserves legacy devin check coverage for approved review bot configs", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["devin-ai-integration"],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
+  });
+
   it("ignores stale required approved bot review from before the current head commit", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
