@@ -4,7 +4,14 @@ import {
   type ChildProcessWithoutNullStreams,
   type StdioOptions,
 } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -431,37 +438,53 @@ async function compileMacOsAttachHelper(
   sourcePath: string,
   binaryPath: string,
 ): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    let stderr = "";
-    const compiler = spawn(
-      "cc",
-      ["-O2", "-Wall", "-Wextra", "-o", binaryPath, sourcePath],
-      {
-        stdio: ["ignore", "ignore", "pipe"],
-        env: process.env,
-      },
-    );
+  const tempBinaryPath = `${binaryPath}.${process.pid.toString()}.${Date.now().toString()}.tmp`;
+  let renamed = false;
 
-    compiler.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-    compiler.once("error", (error) => {
-      reject(wrapMacOsAttachHelperBuildError(error as Error));
-    });
-    compiler.once("exit", (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(
-        wrapMacOsAttachHelperBuildError(
-          new Error(
-            `Factory attach could not build the macOS PTY helper${renderExitDetail(code, signal)}${stderr === "" ? "" : `: ${stderr.trim()}`}`,
-          ),
-        ),
+  try {
+    await new Promise<void>((resolve, reject) => {
+      let stderr = "";
+      const compiler = spawn(
+        "cc",
+        ["-O2", "-Wall", "-Wextra", "-o", tempBinaryPath, sourcePath],
+        {
+          stdio: ["ignore", "ignore", "pipe"],
+          env: process.env,
+        },
       );
+
+      compiler.stderr.on("data", (chunk) => {
+        stderr += String(chunk);
+      });
+      compiler.once("error", (error) => {
+        reject(wrapMacOsAttachHelperBuildError(error as Error));
+      });
+      compiler.once("exit", (code, signal) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(
+          wrapMacOsAttachHelperBuildError(
+            new Error(
+              `Factory attach could not build the macOS PTY helper${renderExitDetail(code, signal)}${stderr === "" ? "" : `: ${stderr.trim()}`}`,
+            ),
+          ),
+        );
+      });
     });
-  });
+    await rename(tempBinaryPath, binaryPath);
+    renamed = true;
+  } finally {
+    if (!renamed) {
+      await unlink(tempBinaryPath).catch((error) => {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") {
+          throw error;
+        }
+      });
+    }
+  }
 }
 
 function containsLocalDetachByte(chunk: Buffer): boolean {

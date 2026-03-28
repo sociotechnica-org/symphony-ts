@@ -210,6 +210,21 @@ describe("FACTORY_ATTACH_MACOS_HELPER_SOURCE", () => {
       "resize_action.sa_flags = SA_RESTART;",
     );
   });
+
+  it("preserves errno across signal handlers that perform syscalls", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "static void on_resize_signal(int signal_number) {\n  int saved_errno = errno;",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "sync_window_size();\n  errno = saved_errno;\n}",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "static void on_terminate_signal(int signal_number) {\n  int saved_errno = errno;",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "(void)kill(child_pid, SIGTERM);\n  }\n  errno = saved_errno;\n}",
+    );
+  });
 });
 
 describe("resolveAttachSession", () => {

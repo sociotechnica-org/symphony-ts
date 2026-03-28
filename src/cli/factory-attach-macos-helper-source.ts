@@ -51,16 +51,20 @@ static void sync_window_size(void) {
 }
 
 static void on_resize_signal(int signal_number) {
+  int saved_errno = errno;
   (void)signal_number;
   sync_window_size();
+  errno = saved_errno;
 }
 
 static void on_terminate_signal(int signal_number) {
+  int saved_errno = errno;
   (void)signal_number;
   terminate_requested = 1;
   if (child_pid > 0) {
     (void)kill(child_pid, SIGTERM);
   }
+  errno = saved_errno;
 }
 
 static int wait_for_child_exit(void) {
