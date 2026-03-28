@@ -11,9 +11,10 @@ Restore `symphony factory attach` on macOS when the operator launches it from a 
 ## Scope
 
 - fix the macOS-specific attach launch path in [`src/cli/factory-attach.ts`](../../../src/cli/factory-attach.ts)
+- if `/usr/bin/script` cannot satisfy the piped-stdio broker contract safely on macOS, keep the replacement limited to a small local attach helper behind the same launch seam
 - keep the existing single-session preflight and local-detach semantics from issue `#232`
 - add regression coverage for the broken macOS real-TTY launch contract
-- update operator-facing docs only where they need to clarify host limitations or the repaired macOS path
+- update operator-facing docs only where they need to clarify host limitations, prerequisites, or the repaired macOS path
 
 ## Non-Goals
 
@@ -35,6 +36,8 @@ Restore `symphony factory attach` on macOS when the operator launches it from a 
 - Keep this issue inside the existing attach broker seam from [`docs/plans/232-safe-full-tui-attach/plan.md`](../232-safe-full-tui-attach/plan.md). This is a launch-transport regression, not a reason to reopen detached-runtime architecture.
 - Prefer the smallest host-integration change that gives the macOS helper the terminal boundary it requires while keeping local detach ownership in Symphony code.
 - If the repaired macOS path needs a slightly different child-launch contract than Linux, isolate that difference behind the existing attach-launch helper instead of spreading platform branches through attach policy code.
+- If `/usr/bin/script` cannot satisfy the safe brokered contract on macOS, prefer a tiny checked-in helper that creates the PTY boundary we need over falling back to an unsafe direct attach.
+- If the macOS helper needs a local compiler to build, document that prerequisite explicitly instead of silently degrading to raw `screen`.
 - Add tests for launch semantics, not only command argv strings, so future refactors cannot silently reintroduce the same descriptor mismatch.
 
 ## Spec Alignment By Abstraction Level
@@ -81,6 +84,7 @@ Belongs here:
 
 - platform-specific child-launch configuration for macOS versus Linux
 - any small typed launch contract needed to express tty-backed versus piped descriptors
+- the macOS-only helper build path if `script` cannot satisfy the safe piped-stdio contract
 - wrapping host launch errors in operator-readable attach failures
 
 Does not belong here:
@@ -152,13 +156,13 @@ This issue does not change the detached factory runtime state machine. It narrow
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Detached-control facts available | Expected decision |
-| --- | --- | --- | --- |
-| macOS operator launches from a real TTY | interactive `stdin`/`stdout`, supported platform | one healthy detached session | start the attach child with tty-compatible macOS launch wiring and show the full TUI |
-| macOS helper launch uses pipe-only descriptors again | interactive parent TTY, child exits immediately with `tcgetattr/ioctl` failure | detached session still healthy | fail clearly, cover with regression tests, do not stop the worker |
-| attach target is stopped or degraded | selected workflow path, local terminal | stopped/degraded control snapshot | keep current explicit preflight failure; do not attempt attach |
-| operator presses `Ctrl-C` while attached | local detach byte/signal path observed | detached session otherwise healthy | exit the foreground client and leave the detached runtime alive |
-| terminal restore fails after a safe detach | local cleanup error | detached worker may still be healthy | report degraded local cleanup clearly while prioritizing worker safety |
+| Observed condition                                   | Local facts available                                                          | Detached-control facts available     | Expected decision                                                                    |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------ | ------------------------------------------------------------------------------------ |
+| macOS operator launches from a real TTY              | interactive `stdin`/`stdout`, supported platform                               | one healthy detached session         | start the attach child with tty-compatible macOS launch wiring and show the full TUI |
+| macOS helper launch uses pipe-only descriptors again | interactive parent TTY, child exits immediately with `tcgetattr/ioctl` failure | detached session still healthy       | fail clearly, cover with regression tests, do not stop the worker                    |
+| attach target is stopped or degraded                 | selected workflow path, local terminal                                         | stopped/degraded control snapshot    | keep current explicit preflight failure; do not attempt attach                       |
+| operator presses `Ctrl-C` while attached             | local detach byte/signal path observed                                         | detached session otherwise healthy   | exit the foreground client and leave the detached runtime alive                      |
+| terminal restore fails after a safe detach           | local cleanup error                                                            | detached worker may still be healthy | report degraded local cleanup clearly while prioritizing worker safety               |
 
 ## Storage / Persistence Contract
 
@@ -175,17 +179,17 @@ This issue does not change the detached factory runtime state machine. It narrow
 
 ## Implementation Steps
 
-1. Update the attach child launch helper so the macOS path satisfies `/usr/bin/script`'s terminal-descriptor expectations without weakening the existing local-detach contract.
-2. If needed, factor the launch configuration into a small typed helper so macOS-specific stdio behavior stays isolated from attach policy.
+1. Update the attach child launch helper so the macOS path uses a real PTY boundary without weakening the existing local-detach contract.
+2. If needed, factor the launch configuration into a small typed helper or helper-build path so macOS-specific transport behavior stays isolated from attach policy.
 3. Extend unit tests around [`src/cli/factory-attach.ts`](../../../src/cli/factory-attach.ts) to cover the macOS launch contract, not only argv assembly.
 4. Add or extend higher-level CLI coverage if needed to lock the repaired macOS path against regressions that pure helper tests would miss.
-5. Update [`README.md`](../../../README.md) and/or [`docs/guides/operator-runbook.md`](../../../docs/guides/operator-runbook.md) only if implementation reveals a remaining host limitation or a clearer wording is needed.
+5. Update [`README.md`](../../../README.md) and/or [`docs/guides/operator-runbook.md`](../../../docs/guides/operator-runbook.md) if implementation reveals a host limitation, prerequisite, or clearer wording is needed.
 
 ## Tests And Acceptance Scenarios
 
 ### Unit tests
 
-- macOS attach launch config gives the helper the tty-backed descriptor shape it requires
+- macOS attach launch config gives the helper-backed path the PTY boundary it requires
 - Linux launch config remains unchanged unless a shared helper extraction requires a harmless representation change
 - attach still intercepts local detach and does not forward `Ctrl-C` in a way that stops the detached worker
 - attach still restores terminal state on normal child exit and local detach paths
@@ -206,6 +210,7 @@ This issue does not change the detached factory runtime state machine. It narrow
 - macOS `factory attach` no longer fails from the current real-TTY launch regression
 - regression tests cover the macOS descriptor contract that broke
 - existing attach safety semantics remain intact
+- any helper prerequisite introduced by the macOS path is documented
 - relevant local checks for the touched seam pass
 
 ## Deferred To Later Issues Or PRs

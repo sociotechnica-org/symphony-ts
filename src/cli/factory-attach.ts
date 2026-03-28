@@ -1,8 +1,17 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  spawn,
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+  type StdioOptions,
+} from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   inspectFactoryControl,
   type FactoryControlStatusSnapshot,
 } from "./factory-control.js";
+import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "./factory-attach-macos-helper-source.js";
 
 const LOCAL_DETACH_BYTES = new Set([0x03]);
 
@@ -49,7 +58,9 @@ export interface FactoryAttachDeps {
   readonly inspectFactoryControl?: (options?: {
     readonly workflowPath?: string | null;
   }) => Promise<FactoryControlStatusSnapshot>;
-  readonly launchAttachChild?: (sessionId: string) => FactoryAttachChild;
+  readonly launchAttachChild?: (
+    sessionId: string,
+  ) => Promise<FactoryAttachChild> | FactoryAttachChild;
   readonly terminal?: FactoryAttachTerminal;
   readonly onSignal?: (signal: NodeJS.Signals, listener: () => void) => void;
   readonly offSignal?: (signal: NodeJS.Signals, listener: () => void) => void;
@@ -61,6 +72,8 @@ export interface FactoryAttachDeps {
   ) => void;
   readonly signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
   readonly platform?: NodeJS.Platform;
+  readonly spawnChildProcess?: typeof spawn;
+  readonly buildMacOsAttachHelper?: () => Promise<string>;
 }
 
 export async function attachFactory(
@@ -83,7 +96,22 @@ export async function attachFactory(
   const platform = deps.platform ?? process.platform;
   const launchAttachChild =
     deps.launchAttachChild ??
-    ((sessionId) => defaultLaunchAttachChild(sessionId, platform));
+    ((sessionId) => {
+      const launchOptions: {
+        readonly platform: NodeJS.Platform;
+        readonly spawnChildProcess?: typeof spawn;
+        readonly buildMacOsAttachHelper?: () => Promise<string>;
+      } = {
+        platform,
+        ...(deps.spawnChildProcess === undefined
+          ? {}
+          : { spawnChildProcess: deps.spawnChildProcess }),
+        ...(deps.buildMacOsAttachHelper === undefined
+          ? {}
+          : { buildMacOsAttachHelper: deps.buildMacOsAttachHelper }),
+      };
+      return defaultLaunchAttachChild(sessionId, launchOptions);
+    });
 
   if (!terminal.stdin.isTTY || !terminal.stdout.isTTY) {
     throw new Error(
@@ -107,7 +135,7 @@ export async function attachFactory(
     "Factory attach: Ctrl-C exits this attach client only.\n",
   );
 
-  const child = launchAttachChild(targetSession.id);
+  const child = await launchAttachChild(targetSession.id);
   const stdout = child.stdout;
   const stderr = child.stderr;
   const childStdin = child.stdin;
@@ -240,6 +268,37 @@ export function createFactoryAttachCommand(
   );
 }
 
+export interface FactoryAttachLaunchSpec {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly stdio: StdioOptions;
+}
+
+export async function createFactoryAttachLaunchSpec(
+  sessionId: string,
+  platform: NodeJS.Platform,
+  deps: {
+    readonly buildMacOsAttachHelper?: () => Promise<string>;
+  } = {},
+): Promise<FactoryAttachLaunchSpec> {
+  if (platform === "darwin") {
+    const buildMacOsAttachHelper =
+      deps.buildMacOsAttachHelper ?? ensureMacOsAttachHelper;
+    return {
+      command: await buildMacOsAttachHelper(),
+      args: [sessionId],
+      stdio: ["pipe", "pipe", "pipe"],
+    };
+  }
+
+  const { command, args } = createFactoryAttachCommand(sessionId, platform);
+  return {
+    command,
+    args,
+    stdio: ["pipe", "pipe", "pipe"],
+  };
+}
+
 export function resolveAttachSession(
   snapshot: FactoryControlStatusSnapshot,
 ): FactoryControlStatusSnapshot["sessions"][number] {
@@ -277,25 +336,37 @@ function defaultTerminal(): FactoryAttachTerminal {
   };
 }
 
-function defaultLaunchAttachChild(
+async function defaultLaunchAttachChild(
   sessionId: string,
-  platform: NodeJS.Platform,
-): FactoryAttachChild {
-  const { command, args } = createFactoryAttachCommand(sessionId, platform);
-  let child: ChildProcessWithoutNullStreams;
+  options: {
+    readonly platform: NodeJS.Platform;
+    readonly spawnChildProcess?: typeof spawn;
+    readonly buildMacOsAttachHelper?: () => Promise<string>;
+  },
+): Promise<FactoryAttachChild> {
+  const { command, args, stdio } = await createFactoryAttachLaunchSpec(
+    sessionId,
+    options.platform,
+    options.buildMacOsAttachHelper === undefined
+      ? {}
+      : { buildMacOsAttachHelper: options.buildMacOsAttachHelper },
+  );
+  const spawnChildProcess = options.spawnChildProcess ?? spawn;
+  let child: ChildProcess;
   try {
-    child = spawn(command, [...args], {
-      stdio: ["pipe", "pipe", "pipe"],
+    child = spawnChildProcess(command, [...args], {
+      stdio,
       env: process.env,
     });
   } catch (error) {
     throw wrapAttachLaunchError(error as Error);
   }
+  const stdioChild = child as Partial<ChildProcessWithoutNullStreams>;
   return {
     pid: child.pid,
-    stdin: child.stdin,
-    stdout: child.stdout,
-    stderr: child.stderr,
+    stdin: stdioChild.stdin ?? null,
+    stdout: stdioChild.stdout ?? null,
+    stderr: stdioChild.stderr ?? null,
     waitForExit: () =>
       new Promise((resolve, reject) => {
         const onError = (error: Error): void => {
@@ -316,6 +387,81 @@ function defaultLaunchAttachChild(
       child.kill(signal);
     },
   };
+}
+
+async function ensureMacOsAttachHelper(): Promise<string> {
+  const helperDirectory = join(tmpdir(), "symphony-ts");
+  const sourcePath = join(helperDirectory, "factory-attach-macos-helper-v1.c");
+  const binaryPath = join(helperDirectory, "factory-attach-macos-helper-v1");
+
+  await mkdir(helperDirectory, { recursive: true });
+
+  const existingSource = await readFile(sourcePath, "utf8").catch((error) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (existingSource !== FACTORY_ATTACH_MACOS_HELPER_SOURCE) {
+    await writeFile(sourcePath, FACTORY_ATTACH_MACOS_HELPER_SOURCE, "utf8");
+  }
+
+  const sourceStats = await stat(sourcePath);
+  const binaryStats = await stat(binaryPath).catch((error) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+
+  if (
+    binaryStats === null ||
+    binaryStats.mtimeMs < sourceStats.mtimeMs ||
+    binaryStats.size === 0
+  ) {
+    await compileMacOsAttachHelper(sourcePath, binaryPath);
+  }
+
+  return binaryPath;
+}
+
+async function compileMacOsAttachHelper(
+  sourcePath: string,
+  binaryPath: string,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let stderr = "";
+    const compiler = spawn(
+      "cc",
+      ["-O2", "-Wall", "-Wextra", "-o", binaryPath, sourcePath],
+      {
+        stdio: ["ignore", "ignore", "pipe"],
+        env: process.env,
+      },
+    );
+
+    compiler.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    compiler.once("error", (error) => {
+      reject(wrapMacOsAttachHelperBuildError(error as Error));
+    });
+    compiler.once("exit", (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        wrapMacOsAttachHelperBuildError(
+          new Error(
+            `Factory attach could not build the macOS PTY helper${renderExitDetail(code, signal)}${stderr === "" ? "" : `: ${stderr.trim()}`}`,
+          ),
+        ),
+      );
+    });
+  });
 }
 
 function containsLocalDetachByte(chunk: Buffer): boolean {
@@ -348,6 +494,22 @@ function wrapAttachLaunchError(error: Error): Error {
   return new Error("Factory attach could not start the local attach broker.", {
     cause: error,
   });
+}
+
+function wrapMacOsAttachHelperBuildError(error: Error): Error {
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ENOENT") {
+    return new Error(
+      "Factory attach on macOS requires a local C compiler to build the PTY helper. Install Xcode Command Line Tools or another 'cc' provider before using 'symphony factory attach'.",
+      { cause: error },
+    );
+  }
+  return new Error(
+    "Factory attach could not build the local macOS PTY helper.",
+    {
+      cause: error,
+    },
+  );
 }
 
 function renderExitDetail(

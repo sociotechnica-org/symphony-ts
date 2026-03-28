@@ -4,6 +4,7 @@ import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control
 import {
   attachFactory,
   createFactoryAttachCommand,
+  createFactoryAttachLaunchSpec,
   resolveAttachSession,
   type FactoryAttachChild,
   type FactoryAttachTerminal,
@@ -135,7 +136,7 @@ afterEach(() => {
 });
 
 describe("createFactoryAttachCommand", () => {
-  it("builds a macOS script wrapper", () => {
+  it("builds a macOS script command", () => {
     expect(createFactoryAttachCommand("1234.session", "darwin")).toEqual({
       command: "script",
       args: ["-q", "/dev/null", "screen", "-x", "1234.session"],
@@ -153,6 +154,42 @@ describe("createFactoryAttachCommand", () => {
         "'screen' '-x' '1234.session'",
         "/dev/null",
       ],
+    });
+  });
+});
+
+describe("createFactoryAttachLaunchSpec", () => {
+  it("uses the compiled helper on macOS", async () => {
+    const buildMacOsAttachHelper = vi.fn(
+      async () => "/tmp/factory-attach-helper",
+    );
+
+    await expect(
+      createFactoryAttachLaunchSpec("1234.session", "darwin", {
+        buildMacOsAttachHelper,
+      }),
+    ).resolves.toEqual({
+      command: "/tmp/factory-attach-helper",
+      args: ["1234.session"],
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    expect(buildMacOsAttachHelper).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the script wrapper on Linux", async () => {
+    await expect(
+      createFactoryAttachLaunchSpec("1234.session", "linux"),
+    ).resolves.toEqual({
+      command: "script",
+      args: [
+        "-q",
+        "-f",
+        "-e",
+        "-c",
+        "'screen' '-x' '1234.session'",
+        "/dev/null",
+      ],
+      stdio: ["pipe", "pipe", "pipe"],
     });
   });
 });
