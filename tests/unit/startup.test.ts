@@ -245,9 +245,7 @@ describe("startup service", () => {
         ["config", "--get", "remote.origin.url"],
         { cwd: secondWorkspacePath },
       );
-      expect(remoteUrl.stdout.trim()).toBe(
-        deriveGitHubMirrorPath(config.instance),
-      );
+      expect(remoteUrl.stdout.trim()).toBe(config.workspace.repoUrl);
     } finally {
       await fs.rm(runtimeRoot, { recursive: true, force: true });
       await fs.rm(remote.rootDir, { recursive: true, force: true });
