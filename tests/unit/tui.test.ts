@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatSnapshotContent,
   humanizeEvent,
+  legacyRunningEntryToTicket,
   rollingTps,
   StatusDashboard,
   throttledTps,
@@ -61,27 +62,7 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
     overrides.tickets === undefined
   ) {
     snapshot.tickets = snapshot.running.map(
-      (entry): TuiTicketEntry => ({
-        issueNumber: entry.issueNumber,
-        identifier: entry.identifier,
-        title: entry.identifier,
-        status: entry.lifecycle?.status ?? "running",
-        summary: entry.lifecycle?.summary ?? entry.issueState,
-        startedAt: entry.startedAt,
-        updatedAt: entry.startedAt,
-        pullRequest: entry.lifecycle?.pullRequest ?? null,
-        checks:
-          entry.lifecycle?.checks ?? { pendingNames: [], failingNames: [] },
-        review:
-          entry.lifecycle?.review ?? {
-            actionableCount: 0,
-            unresolvedThreadCount: 0,
-          },
-        blockedReason: null,
-        runnerAccounting: entry.accounting,
-        runnerVisibility: entry.runnerVisibility,
-        liveRun: entry,
-      }),
+      (entry): TuiTicketEntry => legacyRunningEntryToTicket(entry),
     );
   }
   if (overrides.liveRunCount === undefined) {

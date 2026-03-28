@@ -1404,7 +1404,7 @@ function describeTicketSessionContext(
   return `session ${compactSessionId(session)}`;
 }
 
-function legacyRunningEntryToTicket(
+export function legacyRunningEntryToTicket(
   entry: TuiSnapshot["running"][number],
 ): TuiSnapshot["tickets"][number] {
   return {
