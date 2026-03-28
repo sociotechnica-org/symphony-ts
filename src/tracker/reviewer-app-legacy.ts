@@ -111,12 +111,17 @@ export function createLegacyReviewerAppSnapshot(input: {
   const approvedReviewBotLogins = new Set(
     input.approvedReviewBotLogins.map((login) => login.toLowerCase()),
   );
+  const acceptedBotLogins = new Set([
+    ...reviewBotLogins,
+    ...approvedReviewBotLogins,
+  ]);
+  const accepted = reviewBotLogins.size > 0 || approvedReviewBotLogins.size > 0;
   const actionableFeedback = [
     ...input.unresolvedReviewThreads.filter((feedback) => {
       const authorLogin = feedback.authorLogin;
       return (
         typeof authorLogin === "string" &&
-        reviewBotLogins.has(authorLogin.toLowerCase())
+        acceptedBotLogins.has(authorLogin.toLowerCase())
       );
     }),
     ...input.currentHeadIssueComments
@@ -124,7 +129,7 @@ export function createLegacyReviewerAppSnapshot(input: {
         const authorLogin = comment.authorLogin;
         return (
           typeof authorLogin === "string" &&
-          reviewBotLogins.has(authorLogin.toLowerCase()) &&
+          acceptedBotLogins.has(authorLogin.toLowerCase()) &&
           isQualifyingApprovedReviewBody(comment.body) &&
           !NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(
             comment.body.trim(),
@@ -192,7 +197,7 @@ export function createLegacyReviewerAppSnapshot(input: {
 
   return {
     reviewerKey: "legacy-bot-review",
-    accepted: reviewBotLogins.size > 0,
+    accepted,
     required: approvedReviewBotLogins.size > 0,
     coverage,
     status,

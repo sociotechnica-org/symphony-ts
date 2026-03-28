@@ -168,7 +168,7 @@ export const devinReviewerAppAdapter: GitHubReviewerAppAdapter = {
         : (latestArtifact?.verdict ?? "unknown");
     const actionableFeedback = [
       ...unresolvedThreads,
-      ...(verdict === "issues-found" && latestArtifact !== null
+      ...(latestArtifact !== null && latestArtifact.verdict === "issues-found"
         ? [latestArtifact.feedback]
         : []),
     ];

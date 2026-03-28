@@ -313,6 +313,97 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual(["devin"]);
   });
 
+  it("does not surface a passing devin review as actionable feedback when unresolved threads already require rework", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [
+            {
+              id: "review-1",
+              author: { login: "devin-ai-integration" },
+              body: "## ✅ Devin Review: No Issues Found",
+              submittedAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#review-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [
+            {
+              id: "thread-1",
+              isResolved: false,
+              isOutdated: false,
+              originComments: {
+                nodes: [
+                  {
+                    id: "comment-1",
+                    body: "Please update this condition.",
+                    createdAt: "2026-03-06T01:02:00.000Z",
+                    url: "https://example.test/thread/1#comment-1",
+                    path: "src/index.ts",
+                    line: 10,
+                    author: { login: "devin-ai-integration" },
+                  },
+                ],
+              },
+              latestComments: {
+                nodes: [
+                  {
+                    id: "comment-1",
+                    body: "Please update this condition.",
+                    createdAt: "2026-03-06T01:02:00.000Z",
+                    url: "https://example.test/thread/1#comment-1",
+                    path: "src/index.ts",
+                    line: 10,
+                    author: { login: "devin-ai-integration" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
+    });
+
+    const devinSnapshot = snapshot.reviewerApps.find(
+      (reviewer) => reviewer.reviewerKey === "devin",
+    );
+
+    expect(devinSnapshot).toMatchObject({
+      reviewerKey: "devin",
+      verdict: "issues-found",
+    });
+    expect(devinSnapshot?.actionableFeedback).toHaveLength(1);
+    expect(devinSnapshot?.actionableFeedback[0]).toMatchObject({
+      id: "comment-1",
+      kind: "review-thread",
+      threadId: "thread-1",
+    });
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.botActionableReviewFeedback[0]).toMatchObject({
+      id: "comment-1",
+      kind: "review-thread",
+      threadId: "thread-1",
+    });
+  });
+
   it("preserves legacy devin check coverage for approved review bot configs", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
@@ -344,6 +435,62 @@ describe("createPullRequestSnapshot", () => {
 
     expect(snapshot.requiredReviewerState).toBe("satisfied");
     expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
+  });
+
+  it("treats legacy approved review bot findings as accepted actionable feedback", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "greptile[bot]" },
+              body: "Please fix this before merging.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviews: {
+          nodes: [],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: [],
+      approvedReviewBotLogins: ["greptile[bot]"],
+    });
+
+    const legacySnapshot = snapshot.reviewerApps.find(
+      (reviewer) => reviewer.reviewerKey === "legacy-bot-review",
+    );
+
+    expect(legacySnapshot).toMatchObject({
+      reviewerKey: "legacy-bot-review",
+      accepted: true,
+      required: true,
+      verdict: "issues-found",
+    });
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.botActionableReviewFeedback[0]).toMatchObject({
+      id: "comment-1",
+      kind: "issue-comment",
+      authorLogin: "greptile[bot]",
+    });
   });
 
   it("ignores stale required approved bot review from before the current head commit", () => {
