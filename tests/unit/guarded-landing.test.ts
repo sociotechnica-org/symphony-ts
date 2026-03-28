@@ -24,7 +24,7 @@ function createSnapshot(
     failingCheckNames: [],
     botActionableReviewFeedback: [],
     unresolvedReviewThreadCount: 0,
-    requiredApprovedReviewCoverage: "satisfied",
+    requiredReviewerState: "satisfied",
     ...overrides,
   };
 }
@@ -181,7 +181,7 @@ describe("evaluateGuardedLanding", () => {
   it("rejects landing when required approved bot review is missing", () => {
     const result = evaluateGuardedLanding(
       createSnapshot({
-        requiredApprovedReviewCoverage: "missing",
+        requiredReviewerState: "missing",
       }),
     );
 
@@ -189,6 +189,35 @@ describe("evaluateGuardedLanding", () => {
       kind: "blocked",
       reason: "required-bot-review-missing",
       lifecycleKind: "degraded-review-infrastructure",
+    });
+  });
+
+  it("rejects landing when required reviewer verdict is unknown", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        requiredReviewerState: "unknown",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "required-reviewer-verdict-unknown",
+      lifecycleKind: "degraded-review-infrastructure",
+    });
+  });
+
+  it("rejects landing when a required reviewer app is still running", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        requiredReviewerState: "running",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "awaiting-system-checks",
+      summary: expect.stringContaining("still running"),
     });
   });
 

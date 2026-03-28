@@ -78,6 +78,13 @@ async function writeWorkflow(options: {
       }
     | undefined;
   approvedReviewBotLogins?: readonly string[] | undefined;
+  reviewerApps?:
+    | readonly {
+        readonly key: string;
+        readonly accepted: boolean;
+        readonly required: boolean;
+      }[]
+    | undefined;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   const workerHostsBlock =
@@ -139,6 +146,19 @@ ${
     ? ""
     : `  approved_review_bot_logins:
 ${options.approvedReviewBotLogins!.map((login) => `    - ${login}`).join("\n")}
+`
+}
+${
+  (options.reviewerApps ?? []).length === 0
+    ? ""
+    : `  reviewer_apps:
+${options
+  .reviewerApps!.map(
+    (reviewerApp) => `    ${reviewerApp.key}:
+      accepted: ${reviewerApp.accepted ? "true" : "false"}
+      required: ${reviewerApp.required ? "true" : "false"}`,
+  )
+  .join("\n")}
 `
 }
 polling:
@@ -1123,6 +1143,52 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       issueNumber: 207,
       status: "awaiting-landing-command",
     });
+  });
+
+  it("treats a Devin issues-found verdict as rework-required", async () => {
+    server.seedIssue({
+      number: 242,
+      title: "Normalize Devin reviewer verdicts",
+      body: "Do not treat explicit reviewer-app issues as landable.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+      reviewerApps: [{ key: "devin", accepted: true, required: true }],
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/242", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReview({
+      head: "symphony/242",
+      authorLogin: "devin-ai-integration",
+      body: "## Devin Review: Found 3 potential issues",
+      submittedAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    await orchestrator.runOnce();
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.activeIssues[0]).toMatchObject({
+      issueNumber: 242,
+      status: "rework-required",
+    });
+    expect(status.activeIssues[0]?.summary).toMatch(/rework required/i);
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      242,
+    );
+    expect(artifactSummary.currentOutcome).toBe("rework-required");
   });
 
   it("records landing-failed when the merge request throws before dispatch completes", async () => {

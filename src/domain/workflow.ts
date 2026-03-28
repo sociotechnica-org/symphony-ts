@@ -13,6 +13,12 @@ export interface GitHubQueuePriorityConfig extends QueuePriorityConfig {
   readonly optionRankMap?: Readonly<Record<string, number>> | undefined;
 }
 
+export interface GitHubReviewerAppConfig {
+  readonly key: string;
+  readonly accepted: boolean;
+  readonly required: boolean;
+}
+
 export interface WatchdogConfig {
   readonly enabled: boolean;
   readonly checkIntervalMs: number;
@@ -34,6 +40,7 @@ interface BaseGitHubTrackerConfig {
   readonly successComment: string;
   readonly reviewBotLogins: readonly string[];
   readonly approvedReviewBotLogins?: readonly string[] | undefined;
+  readonly reviewerApps?: readonly GitHubReviewerAppConfig[] | undefined;
   readonly queuePriority?: GitHubQueuePriorityConfig | undefined;
 }
 

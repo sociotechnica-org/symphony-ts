@@ -14,12 +14,14 @@ import {
   type NoCheckObservation,
 } from "./pull-request-policy.js";
 import { createPullRequestSnapshot } from "./pull-request-snapshot.js";
+import { getConfiguredReviewerAppLogins } from "./reviewer-apps.js";
 import type { LandingExecutionResult, Tracker } from "./service.js";
 
 export class GitHubTracker implements Tracker {
   readonly #config: GitHubCompatibleTrackerConfig;
   readonly #logger: Logger;
   readonly #client: GitHubClient;
+  readonly #reviewerAppLogins: ReadonlySet<string>;
   #ensureLabelsPromise: Promise<void> | null = null;
   readonly #noCheckObservations = new Map<string, NoCheckObservation>();
   readonly #planReviewObservations = new Map<
@@ -43,6 +45,7 @@ export class GitHubTracker implements Tracker {
     this.#config = config;
     this.#logger = logger;
     this.#client = new GitHubClient(config, logger);
+    this.#reviewerAppLogins = getConfiguredReviewerAppLogins(config);
   }
 
   subject(): string {
@@ -53,9 +56,7 @@ export class GitHubTracker implements Tracker {
     if (authorLogin === null) {
       return false;
     }
-    return !this.#config.reviewBotLogins
-      .map((login) => login.toLowerCase())
-      .includes(authorLogin.toLowerCase());
+    return !this.#reviewerAppLogins.has(authorLogin.toLowerCase());
   }
 
   async ensureLabels(): Promise<void> {
@@ -155,6 +156,7 @@ export class GitHubTracker implements Tracker {
       reviewState: reviewStateData,
       reviewBotLogins: this.#config.reviewBotLogins,
       approvedReviewBotLogins: this.#config.approvedReviewBotLogins ?? [],
+      reviewerApps: this.#config.reviewerApps ?? [],
     });
     const result = evaluatePullRequestLifecycle(
       snapshot,
@@ -203,6 +205,7 @@ export class GitHubTracker implements Tracker {
       reviewState,
       reviewBotLogins: this.#config.reviewBotLogins,
       approvedReviewBotLogins: this.#config.approvedReviewBotLogins ?? [],
+      reviewerApps: this.#config.reviewerApps ?? [],
     });
     const gateSnapshot: GuardedLandingSnapshot = {
       approvedHeadSha: pullRequest.headSha,
@@ -220,7 +223,7 @@ export class GitHubTracker implements Tracker {
           feedback.kind === "review-thread" &&
           !this.#isBotReviewFeedback(feedback.authorLogin),
       ).length,
-      requiredApprovedReviewCoverage: snapshot.requiredApprovedReviewCoverage,
+      requiredReviewerState: snapshot.requiredReviewerState,
     };
     const decision = evaluateGuardedLanding(gateSnapshot);
     if (decision.kind === "blocked") {
@@ -294,9 +297,7 @@ export class GitHubTracker implements Tracker {
     if (authorLogin === null) {
       return false;
     }
-    return this.#config.reviewBotLogins
-      .map((login) => login.toLowerCase())
-      .includes(authorLogin.toLowerCase());
+    return this.#reviewerAppLogins.has(authorLogin.toLowerCase());
   }
 
   async #isStaleMergedPullRequest(

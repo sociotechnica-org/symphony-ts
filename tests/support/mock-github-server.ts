@@ -50,9 +50,11 @@ interface MockPullRequestComment {
 }
 
 interface MockPullRequestReview {
+  readonly id: string;
   readonly authorLogin: string | null;
   readonly body: string;
   readonly submittedAt: string;
+  readonly url: string;
 }
 
 interface MockReviewThread {
@@ -545,10 +547,13 @@ export class MockGitHubServer {
     submittedAt?: string;
   }): void {
     const pullRequest = this.#requirePullRequestByHead(input.head);
+    const reviewId = randomUUID();
     pullRequest.reviews.push({
+      id: reviewId,
       authorLogin: input.authorLogin,
       body: input.body,
       submittedAt: input.submittedAt ?? new Date().toISOString(),
+      url: `${pullRequest.html_url}#pullrequestreview-${reviewId}`,
     });
   }
 
@@ -1033,8 +1038,10 @@ export class MockGitHubServer {
               },
               reviews: {
                 nodes: pullRequest.reviews.map((review) => ({
+                  id: review.id,
                   body: review.body,
                   submittedAt: review.submittedAt,
+                  url: review.url,
                   author:
                     review.authorLogin === null
                       ? null

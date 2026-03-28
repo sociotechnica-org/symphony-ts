@@ -15,7 +15,7 @@ export interface GuardedLandingSnapshot {
   readonly failingCheckNames: readonly string[];
   readonly botActionableReviewFeedback: PullRequestSnapshot["botActionableReviewFeedback"];
   readonly unresolvedReviewThreadCount: number;
-  readonly requiredApprovedReviewCoverage: PullRequestSnapshot["requiredApprovedReviewCoverage"];
+  readonly requiredReviewerState: PullRequestSnapshot["requiredReviewerState"];
 }
 
 // Fail closed: GitHub can report "unstable" when only non-required checks fail,
@@ -126,12 +126,30 @@ export function evaluateGuardedLanding(
     };
   }
 
-  if (snapshot.requiredApprovedReviewCoverage === "missing") {
+  if (snapshot.requiredReviewerState === "missing") {
     return {
       kind: "blocked",
       reason: "required-bot-review-missing",
       lifecycleKind: "degraded-review-infrastructure",
       summary: `Landing blocked for ${formatPullRequest(snapshot)} because expected reviewer-app output has not been observed on the current head and external review coverage is degraded.`,
+    };
+  }
+
+  if (snapshot.requiredReviewerState === "unknown") {
+    return {
+      kind: "blocked",
+      reason: "required-reviewer-verdict-unknown",
+      lifecycleKind: "degraded-review-infrastructure",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because required reviewer-app output on the current head did not produce an explicit pass verdict.`,
+    };
+  }
+
+  if (snapshot.requiredReviewerState === "running") {
+    return {
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "awaiting-system-checks",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because a required reviewer app is still running on the current head.`,
     };
   }
 

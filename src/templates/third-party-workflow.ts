@@ -31,6 +31,7 @@ export function renderThirdPartyWorkflowTemplate(
     "  failed_label: symphony:failed",
     "  success_comment: Symphony completed this issue successfully.",
     "  review_bot_logins: []",
+    "  reviewer_apps: {}",
     "polling:",
     "  interval_ms: 30000",
     "  max_concurrent_runs: 1",
