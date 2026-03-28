@@ -229,12 +229,33 @@ export interface TuiRetryEntry {
   readonly lastError: string;
 }
 
+export interface TuiTicketEntry {
+  readonly issueNumber: number;
+  readonly identifier: string;
+  readonly title: string;
+  readonly status: FactoryIssueStatus;
+  readonly summary: string;
+  readonly startedAt: Date | null;
+  readonly updatedAt: Date;
+  readonly pullRequest: FactoryPullRequestStatus | null;
+  readonly checks: FactoryCheckStatus;
+  readonly review: FactoryReviewStatus;
+  readonly blockedReason: string | null;
+  readonly runnerAccounting?: RunnerAccountingSnapshot | undefined;
+  readonly runnerVisibility: RunnerVisibilitySnapshot | null;
+  readonly liveRun: TuiRunningEntry | null;
+}
+
 export interface TuiCodexTotals extends CodexTotals {
   readonly pendingRunCount: number;
   readonly secondsRunning: number;
 }
 
 export interface TuiSnapshot {
+  readonly trackerKind: ResolvedConfig["tracker"]["kind"];
+  readonly trackerSubject: string;
+  readonly tickets: readonly TuiTicketEntry[];
+  readonly liveRunCount: number;
   readonly running: readonly TuiRunningEntry[];
   readonly retrying: readonly TuiRetryEntry[];
   readonly codexTotals: TuiCodexTotals;
@@ -350,6 +371,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   snapshot(): TuiSnapshot {
     const now = Date.now();
     const running: TuiRunningEntry[] = [];
+    const runningByIssueNumber = new Map<number, TuiRunningEntry>();
     let pendingRunCount = 0;
     for (const entry of this.#state.runningEntries.values()) {
       const activeIssue = this.#state.status.activeIssues.get(
@@ -387,8 +409,34 @@ export class BootstrapOrchestrator implements Orchestrator {
         lastCodexTimestamp: entry.lastCodexTimestamp,
         runnerVisibility: activeIssue?.runnerVisibility ?? null,
       });
+      runningByIssueNumber.set(entry.issueNumber, running[running.length - 1]!);
     }
     running.sort((a, b) => a.identifier.localeCompare(b.identifier));
+
+    const tickets: TuiTicketEntry[] = [...this.#state.status.activeIssues.values()]
+      .map((issue) => {
+        const liveRun = runningByIssueNumber.get(issue.issueNumber) ?? null;
+        return {
+          issueNumber: issue.issueNumber,
+          identifier: issue.issueIdentifier,
+          title: issue.title,
+          status: issue.status,
+          summary: issue.summary,
+          startedAt:
+            issue.startedAt === null
+              ? (liveRun?.startedAt ?? null)
+              : new Date(issue.startedAt),
+          updatedAt: new Date(issue.updatedAt),
+          pullRequest: issue.pullRequest,
+          checks: issue.checks,
+          review: issue.review,
+          blockedReason: issue.blockedReason,
+          runnerAccounting: issue.runnerAccounting,
+          runnerVisibility: issue.runnerVisibility,
+          liveRun,
+        };
+      })
+      .sort((a, b) => a.issueNumber - b.issueNumber);
 
     const retrying: TuiRetryEntry[] = [];
     const queuedRetries = listQueuedRetries(this.#state.retries);
@@ -406,6 +454,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     retrying.sort((a, b) => a.dueInMs - b.dueInMs);
 
     return {
+      trackerKind: this.#config.tracker.kind,
+      trackerSubject: this.#trackerSubject(),
+      tickets,
+      liveRunCount: running.length,
       running,
       retrying,
       codexTotals: {

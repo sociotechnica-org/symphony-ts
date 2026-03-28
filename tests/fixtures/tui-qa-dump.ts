@@ -32,6 +32,10 @@ const nowMs = Date.now();
 // ─── Scenario 1: Active agents with Codex events ─────────────────────────────
 
 const activeSnapshot: TuiSnapshot = {
+  trackerKind: "github",
+  trackerSubject: "sociotechnica-org/symphony-ts",
+  tickets: [],
+  liveRunCount: 3,
   running: [
     {
       issueNumber: 9,
@@ -259,6 +263,10 @@ console.log(
 
 console.log("\n\n=== SCENARIO 2: Idle (no agents) ===\n");
 const idleSnapshot: TuiSnapshot = {
+  trackerKind: "github",
+  trackerSubject: "sociotechnica-org/symphony-ts",
+  tickets: [],
+  liveRunCount: 0,
   running: [],
   retrying: [],
   codexTotals: {

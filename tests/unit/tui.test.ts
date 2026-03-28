@@ -7,7 +7,10 @@ import {
   throttledTps,
   tpsSparkline,
 } from "../../src/observability/tui.js";
-import type { TuiSnapshot } from "../../src/orchestrator/service.js";
+import type {
+  TuiSnapshot,
+  TuiTicketEntry,
+} from "../../src/orchestrator/service.js";
 import type { ObservabilityConfig } from "../../src/domain/workflow.js";
 import {
   createRunnerTransportMetadata,
@@ -17,9 +20,13 @@ import {
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
-  return {
-    running: [],
-    retrying: [],
+  const snapshot = {
+    trackerKind: "github",
+    trackerSubject: "sociotechnica-org/symphony-ts",
+    tickets: [] as readonly TuiTicketEntry[],
+    liveRunCount: 0,
+    running: [] as TuiSnapshot["running"],
+    retrying: [] as TuiSnapshot["retrying"],
     codexTotals: {
       inputTokens: 0,
       outputTokens: 0,
@@ -47,7 +54,40 @@ function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
     maxTurns: 3,
     projectUrl: null,
     ...overrides,
-  };
+  } satisfies TuiSnapshot;
+  if (
+    snapshot.tickets.length === 0 &&
+    snapshot.running.length > 0 &&
+    overrides.tickets === undefined
+  ) {
+    snapshot.tickets = snapshot.running.map(
+      (entry): TuiTicketEntry => ({
+        issueNumber: entry.issueNumber,
+        identifier: entry.identifier,
+        title: entry.identifier,
+        status: entry.lifecycle?.status ?? "running",
+        summary: entry.lifecycle?.summary ?? entry.issueState,
+        startedAt: entry.startedAt,
+        updatedAt: entry.startedAt,
+        pullRequest: entry.lifecycle?.pullRequest ?? null,
+        checks:
+          entry.lifecycle?.checks ?? { pendingNames: [], failingNames: [] },
+        review:
+          entry.lifecycle?.review ?? {
+            actionableCount: 0,
+            unresolvedThreadCount: 0,
+          },
+        blockedReason: null,
+        runnerAccounting: entry.accounting,
+        runnerVisibility: entry.runnerVisibility,
+        liveRun: entry,
+      }),
+    );
+  }
+  if (overrides.liveRunCount === undefined) {
+    snapshot.liveRunCount = snapshot.running.length;
+  }
+  return snapshot;
 }
 
 function makeConfig(
@@ -103,7 +143,7 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("╰─");
   });
 
-  it("renders header with agent count and tokens", () => {
+  it("renders header with ticket and agent counts plus factory tokens", () => {
     const snapshot = makeSnapshot({
       codexTotals: {
         inputTokens: 1000,
@@ -114,16 +154,19 @@ describe("formatSnapshotContent", () => {
       },
     });
     const output = formatSnapshotContent(snapshot, 250);
-    expect(output).toContain("Agents:");
+    expect(output).toContain("Tickets:");
+    expect(output).toContain("agents");
     expect(output).toContain("Throughput:");
     expect(output).toContain("250"); // tps
     expect(output).toContain("Recovery posture");
     expect(output).toContain("Runtime:");
     expect(output).toContain("2m 5s");
-    expect(output).toContain("Tokens:");
+    expect(output).toContain("Factory tokens:");
     expect(output).toContain("1,500"); // total
     expect(output).toContain("Dispatch:");
     expect(output).toContain("open");
+    expect(output).toContain("Repo:");
+    expect(output).toContain("sociotechnica-org/symphony-ts");
   });
 
   it("renders header last-action details when present", () => {
@@ -201,18 +244,18 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("(3m 0s ago)");
   });
 
-  it("renders Running section with no active agents message", () => {
+  it("renders Tickets section with no active tickets message", () => {
     const output = formatSnapshotContent(makeSnapshot(), 0);
-    expect(output).toContain("Running");
-    expect(output).toContain("No active agents");
+    expect(output).toContain("Tickets");
+    expect(output).toContain("No active tickets");
   });
 
-  it("renders running agent row", () => {
+  it("renders ticket-first rows with short GitHub identifiers and condensed detail", () => {
     const snapshot = makeSnapshot({
       running: [
         {
           issueNumber: 1,
-          identifier: "MT-101",
+          identifier: "sociotechnica-org/symphony-ts#1",
           issueState: "In Progress",
           startedAt: new Date(Date.now() - 75_000), // 1m 15s ago
           retryAttempt: 1,
@@ -240,11 +283,11 @@ describe("formatSnapshotContent", () => {
       ],
     });
     const output = formatSnapshotContent(snapshot, 0, 200);
-    expect(output).toContain("MT-101");
-    expect(output).toContain("In Progress");
-    expect(output).toContain("12345");
+    expect(output).toContain("#1");
+    expect(output).toContain("running");
     expect(output).toContain("4,521");
-    expect(output).toContain("abcd...567890");
+    expect(output).toContain("turn completed");
+    expect(output).toContain("session abcd");
   });
 
   it("renders pending token semantics for live Codex activity before token-bearing events", () => {
@@ -479,6 +522,48 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("checks p2 f0");
   });
 
+  it("keeps waiting tickets visible without a live runner session", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        tickets: [
+          {
+            issueNumber: 245,
+            identifier: "sociotechnica-org/symphony-ts#245",
+            title: "Refine the factory TUI around ticket-first monitoring",
+            status: "awaiting-human-review",
+            summary: "Waiting for plan review approval",
+            startedAt: null,
+            updatedAt: new Date("2026-03-14T10:02:00.000Z"),
+            pullRequest: {
+              number: 512,
+              url: "https://github.com/sociotechnica-org/symphony-ts/pull/512",
+              headSha: "abcdef123456",
+              latestCommitAt: "2026-03-14T10:01:00.000Z",
+            },
+            checks: { pendingNames: [], failingNames: [] },
+            review: { actionableCount: 1, unresolvedThreadCount: 0 },
+            blockedReason: "Waiting for plan review approval",
+            runnerAccounting: undefined,
+            runnerVisibility: null,
+            liveRun: null,
+          },
+        ],
+        liveRunCount: 0,
+        running: [],
+      }),
+      0,
+      220,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    expect(output).toContain("#245");
+    expect(output).toContain("human-review");
+    expect(output).toContain("updated 1m 0s");
+    expect(output).toContain("PR #512");
+    expect(output).toContain("review a1 t0");
+  });
+
   it("renders turn budget as turn n/N", () => {
     const output = formatSnapshotContent(
       makeSnapshot({
@@ -656,11 +741,11 @@ describe("formatSnapshotContent", () => {
     expect(output).not.toContain("turn 1/2");
   });
 
-  it("renders agents count with max", () => {
+  it("renders ticket count with live agent capacity", () => {
     const snapshot = makeSnapshot({ maxConcurrentRuns: 5 });
     const output = formatSnapshotContent(snapshot, 0);
     expect(output).toContain("0");
-    expect(output).toMatch(/Agents:.*\/.*5/);
+    expect(output).toMatch(/Tickets:.*agents.*\/.*5/);
   });
 
   it("renders project URL when present", () => {
@@ -857,54 +942,49 @@ describe("formatSnapshotContent", () => {
 
     // --- Header section ---
     expect(plain).toContain("SYMPHONY STATUS");
-    expect(plain).toContain("Agents:");
+    expect(plain).toContain("Tickets:");
+    expect(plain).toContain("agents");
     expect(plain).toMatch(/2.*\/.*3/); // 2 running / 3 max
     expect(plain).toContain("150 tps"); // formatTps floors the value
     expect(plain).toContain("▁▂▃▄▅▆"); // sparkline
     expect(plain).toContain("1m 15s"); // 75s runtime
-    expect(plain).toContain("Tokens:");
+    expect(plain).toContain("Factory tokens:");
     expect(plain).toContain("6,400"); // input tokens
     expect(plain).toContain("3,200"); // output tokens
     expect(plain).toContain("9,600"); // total tokens
+    expect(plain).toContain("Repo:");
     expect(plain).toContain("Project:");
     expect(plain).toContain("symphony-ts-test");
     expect(plain).toContain("Next refresh:");
 
-    // --- Running table ---
-    expect(plain).toContain("Running");
+    // --- Ticket table ---
+    expect(plain).toContain("Tickets");
     // Table headers
     expect(plain).toContain("ID");
-    expect(plain).toContain("STAGE");
-    expect(plain).toContain("PID");
+    expect(plain).toContain("STATUS");
     expect(plain).toContain("AGE / TURN");
+    expect(plain).toContain("RUNNER");
     expect(plain).toContain("TOKENS");
-    expect(plain).toContain("SESSION");
-    expect(plain).toContain("EVENT");
+    expect(plain).toContain("DETAIL");
 
-    // Agent #9 row
+    // Ticket #9 row
     expect(plain).toContain("#9");
-    expect(plain).toContain("12345"); // PID
     expect(plain).toContain("6,000"); // tokens
-    expect(plain).toContain("smok...ss-001"); // compacted session ID
 
-    // Agent #11 row
+    // Ticket #11 row
     expect(plain).toContain("#11");
-    expect(plain).toContain("12346");
     expect(plain).toContain("3,600");
 
-    // --- Running rows show event column content ---
-    // Find the line containing #9 - it should have reasoning update
-    const agent9Line = lines.find(
-      (l) => l.includes("#9") && l.includes("12345"),
-    );
+    // --- Ticket rows show condensed detail content ---
+    const agent9Line = lines.find((l) => l.includes("#9") && l.includes("6,000"));
     expect(agent9Line).toBeDefined();
     expect(agent9Line).toContain("reasoning");
 
-    // Find the line containing #11 - it should show the command
     const agent11Line = lines.find(
-      (l) => l.includes("#11") && l.includes("12346"),
+      (l) => l.includes("#11") && l.includes("3,600"),
     );
     expect(agent11Line).toBeDefined();
+    expect(agent11Line).toContain("session smok");
     expect(agent11Line).toContain("git status");
 
     // --- Backoff queue ---
