@@ -413,7 +413,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     running.sort((a, b) => a.identifier.localeCompare(b.identifier));
 
-    const tickets: TuiTicketEntry[] = [...this.#state.status.activeIssues.values()]
+    const tickets: TuiTicketEntry[] = [
+      ...this.#state.status.activeIssues.values(),
+    ]
       .map((issue) => {
         const liveRun = runningByIssueNumber.get(issue.issueNumber) ?? null;
         return {

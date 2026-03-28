@@ -130,13 +130,13 @@ The runtime source of truth remains the existing normalized active-issue state p
 
 ## Failure-Class Matrix
 
-| Observed condition | Available normalized facts | Expected TUI behavior |
-| --- | --- | --- |
-| Ticket has a live runner session | active issue status plus runner visibility/accounting | show the ticket row with condensed live runner/session detail |
-| Ticket is waiting for review, checks, or landing with no active runner | active issue lifecycle status, no live session | keep the ticket visible in the main table with its waiting state clearly rendered |
-| Multiple tickets share the same repository context | tracker repo known globally, issue numbers distinct per row | show repo context once in the header and short per-row ticket IDs |
-| No tickets are active but retries or recovery entries exist | empty active-issue set plus retry/recovery snapshots | show an empty ticket-first state while preserving lower-priority recovery/backoff sections |
-| Tracker identifier format differs by backend | normalized identifier plus tracker kind/repo context | render a short backend-appropriate ID without leaking long repo-scoped identifiers into each row |
+| Observed condition                                                     | Available normalized facts                                  | Expected TUI behavior                                                                            |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Ticket has a live runner session                                       | active issue status plus runner visibility/accounting       | show the ticket row with condensed live runner/session detail                                    |
+| Ticket is waiting for review, checks, or landing with no active runner | active issue lifecycle status, no live session              | keep the ticket visible in the main table with its waiting state clearly rendered                |
+| Multiple tickets share the same repository context                     | tracker repo known globally, issue numbers distinct per row | show repo context once in the header and short per-row ticket IDs                                |
+| No tickets are active but retries or recovery entries exist            | empty active-issue set plus retry/recovery snapshots        | show an empty ticket-first state while preserving lower-priority recovery/backoff sections       |
+| Tracker identifier format differs by backend                           | normalized identifier plus tracker kind/repo context        | render a short backend-appropriate ID without leaking long repo-scoped identifiers into each row |
 
 ## Observability Requirements
 

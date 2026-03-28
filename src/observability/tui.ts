@@ -976,10 +976,12 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
               session: {
                 provider: entry.runnerVisibility.session.provider,
                 model: entry.runnerVisibility.session.model,
-                backendSessionId: entry.runnerVisibility.session.backendSessionId,
+                backendSessionId:
+                  entry.runnerVisibility.session.backendSessionId,
                 backendThreadId: entry.runnerVisibility.session.backendThreadId,
                 latestTurnId: entry.runnerVisibility.session.latestTurnId,
-                latestTurnNumber: entry.runnerVisibility.session.latestTurnNumber,
+                latestTurnNumber:
+                  entry.runnerVisibility.session.latestTurnNumber,
               },
               lastActionSummary: entry.runnerVisibility.lastActionSummary,
               waitingReason: entry.runnerVisibility.waitingReason,
@@ -1193,11 +1195,7 @@ function shortTicketIdentifier(
 function ticketDetailWidth(terminalColumnsOverride?: number): number {
   const cols = terminalColumnsOverride ?? terminalColumns();
   const fixedWidth =
-    ID_WIDTH +
-    STATUS_WIDTH +
-    ACTIVITY_WIDTH +
-    RUNNER_WIDTH +
-    TOKENS_WIDTH;
+    ID_WIDTH + STATUS_WIDTH + ACTIVITY_WIDTH + RUNNER_WIDTH + TOKENS_WIDTH;
   const ticketRowChromeWidth = 9;
   return Math.max(DETAIL_MIN_WIDTH, cols - fixedWidth - ticketRowChromeWidth);
 }
@@ -1243,9 +1241,7 @@ function describeTicketDetail(entry: TuiSnapshot["tickets"][number]): string {
     meaningfulLiveEvent,
     lifecycleContext,
     sessionContext,
-  ].filter(
-    (value): value is string => value !== null && value.trim() !== "",
-  );
+  ].filter((value): value is string => value !== null && value.trim() !== "");
   if (segments.length > 0) {
     if (
       liveRun !== null &&
@@ -1259,7 +1255,9 @@ function describeTicketDetail(entry: TuiSnapshot["tickets"][number]): string {
   return liveEvent;
 }
 
-function resolveSessionDisplay(entry: TuiSnapshot["tickets"][number]): string | null {
+function resolveSessionDisplay(
+  entry: TuiSnapshot["tickets"][number],
+): string | null {
   const liveRun = entry.liveRun;
   const visibility = entry.runnerVisibility;
   if (visibility !== null) {
@@ -1279,7 +1277,9 @@ function resolveSessionDisplay(entry: TuiSnapshot["tickets"][number]): string | 
   return null;
 }
 
-function resolveTicketStatusLabel(entry: TuiSnapshot["tickets"][number]): string {
+function resolveTicketStatusLabel(
+  entry: TuiSnapshot["tickets"][number],
+): string {
   switch (entry.status) {
     case "awaiting-human-handoff":
       return "human-handoff";
@@ -1342,10 +1342,7 @@ function turnBudgetColor(
 
 function ticketStatusColor(entry: TuiSnapshot["tickets"][number]): string {
   if (entry.liveRun !== null) {
-    return statusDotColor(
-      entry.liveRun.lastCodexEvent,
-      entry.runnerVisibility,
-    );
+    return statusDotColor(entry.liveRun.lastCodexEvent, entry.runnerVisibility);
   }
 
   switch (entry.status) {
@@ -1390,7 +1387,8 @@ function formatTicketActivity(
 function formatTicketRunner(entry: TuiSnapshot["tickets"][number]): string {
   return (
     formatRunnerLabel(entry.runnerVisibility) ??
-    (entry.runnerVisibility?.state ?? "n/a")
+    entry.runnerVisibility?.state ??
+    "n/a"
   );
 }
 
@@ -1416,13 +1414,11 @@ export function legacyRunningEntryToTicket(
     startedAt: entry.startedAt,
     updatedAt: entry.startedAt,
     pullRequest: entry.lifecycle?.pullRequest ?? null,
-    checks:
-      entry.lifecycle?.checks ?? { pendingNames: [], failingNames: [] },
-    review:
-      entry.lifecycle?.review ?? {
-        actionableCount: 0,
-        unresolvedThreadCount: 0,
-      },
+    checks: entry.lifecycle?.checks ?? { pendingNames: [], failingNames: [] },
+    review: entry.lifecycle?.review ?? {
+      actionableCount: 0,
+      unresolvedThreadCount: 0,
+    },
     blockedReason: null,
     runnerAccounting: entry.accounting,
     runnerVisibility: entry.runnerVisibility,

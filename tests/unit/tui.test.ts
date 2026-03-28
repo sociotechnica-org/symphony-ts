@@ -1001,7 +1001,9 @@ describe("formatSnapshotContent", () => {
     expect(plain).toContain("3,600");
 
     // --- Ticket rows show condensed detail content ---
-    const agent9Line = lines.find((l) => l.includes("#9") && l.includes("6,000"));
+    const agent9Line = lines.find(
+      (l) => l.includes("#9") && l.includes("6,000"),
+    );
     expect(agent9Line).toBeDefined();
     expect(agent9Line).toContain("reasoning");
 
