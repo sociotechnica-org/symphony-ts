@@ -130,6 +130,43 @@ ${buildSharedWorkflowSections()}`,
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
   });
 
+  it("loads explicit reviewer app policy for GitHub trackers", async () => {
+    const dir = await createTempDir("workflow-reviewer-apps-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  reviewer_apps:
+    devin:
+      accepted: true
+      required: true
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    if (
+      workflow.config.tracker.kind === "github" ||
+      workflow.config.tracker.kind === "github-bootstrap"
+    ) {
+      expect(workflow.config.tracker.reviewerApps).toEqual([
+        {
+          key: "devin",
+          accepted: true,
+          required: true,
+        },
+      ]);
+    }
+  });
+
   it("preserves the authoritative resolved instance paths", async () => {
     const instanceRoot = "/srv/instances/project-a";
     const workflowPath = path.join(instanceRoot, "WORKFLOW.md");

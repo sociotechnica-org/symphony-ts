@@ -200,8 +200,10 @@ interface PullRequestReviewThreadsConnection {
 
 interface PullRequestReviewsConnection {
   readonly nodes: Array<{
+    readonly id: string;
     readonly body: string;
     readonly submittedAt: string;
+    readonly url: string;
     readonly author: {
       readonly login: string;
     } | null;
@@ -303,8 +305,10 @@ const PULL_REQUEST_REVIEW_STATE_QUERY = `
         }
         reviews(first: 100) {
           nodes {
+            id
             body
             submittedAt
+            url
             author {
               login
             }

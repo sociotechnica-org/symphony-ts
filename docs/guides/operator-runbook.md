@@ -110,6 +110,9 @@ pnpm tsx bin/symphony.ts factory attach
 
 `factory attach` is richer than `factory watch`, but it is still brokered:
 `Ctrl-C` exits the attach client without stopping the detached worker.
+On macOS, the broker now builds a small local PTY helper on first use; if no
+local `cc` compiler is available, `factory attach` fails clearly instead of
+falling back to an unsafe direct `screen` attach.
 
 Stop only through the supported command:
 

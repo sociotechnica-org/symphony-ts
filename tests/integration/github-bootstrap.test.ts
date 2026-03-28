@@ -22,6 +22,11 @@ function createTracker(
     optionRankMap?: Readonly<Record<string, number>>;
   },
   approvedReviewBotLogins?: readonly string[],
+  reviewerApps?: readonly {
+    key: string;
+    accepted: boolean;
+    required: boolean;
+  }[],
 ): GitHubTracker {
   return new GitHubTracker(
     {
@@ -34,6 +39,7 @@ function createTracker(
       successComment: "done",
       reviewBotLogins: ["greptile[bot]", "bugbot[bot]"],
       approvedReviewBotLogins: approvedReviewBotLogins ?? [],
+      reviewerApps: reviewerApps ?? [],
       queuePriority,
     },
     logger,
@@ -1022,7 +1028,12 @@ describe("GitHubTracker", () => {
   });
 
   it("treats a clean top-level bot review as satisfying required approved bot review", async () => {
-    const tracker = createTracker(server, undefined, ["devin-ai-integration"]);
+    const tracker = createTracker(
+      server,
+      undefined,
+      [],
+      [{ key: "devin", accepted: true, required: true }],
+    );
 
     await server.recordPullRequest({
       title: "PR for issue 7",
@@ -1043,6 +1054,39 @@ describe("GitHubTracker", () => {
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(lifecycle.kind).toBe("awaiting-landing-command");
+  });
+
+  it("treats a Devin issues-found verdict as rework-required", async () => {
+    const tracker = createTracker(
+      server,
+      undefined,
+      [],
+      [{ key: "devin", accepted: true, required: true }],
+    );
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReview({
+      head: "symphony/7",
+      authorLogin: "devin-ai-integration",
+      body: "## Devin Review: Found 2 potential issues",
+      submittedAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("rework-required");
+    expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
+    expect(lifecycle.actionableReviewFeedback[0]?.kind).toBe(
+      "pull-request-review",
+    );
   });
 
   it("blocks guarded landing when required approved bot review is missing", async () => {

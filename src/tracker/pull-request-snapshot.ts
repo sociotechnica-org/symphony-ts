@@ -4,11 +4,21 @@ import type {
   PullRequestHandle,
   ReviewFeedback,
 } from "../domain/pull-request.js";
+import type { GitHubReviewerAppConfig } from "../domain/workflow.js";
 import type {
   GitHubPullRequestResponse,
   PullRequestReviewState,
 } from "./github-client.js";
 import { parseLandingCommandSignal } from "./landing-command-signal.js";
+import {
+  createReviewerAppSnapshots,
+  evaluateRequiredReviewerState,
+  getConfiguredReviewerAppLogins,
+  type CurrentHeadIssueComment,
+  type CurrentHeadPullRequestReview,
+  type RequiredReviewerState,
+} from "./reviewer-apps.js";
+import type { ReviewerAppSnapshot } from "./reviewer-app-types.js";
 
 export interface PullRequestSnapshot {
   readonly branchName: string;
@@ -21,11 +31,9 @@ export interface PullRequestSnapshot {
   readonly actionableReviewFeedback: readonly ReviewFeedback[];
   readonly botActionableReviewFeedback: readonly ReviewFeedback[];
   readonly unresolvedThreadIds: readonly string[];
-  readonly requiredApprovedReviewCoverage:
-    | "not-required"
-    | "satisfied"
-    | "missing";
-  readonly observedApprovedReviewBotLogins: readonly string[];
+  readonly reviewerApps: readonly ReviewerAppSnapshot[];
+  readonly requiredReviewerState: RequiredReviewerState;
+  readonly observedReviewerKeys: readonly string[];
 }
 
 function isAfter(left: string, right: string | null): boolean {
@@ -35,90 +43,22 @@ function isAfter(left: string, right: string | null): boolean {
   return Date.parse(left) > Date.parse(right);
 }
 
-const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
-  // Keep these in sync with the summary comment templates emitted by known bots.
-  cursorSummary: "<!-- CURSOR_SUMMARY -->",
-  cursorTakingALook: /^Taking a look!\s*/i,
-  cursorAgentLinks:
-    /cursor\.com\/(agents\/|background-agent\?|assets\/images\/open-in-(web|cursor))/i,
-  greptileSummaryHeading: /<h3\b[^>]*>\s*Greptile Summary\s*<\/h3>/i,
-} as const;
-
-const APPROVED_REVIEW_BOT_STATUS_CONTEXTS: Readonly<
-  Record<string, readonly string[]>
-> = {
-  "devin-ai-integration": ["Devin Review"],
-  "greptile-apps": ["Greptile Review"],
-  "greptile[bot]": ["Greptile Review"],
-  cursor: ["Cursor Bugbot"],
-  "cursor[bot]": ["Cursor Bugbot"],
-  "bugbot[bot]": ["Cursor Bugbot"],
-} as const;
-
-function isActionableBotReviewComment(body: string): boolean {
-  const normalized = body.trim();
-  return (
-    normalized.length > 0 &&
-    !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
-    !(
-      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
-      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)
-    ) &&
-    !NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(normalized)
-  );
-}
-
-function isQualifyingApprovedReviewBody(body: string): boolean {
-  const normalized = body.trim();
-  return (
-    normalized.length > 0 &&
-    !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
-    !(
-      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
-      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)
-    )
-  );
-}
-
 function isHumanLandingApprover(
   authorLogin: string | null,
   authorAssociation: string,
-  reviewBotLogins: ReadonlySet<string>,
+  reviewerAppLogins: ReadonlySet<string>,
 ): boolean {
   if (authorLogin === null) {
     return false;
   }
   const normalized = authorLogin.toLowerCase();
   return (
-    !reviewBotLogins.has(normalized) &&
+    !reviewerAppLogins.has(normalized) &&
     !normalized.endsWith("[bot]") &&
     (authorAssociation === "OWNER" ||
       authorAssociation === "MEMBER" ||
       authorAssociation === "COLLABORATOR")
   );
-}
-
-function observedApprovedReviewBotLoginsFromChecks(
-  checks: readonly PullRequestCheck[],
-  approvedReviewBotLogins: ReadonlySet<string>,
-): readonly string[] {
-  if (approvedReviewBotLogins.size === 0) {
-    return [];
-  }
-
-  const successfulCheckNames = new Set(
-    checks
-      .filter((check) => check.status === "success")
-      .map((check) => check.name),
-  );
-
-  return [...approvedReviewBotLogins].filter((login) => {
-    const statusContexts = APPROVED_REVIEW_BOT_STATUS_CONTEXTS[login];
-    return (
-      statusContexts !== undefined &&
-      statusContexts.some((context) => successfulCheckNames.has(context))
-    );
-  });
 }
 
 export function createPullRequestSnapshot(input: {
@@ -128,15 +68,15 @@ export function createPullRequestSnapshot(input: {
   reviewState: PullRequestReviewState;
   reviewBotLogins: readonly string[];
   approvedReviewBotLogins?: readonly string[] | undefined;
+  reviewerApps?: readonly GitHubReviewerAppConfig[] | undefined;
 }): PullRequestSnapshot {
   const latestCommitAt =
     input.reviewState.commits.nodes[0]?.commit.committedDate ?? null;
-  const reviewBotLogins = new Set(
-    input.reviewBotLogins.map((login) => login.toLowerCase()),
-  );
-  const approvedReviewBotLogins = new Set(
-    (input.approvedReviewBotLogins ?? []).map((login) => login.toLowerCase()),
-  );
+  const reviewerAppLogins = getConfiguredReviewerAppLogins({
+    reviewBotLogins: input.reviewBotLogins,
+    approvedReviewBotLogins: input.approvedReviewBotLogins ?? [],
+    reviewerApps: input.reviewerApps ?? [],
+  });
 
   const unresolvedThreads = input.reviewState.reviewThreads.nodes
     .filter((thread) => !thread.isResolved && !thread.isOutdated)
@@ -162,60 +102,63 @@ export function createPullRequestSnapshot(input: {
       };
       return feedback;
     });
-
-  const actionableBotComments =
-    reviewBotLogins.size === 0
-      ? []
-      : input.reviewState.comments.nodes
-          .filter((comment) => {
-            const authorLogin = comment.author?.login;
-            return (
-              typeof authorLogin === "string" &&
-              reviewBotLogins.has(authorLogin.toLowerCase())
-            );
-          })
-          .filter((comment) => isActionableBotReviewComment(comment.body))
-          .filter((comment) => isAfter(comment.createdAt, latestCommitAt))
-          .map<ReviewFeedback>((comment) => ({
-            id: comment.id,
-            kind: "issue-comment",
-            threadId: null,
-            authorLogin: comment.author?.login ?? null,
-            body: comment.body,
-            createdAt: comment.createdAt,
-            url: comment.url,
-            path: null,
-            line: null,
-          }));
+  const currentHeadIssueComments: CurrentHeadIssueComment[] =
+    input.reviewState.comments.nodes
+      .filter((comment) => isAfter(comment.createdAt, latestCommitAt))
+      .map((comment) => ({
+        id: comment.id,
+        authorLogin: comment.author?.login ?? null,
+        body: comment.body,
+        createdAt: comment.createdAt,
+        url: comment.url,
+        authorAssociation: comment.authorAssociation,
+      }));
+  const currentHeadPullRequestReviews: CurrentHeadPullRequestReview[] = (
+    input.reviewState.reviews?.nodes ?? []
+  )
+    .filter((review) => isAfter(review.submittedAt, latestCommitAt))
+    .map((review) => ({
+      id: review.id,
+      authorLogin: review.author?.login ?? null,
+      body: review.body,
+      submittedAt: review.submittedAt,
+      url: review.url,
+    }));
+  const reviewerApps = createReviewerAppSnapshots({
+    config: {
+      reviewBotLogins: input.reviewBotLogins,
+      approvedReviewBotLogins: input.approvedReviewBotLogins ?? [],
+      reviewerApps: input.reviewerApps ?? [],
+    },
+    checks: input.checks,
+    currentHeadIssueComments,
+    currentHeadPullRequestReviews,
+    unresolvedReviewThreads: unresolvedThreads,
+  });
 
   const hasLandingCommand =
     latestCommitAt !== null &&
-    input.reviewState.comments.nodes.some((comment) => {
-      const authorLogin = comment.author?.login ?? null;
+    currentHeadIssueComments.some((comment) => {
       return (
         isHumanLandingApprover(
-          authorLogin,
+          comment.authorLogin,
           comment.authorAssociation,
-          reviewBotLogins,
-        ) &&
-        isAfter(comment.createdAt, latestCommitAt) &&
-        parseLandingCommandSignal(comment.body)
+          reviewerAppLogins,
+        ) && parseLandingCommandSignal(comment.body)
       );
     });
-
-  const actionableReviewFeedback = [
-    ...unresolvedThreads,
-    ...actionableBotComments,
-  ];
-  const botActionableReviewFeedback = actionableReviewFeedback.filter(
-    (feedback) => {
-      const authorLogin = feedback.authorLogin;
-      return (
-        typeof authorLogin === "string" &&
-        reviewBotLogins.has(authorLogin.toLowerCase())
-      );
-    },
+  const botActionableReviewFeedback = reviewerApps
+    .filter((reviewer) => reviewer.accepted)
+    .flatMap((reviewer) => reviewer.actionableFeedback);
+  const botActionableFeedbackIds = new Set(
+    botActionableReviewFeedback.map((feedback) => feedback.id),
   );
+  const actionableReviewFeedback = [
+    ...unresolvedThreads.filter(
+      (feedback) => !botActionableFeedbackIds.has(feedback.id),
+    ),
+    ...botActionableReviewFeedback,
+  ];
 
   const pendingCheckNames = input.checks
     .filter((check) => check.status === "pending")
@@ -227,60 +170,10 @@ export function createPullRequestSnapshot(input: {
     .filter((feedback) => feedback.kind === "review-thread")
     .map((feedback) => feedback.threadId)
     .filter((threadId): threadId is string => threadId !== null);
-  const observedApprovedReviewBotLogins =
-    approvedReviewBotLogins.size === 0
-      ? []
-      : [
-          ...new Set(
-            [
-              ...input.reviewState.comments.nodes
-                .filter((comment) => {
-                  const authorLogin = comment.author?.login;
-                  return (
-                    typeof authorLogin === "string" &&
-                    approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
-                    isQualifyingApprovedReviewBody(comment.body) &&
-                    isAfter(comment.createdAt, latestCommitAt)
-                  );
-                })
-                .map((comment) => comment.author!.login),
-              ...input.reviewState.reviewThreads.nodes
-                .map((thread) => thread.originComments.nodes[0])
-                .filter((comment) => comment !== undefined)
-                .filter((comment) => {
-                  const authorLogin = comment.author?.login;
-                  return (
-                    typeof authorLogin === "string" &&
-                    approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
-                    isQualifyingApprovedReviewBody(comment.body) &&
-                    isAfter(comment.createdAt, latestCommitAt)
-                  );
-                })
-                .map((comment) => comment.author!.login),
-              ...(input.reviewState.reviews?.nodes ?? [])
-                .filter((review) => {
-                  const authorLogin = review.author?.login;
-                  return (
-                    typeof authorLogin === "string" &&
-                    approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
-                    isQualifyingApprovedReviewBody(review.body) &&
-                    isAfter(review.submittedAt, latestCommitAt)
-                  );
-                })
-                .map((review) => review.author!.login),
-              ...observedApprovedReviewBotLoginsFromChecks(
-                input.checks,
-                approvedReviewBotLogins,
-              ),
-            ].map((login) => login.toLowerCase()),
-          ),
-        ];
-  const requiredApprovedReviewCoverage =
-    approvedReviewBotLogins.size === 0
-      ? "not-required"
-      : observedApprovedReviewBotLogins.length > 0
-        ? "satisfied"
-        : "missing";
+  const requiredReviewerState = evaluateRequiredReviewerState(reviewerApps);
+  const observedReviewerKeys = reviewerApps
+    .filter((reviewer) => reviewer.coverage === "observed")
+    .map((reviewer) => reviewer.reviewerKey);
 
   return {
     branchName: input.branchName,
@@ -299,7 +192,8 @@ export function createPullRequestSnapshot(input: {
     actionableReviewFeedback,
     botActionableReviewFeedback,
     unresolvedThreadIds,
-    requiredApprovedReviewCoverage,
-    observedApprovedReviewBotLogins,
+    reviewerApps,
+    requiredReviewerState,
+    observedReviewerKeys,
   };
 }
