@@ -562,6 +562,50 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("updated 1m 0s");
     expect(output).toContain("PR #512");
     expect(output).toContain("review a1 t0");
+    expect(output).not.toContain("no codex message yet");
+  });
+
+  it("uses the full requested row width for ticket detail", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        tickets: [
+          {
+            issueNumber: 245,
+            identifier: "sociotechnica-org/symphony-ts#245",
+            title: "Refine the factory TUI around ticket-first monitoring",
+            status: "awaiting-human-review",
+            summary: "Waiting for plan review approval",
+            startedAt: null,
+            updatedAt: new Date("2026-03-14T10:02:00.000Z"),
+            pullRequest: {
+              number: 512,
+              url: "https://github.com/sociotechnica-org/symphony-ts/pull/512",
+              headSha: "abcdef123456",
+              latestCommitAt: "2026-03-14T10:01:00.000Z",
+            },
+            checks: { pendingNames: [], failingNames: [] },
+            review: { actionableCount: 1, unresolvedThreadCount: 0 },
+            blockedReason: "Waiting for plan review approval",
+            runnerAccounting: undefined,
+            runnerVisibility: null,
+            liveRun: null,
+          },
+        ],
+        liveRunCount: 0,
+        running: [],
+      }),
+      0,
+      120,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    const plain = output.replace(/\x1b\[[0-9;]*m/g, "");
+    const ticketLine = plain
+      .split("\n")
+      .find((line) => line.startsWith("│ ● #245"));
+    expect(ticketLine).toBeDefined();
+    expect(ticketLine?.length).toBe(120);
   });
 
   it("renders turn budget as turn n/N", () => {

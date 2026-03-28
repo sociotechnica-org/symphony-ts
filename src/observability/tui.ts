@@ -38,7 +38,6 @@ const ACTIVITY_WIDTH = 18;
 const RUNNER_WIDTH = 16;
 const TOKENS_WIDTH = 12;
 const DETAIL_MIN_WIDTH = 20;
-const ROW_CHROME_WIDTH = 10;
 const DEFAULT_TERMINAL_COLUMNS = 115;
 const THROUGHPUT_WINDOW_MS = 5_000;
 const MINIMUM_IDLE_RERENDER_MS = 1_000;
@@ -1198,9 +1197,9 @@ function ticketDetailWidth(terminalColumnsOverride?: number): number {
     STATUS_WIDTH +
     ACTIVITY_WIDTH +
     RUNNER_WIDTH +
-    TOKENS_WIDTH +
-    4;
-  return Math.max(DETAIL_MIN_WIDTH, cols - fixedWidth - ROW_CHROME_WIDTH);
+    TOKENS_WIDTH;
+  const ticketRowChromeWidth = 9;
+  return Math.max(DETAIL_MIN_WIDTH, cols - fixedWidth - ticketRowChromeWidth);
 }
 
 function terminalColumns(): number {
@@ -1248,7 +1247,11 @@ function describeTicketDetail(entry: TuiSnapshot["tickets"][number]): string {
     (value): value is string => value !== null && value.trim() !== "",
   );
   if (segments.length > 0) {
-    if (meaningfulLiveEvent === null && liveEvent === "no codex message yet") {
+    if (
+      liveRun !== null &&
+      meaningfulLiveEvent === null &&
+      liveEvent === "no codex message yet"
+    ) {
       segments.push(liveEvent);
     }
     return segments.join(" · ");
