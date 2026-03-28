@@ -2,215 +2,268 @@
 
 ## Status
 
-- approved
+- plan-ready
 
 ## Goal
 
-Introduce a pluggable GitHub reviewer-app adapter seam so Symphony evaluates reviewer coverage, run status, verdict, and unresolved reviewer feedback from normalized per-app snapshots instead of inferring landing readiness from mixed raw PR surfaces.
+Introduce a GitHub-edge reviewer-app adapter seam that normalizes per-app current-head coverage, run status, verdict, actionable feedback, and unresolved-feedback facts so PR lifecycle and guarded landing can make deterministic decisions without hardcoded app-specific parsing in generic snapshot policy.
 
 ## Scope
 
-- add a typed GitHub `reviewer_apps` workflow contract with explicit `accepted` and `required` policy flags
-- add a normalized reviewer-app snapshot contract at the tracker integration edge
-- add a GitHub reviewer-app registry with one real `devin` adapter and one legacy compatibility adapter for the current bot-login behavior
-- migrate PR lifecycle and guarded landing policy to normalized reviewer-app snapshots
-- update tests and docs for missing, running, pass, issues-found, stale-head, and unknown-verdict reviewer outcomes
+- add a normalized reviewer-app snapshot contract derived from raw GitHub PR review surfaces
+- add a pluggable GitHub-side reviewer-app adapter registry that owns app-specific parsing rules
+- add a first real adapter for `devin`
+- add a compatibility adapter path that preserves current generic review-bot and approved-bot behavior while policy migrates to the normalized snapshot seam
+- update PR lifecycle and guarded landing policy to consume normalized reviewer-app snapshots for required reviewer coverage, explicit pass/issues-found verdicts, and unresolved reviewer feedback
+- add operator-visible reviewer-app posture projection where needed to debug coverage/verdict decisions
+- add unit, integration, and e2e coverage for current-head, stale-head, missing, running, pass, and issues-found reviewer-app outcomes
 
 ## Non-goals
 
-- implementing every existing reviewer bot as a first-class adapter in this slice
-- redesigning the overall landing topology, human `/land` protocol, or review-loop retry policy
-- changing Linear or non-GitHub tracker behavior
-- adding reviewer-app retriggering, timer-based escalation, or remote reviewer orchestration
-- building a broad operator dashboard redesign beyond the normalized facts needed for this issue
+- full adapter rollout for every existing or future reviewer app in this PR
+- Linear or other non-GitHub tracker parity
+- redesigning human review policy or plan review workflow
+- changing the overall PR lifecycle topology beyond replacing brittle reviewer-app inference with normalized reviewer facts
+- remote reviewer orchestration, retry triggering, or bot command APIs
+- introducing one-of/all-of reviewer quorum policy beyond the narrow seam needed for this issue
 
 ## Current Gaps
 
-- `src/tracker/pull-request-snapshot.ts` still mixes top-level comments, reviews, review threads, and status checks into a small set of booleans and feedback lists
-- reviewer-app-specific parsing rules such as Devin verdict strings do not live behind a stable integration seam
-- current policy can count reviewer coverage without an explicit pass verdict, and can miss explicit issues-found output when it is not represented as unresolved threads or classified comments
-- legacy config fields `review_bot_logins` and `approved_review_bot_logins` overload several policy concepts and cannot express accepted-vs-required reviewer semantics cleanly
-- reviewer-app behavior is hard to test deterministically because coverage, verdict, and unresolved feedback are not modeled separately
+- `src/tracker/pull-request-snapshot.ts` mixes transport-derived review surfaces, app-specific string heuristics, and policy-oriented gating facts in one module
+- current state only partially distinguishes reviewer-app concepts:
+  - generic actionable bot feedback via `reviewBotLogins`
+  - required reviewer presence via `approvedReviewBotLogins`
+  - ad hoc status-context matching via `APPROVED_REVIEW_BOT_STATUS_CONTEXTS`
+- the current snapshot does not model coverage, running/completed status, verdict, and unresolved/actionable feedback separately per reviewer app
+- policy can still treat a PR as landable when a reviewer app clearly reported issues outside the currently recognized unresolved-thread or classified-comment paths
+- app-specific evidence and debugging facts are not carried through a dedicated normalized surface for observability
 
 ## Spec Alignment By Abstraction Level
 
 - Policy Layer
-  - belongs: require explicit pass verdicts from required reviewer apps before landing, and treat issues-found verdicts as actionable rework
-  - does not belong: Devin-specific strings, GitHub GraphQL field mapping, or check-status transport details
+  - belongs: deterministic rules for when required reviewer apps count as covered, when explicit `issues-found` verdicts require rework, and when landing needs explicit `pass`
+  - does not belong: Devin-specific strings, GitHub comment/review object traversal, or status-context parsing
 - Configuration Layer
-  - belongs: typed `tracker.reviewer_apps` parsing plus compatibility with the legacy bot-login fields
-  - does not belong: reviewer verdict parsing or lifecycle transitions
+  - belongs: typed workflow config for stable reviewer-app keys and the minimum accepted/required policy flags needed for this slice
+  - does not belong: PR lifecycle evaluation or adapter parsing logic
 - Coordination Layer
-  - belongs: consume normalized lifecycle outcomes such as waiting, rework-required, degraded reviewer infrastructure, and awaiting landing
-  - does not belong: app-specific review parsing or raw GitHub review/comment inspection
+  - belongs: consume normalized lifecycle and landing-blocked outcomes derived from reviewer-app snapshots
+  - does not belong: GitHub review surface parsing or app-specific heuristics
 - Execution Layer
   - belongs: no workspace or runner changes in this slice
   - does not belong: reviewer-app normalization or landing policy
 - Integration Layer
-  - belongs: reviewer-app adapter registry, per-app coverage/status/verdict parsing, and compatibility normalization for legacy bot-login behavior
-  - does not belong: orchestrator retry budgeting or operator rendering policy
+  - belongs: GitHub transport reads, raw-surface aggregation, reviewer-app adapter registry, per-app parsing, normalized reviewer snapshot creation
+  - does not belong: orchestrator retry policy, operator command sequencing, or TUI-only presentation logic
 - Observability Layer
-  - belongs: summaries and artifacts that reflect normalized reviewer-app gating reasons
-  - does not belong: reverse-engineering reviewer-app state from raw GitHub payloads outside the tracker
+  - belongs: project normalized reviewer coverage/verdict/unresolved posture into status and report surfaces when needed for operator debugging
+  - does not belong: re-parsing raw GitHub comments/reviews/checks to rediscover reviewer-app state
 
 ## Architecture Boundaries
 
 ### Belongs in this issue
 
 - `src/domain/workflow.ts` and `src/config/workflow.ts`
-  - add the typed `tracker.reviewer_apps` config seam and preserve backward compatibility with existing bot-login fields
+  - add the narrowest repo-owned config seam for named reviewer apps and required/accepted policy in GitHub-compatible trackers
 - `src/tracker/`
-  - add reviewer-app snapshot types plus a registry that keeps app-specific parsing at the integration edge
-  - add one real `devin` adapter for current-head coverage, running detection, verdict parsing, and actionable feedback extraction
-  - add a legacy compatibility adapter so existing review-bot and approved-review-bot behavior still works while the new seam lands
-  - update PR lifecycle and guarded landing policy to consume normalized reviewer-app snapshots
-- tests and docs
-  - extend unit, integration, and e2e coverage plus workflow docs/examples for the new config and policy surface
+  - separate reviewer-app transport aggregation, normalization, and policy
+  - introduce:
+    - a raw GitHub review-surface input shape for adapters
+    - a normalized reviewer-app snapshot contract
+    - an adapter registry/factory
+    - a `devin` adapter
+    - a compatibility adapter for existing generic bot-login behavior
+  - update PR snapshot composition to embed normalized reviewer-app facts rather than scattered booleans and hardcoded login/status matching
+- `src/tracker/pull-request-policy.ts` and `src/tracker/guarded-landing.ts`
+  - consume normalized reviewer-app coverage/verdict/unresolved state
+- `src/tracker/service.ts` and any affected domain types
+  - carry precise blocked/waiting reasons from the normalized reviewer state
+- observability/docs/tests
+  - expose enough reviewer-app posture to explain why a PR is waiting, degraded, or in rework
 
 ### Does not belong in this issue
 
-- tracker transport rewrites unrelated to reviewer-app surfaces
-- broad refactors across orchestrator state, runner control, or workspace lifecycle
-- Linear parity or multi-tracker reviewer-app abstractions
-- a second configuration system for human review policy
+- runner prompt changes
+- workspace or orchestration retry refactors
+- GraphQL transport rewrites beyond what the normalized adapter seam immediately needs
+- broad lifecycle-domain renaming unrelated to reviewer-app semantics
+- full removal of existing bot-login compatibility if that would broaden the PR beyond one slice
 
 ## Layering Notes
 
 - `config/workflow`
-  - owns parsing and validation for reviewer-app policy declarations
-  - must not parse reviewer verdict text
+  - owns stable reviewer-app configuration
+  - should not encode GitHub parsing rules or landing decisions
 - `tracker`
-  - owns GitHub review/check normalization and reviewer-app parsing
-  - must keep transport, normalization, and policy in distinct modules
+  - owns raw GitHub review-surface aggregation plus reviewer-app normalization
+  - should keep transport, adapter parsing, and PR policy in separate modules
 - `workspace`
   - unchanged
 - `runner`
   - unchanged
 - `orchestrator`
-  - reacts only to normalized lifecycle and landing-blocked reasons
-  - must not inspect reviewer-app logins, review text, or check names directly
+  - consumes normalized lifecycle kinds and blocked reasons only
+  - must not inspect reviewer keys, bot logins, review bodies, or status contexts directly
 - `observability`
-  - renders the normalized lifecycle summaries
-  - must not re-derive reviewer coverage or verdict from tracker payload side effects
+  - renders normalized reviewer posture and evidence summaries
+  - must not infer reviewer state from raw tracker payloads outside the normalized snapshot
 
 ## Slice Strategy And PR Seam
 
-Keep this issue to one tracker-boundary PR:
+Keep this as one reviewable PR focused on a single tracker-boundary seam:
 
-1. add the reviewer-app config and normalized snapshot contract
-2. land the adapter registry with `devin` plus a legacy compatibility adapter
-3. migrate lifecycle/landing policy and regression coverage to the normalized seam
+1. add a normalized reviewer-app snapshot contract and GitHub adapter registry
+2. ship one real `devin` adapter plus one compatibility adapter for existing generic bot-login behavior
+3. migrate PR lifecycle and guarded landing to consume normalized reviewer-app facts
+4. update docs/status/tests to explain the new deterministic reviewer posture
 
 Deferred:
 
-- additional first-class reviewer-app adapters beyond Devin
-- richer quorum rules such as one-of vs all-of reviewer requirements
-- dedicated status/TUI reviewer-app tables beyond the summaries already fed by tracker lifecycle results
+- native adapters for Greptile, Cursor Bugbot, or other reviewer apps beyond compatibility fallback
+- richer reviewer policy such as one-of/all-of quorum, optional-but-observed apps, or weighted reviewers
+- non-GitHub tracker implementations of reviewer-app normalization
+- dedicated reviewer-app dashboards beyond the minimum operator-visible posture needed for debugging this slice
 
-This stays reviewable because it moves app-specific semantics to one integration seam without reopening runner, orchestration, or broader tracker transport design.
+This seam is reviewable because it isolates reviewer-app semantics at the integration edge while preserving the rest of the orchestration lifecycle model and existing runner/workspace behavior.
 
 ## Runtime State Model
 
-### Per-app reviewer states
+This issue changes stateful PR handoff behavior, so reviewer-app state must be explicit.
 
-Each configured reviewer app produces a current-head snapshot with:
+### Per-reviewer normalized states
 
-1. `coverage`
-   - `missing`
-   - `observed`
-2. `status`
-   - `running`
-   - `completed`
-   - `unknown`
-3. `verdict`
-   - `pass`
-   - `issues-found`
-   - `unknown`
+For each configured reviewer app on the current PR head:
 
-Each snapshot also carries:
+1. `missing`
+   - no current-head evidence that the reviewer app ran
+2. `running`
+   - current-head evidence indicates the reviewer app has started but not reached a terminal verdict
+3. `completed-pass`
+   - current-head evidence shows the reviewer app completed with an explicit pass / no-issues verdict
+4. `completed-issues-found`
+   - current-head evidence shows the reviewer app completed with an explicit issues-found verdict
+5. `completed-unknown`
+   - current-head evidence shows the reviewer app ran, but the adapter cannot classify a deterministic pass/fail verdict
 
+Each normalized reviewer snapshot also carries:
+
+- `coverage`: `missing | observed`
+- `status`: `running | completed | unknown`
+- `verdict`: `pass | issues-found | unknown`
 - `actionableFeedback`
 - `unresolvedFeedbackIds`
-- evidence pointers for debugging
+- evidence facts for debugging
 
-### Aggregate required-reviewer gate states
+### Aggregate policy states relevant to this issue
 
-1. `not-required`
-   - no required reviewer apps are configured
-2. `running`
-   - at least one required reviewer app is still running on the current head
-3. `missing`
-   - required reviewer output is absent after the normal check surface has settled
-4. `unknown`
-   - required reviewer output was observed, but no explicit pass/fail verdict could be normalized
-5. `satisfied`
-   - every required reviewer app has current-head coverage and an explicit `pass` verdict
+- `awaiting-system-checks`
+  - CI or reviewer app execution is still naturally pending
+- `degraded-review-infrastructure`
+  - required reviewer coverage for the current head is still missing after the normal check surface has settled
+- `awaiting-human-review`
+  - human review debt remains without automated reviewer-app issues forcing a follow-up run
+- `rework-required`
+  - a reviewer app explicitly found issues on the current head, or actionable reviewer feedback remains
+- `awaiting-landing-command`
+  - required reviewer apps have explicit current-head pass coverage and no reviewer-app/human blockers remain
+- `awaiting-landing`
+  - `/land` observed; guarded landing still re-checks normalized reviewer-app facts
+- `handoff-ready`
+  - merge observed
 
-### Lifecycle transitions relevant to this issue
+### Allowed transitions relevant to this issue
 
-- `awaiting-system-checks` -> `rework-required`
-  - an accepted reviewer app reports `issues-found` or emits actionable unresolved feedback
 - `awaiting-system-checks` -> `degraded-review-infrastructure`
-  - required reviewer coverage is missing after checks settle, or verdict remains unknown
+  - normal check stabilization has completed and a required reviewer app is still `missing`
+- `awaiting-system-checks` -> `rework-required`
+  - a required or accepted reviewer app reaches `completed-issues-found`
 - `awaiting-system-checks` -> `awaiting-landing-command`
-  - checks are settled, all required reviewer apps explicitly pass, and no actionable feedback remains
+  - required reviewer apps reach `completed-pass`, all checks are green, and no actionable feedback remains
+- `degraded-review-infrastructure` -> `awaiting-system-checks`
+  - a reviewer app is now observed but still `running`
+- `degraded-review-infrastructure` -> `rework-required`
+  - a reviewer app later completes with `issues-found`
+- `degraded-review-infrastructure` -> `awaiting-landing-command`
+  - a reviewer app later completes with explicit `pass`
+- `awaiting-landing-command` -> `rework-required`
+  - a new head or fresh reviewer result introduces issues-found or actionable feedback
+- `awaiting-landing-command` -> `degraded-review-infrastructure`
+  - a new head invalidates stale reviewer coverage and no current-head required reviewer evidence exists
+- `awaiting-landing` -> `rework-required`
+  - guarded landing re-check observes `issues-found` or actionable feedback
 - `awaiting-landing` -> `degraded-review-infrastructure`
-  - guarded landing re-check sees missing or ambiguous required reviewer results on the current head
+  - guarded landing re-check observes required reviewer coverage missing on the approved/current head
 - `awaiting-landing` -> `handoff-ready`
-  - merge succeeds after the normalized reviewer gate passes
+  - guarded landing succeeds and merge is observed
+
+### Coordination Decision Rules
+
+- policy must treat reviewer-app coverage, run status, verdict, and unresolved/actionable feedback as separate normalized inputs
+- a successful non-reviewer CI status must never satisfy reviewer coverage or verdict
+- required reviewer apps must have current-head `coverage=observed`, terminal `status=completed`, explicit `verdict=pass`, and no unresolved/actionable reviewer feedback before landing is eligible
+- stale reviewer evidence from prior heads must never satisfy current-head policy
+- keep orchestrator logic tracker-neutral by exposing only normalized lifecycle kinds and summaries above the tracker boundary
 
 ## Failure-Class Matrix
 
-| Observed condition                                                                 | Local facts available     | Normalized reviewer facts available                       | Expected decision                                                           |
-| ---------------------------------------------------------------------------------- | ------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Required reviewer check is pending on the current head                             | no landing attempt active | required reviewer state = `running`                       | stay in `awaiting-system-checks`                                            |
-| Required reviewer never emitted current-head output after checks settled           | no landing attempt active | required reviewer state = `missing`                       | return `degraded-review-infrastructure`                                     |
-| Required reviewer emitted current-head output but no explicit pass/fail was parsed | no landing attempt active | required reviewer state = `unknown`                       | return `degraded-review-infrastructure`                                     |
-| Devin reports `No Issues Found` on the current head                                | no landing attempt active | Devin coverage observed, status completed, verdict `pass` | allow `awaiting-landing-command` when other gates pass                      |
-| Devin reports `found N potential issues` on the current head                       | no landing attempt active | Devin verdict `issues-found`, actionable feedback present | return `rework-required`                                                    |
-| Legacy bot comment/thread feedback exists on the current head                      | no landing attempt active | compatibility adapter actionable feedback present         | return `rework-required`                                                    |
-| Prior-head reviewer output exists but Symphony pushed a new commit                 | no landing attempt active | current-head coverage missing or running for the new head | do not count stale reviewer evidence; keep waiting or degrade appropriately |
-| `/land` exists but guarded landing re-check sees ambiguous required reviewer pass  | landing approval recorded | required reviewer state = `unknown`                       | block landing fail-closed                                                   |
+| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
+| --- | --- | --- | --- |
+| Required reviewer app has no current-head evidence and checks are still pending or in no-check stabilization | no landing attempt active | reviewer coverage = `missing`; check surface unsettled | stay in `awaiting-system-checks` |
+| Required reviewer app has no current-head evidence after checks settle | no landing attempt active | reviewer coverage = `missing`; check surface settled | report `degraded-review-infrastructure` |
+| Required reviewer app has a current-head running status/check but no terminal verdict yet | no landing attempt active | reviewer coverage = `observed`; status = `running`; verdict = `unknown` | stay in `awaiting-system-checks` |
+| Required reviewer app explicitly reports pass on current head | no landing attempt active | coverage = `observed`; status = `completed`; verdict = `pass`; unresolved feedback = none | allow `awaiting-landing-command` when other gates pass |
+| Required reviewer app explicitly reports issues on current head through a top-level review/comment without unresolved thread objects | no landing attempt active | coverage = `observed`; verdict = `issues-found`; actionable feedback > 0 or verdict gate fail | enter `rework-required` |
+| Reviewer app ran only on an older head, then a new commit landed | no landing attempt active or stale `/land` exists | current-head reviewer coverage = `missing` | fall back to waiting/degraded based on check-settled posture |
+| `/land` exists, but guarded landing re-check still sees required reviewer app `missing` or `completed-unknown` | landing approval recorded | required reviewer landing gate unsatisfied | block landing and return degraded/waiting lifecycle consistent with normalized state |
+| Compatibility adapter sees generic approved-bot review evidence but no explicit app-specific adapter configured | no landing attempt active | compatibility reviewer snapshot satisfies current policy | preserve current behavior while new adapter seam is adopted |
 
 ## Storage / Persistence Contract
 
 - no new durable store is introduced
-- workflow config becomes the source of truth for explicit reviewer-app policy declarations
-- reviewer-app snapshots remain normalized ephemeral tracker facts derived from the current PR head
-- issue artifacts and landing-blocked events should preserve normalized reviewer gating summaries rather than raw GitHub review payloads
+- workflow config remains the source of truth for named reviewer-app policy
+- normalized reviewer-app snapshots remain ephemeral tracker state derived from GitHub review surfaces for the current head
+- operator artifacts/status may persist normalized reviewer summaries/evidence references, but not raw GitHub-authored payloads as the primary contract
 
 ## Observability Requirements
 
-- lifecycle summaries must distinguish:
-  - reviewer still running
-  - required reviewer missing
-  - required reviewer verdict unknown
-  - reviewer issues-found / actionable feedback
-  - explicit pass with landing now awaiting `/land`
-- the normalized reviewer-app seam must be testable directly in unit coverage
-- docs/examples should show the preferred `tracker.reviewer_apps` configuration
+- status and report surfaces should be able to show, at minimum:
+  - which reviewer apps are configured and required
+  - whether each required reviewer app is missing, running, pass, issues-found, or unknown on the current head
+  - whether blocked/rework decisions came from coverage, verdict, or unresolved/actionable feedback
+- summaries should distinguish:
+  - ordinary system-check waiting
+  - degraded reviewer coverage because a required app never produced current-head output
+  - explicit reviewer-app issues requiring rework
+  - landing-ready posture with current-head pass coverage
+- operator docs should explain that reviewer-app semantics now come from normalized adapters at the tracker edge
 
 ## Decision Notes
 
-- Keep a legacy compatibility adapter in this slice so the new seam lands without forcing a one-shot migration for every bot-specific rule.
-- Treat required reviewer verdict `unknown` as fail-closed degraded infrastructure. Coverage alone is not sufficient for deterministic landing under this issue.
-- Keep app-specific parsing in dedicated adapter modules. `pull-request-policy.ts` and `guarded-landing.ts` should never inspect Devin strings directly.
+- Introduce a new additive reviewer-app config seam now instead of overloading `review_bot_logins` and `approved_review_bot_logins` further. Those fields describe author classes, not stable reviewer-app identities or policy.
+- Keep a compatibility adapter in the first slice so this PR can land without forcing immediate native adapters for every existing reviewer app.
+- Make `devin` the first explicit adapter because the issue specifically calls out top-level review-summary semantics that the current generic surface handles poorly.
+- Prefer a dedicated raw-review-surface input shape for adapters so app-specific parsers do not depend directly on GitHub client response types across the codebase.
 
 ## Implementation Steps
 
-1. Restore the checked-in issue plan path referenced by the approved issue handoff.
-2. Add the typed `tracker.reviewer_apps` workflow contract and validation for supported GitHub reviewer-app keys.
-3. Add normalized reviewer-app snapshot types plus a GitHub reviewer-app registry seam.
-4. Implement the `devin` adapter for:
-   - current-head coverage detection
-   - running detection from the current-head check surface
-   - explicit pass / issues-found verdict parsing
-   - actionable feedback extraction from top-level review artifacts
-5. Implement a legacy compatibility adapter that preserves the current bot-login behavior for existing `review_bot_logins` / `approved_review_bot_logins` workflows.
-6. Update `createPullRequestSnapshot()` to aggregate normalized reviewer-app snapshots into lifecycle inputs without mixing app-specific parsing into policy.
-7. Update PR lifecycle and guarded landing policy to require explicit pass verdicts for required reviewer apps and to fail closed on missing or ambiguous required reviewer results.
-8. Update docs/examples and add regression coverage across workflow parsing, unit, integration, and e2e layers.
-9. Run local self-review and repository gates before opening/updating the PR:
+1. Add typed workflow/domain config for named reviewer apps in GitHub-compatible trackers, including the minimum policy flags needed for this slice.
+2. Introduce a tracker-side normalized reviewer-app snapshot contract plus a raw GitHub reviewer-surface input shape.
+3. Extract current reviewer-app parsing out of `src/tracker/pull-request-snapshot.ts` into:
+   - adapter interfaces/types
+   - adapter registry/factory
+   - compatibility adapter for existing generic bot-login behavior
+   - `devin` adapter
+4. Update PR snapshot creation to aggregate per-app reviewer snapshots and derive policy-oriented aggregate facts from that normalized collection instead of scattered booleans and hardcoded status-context tables.
+5. Update `src/tracker/pull-request-policy.ts` to consume normalized reviewer-app snapshots for:
+   - waiting on running reviewer apps
+   - degraded required coverage when reviewer apps remain missing after checks settle
+   - rework when a reviewer app explicitly reports issues or unresolved reviewer feedback
+   - landing eligibility only after explicit required-app pass coverage
+6. Update guarded landing and tracker service result types so landing uses the same normalized reviewer-app gate and summary vocabulary.
+7. Thread reviewer-app posture through any affected observability/report/status surfaces without leaking raw GitHub parsing upward.
+8. Update workflow docs/README/operator docs for the new reviewer-app config seam and deterministic landing policy.
+9. Add targeted tests across unit, integration, and e2e layers using shared fixtures/builders where reviewer-app surface setup repeats.
+10. Run local self-review and repository gates before PR update/open:
    - `pnpm format:check`
    - `pnpm lint`
    - `pnpm typecheck`
@@ -221,38 +274,52 @@ Each snapshot also carries:
 
 ### Unit
 
-- workflow parsing accepts `tracker.reviewer_apps.devin` and rejects invalid reviewer-app configs
-- reviewer snapshot normalization marks Devin current-head `pass`, `issues-found`, `running`, `missing`, and `unknown` cases correctly
-- stale prior-head reviewer evidence does not satisfy current-head coverage
-- lifecycle policy returns degraded infrastructure when required reviewer coverage is missing or verdict is unknown
-- guarded landing blocks when required reviewer verdict is missing or unknown
+- reviewer-app adapter registry selects `devin` and compatibility adapters deterministically from config
+- `devin` adapter classifies current-head results as `missing`, `running`, `pass`, `issues-found`, and `unknown`
+- stale prior-head reviewer evidence does not satisfy current-head coverage or verdict
+- policy maps:
+  - required reviewer `missing` after check stabilization -> `degraded-review-infrastructure`
+  - required reviewer `running` -> `awaiting-system-checks`
+  - required reviewer `issues-found` -> `rework-required`
+  - required reviewer `pass` with no other blockers -> `awaiting-landing-command`
+- guarded landing blocks when required reviewer apps are `missing`, `running`, or `unknown`
 
 ### Integration
 
-- `GitHubTracker.inspectIssueHandoff()` treats current-head Devin `No Issues Found` as landing-eligible when other gates are green
-- `GitHubTracker.inspectIssueHandoff()` treats current-head Devin `found N potential issues` as `rework-required`
-- `GitHubTracker.inspectIssueHandoff()` stays non-landable while a required Devin check is still pending
-- `GitHubTracker.executeLanding()` fails closed when required reviewer coverage is missing or verdict remains unknown
+- `GitHubTracker.inspectIssueHandoff()` reports `awaiting-system-checks` while Devin is still running on the current head
+- `GitHubTracker.inspectIssueHandoff()` reports `degraded-review-infrastructure` when required Devin coverage is still missing after checks settle
+- `GitHubTracker.inspectIssueHandoff()` reports `rework-required` when Devin leaves a current-head summary that explicitly says issues were found, even if no unresolved thread objects exist
+- `GitHubTracker.inspectIssueHandoff()` reports `awaiting-landing-command` when Devin explicitly passes on the current head and all other gates are green
+- `GitHubTracker.executeLanding()` fail-closes when stale or unknown reviewer-app posture makes landing non-deterministic
 
-### End-to-end
+### End-to-End
 
-- factory run opens a PR, CI turns green, required reviewer output is missing, and the run remains visibly degraded instead of landable
-- factory run opens a PR, required Devin output reports issues on the current head, and the run enters rework instead of awaiting `/land`
-- after a follow-up push, stale prior-head reviewer output no longer satisfies the new head
+- factory run opens a PR, CI turns green, required Devin output never appears, and the run stays visibly degraded instead of becoming landable
+- factory run opens a PR, Devin reports issues on the current head via summary review/comment, and Symphony schedules rework rather than waiting for `/land`
+- factory run opens a PR, Devin initially runs, later emits an explicit current-head pass, and the run advances to `awaiting-landing-command`
+- after a follow-up push, prior-head Devin pass evidence no longer satisfies the new head until new current-head reviewer output arrives
+
+### Acceptance Scenarios
+
+1. Devin is configured as required, CI is green, and Devin never produces current-head output; Symphony reports degraded reviewer infrastructure instead of landing-ready posture.
+2. Devin is configured as required and reports a current-head running status; Symphony keeps waiting rather than degrading or landing.
+3. Devin is configured as required and reports `found 3 potential issues` on the current head; Symphony enters `rework-required` even without unresolved thread objects.
+4. Devin is configured as required and reports `No Issues Found` on the current head; Symphony can advance to `/land` once other gates are green.
+5. After a new push, only stale prior-head Devin evidence exists; Symphony falls back to waiting/degraded until new current-head reviewer output appears.
 
 ## Exit Criteria
 
-1. reviewer-app parsing lives behind a pluggable tracker-edge seam
-2. Devin is implemented through that seam
-3. landing requires explicit pass verdicts from required reviewer apps
-4. a PR cannot become landable when Devin explicitly reports issues on the current head
-5. legacy bot-login behavior still works through a compatibility adapter
-6. docs and tests reflect the new `tracker.reviewer_apps` contract
-7. `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass
+1. reviewer-app semantics are parsed through a pluggable tracker-edge adapter seam rather than hardcoded inside generic PR snapshot logic
+2. `devin` is modeled through that seam with deterministic current-head coverage and verdict handling
+3. required landing policy depends on normalized reviewer-app coverage, explicit pass verdicts, and unresolved/actionable reviewer feedback
+4. a PR cannot become landable when a required reviewer app explicitly reported issues on the current head
+5. status/docs/tests make current-head reviewer coverage and verdict posture inspectable
+6. `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, and `pnpm test` pass
 
 ## Deferred To Later Issues Or PRs
 
-- additional first-class reviewer-app adapters such as Greptile or Cursor-specific verdict parsers
-- richer reviewer quorum policy and per-app retry/retrigger semantics
-- tracker-agnostic reviewer-app abstractions for Linear or future backends
-- dedicated reviewer-app tables in TUI/status surfaces beyond the lifecycle summaries in this slice
+- native adapters for additional reviewer apps beyond `devin` and the compatibility fallback
+- richer reviewer policy such as all-of/one-of groups, quorum counts, or optional accepted-only reviewer classes
+- non-GitHub reviewer-app normalization
+- automatic reviewer reruns, escalation comments, or recovery automation when reviewer coverage is missing
+- broader cleanup that fully removes legacy bot-login fields after native adapter migration is complete
