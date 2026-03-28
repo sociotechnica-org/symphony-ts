@@ -200,6 +200,9 @@ int main(int argc, char **argv) {
         if (errno == EINTR) {
           continue;
         }
+        if (errno == EIO) {
+          break;
+        }
         perror("read");
         terminate_requested = 1;
         if (child_pid > 0) {

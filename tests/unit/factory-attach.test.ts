@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control.js";
+import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "../../src/cli/factory-attach-macos-helper-source.js";
 import {
   attachFactory,
   createFactoryAttachCommand,
@@ -191,6 +192,14 @@ describe("createFactoryAttachLaunchSpec", () => {
       ],
       stdio: ["pipe", "pipe", "pipe"],
     });
+  });
+});
+
+describe("FACTORY_ATTACH_MACOS_HELPER_SOURCE", () => {
+  it("treats EIO from the PTY master read as a normal detach boundary", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "if (errno == EIO) {\n          break;\n        }",
+    );
   });
 });
 
@@ -405,5 +414,55 @@ describe("attachFactory", () => {
         terminal,
       }),
     ).rejects.toThrowError(/requires a running detached runtime/);
+  });
+
+  it("reports macOS helper launch failures without pointing users at script", async () => {
+    const { terminal } = createTerminal();
+    const spawnChildProcess = vi.fn(() => {
+      const error = new Error("bad helper") as NodeJS.ErrnoException;
+      error.code = "ENOEXEC";
+      throw error;
+    });
+
+    await expect(
+      attachFactory({
+        inspectFactoryControl: async () => createSnapshot(),
+        terminal,
+        platform: "darwin",
+        buildMacOsAttachHelper: async () => "/tmp/factory-attach-helper",
+        spawnChildProcess:
+          spawnChildProcess as typeof import("node:child_process").spawn,
+      }),
+    ).rejects.toThrowError(/local macOS PTY helper/);
+
+    await expect(
+      attachFactory({
+        inspectFactoryControl: async () => createSnapshot(),
+        terminal,
+        platform: "darwin",
+        buildMacOsAttachHelper: async () => "/tmp/factory-attach-helper",
+        spawnChildProcess:
+          spawnChildProcess as typeof import("node:child_process").spawn,
+      }),
+    ).rejects.not.toThrowError(/script/);
+  });
+
+  it("keeps the Linux launch guidance pointed at script", async () => {
+    const { terminal } = createTerminal();
+    const spawnChildProcess = vi.fn(() => {
+      const error = new Error("missing script") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    });
+
+    await expect(
+      attachFactory({
+        inspectFactoryControl: async () => createSnapshot(),
+        terminal,
+        platform: "linux",
+        spawnChildProcess:
+          spawnChildProcess as typeof import("node:child_process").spawn,
+      }),
+    ).rejects.toThrowError(/local 'script' terminal helper/);
   });
 });

@@ -359,7 +359,7 @@ async function defaultLaunchAttachChild(
       env: process.env,
     });
   } catch (error) {
-    throw wrapAttachLaunchError(error as Error);
+    throw wrapAttachLaunchError(error as Error, options.platform);
   }
   const stdioChild = child as Partial<ChildProcessWithoutNullStreams>;
   return {
@@ -371,7 +371,7 @@ async function defaultLaunchAttachChild(
       new Promise((resolve, reject) => {
         const onError = (error: Error): void => {
           child.off("exit", onExit);
-          reject(wrapAttachLaunchError(error));
+          reject(wrapAttachLaunchError(error, options.platform));
         };
         const onExit = (
           code: number | null,
@@ -483,9 +483,15 @@ function escapeShellCommand(args: readonly string[]): string {
   return args.map((value) => `'${value.replace(/'/g, `'\\''`)}'`).join(" ");
 }
 
-function wrapAttachLaunchError(error: Error): Error {
+function wrapAttachLaunchError(error: Error, platform: NodeJS.Platform): Error {
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "ENOENT" || code === "ENOEXEC") {
+    if (platform === "darwin") {
+      return new Error(
+        "Factory attach could not start the local macOS PTY helper. Re-run 'symphony factory attach' to rebuild it if needed.",
+        { cause: error },
+      );
+    }
     return new Error(
       "Factory attach requires the local 'script' terminal helper. Install a Unix 'script' command before using 'symphony factory attach'.",
       { cause: error },
