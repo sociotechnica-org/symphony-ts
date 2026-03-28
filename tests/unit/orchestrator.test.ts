@@ -1463,6 +1463,78 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("keeps an unmatched live run visible in the TUI snapshot during cleanup", async () => {
+    const tempRoot = await createTempDir("symphony-tui-snapshot-test-");
+    try {
+      const issue = createIssue(245);
+      const tracker = new SequencedTracker({ ready: [issue] });
+      tracker.setLifecycleSequence(245, [
+        lifecycle("handoff-ready", "symphony/245"),
+      ]);
+      const closeStarted = createDeferred<void>();
+      const allowClose = createDeferred<void>();
+      const orchestrator = new BootstrapOrchestrator(
+        withLocalInstanceRoot(baseConfig, tempRoot),
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(): Promise<RunnerExecutionResult> {
+            throw new Error("run should not be called when startSession is used");
+          },
+          async startSession(): Promise<LiveRunnerSession> {
+            const sessionDescription = {
+              ...createRunnerSessionDescription(),
+              backendSessionId: "backend-session-245",
+            };
+            return {
+              describe() {
+                return sessionDescription;
+              },
+              async runTurn(turn): Promise<RunnerTurnResult> {
+                const timestamp = formatTurnTimestamp(50, turn.turnNumber);
+                return {
+                  exitCode: 0,
+                  stdout: "",
+                  stderr: "",
+                  startedAt: timestamp,
+                  finishedAt: timestamp,
+                  session: sessionDescription,
+                };
+              },
+              async close(): Promise<void> {
+                closeStarted.resolve();
+                await allowClose.promise;
+              },
+            };
+          },
+        },
+        new NullLogger(),
+      );
+
+      const runOncePromise = orchestrator.runOnce();
+      await closeStarted.promise;
+
+      const snapshot = orchestrator.snapshot();
+      expect(snapshot.liveRunCount).toBe(1);
+      expect(snapshot.tickets).toHaveLength(1);
+      expect(snapshot.tickets[0]).toMatchObject({
+        issueNumber: 245,
+        identifier: "sociotechnica-org/symphony-ts#245",
+        status: "running",
+      });
+      expect(snapshot.tickets[0]?.liveRun).not.toBeNull();
+
+      allowClose.resolve();
+      await runOncePromise;
+    } finally {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("skips a running issue that is already leased by another local worker", async () => {
     const tempRoot = await createTempDir("symphony-lease-test-");
     try {

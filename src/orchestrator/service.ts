@@ -270,6 +270,28 @@ export interface TuiSnapshot {
   readonly projectUrl: string | null;
 }
 
+function createFallbackTuiTicketEntry(entry: TuiRunningEntry): TuiTicketEntry {
+  return {
+    issueNumber: entry.issueNumber,
+    identifier: entry.identifier,
+    title: entry.identifier,
+    status: entry.lifecycle?.status ?? "running",
+    summary: entry.lifecycle?.summary ?? entry.issueState,
+    startedAt: entry.startedAt,
+    updatedAt: entry.startedAt,
+    pullRequest: entry.lifecycle?.pullRequest ?? null,
+    checks: entry.lifecycle?.checks ?? { pendingNames: [], failingNames: [] },
+    review: entry.lifecycle?.review ?? {
+      actionableCount: 0,
+      unresolvedThreadCount: 0,
+    },
+    blockedReason: null,
+    runnerAccounting: entry.accounting,
+    runnerVisibility: entry.runnerVisibility,
+    liveRun: entry,
+  };
+}
+
 export interface Orchestrator {
   runOnce(signal?: AbortSignal): Promise<void>;
   runLoop(signal?: AbortSignal): Promise<void>;
@@ -415,30 +437,36 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     const tickets: TuiTicketEntry[] = [
       ...this.#state.status.activeIssues.values(),
-    ]
-      .map((issue) => {
-        const liveRun = runningByIssueNumber.get(issue.issueNumber) ?? null;
-        return {
-          issueNumber: issue.issueNumber,
-          identifier: issue.issueIdentifier,
-          title: issue.title,
-          status: issue.status,
-          summary: issue.summary,
-          startedAt:
-            issue.startedAt === null
-              ? (liveRun?.startedAt ?? null)
-              : new Date(issue.startedAt),
-          updatedAt: new Date(issue.updatedAt),
-          pullRequest: issue.pullRequest,
-          checks: issue.checks,
-          review: issue.review,
-          blockedReason: issue.blockedReason,
-          runnerAccounting: issue.runnerAccounting,
-          runnerVisibility: issue.runnerVisibility,
-          liveRun,
-        };
-      })
-      .sort((a, b) => a.issueNumber - b.issueNumber);
+    ].map((issue) => {
+      const liveRun = runningByIssueNumber.get(issue.issueNumber) ?? null;
+      return {
+        issueNumber: issue.issueNumber,
+        identifier: issue.issueIdentifier,
+        title: issue.title,
+        status: issue.status,
+        summary: issue.summary,
+        startedAt:
+          issue.startedAt === null
+            ? (liveRun?.startedAt ?? null)
+            : new Date(issue.startedAt),
+        updatedAt: new Date(issue.updatedAt),
+        pullRequest: issue.pullRequest,
+        checks: issue.checks,
+        review: issue.review,
+        blockedReason: issue.blockedReason,
+        runnerAccounting: issue.runnerAccounting,
+        runnerVisibility: issue.runnerVisibility,
+        liveRun,
+      };
+    });
+    const ticketIssueNumbers = new Set(tickets.map((entry) => entry.issueNumber));
+    for (const entry of running) {
+      if (ticketIssueNumbers.has(entry.issueNumber)) {
+        continue;
+      }
+      tickets.push(createFallbackTuiTicketEntry(entry));
+    }
+    tickets.sort((a, b) => a.issueNumber - b.issueNumber);
 
     const retrying: TuiRetryEntry[] = [];
     const queuedRetries = listQueuedRetries(this.#state.retries);
