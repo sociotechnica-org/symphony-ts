@@ -31,6 +31,137 @@ const nowMs = Date.now();
 
 // ─── Scenario 1: Active agents with Codex events ─────────────────────────────
 
+const activeRunIssue9: TuiSnapshot["running"][number] = {
+  issueNumber: 9,
+  identifier: "#9",
+  issueState: "running",
+  lifecycle: {
+    status: "running",
+    summary: "Runner is actively working",
+    pullRequest: null,
+    checks: { pendingNames: [], failingNames: [] },
+    review: { actionableCount: 0, unresolvedThreadCount: 0 },
+  },
+  startedAt: new Date(nowMs - 45_000),
+  retryAttempt: 1,
+  sessionId: "smoke-sess-001",
+  turnCount: 0,
+  codexTokenState: "observed",
+  codexTotalTokens: 6000,
+  codexInputTokens: 4000,
+  codexOutputTokens: 2000,
+  codexAppServerPid: 12345,
+  lastCodexEvent: "codex/event/reasoning",
+  lastCodexMessage: {
+    params: {
+      msg: {
+        payload: {
+          type: "reasoning",
+          text: "Analyzing the codebase step 5...",
+        },
+      },
+    },
+  },
+  lastCodexTimestamp: new Date().toISOString(),
+  runnerVisibility: null,
+};
+
+const activeRunIssue11: TuiSnapshot["running"][number] = {
+  issueNumber: 11,
+  identifier: "#11",
+  issueState: "running",
+  lifecycle: {
+    status: "awaiting-system-checks",
+    summary: "Waiting for required checks",
+    pullRequest: {
+      number: 412,
+      url: "https://github.com/sociotechnica-org/symphony-ts/pull/412",
+      headSha: "abcdef123456",
+      latestCommitAt: new Date().toISOString(),
+    },
+    checks: { pendingNames: ["build", "test"], failingNames: [] },
+    review: { actionableCount: 0, unresolvedThreadCount: 0 },
+  },
+  startedAt: new Date(nowMs - 30_000),
+  retryAttempt: 1,
+  sessionId: "smoke-sess-002",
+  turnCount: 1,
+  codexTokenState: "pending",
+  codexTotalTokens: 0,
+  codexInputTokens: 0,
+  codexOutputTokens: 0,
+  codexAppServerPid: 12346,
+  lastCodexEvent: "codex/event/exec_command_begin",
+  lastCodexMessage: {
+    params: {
+      msg: {
+        payload: { type: "exec_command_begin", command: "git status" },
+      },
+    },
+  },
+  lastCodexTimestamp: new Date().toISOString(),
+  runnerVisibility: {
+    state: "running",
+    phase: "turn-execution",
+    session: {
+      provider: "codex",
+      model: "gpt-5.4",
+      transport: createRunnerTransportMetadata("local-stdio-session", {
+        localProcessPid: 12346,
+        canTerminateLocalProcess: true,
+      }),
+      backendSessionId: "thread-live-123-turn-1",
+      backendThreadId: "thread-live-123",
+      latestTurnId: "turn-1",
+      latestTurnNumber: 1,
+      logPointers: [],
+    },
+    lastHeartbeatAt: new Date().toISOString(),
+    lastActionAt: new Date().toISOString(),
+    lastActionSummary: "Codex app-server stdout activity",
+    waitingReason: null,
+    stdoutSummary:
+      '{"method":"thread/started","params":{"thread":{"id":"thread-live-123"}}}',
+    stderrSummary: null,
+    errorSummary: null,
+    cancelledAt: null,
+    timedOutAt: null,
+  },
+};
+
+const activeRunIssue13: TuiSnapshot["running"][number] = {
+  issueNumber: 13,
+  identifier: "#13",
+  issueState: "awaiting-landing",
+  lifecycle: {
+    status: "awaiting-landing",
+    summary: "Waiting for a human merge",
+    pullRequest: {
+      number: 413,
+      url: "https://github.com/sociotechnica-org/symphony-ts/pull/413",
+      headSha: "fedcba654321",
+      latestCommitAt: new Date().toISOString(),
+    },
+    checks: { pendingNames: [], failingNames: [] },
+    review: { actionableCount: 1, unresolvedThreadCount: 2 },
+  },
+  startedAt: new Date(nowMs - 120_000),
+  retryAttempt: 1,
+  sessionId: "sess-xyz-789",
+  turnCount: 2,
+  codexTokenState: "observed",
+  codexTotalTokens: 14400,
+  codexInputTokens: 9600,
+  codexOutputTokens: 4800,
+  codexAppServerPid: null,
+  lastCodexEvent: "codex/event/session.end",
+  lastCodexMessage: {
+    params: { msg: { payload: { type: "session.end" } } },
+  },
+  lastCodexTimestamp: new Date().toISOString(),
+  runnerVisibility: null,
+};
+
 const activeSnapshot: TuiSnapshot = {
   trackerKind: "github",
   trackerSubject: "sociotechnica-org/symphony-ts",
@@ -49,7 +180,7 @@ const activeSnapshot: TuiSnapshot = {
       blockedReason: null,
       runnerAccounting: undefined,
       runnerVisibility: null,
-      liveRun: null,
+      liveRun: activeRunIssue9,
     },
     {
       issueNumber: 11,
@@ -96,7 +227,7 @@ const activeSnapshot: TuiSnapshot = {
         cancelledAt: null,
         timedOutAt: null,
       },
-      liveRun: null,
+      liveRun: activeRunIssue11,
     },
     {
       issueNumber: 13,
@@ -117,7 +248,7 @@ const activeSnapshot: TuiSnapshot = {
       blockedReason: "Waiting for a human merge",
       runnerAccounting: undefined,
       runnerVisibility: null,
-      liveRun: null,
+      liveRun: activeRunIssue13,
     },
     {
       issueNumber: 245,
@@ -142,136 +273,7 @@ const activeSnapshot: TuiSnapshot = {
     },
   ],
   liveRunCount: 3,
-  running: [
-    {
-      issueNumber: 9,
-      identifier: "#9",
-      issueState: "running",
-      lifecycle: {
-        status: "running",
-        summary: "Runner is actively working",
-        pullRequest: null,
-        checks: { pendingNames: [], failingNames: [] },
-        review: { actionableCount: 0, unresolvedThreadCount: 0 },
-      },
-      startedAt: new Date(nowMs - 45_000),
-      retryAttempt: 1,
-      sessionId: "smoke-sess-001",
-      turnCount: 0,
-      codexTokenState: "observed",
-      codexTotalTokens: 6000,
-      codexInputTokens: 4000,
-      codexOutputTokens: 2000,
-      codexAppServerPid: 12345,
-      lastCodexEvent: "codex/event/reasoning",
-      lastCodexMessage: {
-        params: {
-          msg: {
-            payload: {
-              type: "reasoning",
-              text: "Analyzing the codebase step 5...",
-            },
-          },
-        },
-      },
-      lastCodexTimestamp: new Date().toISOString(),
-      runnerVisibility: null,
-    },
-    {
-      issueNumber: 11,
-      identifier: "#11",
-      issueState: "running",
-      lifecycle: {
-        status: "awaiting-system-checks",
-        summary: "Waiting for required checks",
-        pullRequest: {
-          number: 412,
-          url: "https://github.com/sociotechnica-org/symphony-ts/pull/412",
-          headSha: "abcdef123456",
-          latestCommitAt: new Date().toISOString(),
-        },
-        checks: { pendingNames: ["build", "test"], failingNames: [] },
-        review: { actionableCount: 0, unresolvedThreadCount: 0 },
-      },
-      startedAt: new Date(nowMs - 30_000),
-      retryAttempt: 1,
-      sessionId: "smoke-sess-002",
-      turnCount: 1,
-      codexTokenState: "pending",
-      codexTotalTokens: 0,
-      codexInputTokens: 0,
-      codexOutputTokens: 0,
-      codexAppServerPid: 12346,
-      lastCodexEvent: "codex/event/exec_command_begin",
-      lastCodexMessage: {
-        params: {
-          msg: {
-            payload: { type: "exec_command_begin", command: "git status" },
-          },
-        },
-      },
-      lastCodexTimestamp: new Date().toISOString(),
-      runnerVisibility: {
-        state: "running",
-        phase: "turn-execution",
-        session: {
-          provider: "codex",
-          model: "gpt-5.4",
-          transport: createRunnerTransportMetadata("local-stdio-session", {
-            localProcessPid: 12346,
-            canTerminateLocalProcess: true,
-          }),
-          backendSessionId: "thread-live-123-turn-1",
-          backendThreadId: "thread-live-123",
-          latestTurnId: "turn-1",
-          latestTurnNumber: 1,
-          logPointers: [],
-        },
-        lastHeartbeatAt: new Date().toISOString(),
-        lastActionAt: new Date().toISOString(),
-        lastActionSummary: "Codex app-server stdout activity",
-        waitingReason: null,
-        stdoutSummary:
-          '{"method":"thread/started","params":{"thread":{"id":"thread-live-123"}}}',
-        stderrSummary: null,
-        errorSummary: null,
-        cancelledAt: null,
-        timedOutAt: null,
-      },
-    },
-    {
-      issueNumber: 13,
-      identifier: "#13",
-      issueState: "awaiting-landing",
-      lifecycle: {
-        status: "awaiting-landing",
-        summary: "Waiting for a human merge",
-        pullRequest: {
-          number: 413,
-          url: "https://github.com/sociotechnica-org/symphony-ts/pull/413",
-          headSha: "fedcba654321",
-          latestCommitAt: new Date().toISOString(),
-        },
-        checks: { pendingNames: [], failingNames: [] },
-        review: { actionableCount: 1, unresolvedThreadCount: 2 },
-      },
-      startedAt: new Date(nowMs - 120_000),
-      retryAttempt: 1,
-      sessionId: "sess-xyz-789",
-      turnCount: 2,
-      codexTokenState: "observed",
-      codexTotalTokens: 14400,
-      codexInputTokens: 9600,
-      codexOutputTokens: 4800,
-      codexAppServerPid: null,
-      lastCodexEvent: "codex/event/session.end",
-      lastCodexMessage: {
-        params: { msg: { payload: { type: "session.end" } } },
-      },
-      lastCodexTimestamp: new Date().toISOString(),
-      runnerVisibility: null,
-    },
-  ],
+  running: [activeRunIssue9, activeRunIssue11, activeRunIssue13],
   retrying: [
     {
       issueNumber: 7,
