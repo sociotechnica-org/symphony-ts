@@ -33,13 +33,11 @@ function colorize(text: string, code: string): string {
 // ─── Column widths ──────────────────────────────────────────────────────────
 
 const ID_WIDTH = 8;
-const STAGE_WIDTH = 18;
-const PID_WIDTH = 8;
-const AGE_WIDTH = 18;
-const TOKENS_WIDTH = 10;
-const SESSION_WIDTH = 14;
-const EVENT_MIN_WIDTH = 12;
-const ROW_CHROME_WIDTH = 10;
+const STATUS_WIDTH = 16;
+const ACTIVITY_WIDTH = 18;
+const RUNNER_WIDTH = 16;
+const TOKENS_WIDTH = 12;
+const DETAIL_MIN_WIDTH = 20;
 const DEFAULT_TERMINAL_COLUMNS = 115;
 const THROUGHPUT_WINDOW_MS = 5_000;
 const MINIMUM_IDLE_RERENDER_MS = 1_000;
@@ -365,6 +363,10 @@ export function formatSnapshotContent(
   }
 
   const {
+    trackerKind,
+    trackerSubject,
+    tickets,
+    liveRunCount,
     running,
     retrying,
     codexTotals,
@@ -377,15 +379,18 @@ export function formatSnapshotContent(
     maxTurns,
     projectUrl,
   } = snapshot;
-  const eventWidth = runningEventWidth(terminalColumnsOverride);
+  const renderedTickets =
+    tickets.length > 0 ? tickets : running.map(legacyRunningEntryToTicket);
+  const detailWidth = ticketDetailWidth(terminalColumnsOverride);
   const effectiveNowMs = nowMs ?? Date.now();
-  const runningRows = formatRunningRows(
-    running,
-    eventWidth,
+  const ticketRows = formatTicketRows(
+    renderedTickets,
+    detailWidth,
     effectiveNowMs,
     maxTurns,
+    trackerKind,
   );
-  const runningToBackoffSpacer = running.length > 0 ? ["│"] : [];
+  const ticketsToBackoffSpacer = renderedTickets.length > 0 ? ["│"] : [];
   const backoffRows = formatRetryRows(retrying);
   const recoveryRows = formatRecoveryRows(recoveryPosture);
   const lastActionLine =
@@ -397,11 +402,26 @@ export function formatSnapshotContent(
     projectUrl !== null
       ? [colorize("│ Project: ", BOLD) + colorize(projectUrl, CYAN)]
       : [];
+  const trackerLine =
+    trackerSubject.trim() === ""
+      ? []
+      : [
+          colorize(
+            trackerKind === "github" || trackerKind === "github-bootstrap"
+              ? "│ Repo: "
+              : "│ Tracker: ",
+            BOLD,
+          ) + colorize(trackerSubject, CYAN),
+        ];
 
   return [
     colorize("╭─ SYMPHONY STATUS", BOLD),
-    colorize("│ Agents: ", BOLD) +
-      colorize(String(running.length), GREEN) +
+    colorize("│ Tickets: ", BOLD) +
+      colorize(String(renderedTickets.length), GREEN) +
+      colorize(" active", GRAY) +
+      colorize(" | ", GRAY) +
+      colorize("agents ", BOLD) +
+      colorize(String(liveRunCount), GREEN) +
       colorize("/", GRAY) +
       colorize(String(maxConcurrentRuns), GRAY),
     colorize("│ Throughput: ", BOLD) +
@@ -409,23 +429,24 @@ export function formatSnapshotContent(
       sparklineSuffix,
     colorize("│ Runtime: ", BOLD) +
       colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
-    colorize("│ Tokens: ", BOLD) + formatHeaderTokens(codexTotals),
+    colorize("│ Factory tokens: ", BOLD) + formatHeaderTokens(codexTotals),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
     colorize("│ Dispatch: ", BOLD) +
       formatDispatchPressure(dispatchPressure, effectiveNowMs),
     ...lastActionLine,
+    ...trackerLine,
     ...projectLine,
     formatRefreshLine(polling, effectiveNowMs),
     colorize("├─ Recovery posture", BOLD),
     "│",
     ...recoveryRows,
     "│",
-    colorize("├─ Running", BOLD),
+    colorize("├─ Tickets", BOLD),
     "│",
-    runningTableHeaderRow(eventWidth),
-    runningTableSeparatorRow(eventWidth),
-    ...runningRows,
-    ...runningToBackoffSpacer,
+    ticketTableHeaderRow(detailWidth),
+    ticketTableSeparatorRow(detailWidth),
+    ...ticketRows,
+    ...ticketsToBackoffSpacer,
     colorize("├─ Backoff queue", BOLD),
     "│",
     ...backoffRows,
@@ -568,77 +589,66 @@ function formatLastActionLine(
   return line + colorize(" | ", GRAY) + colorize(detail, GRAY) + elapsedSuffix;
 }
 
-// ─── Running table ────────────────────────────────────────────────────────
+// ─── Ticket table ─────────────────────────────────────────────────────────
 
-function runningTableHeaderRow(eventWidth: number): string {
+function ticketTableHeaderRow(detailWidth: number): string {
   const header = [
     formatCell("ID", ID_WIDTH),
-    formatCell("STAGE", STAGE_WIDTH),
-    formatCell("PID", PID_WIDTH),
-    formatCell("AGE / TURN", AGE_WIDTH),
+    formatCell("STATUS", STATUS_WIDTH),
+    formatCell("AGE / TURN", ACTIVITY_WIDTH),
+    formatCell("RUNNER", RUNNER_WIDTH),
     formatCell("TOKENS", TOKENS_WIDTH),
-    formatCell("SESSION", SESSION_WIDTH),
-    formatCell("EVENT", eventWidth),
+    formatCell("DETAIL", detailWidth),
   ].join(" ");
   return "│   " + colorize(header, GRAY);
 }
 
-function runningTableSeparatorRow(eventWidth: number): string {
+function ticketTableSeparatorRow(detailWidth: number): string {
   const width =
     ID_WIDTH +
-    STAGE_WIDTH +
-    PID_WIDTH +
-    AGE_WIDTH +
+    STATUS_WIDTH +
+    ACTIVITY_WIDTH +
+    RUNNER_WIDTH +
     TOKENS_WIDTH +
-    SESSION_WIDTH +
-    eventWidth +
-    6;
+    detailWidth +
+    5;
   return "│   " + colorize("─".repeat(width), GRAY);
 }
 
-function formatRunningRows(
-  running: TuiSnapshot["running"],
-  eventWidth: number,
+function formatTicketRows(
+  tickets: readonly TuiSnapshot["tickets"][number][],
+  detailWidth: number,
   nowMs: number,
   maxTurns: number,
+  trackerKind: TuiSnapshot["trackerKind"],
 ): string[] {
-  if (running.length === 0) {
-    return ["│  " + colorize("No active agents", GRAY), "│"];
+  if (tickets.length === 0) {
+    return ["│  " + colorize("No active tickets", GRAY), "│"];
   }
-  return running.map((entry) =>
-    formatRunningRow(entry, eventWidth, nowMs, maxTurns),
+  return tickets.map((entry) =>
+    formatTicketRow(entry, detailWidth, nowMs, maxTurns, trackerKind),
   );
 }
 
-function formatRunningRow(
-  entry: TuiSnapshot["running"][number],
-  eventWidth: number,
+function formatTicketRow(
+  entry: TuiSnapshot["tickets"][number],
+  detailWidth: number,
   nowMs: number,
   maxTurns: number,
+  trackerKind: TuiSnapshot["trackerKind"],
 ): string {
-  const runtimeSecs = Math.floor((nowMs - entry.startedAt.getTime()) / 1000);
-  const issue = formatCell(entry.identifier, ID_WIDTH);
-  const stage = formatCell(resolveStageLabel(entry), STAGE_WIDTH);
-  const pid = formatCell(
-    entry.codexAppServerPid !== null ? String(entry.codexAppServerPid) : "n/a",
-    PID_WIDTH,
+  const issue = formatCell(shortTicketIdentifier(entry, trackerKind), ID_WIDTH);
+  const stage = formatCell(resolveTicketStatusLabel(entry), STATUS_WIDTH);
+  const activity = formatCell(
+    formatTicketActivity(entry, nowMs, maxTurns),
+    ACTIVITY_WIDTH,
   );
   const ageColor = turnBudgetColor(entry, maxTurns);
-  const age = formatCell(
-    formatRuntimeAndTurns(runtimeSecs, entry, maxTurns),
-    AGE_WIDTH,
-  );
-  const tokens = formatCell(formatRunningTokens(entry), TOKENS_WIDTH, "right");
-  const session = formatCell(
-    compactSessionId(resolveSessionDisplay(entry)),
-    SESSION_WIDTH,
-  );
-  const eventLabel = formatCell(describeRunningEvent(entry), eventWidth);
+  const runner = formatCell(formatTicketRunner(entry), RUNNER_WIDTH);
+  const tokens = formatCell(formatTicketTokens(entry), TOKENS_WIDTH, "right");
+  const detail = formatCell(describeTicketDetail(entry), detailWidth);
 
-  const statusColor = statusDotColor(
-    entry.lastCodexEvent,
-    entry.runnerVisibility,
-  );
+  const statusColor = ticketStatusColor(entry);
 
   return (
     "│ " +
@@ -648,15 +658,13 @@ function formatRunningRow(
     " " +
     colorize(stage, statusColor) +
     " " +
-    colorize(pid, YELLOW) +
+    colorize(activity, ageColor) +
     " " +
-    colorize(age, ageColor) +
+    colorize(runner, CYAN) +
     " " +
     colorize(tokens, YELLOW) +
     " " +
-    colorize(session, CYAN) +
-    " " +
-    colorize(eventLabel, statusColor)
+    colorize(detail, statusColor)
   );
 }
 
@@ -726,15 +734,24 @@ function formatHeaderTokens(codexTotals: TuiSnapshot["codexTotals"]): string {
   );
 }
 
-function formatRunningTokens(entry: TuiSnapshot["running"][number]): string {
-  switch (entry.codexTokenState) {
-    case "pending":
-      return "pending";
-    case "observed":
-      return formatCount(entry.codexTotalTokens);
-    default:
-      return unreachableCodexTokenState(entry.codexTokenState);
+function formatTicketTokens(entry: TuiSnapshot["tickets"][number]): string {
+  const liveRun = entry.liveRun;
+  if (liveRun !== null) {
+    switch (liveRun.codexTokenState) {
+      case "pending":
+        return "pending";
+      case "observed":
+        return formatCount(liveRun.codexTotalTokens);
+      default:
+        return unreachableCodexTokenState(liveRun.codexTokenState);
+    }
   }
+
+  const totalTokens = entry.runnerAccounting?.totalTokens;
+  if (typeof totalTokens === "number" && totalTokens > 0) {
+    return formatCount(totalTokens);
+  }
+  return "n/a";
 }
 
 function unreachableCodexTokenState(state: never): never {
@@ -905,7 +922,75 @@ export function tpsSparkline(
  * guard skip formatSnapshotContent when only the clock has advanced.
  */
 function snapshotFingerprint(snapshot: TuiSnapshot): string {
+  const tickets =
+    snapshot.tickets.length > 0
+      ? snapshot.tickets
+      : snapshot.running.map(legacyRunningEntryToTicket);
   return JSON.stringify({
+    trackerKind: snapshot.trackerKind,
+    trackerSubject: snapshot.trackerSubject,
+    liveRunCount: snapshot.liveRunCount,
+    tickets: tickets.map((entry) => ({
+      issueNumber: entry.issueNumber,
+      identifier: entry.identifier,
+      title: entry.title,
+      status: entry.status,
+      summary: entry.summary,
+      updatedAt: entry.updatedAt,
+      pullRequestNumber: entry.pullRequest?.number ?? null,
+      pendingChecks: entry.checks.pendingNames.length,
+      failingChecks: entry.checks.failingNames.length,
+      actionableReview: entry.review.actionableCount,
+      unresolvedThreads: entry.review.unresolvedThreadCount,
+      blockedReason: entry.blockedReason,
+      runnerAccounting:
+        entry.runnerAccounting === undefined
+          ? null
+          : {
+              inputTokens: entry.runnerAccounting.inputTokens,
+              outputTokens: entry.runnerAccounting.outputTokens,
+              totalTokens: entry.runnerAccounting.totalTokens,
+            },
+      liveRun:
+        entry.liveRun === null
+          ? null
+          : {
+              startedAt: entry.liveRun.startedAt,
+              retryAttempt: entry.liveRun.retryAttempt,
+              sessionId: entry.liveRun.sessionId,
+              turnCount: entry.liveRun.turnCount,
+              codexTokenState: entry.liveRun.codexTokenState,
+              codexTotalTokens: entry.liveRun.codexTotalTokens,
+              codexInputTokens: entry.liveRun.codexInputTokens,
+              codexOutputTokens: entry.liveRun.codexOutputTokens,
+              codexAppServerPid: entry.liveRun.codexAppServerPid,
+              lastCodexEvent: entry.liveRun.lastCodexEvent,
+              lastCodexMessage: entry.liveRun.lastCodexMessage,
+              lastCodexTimestamp: entry.liveRun.lastCodexTimestamp,
+            },
+      runnerVisibility:
+        entry.runnerVisibility === null
+          ? null
+          : {
+              state: entry.runnerVisibility.state,
+              session: {
+                provider: entry.runnerVisibility.session.provider,
+                model: entry.runnerVisibility.session.model,
+                backendSessionId:
+                  entry.runnerVisibility.session.backendSessionId,
+                backendThreadId: entry.runnerVisibility.session.backendThreadId,
+                latestTurnId: entry.runnerVisibility.session.latestTurnId,
+                latestTurnNumber:
+                  entry.runnerVisibility.session.latestTurnNumber,
+              },
+              lastActionSummary: entry.runnerVisibility.lastActionSummary,
+              waitingReason: entry.runnerVisibility.waitingReason,
+              stdoutSummary: entry.runnerVisibility.stdoutSummary,
+              errorSummary: entry.runnerVisibility.errorSummary,
+              cancelledAt: entry.runnerVisibility.cancelledAt,
+              timedOutAt: entry.runnerVisibility.timedOutAt,
+            },
+    })),
     running: snapshot.running.map((e) => ({
       issueNumber: e.issueNumber,
       identifier: e.identifier,
@@ -1062,7 +1147,7 @@ function formatElapsedActionSuffix(
 
 function formatRuntimeAndTurns(
   seconds: number,
-  entry: TuiSnapshot["running"][number],
+  entry: TuiSnapshot["tickets"][number],
   maxTurns: number,
 ): string {
   const displayedTurn = resolveDisplayedTurn(entry, maxTurns);
@@ -1097,16 +1182,22 @@ function compactSessionId(sessionId: string | null): string {
   return sessionId;
 }
 
-function runningEventWidth(terminalColumnsOverride?: number): number {
+function shortTicketIdentifier(
+  entry: TuiSnapshot["tickets"][number],
+  trackerKind: TuiSnapshot["trackerKind"],
+): string {
+  if (trackerKind === "github" || trackerKind === "github-bootstrap") {
+    return `#${entry.issueNumber.toString()}`;
+  }
+  return entry.identifier;
+}
+
+function ticketDetailWidth(terminalColumnsOverride?: number): number {
   const cols = terminalColumnsOverride ?? terminalColumns();
   const fixedWidth =
-    ID_WIDTH +
-    STAGE_WIDTH +
-    PID_WIDTH +
-    AGE_WIDTH +
-    TOKENS_WIDTH +
-    SESSION_WIDTH;
-  return Math.max(EVENT_MIN_WIDTH, cols - fixedWidth - ROW_CHROME_WIDTH);
+    ID_WIDTH + STATUS_WIDTH + ACTIVITY_WIDTH + RUNNER_WIDTH + TOKENS_WIDTH;
+  const ticketRowChromeWidth = 9;
+  return Math.max(DETAIL_MIN_WIDTH, cols - fixedWidth - ticketRowChromeWidth);
 }
 
 function terminalColumns(): number {
@@ -1134,27 +1225,40 @@ export function humanizeEvent(
   return truncate(byEvent ?? humanizePayload(payload), 140);
 }
 
-function describeRunningEvent(entry: TuiSnapshot["running"][number]): string {
-  const runnerLabel = formatRunnerLabel(entry.runnerVisibility);
-  const lifecycleContext = describeLifecycleContext(entry);
+function describeTicketDetail(entry: TuiSnapshot["tickets"][number]): string {
+  const liveRun = entry.liveRun;
+  const title = entry.title.trim();
+  const lifecycleContext = describeTicketLifecycleContext(entry);
   const fromVisibility = humanizeRunnerVisibility(entry.runnerVisibility);
   const liveEvent =
     fromVisibility ??
-    humanizeEvent(entry.lastCodexMessage, entry.lastCodexEvent);
+    humanizeEvent(liveRun?.lastCodexMessage, liveRun?.lastCodexEvent ?? null);
   const meaningfulLiveEvent =
     liveEvent === "no codex message yet" ? null : liveEvent;
-  const segments = [runnerLabel, meaningfulLiveEvent, lifecycleContext].filter(
-    (value): value is string => value !== null && value.trim() !== "",
-  );
+  const sessionContext = describeTicketSessionContext(entry);
+  const segments = [
+    title === "" ? null : title,
+    meaningfulLiveEvent,
+    lifecycleContext,
+    sessionContext,
+  ].filter((value): value is string => value !== null && value.trim() !== "");
   if (segments.length > 0) {
+    if (
+      liveRun !== null &&
+      meaningfulLiveEvent === null &&
+      liveEvent === "no codex message yet"
+    ) {
+      segments.push(liveEvent);
+    }
     return segments.join(" · ");
   }
   return liveEvent;
 }
 
 function resolveSessionDisplay(
-  entry: TuiSnapshot["running"][number],
+  entry: TuiSnapshot["tickets"][number],
 ): string | null {
+  const liveRun = entry.liveRun;
   const visibility = entry.runnerVisibility;
   if (visibility !== null) {
     // Prefer the most specific backend session identity so operators can
@@ -1163,22 +1267,20 @@ function resolveSessionDisplay(
       visibility.session.backendSessionId ??
       visibility.session.backendThreadId ??
       visibility.session.latestTurnId ??
-      entry.sessionId
+      liveRun?.sessionId ??
+      null
     );
   }
-  if (entry.sessionId !== null) {
-    return entry.sessionId;
+  if (liveRun?.sessionId !== null && liveRun?.sessionId !== undefined) {
+    return liveRun.sessionId;
   }
   return null;
 }
 
-function resolveStageLabel(entry: TuiSnapshot["running"][number]): string {
-  const status = entry.lifecycle?.status;
-  if (status === undefined) {
-    return entry.issueState;
-  }
-
-  switch (status) {
+function resolveTicketStatusLabel(
+  entry: TuiSnapshot["tickets"][number],
+): string {
+  switch (entry.status) {
     case "awaiting-human-handoff":
       return "human-handoff";
     case "awaiting-human-review":
@@ -1199,20 +1301,20 @@ function resolveStageLabel(entry: TuiSnapshot["running"][number]): string {
     case "shutdown-terminated":
     case "shutdown-forced":
     case "merged":
-      return status;
+      return entry.status;
   }
 }
 
 function resolveDisplayedTurn(
-  entry: TuiSnapshot["running"][number],
+  entry: TuiSnapshot["tickets"][number],
   maxTurns: number,
 ): number | null {
   const runnerTurn = entry.runnerVisibility?.session.latestTurnNumber;
   if (typeof runnerTurn === "number" && runnerTurn > 0) {
     return Math.min(maxTurns, runnerTurn);
   }
-  if (entry.turnCount > 0) {
-    return Math.min(maxTurns, entry.turnCount);
+  if ((entry.liveRun?.turnCount ?? 0) > 0) {
+    return Math.min(maxTurns, entry.liveRun!.turnCount);
   }
   if (entry.runnerVisibility !== null) {
     return 1;
@@ -1221,7 +1323,7 @@ function resolveDisplayedTurn(
 }
 
 function turnBudgetColor(
-  entry: TuiSnapshot["running"][number],
+  entry: TuiSnapshot["tickets"][number],
   maxTurns: number,
 ): string {
   const displayedTurn = resolveDisplayedTurn(entry, maxTurns);
@@ -1236,6 +1338,92 @@ function turnBudgetColor(
     return YELLOW;
   }
   return MAGENTA;
+}
+
+function ticketStatusColor(entry: TuiSnapshot["tickets"][number]): string {
+  if (entry.liveRun !== null) {
+    return statusDotColor(entry.liveRun.lastCodexEvent, entry.runnerVisibility);
+  }
+
+  switch (entry.status) {
+    case "awaiting-human-handoff":
+    case "awaiting-human-review":
+    case "awaiting-system-checks":
+    case "awaiting-landing-command":
+    case "awaiting-landing":
+      return YELLOW;
+    case "rework-required":
+    case "shutdown-forced":
+      return RED;
+    case "merged":
+      return MAGENTA;
+    case "degraded-review-infrastructure":
+      return RED;
+    case "queued":
+    case "preparing":
+    case "running":
+    case "shutdown-terminated":
+      return BLUE;
+  }
+}
+
+function formatTicketActivity(
+  entry: TuiSnapshot["tickets"][number],
+  nowMs: number,
+  maxTurns: number,
+): string {
+  if (entry.startedAt !== null) {
+    const runtimeSecs = Math.floor((nowMs - entry.startedAt.getTime()) / 1000);
+    return formatRuntimeAndTurns(runtimeSecs, entry, maxTurns);
+  }
+
+  const updatedAgoSeconds = Math.max(
+    0,
+    Math.floor((nowMs - entry.updatedAt.getTime()) / 1000),
+  );
+  return `updated ${formatRuntimeSeconds(updatedAgoSeconds)}`;
+}
+
+function formatTicketRunner(entry: TuiSnapshot["tickets"][number]): string {
+  return (
+    formatRunnerLabel(entry.runnerVisibility) ??
+    entry.runnerVisibility?.state ??
+    "n/a"
+  );
+}
+
+function describeTicketSessionContext(
+  entry: TuiSnapshot["tickets"][number],
+): string | null {
+  const session = resolveSessionDisplay(entry);
+  if (session === null) {
+    return null;
+  }
+  return `session ${compactSessionId(session)}`;
+}
+
+export function legacyRunningEntryToTicket(
+  entry: TuiSnapshot["running"][number],
+): TuiSnapshot["tickets"][number] {
+  return {
+    issueNumber: entry.issueNumber,
+    identifier: entry.identifier,
+    title: entry.identifier,
+    status: entry.lifecycle?.status ?? "running",
+    summary: entry.lifecycle?.summary ?? entry.issueState,
+    startedAt: entry.startedAt,
+    updatedAt: entry.startedAt,
+    pullRequest: entry.lifecycle?.pullRequest ?? null,
+    checks: entry.lifecycle?.checks ?? { pendingNames: [], failingNames: [] },
+    review: entry.lifecycle?.review ?? {
+      actionableCount: 0,
+      unresolvedThreadCount: 0,
+    },
+    blockedReason: null,
+    runnerAccounting: entry.accounting,
+    runnerVisibility: entry.runnerVisibility,
+    liveRun: entry,
+  };
 }
 
 function formatRunnerLabel(
@@ -1265,29 +1453,24 @@ function formatRunnerLabel(
   return base;
 }
 
-function describeLifecycleContext(
-  entry: TuiSnapshot["running"][number],
+function describeTicketLifecycleContext(
+  entry: TuiSnapshot["tickets"][number],
 ): string | null {
-  const lifecycle = entry.lifecycle;
-  if (lifecycle == null) {
-    return null;
-  }
-
   const segments: string[] = [];
-  if (lifecycle.pullRequest !== null) {
-    segments.push(`PR #${lifecycle.pullRequest.number.toString()}`);
+  if (entry.pullRequest !== null) {
+    segments.push(`PR #${entry.pullRequest.number.toString()}`);
   }
 
-  const pendingChecks = lifecycle.checks.pendingNames.length;
-  const failingChecks = lifecycle.checks.failingNames.length;
+  const pendingChecks = entry.checks.pendingNames.length;
+  const failingChecks = entry.checks.failingNames.length;
   if (pendingChecks > 0 || failingChecks > 0) {
     segments.push(
       `checks p${pendingChecks.toString()} f${failingChecks.toString()}`,
     );
   }
 
-  const actionableReview = lifecycle.review.actionableCount;
-  const unresolvedThreads = lifecycle.review.unresolvedThreadCount;
+  const actionableReview = entry.review.actionableCount;
+  const unresolvedThreads = entry.review.unresolvedThreadCount;
   if (actionableReview > 0 || unresolvedThreads > 0) {
     segments.push(
       `review a${actionableReview.toString()} t${unresolvedThreads.toString()}`,
@@ -1296,10 +1479,10 @@ function describeLifecycleContext(
 
   if (
     segments.length === 0 &&
-    lifecycle.status !== "running" &&
-    lifecycle.summary.trim() !== ""
+    entry.status !== "running" &&
+    entry.summary.trim() !== ""
   ) {
-    return lifecycle.summary;
+    return entry.summary;
   }
   return segments.length === 0 ? null : segments.join(" · ");
 }

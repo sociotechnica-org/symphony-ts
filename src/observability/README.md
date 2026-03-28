@@ -26,7 +26,8 @@ npx tsx tests/fixtures/tui-qa-dump.ts
 This renders three scenarios (active agents, idle, offline) at different
 terminal widths and prints an event humanization table. Output is
 ANSI-stripped plain text. Use this to visually verify layout, column
-alignment, event labels, and token formatting after making TUI changes.
+alignment, ticket ordering, shortened GitHub issue IDs, and token formatting
+after making TUI changes.
 
 Compare output against the Elixir reference screenshot in issue #98.
 
@@ -100,13 +101,15 @@ exec command begin/end, and the full agent handoff lifecycle.
 When QA'ing the TUI (either via the dump script or live):
 
 - **Header**: Agents count/max, Throughput (tps) with sparkline, Runtime,
-  Tokens (in/out/total with commas), Rate Limits, Project URL, Next refresh
-- **Running table**: All columns (ID, STAGE, PID, AGE/TURN, TOKENS, SESSION,
-  EVENT) aligned; event labels are human-readable (not raw JSON-RPC methods)
+  Factory tokens (in/out/total with commas), repo context, Rate Limits,
+  Project URL, Next refresh
+- **Tickets table**: All columns (ID, STATUS, AGE/TURN, RUNNER, TOKENS,
+  DETAIL) aligned; GitHub rows use short identifiers such as `#245`; waiting
+  tickets remain visible without a live session
 - **Event humanization**: `reasoning update: ...`, `git status`,
   `command completed (exit 0)`, `session started`, `turn completed (...)`
-- **Responsive width**: EVENT column expands/contracts with terminal width
-- **Edge cases**: no agents → "No active agents"; null PID/session → "n/a";
+- **Responsive width**: DETAIL column expands/contracts with terminal width
+- **Edge cases**: no tickets → "No active tickets"; no runner → "n/a";
   no events yet → "no codex message yet"
 - **Backoff queue**: retry entries with attempt count, countdown, error text
 - **Offline frame**: `app_status=offline` when stopped
