@@ -5,6 +5,7 @@ import type {
 } from "../../src/tracker/github-client.js";
 import { createPullRequestSnapshot } from "../../src/tracker/pull-request-snapshot.js";
 import type { PullRequestCheck } from "../../src/domain/pull-request.js";
+import type { GitHubReviewerAppConfig } from "../../src/domain/workflow.js";
 
 function createReviewState(
   comments: ReadonlyArray<{
@@ -91,6 +92,14 @@ const successfulDevinCheck: PullRequestCheck = {
   conclusion: "success",
   detailsUrl: "https://example.test/checks/devin",
 };
+
+const devinReviewerApps: readonly GitHubReviewerAppConfig[] = [
+  {
+    key: "devin",
+    accepted: true,
+    required: true,
+  },
+];
 
 describe("createPullRequestSnapshot", () => {
   it("keeps a bot-owned thread actionable when a human replies", () => {
@@ -200,7 +209,7 @@ describe("createPullRequestSnapshot", () => {
               id: "comment-1",
               authorAssociation: "NONE",
               author: { login: "devin-ai-integration" },
-              body: "Automated review found a shutdown edge case.",
+              body: "## Devin Review: Found 1 potential issues",
               createdAt: "2026-03-06T01:00:00.000Z",
               url: "https://example.test/pr/24#comment-1",
             },
@@ -213,7 +222,8 @@ describe("createPullRequestSnapshot", () => {
           nodes: [],
         },
       },
-      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
     });
 
     expect(snapshot.actionableReviewFeedback).toHaveLength(1);
@@ -221,6 +231,10 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.botActionableReviewFeedback[0]?.authorLogin).toBe(
       "devin-ai-integration",
     );
+    expect(snapshot.reviewerApps[0]).toMatchObject({
+      reviewerKey: "devin",
+      verdict: "issues-found",
+    });
   });
 
   it("records required approved bot review presence from a clean summary comment", () => {
@@ -261,8 +275,8 @@ describe("createPullRequestSnapshot", () => {
       approvedReviewBotLogins: ["greptile-apps"],
     });
 
-    expect(snapshot.requiredApprovedReviewCoverage).toBe("satisfied");
-    expect(snapshot.observedApprovedReviewBotLogins).toEqual(["greptile-apps"]);
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
   });
 
   it("ignores stale required approved bot review from before the current head commit", () => {
@@ -303,8 +317,8 @@ describe("createPullRequestSnapshot", () => {
       approvedReviewBotLogins: ["greptile-apps"],
     });
 
-    expect(snapshot.requiredApprovedReviewCoverage).toBe("missing");
-    expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
+    expect(snapshot.requiredReviewerState).toBe("missing");
+    expect(snapshot.observedReviewerKeys).toEqual([]);
   });
 
   it("ignores cursor acknowledgement noise for required approved bot review presence", () => {
@@ -347,8 +361,8 @@ describe("createPullRequestSnapshot", () => {
       approvedReviewBotLogins: ["cursor[bot]"],
     });
 
-    expect(snapshot.requiredApprovedReviewCoverage).toBe("missing");
-    expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
+    expect(snapshot.requiredReviewerState).toBe("missing");
+    expect(snapshot.observedReviewerKeys).toEqual([]);
   });
 
   it("records required approved bot review presence from a top-level PR review", () => {
@@ -372,9 +386,11 @@ describe("createPullRequestSnapshot", () => {
         reviews: {
           nodes: [
             {
+              id: "review-1",
               author: { login: "devin-ai-integration" },
               body: "## ✅ Devin Review: No Issues Found",
               submittedAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#review-1",
             },
           ],
         },
@@ -382,14 +398,12 @@ describe("createPullRequestSnapshot", () => {
           nodes: [],
         },
       },
-      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
-      approvedReviewBotLogins: ["devin-ai-integration"],
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
     });
 
-    expect(snapshot.requiredApprovedReviewCoverage).toBe("satisfied");
-    expect(snapshot.observedApprovedReviewBotLogins).toEqual([
-      "devin-ai-integration",
-    ]);
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.observedReviewerKeys).toEqual(["devin"]);
   });
 
   it("records required approved bot review presence from a successful reviewer-app status context on the current head", () => {
@@ -413,9 +427,11 @@ describe("createPullRequestSnapshot", () => {
         reviews: {
           nodes: [
             {
+              id: "review-1",
               author: { login: "devin-ai-integration" },
               body: "## ✅ Devin Review: No Issues Found",
-              submittedAt: "2026-03-06T01:00:00.000Z",
+              submittedAt: "2026-03-06T03:00:00.000Z",
+              url: "https://example.test/pr/24#review-1",
             },
           ],
         },
@@ -423,14 +439,45 @@ describe("createPullRequestSnapshot", () => {
           nodes: [],
         },
       },
-      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
-      approvedReviewBotLogins: ["devin-ai-integration"],
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
     });
 
-    expect(snapshot.requiredApprovedReviewCoverage).toBe("satisfied");
-    expect(snapshot.observedApprovedReviewBotLogins).toEqual([
-      "devin-ai-integration",
-    ]);
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.observedReviewerKeys).toEqual(["devin"]);
+  });
+
+  it("treats reviewer-app check success without a current-head verdict as unknown", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("unknown");
+    expect(snapshot.observedReviewerKeys).toEqual(["devin"]);
   });
 
   it("does not treat unrelated successful status contexts as approved reviewer coverage", () => {
@@ -465,12 +512,12 @@ describe("createPullRequestSnapshot", () => {
           nodes: [],
         },
       },
-      reviewBotLogins: ["greptile-apps", "cursor", "devin-ai-integration"],
-      approvedReviewBotLogins: ["devin-ai-integration"],
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
     });
 
-    expect(snapshot.requiredApprovedReviewCoverage).toBe("missing");
-    expect(snapshot.observedApprovedReviewBotLogins).toEqual([]);
+    expect(snapshot.requiredReviewerState).toBe("missing");
+    expect(snapshot.observedReviewerKeys).toEqual([]);
   });
 
   it("detects a human /land command on the current PR head", () => {

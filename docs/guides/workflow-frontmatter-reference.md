@@ -154,6 +154,49 @@ coverage policy. If you configure expected approved review bots, Symphony can
 block landing when none of them have produced qualifying output on the current
 PR head.
 
+##### `tracker.reviewer_apps`
+
+- Type: object
+- Required: no
+- Default: omitted
+
+Preferred first-class reviewer-app policy config for GitHub-backed trackers.
+Each key enables a built-in reviewer adapter and declares whether its verdict
+is accepted for actionable feedback and/or required before landing.
+
+Supported keys in this slice:
+
+- `devin`
+
+Example:
+
+```yaml
+tracker:
+  reviewer_apps:
+    devin:
+      accepted: true
+      required: true
+```
+
+###### `tracker.reviewer_apps.<key>.accepted`
+
+- Type: boolean
+- Required: no
+- Default: `true`
+
+When true, an explicit reviewer-app `issues-found` verdict counts as actionable
+feedback and can drive `rework-required`.
+
+###### `tracker.reviewer_apps.<key>.required`
+
+- Type: boolean
+- Required: no
+- Default: `false`
+
+When true, Symphony requires current-head reviewer coverage and an explicit
+`pass` verdict before the PR can become landable. `required: true` currently
+also requires `accepted: true`.
+
 ##### `tracker.queue_priority`
 
 - Type: object
@@ -652,6 +695,10 @@ tracker:
     - devin-ai-integration
   approved_review_bot_logins:
     - devin-ai-integration
+  reviewer_apps:
+    devin:
+      accepted: true
+      required: true
   queue_priority:
     enabled: true
     project_number: 7

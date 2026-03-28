@@ -19,6 +19,7 @@ import type {
   CodexRemoteExecutionConfig,
   GitHubCompatibleTrackerConfig,
   GitHubQueuePriorityConfig,
+  GitHubReviewerAppConfig,
   LinearTrackerConfig,
   ObservabilityConfig,
   PromptBuilder,
@@ -74,8 +75,11 @@ const SUPPORTED_AGENT_RUNNER_KINDS = [
   "generic-command",
   "claude-code",
 ] as const;
+const SUPPORTED_GITHUB_REVIEWER_APP_KEYS = ["devin"] as const;
 type SupportedTrackerKind = (typeof SUPPORTED_TRACKER_KINDS)[number];
 type SupportedAgentRunnerKind = (typeof SUPPORTED_AGENT_RUNNER_KINDS)[number];
+type SupportedGitHubReviewerAppKey =
+  (typeof SUPPORTED_GITHUB_REVIEWER_APP_KEYS)[number];
 
 interface PromptRenderInput {
   readonly issue: PromptIssueContext;
@@ -312,6 +316,74 @@ function isSupportedAgentRunnerKind(
   value: string,
 ): value is SupportedAgentRunnerKind {
   return (SUPPORTED_AGENT_RUNNER_KINDS as readonly string[]).includes(value);
+}
+
+function resolveGitHubReviewerApps(
+  value: unknown,
+): readonly GitHubReviewerAppConfig[] {
+  if (value === undefined) {
+    return [];
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError("Expected object for tracker.reviewer_apps");
+  }
+
+  const reviewerApps: GitHubReviewerAppConfig[] = [];
+  for (const [key, rawConfig] of Object.entries(value).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )) {
+    if (
+      !SUPPORTED_GITHUB_REVIEWER_APP_KEYS.includes(
+        key as SupportedGitHubReviewerAppKey,
+      )
+    ) {
+      throw new ConfigError(
+        `Unsupported tracker.reviewer_apps key '${key}'. Supported reviewer apps: ${SUPPORTED_GITHUB_REVIEWER_APP_KEYS.join(", ")}`,
+      );
+    }
+    if (
+      rawConfig === null ||
+      typeof rawConfig !== "object" ||
+      Array.isArray(rawConfig)
+    ) {
+      throw new ConfigError(`Expected object for tracker.reviewer_apps.${key}`);
+    }
+
+    const appConfig = rawConfig as Record<string, unknown>;
+    const accepted =
+      appConfig["accepted"] === undefined
+        ? true
+        : requireBoolean(
+            appConfig["accepted"],
+            `tracker.reviewer_apps.${key}.accepted`,
+          );
+    const required =
+      appConfig["required"] === undefined
+        ? false
+        : requireBoolean(
+            appConfig["required"],
+            `tracker.reviewer_apps.${key}.required`,
+          );
+
+    if (!accepted && !required) {
+      throw new ConfigError(
+        `tracker.reviewer_apps.${key} must enable accepted, required, or both`,
+      );
+    }
+    if (required && !accepted) {
+      throw new ConfigError(
+        `tracker.reviewer_apps.${key}.required cannot be true when accepted is false`,
+      );
+    }
+
+    reviewerApps.push({
+      key,
+      accepted,
+      required,
+    });
+  }
+
+  return reviewerApps;
 }
 
 function parseFrontMatter(raw: string): {
@@ -1029,6 +1101,7 @@ function resolveGitHubTrackerConfig<
             tracker["approved_review_bot_logins"],
             "tracker.approved_review_bot_logins",
           ),
+    reviewerApps: resolveGitHubReviewerApps(tracker["reviewer_apps"]),
     queuePriority: resolveGitHubQueuePriorityConfig(
       tracker["queue_priority"],
       "tracker.queue_priority",

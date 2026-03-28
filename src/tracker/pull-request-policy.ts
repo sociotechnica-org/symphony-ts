@@ -146,6 +146,23 @@ export function evaluatePullRequestLifecycle(
     };
   }
 
+  if (snapshot.requiredReviewerState === "running") {
+    return {
+      lifecycle: {
+        kind: "awaiting-system-checks",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        checks: snapshot.checks,
+        pendingCheckNames: snapshot.pendingCheckNames,
+        failingCheckNames: snapshot.failingCheckNames,
+        actionableReviewFeedback: snapshot.actionableReviewFeedback,
+        unresolvedThreadIds: [],
+        summary: `Waiting for reviewer apps to finish on ${snapshot.pullRequest.url}`,
+      },
+      nextNoCheckObservation: null,
+    };
+  }
+
   if (snapshot.actionableReviewFeedback.length > 0) {
     return {
       lifecycle: {
@@ -190,7 +207,7 @@ export function evaluatePullRequestLifecycle(
     }
   }
 
-  if (snapshot.requiredApprovedReviewCoverage === "missing") {
+  if (snapshot.requiredReviewerState === "missing") {
     return {
       lifecycle: {
         kind: "degraded-review-infrastructure",
@@ -202,6 +219,23 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
         summary: `Degraded external review infrastructure for ${snapshot.pullRequest.url}; expected reviewer-app output has not been observed on the current head.`,
+      },
+      nextNoCheckObservation: previousNoCheckObservation ?? null,
+    };
+  }
+
+  if (snapshot.requiredReviewerState === "unknown") {
+    return {
+      lifecycle: {
+        kind: "degraded-review-infrastructure",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        checks: snapshot.checks,
+        pendingCheckNames: snapshot.pendingCheckNames,
+        failingCheckNames: snapshot.failingCheckNames,
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: `Degraded external review infrastructure for ${snapshot.pullRequest.url}; required reviewer-app output was observed on the current head but no explicit pass verdict was normalized.`,
       },
       nextNoCheckObservation: previousNoCheckObservation ?? null,
     };

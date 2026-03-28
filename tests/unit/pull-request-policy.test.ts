@@ -22,8 +22,9 @@ function createSnapshot(
     actionableReviewFeedback: [],
     botActionableReviewFeedback: [],
     unresolvedThreadIds: [],
-    requiredApprovedReviewCoverage: "satisfied",
-    observedApprovedReviewBotLogins: [],
+    reviewerApps: [],
+    requiredReviewerState: "satisfied",
+    observedReviewerKeys: [],
     ...overrides,
   };
 }
@@ -115,7 +116,7 @@ describe("pull-request-policy", () => {
             detailsUrl: null,
           },
         ],
-        requiredApprovedReviewCoverage: "missing",
+        requiredReviewerState: "missing",
       }),
       undefined,
     ).lifecycle;
@@ -128,7 +129,7 @@ describe("pull-request-policy", () => {
 
   it("preserves no-check stabilization while required approved bot review is missing", () => {
     const snapshot = createSnapshot({
-      requiredApprovedReviewCoverage: "missing",
+      requiredReviewerState: "missing",
     });
 
     const first = evaluatePullRequestLifecycle(snapshot, undefined);
@@ -146,6 +147,47 @@ describe("pull-request-policy", () => {
     expect(second.nextNoCheckObservation).toEqual(first.nextNoCheckObservation);
     expect(third.lifecycle.kind).toBe("degraded-review-infrastructure");
     expect(third.nextNoCheckObservation).toEqual(first.nextNoCheckObservation);
+  });
+
+  it("waits while a required reviewer app is still running", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        checks: [
+          {
+            name: "Devin Review",
+            status: "pending",
+            conclusion: null,
+            detailsUrl: null,
+          },
+        ],
+        pendingCheckNames: [],
+        requiredReviewerState: "running",
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.summary).toMatch(/reviewer apps to finish/i);
+  });
+
+  it("degrades when required reviewer verdict is unknown", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        checks: [
+          {
+            name: "CI",
+            status: "success",
+            conclusion: "success",
+            detailsUrl: null,
+          },
+        ],
+        requiredReviewerState: "unknown",
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("degraded-review-infrastructure");
+    expect(lifecycle.summary).toMatch(/explicit pass verdict/i);
   });
 
   it("requires rework for failing checks or bot feedback", () => {

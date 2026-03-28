@@ -26,7 +26,10 @@ export interface PullRequestCheck {
   readonly detailsUrl: string | null;
 }
 
-export type ReviewFeedbackKind = "review-thread" | "issue-comment";
+export type ReviewFeedbackKind =
+  | "review-thread"
+  | "issue-comment"
+  | "pull-request-review";
 
 export interface ReviewFeedback {
   readonly id: string;

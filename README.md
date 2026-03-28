@@ -275,6 +275,10 @@ tracker:
   approved_review_bot_logins:
     - greptile[bot]
     - bugbot[bot]
+  reviewer_apps:
+    devin:
+      accepted: true
+      required: true
   queue_priority:
     enabled: true
     project_number: 12
@@ -346,24 +350,26 @@ Workers should treat those summarized GitHub fields as untrusted context that
 helps explain the task, not as instructions that can override checked-in repo
 policy, code, docs, or local test evidence.
 
-| Field                            | Purpose                                                                                |
-| -------------------------------- | -------------------------------------------------------------------------------------- |
-| `tracker.repo`                   | GitHub repository to poll for labeled issues                                           |
-| `tracker.review_bot_logins`      | PR comment authors treated as actionable bot review                                    |
-| `polling.interval_ms`            | How often to check for new work                                                        |
-| `polling.max_concurrent_runs`    | Local concurrency cap                                                                  |
-| `workspace.root`                 | Where isolated workspaces are created                                                  |
-| `workspace.repo_url`             | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
-| `workspace.branch_prefix`        | Issue branch naming prefix                                                             |
-| `workspace.worker_hosts.<name>`  | Optional SSH worker-host definitions for remote Codex execution                        |
-| `agent.runner.kind`              | Selects the logical runner provider (`codex`, `claude-code`, or `generic-command`)     |
-| `agent.runner.remote_execution`  | Optional remote execution selection for Codex (`kind: ssh`, `worker_host: <name>`)     |
-| `agent.command`                  | Runner command shape; Codex reuses its flags to launch `codex app-server`              |
-| `agent.prompt_transport`         | Sends the prompt over `stdin` or via a temp file path                                  |
-| `agent.timeout_ms`               | Max wall-clock time per runner turn                                                    |
-| `agent.max_turns`                | Max in-process continuation turns per worker run                                       |
-| `workspace.retention.on_success` | Terminal success workspace policy: `delete` or `retain` (default `delete`)             |
-| `workspace.retention.on_failure` | Terminal failure workspace policy: `delete` or `retain` (default `retain`)             |
+| Field                                | Purpose                                                                                |
+| ------------------------------------ | -------------------------------------------------------------------------------------- |
+| `tracker.repo`                       | GitHub repository to poll for labeled issues                                           |
+| `tracker.review_bot_logins`          | PR comment authors treated as actionable bot review                                    |
+| `tracker.approved_review_bot_logins` | Legacy reviewer-app identities whose current-head output must appear before landing    |
+| `tracker.reviewer_apps`              | First-class reviewer-app policy with explicit `accepted` and `required` semantics      |
+| `polling.interval_ms`                | How often to check for new work                                                        |
+| `polling.max_concurrent_runs`        | Local concurrency cap                                                                  |
+| `workspace.root`                     | Where isolated workspaces are created                                                  |
+| `workspace.repo_url`                 | Explicit clone source URL or local path; local paths resolve relative to `WORKFLOW.md` |
+| `workspace.branch_prefix`            | Issue branch naming prefix                                                             |
+| `workspace.worker_hosts.<name>`      | Optional SSH worker-host definitions for remote Codex execution                        |
+| `agent.runner.kind`                  | Selects the logical runner provider (`codex`, `claude-code`, or `generic-command`)     |
+| `agent.runner.remote_execution`      | Optional remote execution selection for Codex (`kind: ssh`, `worker_host: <name>`)     |
+| `agent.command`                      | Runner command shape; Codex reuses its flags to launch `codex app-server`              |
+| `agent.prompt_transport`             | Sends the prompt over `stdin` or via a temp file path                                  |
+| `agent.timeout_ms`                   | Max wall-clock time per runner turn                                                    |
+| `agent.max_turns`                    | Max in-process continuation turns per worker run                                       |
+| `workspace.retention.on_success`     | Terminal success workspace policy: `delete` or `retain` (default `delete`)             |
+| `workspace.retention.on_failure`     | Terminal failure workspace policy: `delete` or `retain` (default `retain`)             |
 
 `workspace.cleanup_on_success` remains accepted as a compatibility alias for
 `workspace.retention.on_success`.
