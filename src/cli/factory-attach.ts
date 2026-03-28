@@ -244,35 +244,21 @@ export async function attachFactory(
   }
 }
 
-export function createFactoryAttachCommand(
-  sessionId: string,
-  platform: NodeJS.Platform,
-): {
+function createLinuxFactoryAttachCommand(sessionId: string): {
   readonly command: string;
   readonly args: readonly string[];
 } {
-  if (platform === "darwin") {
-    return {
-      command: "script",
-      args: ["-q", "/dev/null", "screen", "-x", sessionId],
-    };
-  }
-  if (platform === "linux") {
-    return {
-      command: "script",
-      args: [
-        "-q",
-        "-f",
-        "-e",
-        "-c",
-        escapeShellCommand(["screen", "-x", sessionId]),
-        "/dev/null",
-      ],
-    };
-  }
-  throw new Error(
-    `Factory attach is only supported on macOS and Linux today; got ${platform}.`,
-  );
+  return {
+    command: "script",
+    args: [
+      "-q",
+      "-f",
+      "-e",
+      "-c",
+      escapeShellCommand(["screen", "-x", sessionId]),
+      "/dev/null",
+    ],
+  };
 }
 
 export interface FactoryAttachLaunchSpec {
@@ -298,7 +284,13 @@ export async function createFactoryAttachLaunchSpec(
     };
   }
 
-  const { command, args } = createFactoryAttachCommand(sessionId, platform);
+  if (platform !== "linux") {
+    throw new Error(
+      `Factory attach is only supported on macOS and Linux today; got ${platform}.`,
+    );
+  }
+
+  const { command, args } = createLinuxFactoryAttachCommand(sessionId);
   return {
     command,
     args,

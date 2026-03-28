@@ -4,7 +4,6 @@ import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control
 import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "../../src/cli/factory-attach-macos-helper-source.js";
 import {
   attachFactory,
-  createFactoryAttachCommand,
   createFactoryAttachLaunchSpec,
   resolveAttachSession,
   type FactoryAttachChild,
@@ -136,29 +135,6 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("createFactoryAttachCommand", () => {
-  it("builds a macOS script command", () => {
-    expect(createFactoryAttachCommand("1234.session", "darwin")).toEqual({
-      command: "script",
-      args: ["-q", "/dev/null", "screen", "-x", "1234.session"],
-    });
-  });
-
-  it("builds a Linux script wrapper", () => {
-    expect(createFactoryAttachCommand("1234.session", "linux")).toEqual({
-      command: "script",
-      args: [
-        "-q",
-        "-f",
-        "-e",
-        "-c",
-        "'screen' '-x' '1234.session'",
-        "/dev/null",
-      ],
-    });
-  });
-});
-
 describe("createFactoryAttachLaunchSpec", () => {
   it("uses the compiled helper on macOS", async () => {
     const buildMacOsAttachHelper = vi.fn(
@@ -192,6 +168,12 @@ describe("createFactoryAttachLaunchSpec", () => {
       ],
       stdio: ["pipe", "pipe", "pipe"],
     });
+  });
+
+  it("rejects unsupported platforms before building a launch command", async () => {
+    await expect(
+      createFactoryAttachLaunchSpec("1234.session", "win32"),
+    ).rejects.toThrowError(/only supported on macOS and Linux/);
   });
 });
 

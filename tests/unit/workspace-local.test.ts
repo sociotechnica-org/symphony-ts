@@ -19,12 +19,12 @@ const execFile = promisify(execFileCallback);
 async function withScrubbedGitIdentity<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
-  const previous = {
-    gitAuthorName: process.env["GIT_AUTHOR_NAME"],
-    gitAuthorEmail: process.env["GIT_AUTHOR_EMAIL"],
-    gitCommitterName: process.env["GIT_COMMITTER_NAME"],
-    gitCommitterEmail: process.env["GIT_COMMITTER_EMAIL"],
-    gitConfigGlobal: process.env["GIT_CONFIG_GLOBAL"],
+  const previous: Record<string, string | undefined> = {
+    GIT_AUTHOR_NAME: process.env["GIT_AUTHOR_NAME"],
+    GIT_AUTHOR_EMAIL: process.env["GIT_AUTHOR_EMAIL"],
+    GIT_COMMITTER_NAME: process.env["GIT_COMMITTER_NAME"],
+    GIT_COMMITTER_EMAIL: process.env["GIT_COMMITTER_EMAIL"],
+    GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"],
   };
 
   delete process.env["GIT_AUTHOR_NAME"];
@@ -67,6 +67,28 @@ afterEach(() => {
 });
 
 describe("LocalWorkspaceManager", () => {
+  it("restores scrubbed git identity env vars by their original names", async () => {
+    process.env["GIT_AUTHOR_NAME"] = "author";
+    process.env["GIT_AUTHOR_EMAIL"] = "author@example.com";
+    process.env["GIT_COMMITTER_NAME"] = "committer";
+    process.env["GIT_COMMITTER_EMAIL"] = "committer@example.com";
+    process.env["GIT_CONFIG_GLOBAL"] = "/tmp/original-gitconfig";
+
+    await withScrubbedGitIdentity(async () => {
+      expect(process.env["GIT_AUTHOR_NAME"]).toBeUndefined();
+      expect(process.env["GIT_AUTHOR_EMAIL"]).toBeUndefined();
+      expect(process.env["GIT_COMMITTER_NAME"]).toBeUndefined();
+      expect(process.env["GIT_COMMITTER_EMAIL"]).toBeUndefined();
+      expect(process.env["GIT_CONFIG_GLOBAL"]).toBe("/dev/null");
+    });
+
+    expect(process.env["GIT_AUTHOR_NAME"]).toBe("author");
+    expect(process.env["GIT_AUTHOR_EMAIL"]).toBe("author@example.com");
+    expect(process.env["GIT_COMMITTER_NAME"]).toBe("committer");
+    expect(process.env["GIT_COMMITTER_EMAIL"]).toBe("committer@example.com");
+    expect(process.env["GIT_CONFIG_GLOBAL"]).toBe("/tmp/original-gitconfig");
+  });
+
   it("resets reused workspaces against the remote default branch from origin/HEAD", async () => {
     const tempDir = await createTempDir("workspace-master-");
     const remote = await createSeedRemote({ branch: "master" });
