@@ -115,6 +115,7 @@ int main(int argc, char **argv) {
   }
 
   if (child_pid == 0) {
+    (void)close(master_fd);
     if (login_tty(slave_fd) == -1) {
       perror("login_tty");
       _exit(1);

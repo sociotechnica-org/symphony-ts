@@ -207,6 +207,12 @@ describe("FACTORY_ATTACH_MACOS_HELPER_SOURCE", () => {
       "(void)kill(child_pid, SIGTERM);\n  }\n  errno = saved_errno;\n}",
     );
   });
+
+  it("closes the PTY master in the child before execing screen", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "if (child_pid == 0) {\n    (void)close(master_fd);\n    if (login_tty(slave_fd) == -1) {",
+    );
+  });
 });
 
 describe("resolveAttachSession", () => {
