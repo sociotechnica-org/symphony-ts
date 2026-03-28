@@ -206,6 +206,21 @@ describe("evaluateGuardedLanding", () => {
     });
   });
 
+  it("rejects landing when a required reviewer app is still running", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        requiredReviewerState: "running",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "awaiting-system-checks",
+      summary: expect.stringContaining("still running"),
+    });
+  });
+
   it("rejects already merged pull requests explicitly", () => {
     const result = evaluateGuardedLanding(
       createSnapshot({

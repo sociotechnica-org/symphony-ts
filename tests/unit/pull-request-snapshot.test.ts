@@ -279,6 +279,40 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
   });
 
+  it("keeps devin-owned review threads actionable after migrating to reviewer_apps", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: createReviewState([
+        {
+          id: "comment-1",
+          authorLogin: "devin-ai-integration",
+          body: "Please update this condition.",
+          createdAt: "2026-03-06T01:00:00.000Z",
+          url: "https://example.test/thread/1#comment-1",
+        },
+      ]),
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.reviewerApps).toContainEqual(
+      expect.objectContaining({
+        reviewerKey: "devin",
+        verdict: "issues-found",
+      }),
+    );
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.botActionableReviewFeedback[0]).toMatchObject({
+      kind: "review-thread",
+      threadId: "thread-1",
+      authorLogin: "devin-ai-integration",
+    });
+    expect(snapshot.unresolvedThreadIds).toEqual(["thread-1"]);
+    expect(snapshot.observedReviewerKeys).toEqual(["devin"]);
+  });
+
   it("preserves legacy devin check coverage for approved review bot configs", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

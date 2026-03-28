@@ -144,6 +144,15 @@ export function evaluateGuardedLanding(
     };
   }
 
+  if (snapshot.requiredReviewerState === "running") {
+    return {
+      kind: "blocked",
+      reason: "checks-not-green",
+      lifecycleKind: "awaiting-system-checks",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because a required reviewer app is still running on the current head.`,
+    };
+  }
+
   return {
     kind: "requested",
     summary: `Landing requested for ${formatPullRequest(snapshot)}.`,

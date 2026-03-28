@@ -66,6 +66,10 @@ function createPullRequestReviewFeedback(
   };
 }
 
+function isDevinAuthoredFeedback(feedback: ReviewFeedback): boolean {
+  return feedback.authorLogin?.toLowerCase() === DEVIN_LOGIN;
+}
+
 function latestRecognizedArtifact(
   comments: readonly CurrentHeadIssueComment[],
   reviews: readonly CurrentHeadPullRequestReview[],
@@ -128,6 +132,9 @@ export const devinReviewerAppAdapter: GitHubReviewerAppAdapter = {
     config: GitHubReviewerAppConfig,
     input: ReviewerAppAdapterInput,
   ): ReviewerAppSnapshot {
+    const unresolvedThreads = input.unresolvedReviewThreads.filter(
+      isDevinAuthoredFeedback,
+    );
     const comments = input.currentHeadIssueComments.filter(
       (comment) => comment.authorLogin?.toLowerCase() === DEVIN_LOGIN,
     );
@@ -140,6 +147,7 @@ export const devinReviewerAppAdapter: GitHubReviewerAppAdapter = {
       hasMatchingCheck(input.checks, "success") ||
       hasMatchingCheck(input.checks, "failure");
     const coverage =
+      unresolvedThreads.length > 0 ||
       comments.length > 0 ||
       reviews.length > 0 ||
       hasRunningCheck ||
@@ -148,14 +156,22 @@ export const devinReviewerAppAdapter: GitHubReviewerAppAdapter = {
         : "missing";
     const status = hasRunningCheck
       ? "running"
-      : comments.length > 0 || reviews.length > 0 || hasCompletedCheck
+      : unresolvedThreads.length > 0 ||
+          comments.length > 0 ||
+          reviews.length > 0 ||
+          hasCompletedCheck
         ? "completed"
         : "unknown";
-    const verdict = latestArtifact?.verdict ?? "unknown";
-    const actionableFeedback =
-      verdict === "issues-found" && latestArtifact !== null
+    const verdict =
+      unresolvedThreads.length > 0
+        ? "issues-found"
+        : (latestArtifact?.verdict ?? "unknown");
+    const actionableFeedback = [
+      ...unresolvedThreads,
+      ...(verdict === "issues-found" && latestArtifact !== null
         ? [latestArtifact.feedback]
-        : [];
+        : []),
+    ];
 
     return {
       reviewerKey: config.key,
@@ -189,6 +205,13 @@ export const devinReviewerAppAdapter: GitHubReviewerAppAdapter = {
           createdAt: review.submittedAt,
           url: review.url,
           summary: summarizeBody(review.body),
+        })),
+        ...unresolvedThreads.map((thread) => ({
+          id: thread.id,
+          kind: "review-thread" as const,
+          createdAt: thread.createdAt,
+          url: thread.url,
+          summary: summarizeBody(thread.body),
         })),
       ],
     };
