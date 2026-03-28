@@ -1,9 +1,10 @@
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control.js";
+import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "../../src/cli/factory-attach-macos-helper-source.js";
 import {
   attachFactory,
-  createFactoryAttachCommand,
+  createFactoryAttachLaunchSpec,
   resolveAttachSession,
   type FactoryAttachChild,
   type FactoryAttachTerminal,
@@ -134,16 +135,28 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("createFactoryAttachCommand", () => {
-  it("builds a macOS script wrapper", () => {
-    expect(createFactoryAttachCommand("1234.session", "darwin")).toEqual({
-      command: "script",
-      args: ["-q", "/dev/null", "screen", "-x", "1234.session"],
+describe("createFactoryAttachLaunchSpec", () => {
+  it("uses the compiled helper on macOS", async () => {
+    const buildMacOsAttachHelper = vi.fn(
+      async () => "/tmp/factory-attach-helper",
+    );
+
+    await expect(
+      createFactoryAttachLaunchSpec("1234.session", "darwin", {
+        buildMacOsAttachHelper,
+      }),
+    ).resolves.toEqual({
+      command: "/tmp/factory-attach-helper",
+      args: ["1234.session"],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+    expect(buildMacOsAttachHelper).toHaveBeenCalledTimes(1);
   });
 
-  it("builds a Linux script wrapper", () => {
-    expect(createFactoryAttachCommand("1234.session", "linux")).toEqual({
+  it("keeps the script wrapper on Linux", async () => {
+    await expect(
+      createFactoryAttachLaunchSpec("1234.session", "linux"),
+    ).resolves.toEqual({
       command: "script",
       args: [
         "-q",
@@ -153,7 +166,52 @@ describe("createFactoryAttachCommand", () => {
         "'screen' '-x' '1234.session'",
         "/dev/null",
       ],
+      stdio: ["pipe", "pipe", "pipe"],
     });
+  });
+
+  it("rejects unsupported platforms before building a launch command", async () => {
+    await expect(
+      createFactoryAttachLaunchSpec("1234.session", "win32"),
+    ).rejects.toThrowError(/only supported on macOS and Linux/);
+  });
+});
+
+describe("FACTORY_ATTACH_MACOS_HELPER_SOURCE", () => {
+  it("treats EIO from the PTY master read as a normal detach boundary", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "if (errno == EIO) {\n          break;\n        }",
+    );
+  });
+
+  it("lets terminate signals interrupt select instead of restarting it", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "terminate_action.sa_flags = 0;",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "resize_action.sa_flags = SA_RESTART;",
+    );
+  });
+
+  it("preserves errno across signal handlers that perform syscalls", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "static void on_resize_signal(int signal_number) {\n  int saved_errno = errno;",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "sync_window_size();\n  errno = saved_errno;\n}",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "static void on_terminate_signal(int signal_number) {\n  int saved_errno = errno;",
+    );
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "(void)kill(child_pid, SIGTERM);\n  }\n  errno = saved_errno;\n}",
+    );
+  });
+
+  it("closes the PTY master in the child before execing screen", () => {
+    expect(FACTORY_ATTACH_MACOS_HELPER_SOURCE).toContain(
+      "if (child_pid == 0) {\n    (void)close(master_fd);\n    if (login_tty(slave_fd) == -1) {",
+    );
   });
 });
 
@@ -368,5 +426,55 @@ describe("attachFactory", () => {
         terminal,
       }),
     ).rejects.toThrowError(/requires a running detached runtime/);
+  });
+
+  it("reports macOS helper launch failures without pointing users at script", async () => {
+    const { terminal } = createTerminal();
+    const spawnChildProcess = vi.fn(() => {
+      const error = new Error("bad helper") as NodeJS.ErrnoException;
+      error.code = "ENOEXEC";
+      throw error;
+    });
+
+    await expect(
+      attachFactory({
+        inspectFactoryControl: async () => createSnapshot(),
+        terminal,
+        platform: "darwin",
+        buildMacOsAttachHelper: async () => "/tmp/factory-attach-helper",
+        spawnChildProcess:
+          spawnChildProcess as typeof import("node:child_process").spawn,
+      }),
+    ).rejects.toThrowError(/local macOS PTY helper/);
+
+    await expect(
+      attachFactory({
+        inspectFactoryControl: async () => createSnapshot(),
+        terminal,
+        platform: "darwin",
+        buildMacOsAttachHelper: async () => "/tmp/factory-attach-helper",
+        spawnChildProcess:
+          spawnChildProcess as typeof import("node:child_process").spawn,
+      }),
+    ).rejects.not.toThrowError(/script/);
+  });
+
+  it("keeps the Linux launch guidance pointed at script", async () => {
+    const { terminal } = createTerminal();
+    const spawnChildProcess = vi.fn(() => {
+      const error = new Error("missing script") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      throw error;
+    });
+
+    await expect(
+      attachFactory({
+        inspectFactoryControl: async () => createSnapshot(),
+        terminal,
+        platform: "linux",
+        spawnChildProcess:
+          spawnChildProcess as typeof import("node:child_process").spawn,
+      }),
+    ).rejects.toThrowError(/local 'script' terminal helper/);
   });
 });

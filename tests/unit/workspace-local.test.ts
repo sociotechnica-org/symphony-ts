@@ -11,9 +11,40 @@ import {
   commitAllFiles,
   createSeedRemote,
   createTempDir,
+  readRemoteBranchFile,
 } from "../support/git.js";
 
 const execFile = promisify(execFileCallback);
+
+async function withScrubbedGitIdentity<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous: Record<string, string | undefined> = {
+    GIT_AUTHOR_NAME: process.env["GIT_AUTHOR_NAME"],
+    GIT_AUTHOR_EMAIL: process.env["GIT_AUTHOR_EMAIL"],
+    GIT_COMMITTER_NAME: process.env["GIT_COMMITTER_NAME"],
+    GIT_COMMITTER_EMAIL: process.env["GIT_COMMITTER_EMAIL"],
+    GIT_CONFIG_GLOBAL: process.env["GIT_CONFIG_GLOBAL"],
+  };
+
+  delete process.env["GIT_AUTHOR_NAME"];
+  delete process.env["GIT_AUTHOR_EMAIL"];
+  delete process.env["GIT_COMMITTER_NAME"];
+  delete process.env["GIT_COMMITTER_EMAIL"];
+  process.env["GIT_CONFIG_GLOBAL"] = "/dev/null";
+
+  try {
+    return await operation();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
 
 function createIssue(number: number) {
   return {
@@ -36,6 +67,28 @@ afterEach(() => {
 });
 
 describe("LocalWorkspaceManager", () => {
+  it("restores scrubbed git identity env vars by their original names", async () => {
+    process.env["GIT_AUTHOR_NAME"] = "author";
+    process.env["GIT_AUTHOR_EMAIL"] = "author@example.com";
+    process.env["GIT_COMMITTER_NAME"] = "committer";
+    process.env["GIT_COMMITTER_EMAIL"] = "committer@example.com";
+    process.env["GIT_CONFIG_GLOBAL"] = "/tmp/original-gitconfig";
+
+    await withScrubbedGitIdentity(async () => {
+      expect(process.env["GIT_AUTHOR_NAME"]).toBeUndefined();
+      expect(process.env["GIT_AUTHOR_EMAIL"]).toBeUndefined();
+      expect(process.env["GIT_COMMITTER_NAME"]).toBeUndefined();
+      expect(process.env["GIT_COMMITTER_EMAIL"]).toBeUndefined();
+      expect(process.env["GIT_CONFIG_GLOBAL"]).toBe("/dev/null");
+    });
+
+    expect(process.env["GIT_AUTHOR_NAME"]).toBe("author");
+    expect(process.env["GIT_AUTHOR_EMAIL"]).toBe("author@example.com");
+    expect(process.env["GIT_COMMITTER_NAME"]).toBe("committer");
+    expect(process.env["GIT_COMMITTER_EMAIL"]).toBe("committer@example.com");
+    expect(process.env["GIT_CONFIG_GLOBAL"]).toBe("/tmp/original-gitconfig");
+  });
+
   it("resets reused workspaces against the remote default branch from origin/HEAD", async () => {
     const tempDir = await createTempDir("workspace-master-");
     const remote = await createSeedRemote({ branch: "master" });
@@ -138,6 +191,71 @@ describe("LocalWorkspaceManager", () => {
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("repoints bootstrap mirror workspaces at the configured upstream before pushing", async () => {
+    const tempDir = await createTempDir("workspace-bootstrap-push-");
+    const remote = await createSeedRemote();
+    const mirrorPath = path.join(tempDir, "mirror.git");
+    const logger = new JsonLogger();
+
+    await execFile("git", ["clone", "--mirror", remote.remotePath, mirrorPath]);
+
+    const manager = new LocalWorkspaceManager(
+      {
+        root: path.join(tempDir, ".tmp", "workspaces"),
+        repoUrl: remote.remotePath,
+        branchPrefix: "symphony/",
+        retention: {
+          onSuccess: "retain",
+          onFailure: "retain",
+        },
+      },
+      [],
+      logger,
+      {
+        kind: "local-path",
+        path: mirrorPath,
+      },
+    );
+
+    try {
+      const prepared = await manager.prepareWorkspace({
+        issue: createIssue(10),
+      });
+      const workspacePath = getPreparedWorkspacePath(prepared);
+      if (workspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      const remoteUrl = await execFile("git", ["remote", "get-url", "origin"], {
+        cwd: workspacePath,
+      });
+      expect(remoteUrl.stdout.trim()).toBe(remote.remotePath);
+
+      await fs.writeFile(
+        path.join(workspacePath, "IMPLEMENTED.txt"),
+        "bootstrap push path\n",
+        "utf8",
+      );
+      await withScrubbedGitIdentity(async () => {
+        await commitAllFiles(workspacePath, "bootstrap push");
+        await execFile("git", ["push", "origin", "HEAD:symphony/10"], {
+          cwd: workspacePath,
+        });
+      });
+
+      await expect(
+        readRemoteBranchFile(
+          remote.remotePath,
+          "symphony/10",
+          "IMPLEMENTED.txt",
+        ),
+      ).resolves.toContain("bootstrap push path");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
     }
   });
 

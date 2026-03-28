@@ -27,7 +27,6 @@ import {
 import { createTempDir } from "../support/git.js";
 
 const LEGACY_TEST_SESSION_NAME = "symphony-factory";
-const ENGINE_ROOT_PATH_PATTERN = /\/symphony-ts(?:\/|$)/u;
 
 function createStatusSnapshot(
   workerPid: number,
@@ -205,6 +204,10 @@ function createControlDeps(
       ? {}
       : { signalProcess: options.signalProcess }),
   };
+}
+
+function expectedLaunchCwd(workflowPath: string): string {
+  return path.dirname(path.dirname(createFactoryRunCommand(workflowPath)[2]!));
 }
 
 afterEach(() => {
@@ -1120,7 +1123,7 @@ describe("startFactory", () => {
     expect(launched).toHaveLength(1);
     expect(launched[0]).toEqual({
       runtimeRoot: "/repo/.tmp/factory-main",
-      launchCwd: expect.stringMatching(ENGINE_ROOT_PATH_PATTERN),
+      launchCwd: expectedLaunchCwd("/repo/.tmp/factory-main/WORKFLOW.md"),
       sessionName: "symphony-factory",
       command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
       env: expect.objectContaining({
@@ -1211,7 +1214,7 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/target-project/.tmp/factory-main",
-        launchCwd: expect.stringMatching(ENGINE_ROOT_PATH_PATTERN),
+        launchCwd: expectedLaunchCwd("/target-project/WORKFLOW.md"),
         sessionName: "symphony-factory-target-project",
         command: createFactoryRunCommand("/target-project/WORKFLOW.md"),
         env: expect.objectContaining({
@@ -1578,7 +1581,7 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/repo/.tmp/factory-main",
-        launchCwd: expect.stringMatching(ENGINE_ROOT_PATH_PATTERN),
+        launchCwd: expectedLaunchCwd("/repo/.tmp/factory-main/WORKFLOW.md"),
         sessionName: "symphony-factory",
         command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
         env: expect.objectContaining({
@@ -1621,7 +1624,7 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/repo/.tmp/factory-main",
-        launchCwd: expect.stringMatching(ENGINE_ROOT_PATH_PATTERN),
+        launchCwd: expectedLaunchCwd("/repo/.tmp/factory-main/WORKFLOW.md"),
         sessionName: "symphony-factory",
         command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
         env: expect.objectContaining({

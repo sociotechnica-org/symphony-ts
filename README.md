@@ -135,6 +135,10 @@ the normal watch path. Attaching that way gives your terminal the worker's
 foreground signal boundary, so an accidental `Ctrl-C` can stop the factory.
 Use `factory attach` instead when you need the full graphical TUI for a
 detached instance; it keeps `Ctrl-C` scoped to the foreground attach client.
+On macOS, `factory attach` now builds a small local PTY helper the first time
+it runs so the brokered attach path can keep owning `Ctrl-C`; if no local `cc`
+compiler is available, the command fails clearly instead of falling back to an
+unsafe raw attach.
 
 The status snapshot includes normalized runner visibility for active issues,
 including worker state, current phase, provider identity, execution transport,
