@@ -84,3 +84,12 @@ export function sumIfAllPresent(
     ? observed.reduce((sum, value) => sum + value, 0)
     : null;
 }
+
+export function sumIfAnyPresent(
+  values: readonly (number | null)[],
+): number | null {
+  const observed = values.filter((value): value is number => value !== null);
+  return observed.length === 0
+    ? null
+    : observed.reduce((sum, value) => sum + value, 0);
+}

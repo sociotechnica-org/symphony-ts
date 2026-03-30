@@ -11,6 +11,7 @@ import {
   ISSUE_ARTIFACT_SCHEMA_VERSION,
   deriveIssueArtifactPaths,
 } from "../../src/observability/issue-artifacts.js";
+import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import { createTempDir } from "../support/git.js";
 import {
   downgradeIssueReportSchemaVersion,
@@ -87,6 +88,8 @@ describe("issue report generation", () => {
     expect(generated.report.tokenUsage.status).toBe("partial");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.costUsd).toBeNull();
+    expect(generated.report.tokenUsage.observedTokenSubtotal).toBe(2750);
+    expect(generated.report.tokenUsage.observedCostSubtotal).toBeNull();
     expect(generated.report.tokenUsage.sessions[0]).toEqual(
       expect.objectContaining({
         status: "partial",
@@ -105,6 +108,70 @@ describe("issue report generation", () => {
     expect(generated.report.tokenUsage.explanation).not.toContain(
       "remained estimated",
     );
+  });
+
+  it("keeps strict issue totals null while surfacing observed subtotals for mixed session coverage", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-observed-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      accounting: {
+        status: "partial",
+        inputTokens: 2000,
+        outputTokens: 750,
+        totalTokens: 2750,
+        costUsd: null,
+      },
+    });
+
+    const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+    await fs.writeFile(
+      path.join(
+        artifactPaths.sessionsDir,
+        encodeURIComponent(
+          "sociotechnica-org/symphony-ts#44/attempt-1/session-2",
+        ).concat(".json"),
+      ),
+      `${JSON.stringify(
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          issueNumber: 44,
+          attemptNumber: 1,
+          sessionId: "sociotechnica-org/symphony-ts#44/attempt-1/session-2",
+          provider: "claude-code",
+          model: "claude-sonnet-4-5",
+          transport: createRunnerTransportMetadata("local-process", {
+            canTerminateLocalProcess: true,
+          }),
+          backendSessionId: "claude-session-2",
+          backendThreadId: null,
+          latestTurnId: null,
+          latestTurnNumber: 1,
+          startedAt: "2026-03-09T10:06:00.000Z",
+          finishedAt: "2026-03-09T10:10:00.000Z",
+          workspacePath: path.join(workspaceRoot, "issue-44"),
+          branch: "symphony/44",
+          logPointers: [],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:06:00.000Z",
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.totalTokens).toBeNull();
+    expect(generated.report.tokenUsage.costUsd).toBeNull();
+    expect(generated.report.tokenUsage.observedTokenSubtotal).toBe(2750);
+    expect(generated.report.tokenUsage.observedCostSubtotal).toBeNull();
+    expect(generated.report.tokenUsage.notes).toContain(
+      "1 of 2 recorded session(s) supplied token totals, yielding an observed token subtotal of 2750 even though the strict aggregate total remained unavailable.",
+    );
+    expect(generated.markdown).toContain("Observed token subtotal: 2750");
   });
 
   it("generates a partial report when issue and event artifacts are missing but session artifacts remain", async () => {

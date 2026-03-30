@@ -707,6 +707,7 @@ export async function writeCodexSessionLog(options: {
 
 export async function downgradeIssueReportSchemaVersion(
   reportJsonFile: string,
+  version = 1,
 ): Promise<void> {
   const parsedReport = JSON.parse(
     await fs.readFile(reportJsonFile, "utf8"),
@@ -726,12 +727,14 @@ export async function downgradeIssueReportSchemaVersion(
     `${JSON.stringify(
       {
         ...parsedReport,
-        version: 1,
+        version,
         tokenUsage:
           parsedReport.tokenUsage === undefined
             ? undefined
             : {
                 ...parsedReport.tokenUsage,
+                observedTokenSubtotal: undefined,
+                observedCostSubtotal: undefined,
                 sessions: staleSessions,
               },
       },
