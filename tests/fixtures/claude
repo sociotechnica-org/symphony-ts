@@ -81,6 +81,6 @@ if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
     --head "${SYMPHONY_BRANCH_NAME}"
 fi
 
-printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"%s","modelUsage":{"%s":{"inputTokens":1,"outputTokens":1}}}\n' \
+printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"%s","modelUsage":{"%s":{"inputTokens":1,"outputTokens":1,"costUsd":0.25}}}\n' \
   "$SESSION_ID" \
   "$MODEL"

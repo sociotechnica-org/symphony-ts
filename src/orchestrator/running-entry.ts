@@ -70,139 +70,337 @@ interface TokenDelta {
   readonly costObserved: boolean;
 }
 
+interface ExtractedAccountingTotals {
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly totalTokens: number | null;
+  readonly costUsd: number | null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function asObservedNumber(value: unknown): number | null {
+  return typeof value === "number" ? value : null;
+}
+
+function deriveTotalTokens(input: {
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly totalTokens: number | null;
+}): number | null {
+  if (input.totalTokens !== null) {
+    return input.totalTokens;
+  }
+  if (input.inputTokens !== null && input.outputTokens !== null) {
+    return input.inputTokens + input.outputTokens;
+  }
+  return null;
+}
+
+function sumObservedNumbers(values: readonly (number | null)[]): number | null {
+  const observed = values.filter((value): value is number => value !== null);
+  return observed.length === 0
+    ? null
+    : observed.reduce((sum, value) => sum + value, 0);
+}
+
+function readClaudeModelUsageTotals(
+  value: unknown,
+): ExtractedAccountingTotals | null {
+  const modelUsage = asRecord(value);
+  if (modelUsage === null) {
+    return null;
+  }
+
+  const entries = Object.values(modelUsage)
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => entry !== null);
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const inputTokens = sumObservedNumbers(
+    entries.map((entry) =>
+      asObservedNumber(
+        getMapKey(entry, ["inputTokens", "input_tokens", "prompt_tokens"]),
+      ),
+    ),
+  );
+  const outputTokens = sumObservedNumbers(
+    entries.map((entry) =>
+      asObservedNumber(
+        getMapKey(entry, [
+          "outputTokens",
+          "output_tokens",
+          "completion_tokens",
+        ]),
+      ),
+    ),
+  );
+  const explicitTotalTokens = sumObservedNumbers(
+    entries.map((entry) =>
+      asObservedNumber(
+        getMapKey(entry, ["totalTokens", "total_tokens", "total"]),
+      ),
+    ),
+  );
+  const totalTokens = deriveTotalTokens({
+    inputTokens,
+    outputTokens,
+    totalTokens: explicitTotalTokens,
+  });
+  const costUsd = sumObservedNumbers(
+    entries.map((entry) =>
+      asObservedNumber(
+        getMapKey(entry, [
+          "costUsd",
+          "cost_usd",
+          "totalCostUsd",
+          "total_cost_usd",
+        ]),
+      ),
+    ),
+  );
+
+  if (
+    inputTokens === null &&
+    outputTokens === null &&
+    totalTokens === null &&
+    costUsd === null
+  ) {
+    return null;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd,
+  };
+}
+
+function extractAccountingTotals(
+  payload: Record<string, unknown>,
+): ExtractedAccountingTotals {
+  const claudeModelUsage =
+    readClaudeModelUsageTotals(getMapKey(payload, ["modelUsage"])) ??
+    readClaudeModelUsageTotals(mapPath(payload, ["payload", "modelUsage"])) ??
+    readClaudeModelUsageTotals(
+      mapPath(payload, ["payload", "info", "modelUsage"]),
+    ) ??
+    readClaudeModelUsageTotals(
+      mapPath(payload, ["params", "msg", "payload", "modelUsage"]),
+    ) ??
+    readClaudeModelUsageTotals(
+      mapPath(payload, ["params", "msg", "payload", "info", "modelUsage"]),
+    ) ??
+    readClaudeModelUsageTotals(
+      mapPath(payload, ["params", "msg", "info", "modelUsage"]),
+    ) ??
+    readClaudeModelUsageTotals(
+      mapPath(payload, ["params", "usage", "modelUsage"]),
+    ) ??
+    readClaudeModelUsageTotals(mapPath(payload, ["usage", "modelUsage"]));
+
+  const inputTokens =
+    asObservedNumber(getMapKey(payload, ["input_tokens", "inputTokens"])) ??
+    asObservedNumber(
+      mapPath(payload, ["payload", "total_token_usage", "input_tokens"]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "payload",
+        "info",
+        "total_token_usage",
+        "input_tokens",
+      ]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "params",
+        "msg",
+        "payload",
+        "total_token_usage",
+        "input_tokens",
+      ]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "params",
+        "msg",
+        "payload",
+        "info",
+        "total_token_usage",
+        "input_tokens",
+      ]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "params",
+        "msg",
+        "info",
+        "total_token_usage",
+        "input_tokens",
+      ]),
+    ) ??
+    asObservedNumber(mapPath(payload, ["params", "usage", "inputTokens"])) ??
+    asObservedNumber(mapPath(payload, ["params", "usage", "input_tokens"])) ??
+    asObservedNumber(mapPath(payload, ["usage", "inputTokens"])) ??
+    asObservedNumber(mapPath(payload, ["usage", "input_tokens"])) ??
+    claudeModelUsage?.inputTokens ??
+    null;
+  const outputTokens =
+    asObservedNumber(getMapKey(payload, ["output_tokens", "outputTokens"])) ??
+    asObservedNumber(
+      mapPath(payload, ["payload", "total_token_usage", "output_tokens"]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "payload",
+        "info",
+        "total_token_usage",
+        "output_tokens",
+      ]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "params",
+        "msg",
+        "payload",
+        "total_token_usage",
+        "output_tokens",
+      ]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "params",
+        "msg",
+        "payload",
+        "info",
+        "total_token_usage",
+        "output_tokens",
+      ]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, [
+        "params",
+        "msg",
+        "info",
+        "total_token_usage",
+        "output_tokens",
+      ]),
+    ) ??
+    asObservedNumber(mapPath(payload, ["params", "usage", "outputTokens"])) ??
+    asObservedNumber(mapPath(payload, ["params", "usage", "output_tokens"])) ??
+    asObservedNumber(mapPath(payload, ["usage", "outputTokens"])) ??
+    asObservedNumber(mapPath(payload, ["usage", "output_tokens"])) ??
+    claudeModelUsage?.outputTokens ??
+    null;
+  const totalTokens = deriveTotalTokens({
+    inputTokens,
+    outputTokens,
+    totalTokens:
+      asObservedNumber(getMapKey(payload, ["total_tokens", "totalTokens"])) ??
+      asObservedNumber(
+        mapPath(payload, ["payload", "total_token_usage", "total_tokens"]),
+      ) ??
+      asObservedNumber(
+        mapPath(payload, [
+          "payload",
+          "info",
+          "total_token_usage",
+          "total_tokens",
+        ]),
+      ) ??
+      asObservedNumber(
+        mapPath(payload, [
+          "params",
+          "msg",
+          "payload",
+          "total_token_usage",
+          "total_tokens",
+        ]),
+      ) ??
+      asObservedNumber(
+        mapPath(payload, [
+          "params",
+          "msg",
+          "payload",
+          "info",
+          "total_token_usage",
+          "total_tokens",
+        ]),
+      ) ??
+      asObservedNumber(
+        mapPath(payload, [
+          "params",
+          "msg",
+          "info",
+          "total_token_usage",
+          "total_tokens",
+        ]),
+      ) ??
+      asObservedNumber(mapPath(payload, ["params", "usage", "totalTokens"])) ??
+      asObservedNumber(mapPath(payload, ["params", "usage", "total_tokens"])) ??
+      asObservedNumber(mapPath(payload, ["usage", "totalTokens"])) ??
+      asObservedNumber(mapPath(payload, ["usage", "total_tokens"])) ??
+      claudeModelUsage?.totalTokens ??
+      null,
+  });
+  const costUsd =
+    asObservedNumber(
+      getMapKey(payload, [
+        "cost_usd",
+        "costUsd",
+        "total_cost_usd",
+        "totalCostUsd",
+      ]),
+    ) ??
+    asObservedNumber(mapPath(payload, ["payload", "cost_usd"])) ??
+    asObservedNumber(mapPath(payload, ["payload", "costUsd"])) ??
+    asObservedNumber(mapPath(payload, ["payload", "info", "cost_usd"])) ??
+    asObservedNumber(mapPath(payload, ["payload", "info", "costUsd"])) ??
+    asObservedNumber(
+      mapPath(payload, ["params", "msg", "payload", "cost_usd"]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, ["params", "msg", "payload", "costUsd"]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, ["params", "msg", "payload", "info", "cost_usd"]),
+    ) ??
+    asObservedNumber(
+      mapPath(payload, ["params", "msg", "payload", "info", "costUsd"]),
+    ) ??
+    asObservedNumber(mapPath(payload, ["params", "usage", "costUsd"])) ??
+    asObservedNumber(mapPath(payload, ["params", "usage", "cost_usd"])) ??
+    asObservedNumber(mapPath(payload, ["usage", "costUsd"])) ??
+    asObservedNumber(mapPath(payload, ["usage", "cost_usd"])) ??
+    claudeModelUsage?.costUsd ??
+    null;
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    costUsd,
+  };
+}
+
 function extractTokenDelta(
   entry: RunningEntry,
   payload: Record<string, unknown>,
 ): TokenDelta {
-  const inputRaw =
-    getMapKey(payload, ["input_tokens", "inputTokens"]) ??
-    mapPath(payload, ["payload", "total_token_usage", "input_tokens"]) ??
-    mapPath(payload, [
-      "payload",
-      "info",
-      "total_token_usage",
-      "input_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "payload",
-      "total_token_usage",
-      "input_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "payload",
-      "info",
-      "total_token_usage",
-      "input_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "info",
-      "total_token_usage",
-      "input_tokens",
-    ]) ??
-    mapPath(payload, ["params", "usage", "inputTokens"]) ??
-    mapPath(payload, ["params", "usage", "input_tokens"]) ??
-    mapPath(payload, ["usage", "inputTokens"]) ??
-    mapPath(payload, ["usage", "input_tokens"]);
-  const outputRaw =
-    getMapKey(payload, ["output_tokens", "outputTokens"]) ??
-    mapPath(payload, ["payload", "total_token_usage", "output_tokens"]) ??
-    mapPath(payload, [
-      "payload",
-      "info",
-      "total_token_usage",
-      "output_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "payload",
-      "total_token_usage",
-      "output_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "payload",
-      "info",
-      "total_token_usage",
-      "output_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "info",
-      "total_token_usage",
-      "output_tokens",
-    ]) ??
-    mapPath(payload, ["params", "usage", "outputTokens"]) ??
-    mapPath(payload, ["params", "usage", "output_tokens"]) ??
-    mapPath(payload, ["usage", "outputTokens"]) ??
-    mapPath(payload, ["usage", "output_tokens"]);
-  const totalRaw =
-    getMapKey(payload, ["total_tokens", "totalTokens"]) ??
-    mapPath(payload, ["payload", "total_token_usage", "total_tokens"]) ??
-    mapPath(payload, [
-      "payload",
-      "info",
-      "total_token_usage",
-      "total_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "payload",
-      "total_token_usage",
-      "total_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "payload",
-      "info",
-      "total_token_usage",
-      "total_tokens",
-    ]) ??
-    mapPath(payload, [
-      "params",
-      "msg",
-      "info",
-      "total_token_usage",
-      "total_tokens",
-    ]) ??
-    mapPath(payload, ["params", "usage", "totalTokens"]) ??
-    mapPath(payload, ["params", "usage", "total_tokens"]) ??
-    mapPath(payload, ["usage", "totalTokens"]) ??
-    mapPath(payload, ["usage", "total_tokens"]);
-  const costRaw =
-    getMapKey(payload, [
-      "cost_usd",
-      "costUsd",
-      "total_cost_usd",
-      "totalCostUsd",
-    ]) ??
-    mapPath(payload, ["payload", "cost_usd"]) ??
-    mapPath(payload, ["payload", "costUsd"]) ??
-    mapPath(payload, ["payload", "info", "cost_usd"]) ??
-    mapPath(payload, ["payload", "info", "costUsd"]) ??
-    mapPath(payload, ["params", "msg", "payload", "cost_usd"]) ??
-    mapPath(payload, ["params", "msg", "payload", "costUsd"]) ??
-    mapPath(payload, ["params", "msg", "payload", "info", "cost_usd"]) ??
-    mapPath(payload, ["params", "msg", "payload", "info", "costUsd"]) ??
-    mapPath(payload, ["params", "usage", "costUsd"]) ??
-    mapPath(payload, ["params", "usage", "cost_usd"]) ??
-    mapPath(payload, ["usage", "costUsd"]) ??
-    mapPath(payload, ["usage", "cost_usd"]);
-
-  const reportedInput = typeof inputRaw === "number" ? inputRaw : null;
-  const reportedOutput = typeof outputRaw === "number" ? outputRaw : null;
-  const reportedTotal = typeof totalRaw === "number" ? totalRaw : null;
-  const reportedCost = typeof costRaw === "number" ? costRaw : null;
+  const totals = extractAccountingTotals(payload);
+  const reportedInput = totals.inputTokens;
+  const reportedOutput = totals.outputTokens;
+  const reportedTotal = totals.totalTokens;
+  const reportedCost = totals.costUsd;
 
   if (
     reportedInput === null &&

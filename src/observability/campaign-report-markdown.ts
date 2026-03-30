@@ -206,6 +206,9 @@ export function renderCampaignTokenUsageMarkdown(
     lines.push(
       `- ${renderIssueLabel(issue.issueNumber, issue.title)} | status ${issue.status} | sessions ${issue.sessionCount.toString()} | total tokens ${renderNumber(issue.totalTokens)} | cost ${renderCurrency(issue.costUsd)}`,
     );
+    lines.push(
+      `  - Observed subtotal: tokens ${renderNumber(issue.observedTokenSubtotal)}, cost ${renderCurrency(issue.observedCostSubtotal)}`,
+    );
     for (const note of issue.notes) {
       lines.push(`  - Note: ${note}`);
     }

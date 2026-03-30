@@ -322,6 +322,8 @@ function buildStoredIssueReport(options: {
       | undefined;
     readonly totalTokens?: number | null | undefined;
     readonly costUsd?: number | null | undefined;
+    readonly observedTokenSubtotal?: number | null | undefined;
+    readonly observedCostSubtotal?: number | null | undefined;
   };
   readonly learnings?: {
     readonly observations?:
@@ -388,6 +390,14 @@ function buildStoredIssueReport(options: {
       explanation: "Synthetic token usage for unit tests.",
       totalTokens: options.tokenUsage?.totalTokens ?? null,
       costUsd: options.tokenUsage?.costUsd ?? null,
+      observedTokenSubtotal:
+        options.tokenUsage?.observedTokenSubtotal ??
+        options.tokenUsage?.totalTokens ??
+        null,
+      observedCostSubtotal:
+        options.tokenUsage?.observedCostSubtotal ??
+        options.tokenUsage?.costUsd ??
+        null,
       sessions: [],
       attempts: [],
       agents: [],

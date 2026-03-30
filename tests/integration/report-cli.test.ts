@@ -101,7 +101,12 @@ describe("report CLI", () => {
     );
     expect(reportJson).toContain('"status": "partial"');
     expect(reportJson).toContain('"totalTokens": 2750');
+    expect(reportJson).toContain('"observedTokenSubtotal": 2750');
+    expect(reportJson).toContain('"observedCostSubtotal": null');
     expect(reportJson).toContain("Canonical runner-event accounting");
+    expect(
+      await fs.readFile(path.join(reportDir, "report.md"), "utf8"),
+    ).toContain("Observed token subtotal: 2750");
   });
 
   it("renders a failed issue report with explicit token unavailability", async () => {

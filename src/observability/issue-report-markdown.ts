@@ -83,6 +83,12 @@ export function renderIssueReportMarkdown(report: IssueReportDocument): string {
   lines.push(
     `- Estimated cost (USD): ${renderCurrency(report.tokenUsage.costUsd)}`,
   );
+  lines.push(
+    `- Observed token subtotal: ${renderNumber(report.tokenUsage.observedTokenSubtotal)}`,
+  );
+  lines.push(
+    `- Observed cost subtotal (USD): ${renderCurrency(report.tokenUsage.observedCostSubtotal)}`,
+  );
   for (const note of report.tokenUsage.notes) {
     lines.push(`- Note: ${note}`);
   }

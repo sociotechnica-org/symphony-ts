@@ -1395,6 +1395,32 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(session.provider).toBe("claude-code");
     expect(session.backendSessionId).toBe("claude-session-12-1");
+    expect(session.accounting).toEqual({
+      status: "complete",
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+      costUsd: 0.25,
+    });
+
+    await runReportCli([
+      "node",
+      "symphony-report",
+      "issue",
+      "--issue",
+      "12",
+      "--workflow",
+      workflowPath,
+    ]);
+
+    const reportJson = await fs.readFile(
+      path.join(tempDir, ".var", "reports", "issues", "12", "report.json"),
+      "utf8",
+    );
+    expect(reportJson).toContain('"status": "complete"');
+    expect(reportJson).toContain('"totalTokens": 2');
+    expect(reportJson).toContain('"costUsd": 0.25');
+    expect(reportJson).toContain('"observedTokenSubtotal": 2');
 
     const implemented = await readRemoteBranchFile(
       remotePath,

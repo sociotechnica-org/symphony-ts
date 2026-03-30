@@ -128,6 +128,126 @@ describe("integrateCodexUpdate", () => {
     expect(entry.codexTokenState).toBe("observed");
   });
 
+  it("normalizes Claude modelUsage token counts and derives total tokens", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/result",
+      payload: {
+        type: "result",
+        session_id: "claude-session-1",
+        modelUsage: {
+          "claude-sonnet-4-5": {
+            inputTokens: 120,
+            outputTokens: 30,
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      costUsd: 0,
+      costObserved: false,
+    });
+    expect(entry.accounting).toEqual({
+      status: "partial",
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      costUsd: null,
+    });
+  });
+
+  it("treats Claude modelUsage cost plus derived totals as complete accounting", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/result",
+      payload: {
+        type: "result",
+        session_id: "claude-session-1",
+        modelUsage: {
+          "claude-sonnet-4-5": {
+            inputTokens: 120,
+            outputTokens: 30,
+            costUsd: 0.42,
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      costUsd: 0.42,
+      costObserved: true,
+    });
+    expect(entry.accounting).toEqual({
+      status: "complete",
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      costUsd: 0.42,
+    });
+  });
+
+  it("does not double-count repeated Claude cumulative modelUsage updates", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    integrateCodexUpdate(entry, {
+      event: "codex/event/result",
+      payload: {
+        type: "result",
+        session_id: "claude-session-1",
+        modelUsage: {
+          "claude-sonnet-4-5": {
+            inputTokens: 120,
+            outputTokens: 30,
+            costUsd: 0.42,
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/result",
+      payload: {
+        type: "result",
+        session_id: "claude-session-1",
+        modelUsage: {
+          "claude-sonnet-4-5": {
+            inputTokens: 120,
+            outputTokens: 30,
+            costUsd: 0.42,
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      costUsd: 0,
+      costObserved: true,
+    });
+    expect(entry.accounting).toEqual({
+      status: "complete",
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      costUsd: 0.42,
+    });
+  });
+
   it("extracts session ID from nested Codex JSON-RPC payload", () => {
     const entry = createRunningEntry(99, "issue-99", "open", 1);
 
