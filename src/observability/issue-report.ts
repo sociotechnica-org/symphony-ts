@@ -948,11 +948,10 @@ function buildOperatorInterventions(
     };
   }
 
-  const entries = loaded.events
-    .flatMap((event) => {
-      const entry = buildOperatorInterventionEntry(event);
-      return entry === null ? [] : [entry];
-    });
+  const entries = loaded.events.flatMap((event) => {
+    const entry = buildOperatorInterventionEntry(event);
+    return entry === null ? [] : [entry];
+  });
 
   return {
     status: "partial",

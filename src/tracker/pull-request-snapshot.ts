@@ -164,7 +164,7 @@ export function createPullRequestSnapshot(input: {
   const landingCommand =
     latestCommitAt === null
       ? null
-      : currentHeadIssueComments
+      : (currentHeadIssueComments
           .filter(
             (comment) =>
               isHumanLandingApprover(
@@ -184,7 +184,7 @@ export function createPullRequestSnapshot(input: {
                 observedAt: comment.createdAt,
                 url: comment.url,
               }) satisfies LandingCommandObservation,
-          )[0] ?? null;
+          )[0] ?? null);
   const botActionableReviewFeedback = reviewerApps
     .filter((reviewer) => reviewer.accepted)
     .flatMap((reviewer) => reviewer.actionableFeedback);

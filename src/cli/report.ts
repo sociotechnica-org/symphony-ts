@@ -355,7 +355,9 @@ export async function runReportCli(
     });
     const createdFollowUpIssue =
       recorded.followUpIssues.find(
-        (issue) => issue.number === createdIssue.number && issue.url === createdIssue.url,
+        (issue) =>
+          issue.number === createdIssue.number &&
+          issue.url === createdIssue.url,
       ) ?? null;
     await appendIssueArtifactEvent(
       instance,

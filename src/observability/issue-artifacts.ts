@@ -601,7 +601,10 @@ async function appendJsonLineIfChanged(
   value: IssueArtifactEvent,
 ): Promise<void> {
   const eventKey = readEventKey(value);
-  if (eventKey !== null && (await hasMatchingEventKey(filePath, value, eventKey))) {
+  if (
+    eventKey !== null &&
+    (await hasMatchingEventKey(filePath, value, eventKey))
+  ) {
     return;
   }
 
