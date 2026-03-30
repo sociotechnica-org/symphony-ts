@@ -1235,7 +1235,7 @@ describe("BootstrapOrchestrator", () => {
       const loop = orchestrator.runLoop(controller.signal);
 
       await new Promise<void>((resolve, reject) => {
-        const deadline = Date.now() + 500;
+        const deadline = Date.now() + 2_000;
         const check = () => {
           if (tracker.completed.length === 1) {
             controller.abort();

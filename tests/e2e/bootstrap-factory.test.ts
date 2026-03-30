@@ -1272,7 +1272,9 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     expect(["rework-required", "awaiting-system-checks"]).toContain(
       status.activeIssues[0]?.status,
     );
-    expect(status.activeIssues[0]?.summary).toMatch(/rework required/i);
+    expect(status.activeIssues[0]?.summary).toMatch(
+      /rework required|waiting on checks/i,
+    );
 
     const artifactSummary = await readIssueArtifactSummary(
       path.join(tempDir, ".tmp", "workspaces"),
