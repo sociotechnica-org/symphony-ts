@@ -179,9 +179,17 @@ ${
     enabled: ${options.watchdog.enabled ? "true" : "false"}
     check_interval_ms: ${options.watchdog.checkIntervalMs}
     stall_threshold_ms: ${options.watchdog.stallThresholdMs}
-${options.watchdog.executionStallThresholdMs === undefined ? "" : `    execution_stall_threshold_ms: ${options.watchdog.executionStallThresholdMs}
-`}${options.watchdog.prFollowThroughStallThresholdMs === undefined ? "" : `    pr_follow_through_stall_threshold_ms: ${options.watchdog.prFollowThroughStallThresholdMs}
-`}    max_recovery_attempts: ${options.watchdog.maxRecoveryAttempts}
+${
+  options.watchdog.executionStallThresholdMs === undefined
+    ? ""
+    : `    execution_stall_threshold_ms: ${options.watchdog.executionStallThresholdMs}
+`
+}${
+        options.watchdog.prFollowThroughStallThresholdMs === undefined
+          ? ""
+          : `    pr_follow_through_stall_threshold_ms: ${options.watchdog.prFollowThroughStallThresholdMs}
+`
+      }    max_recovery_attempts: ${options.watchdog.maxRecoveryAttempts}
 `
 }
 workspace:

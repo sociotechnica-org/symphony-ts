@@ -184,13 +184,13 @@ The changed policy in this slice is only which idle threshold applies when those
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Long Claude execution wrote files early, then went quiet with no PR yet | workspace diff hash present, no new log/heartbeat activity | none required | use execution idle budget; do not stall until that budget expires |
-| Long Claude follow-up run has an open PR and is quiet while processing review/check context | PR head SHA present, no new log/heartbeat activity | normalized PR snapshot | use PR follow-through idle budget; do not stall until that budget expires |
-| No observable activity within the applicable budget and no PR exists | stale local liveness signals | none required | classify using existing reason precedence and recover/abort normally |
-| No observable activity within the applicable budget and PR facts remain unchanged | stale local liveness signals | PR head/actionable feedback unchanged | classify `pr-stall` or `workspace-stall` with existing precedence and recover/abort normally |
-| Observable activity resumes before the applicable budget expires | advancing heartbeat/log/diff/PR facts | whatever tracker facts already exist | treat as live and reset idle baseline |
+| Observed condition                                                                          | Local facts available                                      | Normalized tracker facts available    | Expected decision                                                                            |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Long Claude execution wrote files early, then went quiet with no PR yet                     | workspace diff hash present, no new log/heartbeat activity | none required                         | use execution idle budget; do not stall until that budget expires                            |
+| Long Claude follow-up run has an open PR and is quiet while processing review/check context | PR head SHA present, no new log/heartbeat activity         | normalized PR snapshot                | use PR follow-through idle budget; do not stall until that budget expires                    |
+| No observable activity within the applicable budget and no PR exists                        | stale local liveness signals                               | none required                         | classify using existing reason precedence and recover/abort normally                         |
+| No observable activity within the applicable budget and PR facts remain unchanged           | stale local liveness signals                               | PR head/actionable feedback unchanged | classify `pr-stall` or `workspace-stall` with existing precedence and recover/abort normally |
+| Observable activity resumes before the applicable budget expires                            | advancing heartbeat/log/diff/PR facts                      | whatever tracker facts already exist  | treat as live and reset idle baseline                                                        |
 
 ## Storage / Persistence Contract
 

@@ -434,27 +434,21 @@ describe("checkStall", () => {
 describe("resolveStallThresholdMs", () => {
   it("uses the execution threshold before a PR exists", () => {
     expect(
-      resolveStallThresholdMs(
-        snapshot(),
-        {
-          ...config,
-          executionStallThresholdMs: 9_000,
-          prFollowThroughStallThresholdMs: 18_000,
-        },
-      ),
+      resolveStallThresholdMs(snapshot(), {
+        ...config,
+        executionStallThresholdMs: 9_000,
+        prFollowThroughStallThresholdMs: 18_000,
+      }),
     ).toBe(9_000);
   });
 
   it("uses the PR follow-through threshold when a PR exists", () => {
     expect(
-      resolveStallThresholdMs(
-        snapshot({ prHeadSha: "sha1" }),
-        {
-          ...config,
-          executionStallThresholdMs: 9_000,
-          prFollowThroughStallThresholdMs: 18_000,
-        },
-      ),
+      resolveStallThresholdMs(snapshot({ prHeadSha: "sha1" }), {
+        ...config,
+        executionStallThresholdMs: 9_000,
+        prFollowThroughStallThresholdMs: 18_000,
+      }),
     ).toBe(18_000);
   });
 });

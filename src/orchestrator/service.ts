@@ -1853,10 +1853,8 @@ export class BootstrapOrchestrator implements Orchestrator {
                 failingNames: nextLifecycle.failingCheckNames,
               },
               review: {
-                actionableCount:
-                  nextLifecycle.actionableReviewFeedback.length,
-                unresolvedThreadCount:
-                  nextLifecycle.unresolvedThreadIds.length,
+                actionableCount: nextLifecycle.actionableReviewFeedback.length,
+                unresolvedThreadCount: nextLifecycle.unresolvedThreadIds.length,
               },
               blockedReason: null,
             });
