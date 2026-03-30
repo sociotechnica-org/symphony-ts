@@ -277,7 +277,7 @@ from existing issue reports. They are written under:
 2. Symphony claims it, swaps the label to `symphony:running`
 3. Symphony prepares branch `symphony/<issue-number>` in an isolated execution workspace (today a local checkout, later also a remote target seam)
 4. The agent drafts a technical plan and stops at a **human review station** (unless waived)
-5. After plan approval, the agent implements the issue and opens a PR
+5. After plan approval, the agent implements the issue and opens a PR ready for review by default unless repository policy explicitly calls for draft mode
 6. Symphony monitors CI and automated review feedback on the PR
 7. If CI fails or reviewers request changes, the agent pushes follow-up commits on the same branch
 8. When the PR is clean and at least one configured approved reviewer bot has produced output on the current head, Symphony waits for an explicit human landing signal such as a `/land` PR comment

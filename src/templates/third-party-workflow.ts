@@ -101,7 +101,7 @@ export function renderThirdPartyWorkflowTemplate(
     "5. If the issue is too broad for one reviewable change, narrow it to the first safe slice and leave the follow-up seam explicit.",
     "6. Implement the issue completely, including docs and tests required by the repository instructions.",
     "7. Run the relevant local checks before finishing.",
-    "8. Open or update the pull request against `main` in `{{ config.tracker.repo }}` and follow through on CI and review feedback unless repository instructions define a different completion path.",
+    "8. Open or update the pull request against `main` in `{{ config.tracker.repo }}` ready for review by default, not as a draft. Only use draft mode when repository instructions or explicit issue/prompt policy require it, then follow through on CI and review feedback unless repository instructions define a different completion path.",
     "9. Leave the workspace in a git state that can be inspected if the run fails.",
     "",
   ].join("\n");
