@@ -109,13 +109,13 @@ This issue intentionally preserves the current runtime state model.
 
 ## Failure-Class Matrix
 
-| Observed condition                                               | Local facts available                              | Normalized tracker/runtime facts available                      | Expected decision                                                                 |
-| ---------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Worker opens PR ready for review                                 | prompt/workflow says non-draft default             | PR is open and not draft                                        | normal CI/review follow-through                                                   |
-| Worker opens PR as draft despite default prompt contract         | prompt/workflow says non-draft default             | PR is draft; reviewer-app output may stay absent                | treat as a worker-contract regression; preserve current runtime handling          |
-| Repository explicitly wants draft PR behavior in the future      | repo-owned workflow or issue policy says so        | PR may be draft intentionally                                   | outside this slice; capture by explicit policy/config follow-up                   |
-| Existing draft PR reaches guarded landing                        | no special local facts required                    | normalized PR snapshot says `draft: true`                       | keep current landing block behavior unchanged                                     |
-| Self-hosting or scaffolded workflow loses the explicit default   | rendered workflow content no longer mentions ready | no runtime fact yet; regression appears at prompt/template seam | fail the regression tests before the change ships                                 |
+| Observed condition                                             | Local facts available                              | Normalized tracker/runtime facts available                      | Expected decision                                                        |
+| -------------------------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Worker opens PR ready for review                               | prompt/workflow says non-draft default             | PR is open and not draft                                        | normal CI/review follow-through                                          |
+| Worker opens PR as draft despite default prompt contract       | prompt/workflow says non-draft default             | PR is draft; reviewer-app output may stay absent                | treat as a worker-contract regression; preserve current runtime handling |
+| Repository explicitly wants draft PR behavior in the future    | repo-owned workflow or issue policy says so        | PR may be draft intentionally                                   | outside this slice; capture by explicit policy/config follow-up          |
+| Existing draft PR reaches guarded landing                      | no special local facts required                    | normalized PR snapshot says `draft: true`                       | keep current landing block behavior unchanged                            |
+| Self-hosting or scaffolded workflow loses the explicit default | rendered workflow content no longer mentions ready | no runtime fact yet; regression appears at prompt/template seam | fail the regression tests before the change ships                        |
 
 ## Storage / Persistence Contract
 
