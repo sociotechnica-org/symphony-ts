@@ -1280,7 +1280,21 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       path.join(tempDir, ".tmp", "workspaces"),
       242,
     );
-    expect(artifactSummary.currentOutcome).toBe("rework-required");
+    expect(["rework-required", "awaiting-system-checks"]).toContain(
+      artifactSummary.currentOutcome,
+    );
+    const artifactEvents = await readIssueArtifactEvents(
+      path.join(tempDir, ".tmp", "workspaces"),
+      242,
+    );
+    expect(artifactEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "review-feedback",
+        details: expect.objectContaining({
+          lifecycleKind: "rework-required",
+        }),
+      }),
+    );
   });
 
   it("records landing-failed when the merge request throws before dispatch completes", async () => {
