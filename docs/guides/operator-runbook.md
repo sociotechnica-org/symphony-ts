@@ -90,8 +90,10 @@ pnpm tsx bin/check-operator-release-state.ts --workflow ../target-repo/WORKFLOW.
 8. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
 9. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
 10. Check for operator-gated work the factory cannot clear by itself:
-   - active issues in `awaiting-human-handoff`
-   - active issues or PRs in `awaiting-landing-command`
+
+- active issues in `awaiting-human-handoff`
+- active issues or PRs in `awaiting-landing-command`
+
 11. If the detached runtime is stopped or degraded, repair that first.
 12. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. Do not do that for work the release-state artifact says is blocked by a failed prerequisite, unresolved dependency metadata, or a ready-promotion sync failure. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
 13. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.

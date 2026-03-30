@@ -258,15 +258,15 @@ One promoter evaluation is keyed by selected instance and current release-state 
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| No dependency metadata configured | release-state absent or `dependencies: []` | open issue labels may exist | remain `unconfigured`; make no ready-label changes |
-| Prerequisite issue has terminal failed outcome | configured dependency graph | prerequisite outcome is `failed` | compute downstream as ineligible; remove `symphony:ready` from any affected downstream open issue |
-| Prerequisite issue is still non-terminal | configured dependency graph | prerequisite outcome is running / review / checks / unknown | downstream remains ineligible; do not add `symphony:ready` yet |
-| All prerequisites for a downstream leaf have terminal success outcome | configured dependency graph | prerequisite outcomes are `succeeded` and downstream issue is open | mark the leaf eligible; add `symphony:ready` if absent |
-| Metadata references an issue with no stored outcome fact | configured dependency graph | missing normalized issue fact | move to `blocked-review-needed`; apply no mutations |
-| Downstream issue is already closed or terminal succeeded | configured dependency graph | issue is closed or succeeded | do not add `symphony:ready`; remove it if still present |
-| GitHub label update fails after eligibility is computed | computed add/remove mutation set | current labels known, mutation request failed | report `sync-failed`; keep failure inspectable and do not claim successful promotion |
+| Observed condition                                                    | Local facts available                      | Normalized tracker facts available                                 | Expected decision                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| No dependency metadata configured                                     | release-state absent or `dependencies: []` | open issue labels may exist                                        | remain `unconfigured`; make no ready-label changes                                                |
+| Prerequisite issue has terminal failed outcome                        | configured dependency graph                | prerequisite outcome is `failed`                                   | compute downstream as ineligible; remove `symphony:ready` from any affected downstream open issue |
+| Prerequisite issue is still non-terminal                              | configured dependency graph                | prerequisite outcome is running / review / checks / unknown        | downstream remains ineligible; do not add `symphony:ready` yet                                    |
+| All prerequisites for a downstream leaf have terminal success outcome | configured dependency graph                | prerequisite outcomes are `succeeded` and downstream issue is open | mark the leaf eligible; add `symphony:ready` if absent                                            |
+| Metadata references an issue with no stored outcome fact              | configured dependency graph                | missing normalized issue fact                                      | move to `blocked-review-needed`; apply no mutations                                               |
+| Downstream issue is already closed or terminal succeeded              | configured dependency graph                | issue is closed or succeeded                                       | do not add `symphony:ready`; remove it if still present                                           |
+| GitHub label update fails after eligibility is computed               | computed add/remove mutation set           | current labels known, mutation request failed                      | report `sync-failed`; keep failure inspectable and do not claim successful promotion              |
 
 ## Storage And Persistence Contract
 

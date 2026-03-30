@@ -123,15 +123,17 @@ describe("operator ready promotion", () => {
     }
     await server.stop();
     await Promise.all(
-      tempRoots.splice(0).map((root) =>
-        fs.rm(root, { recursive: true, force: true }),
-      ),
+      tempRoots
+        .splice(0)
+        .map((root) => fs.rm(root, { recursive: true, force: true })),
     );
   });
 
   it("adds ready to an eligible downstream issue and records the promotion result", async () => {
     const instanceRoot = await createTempDir("symphony-ready-promotion-");
-    const operatorRoot = await createTempDir("symphony-ready-promotion-operator-");
+    const operatorRoot = await createTempDir(
+      "symphony-ready-promotion-operator-",
+    );
     tempRoots.push(instanceRoot, operatorRoot);
     const workflowPath = await writeWorkflow({
       rootDir: instanceRoot,
@@ -185,7 +187,9 @@ describe("operator ready promotion", () => {
         blockedDownstream: [],
         unresolvedReferences: [],
       },
-      promotion: createEmptyOperatorReadyPromotionResult("2026-03-30T00:00:00Z"),
+      promotion: createEmptyOperatorReadyPromotionResult(
+        "2026-03-30T00:00:00Z",
+      ),
     });
     await writeIssueSummary({
       instanceRoot,
@@ -215,9 +219,9 @@ describe("operator ready promotion", () => {
 
     const state = await readOperatorReleaseState(releaseStatePath);
     expect(state.promotion.state).toBe("labels-synchronized");
-    expect(state.promotion.eligibleIssues.map((issue) => issue.issueNumber)).toEqual([
-      112,
-    ]);
+    expect(
+      state.promotion.eligibleIssues.map((issue) => issue.issueNumber),
+    ).toEqual([112]);
     expect(
       state.promotion.readyLabelsAdded.map((issue) => issue.issueNumber),
     ).toEqual([112]);
@@ -225,7 +229,9 @@ describe("operator ready promotion", () => {
 
   it("removes ready when a prerequisite has failed", async () => {
     const instanceRoot = await createTempDir("symphony-ready-promotion-");
-    const operatorRoot = await createTempDir("symphony-ready-promotion-operator-");
+    const operatorRoot = await createTempDir(
+      "symphony-ready-promotion-operator-",
+    );
     tempRoots.push(instanceRoot, operatorRoot);
     const workflowPath = await writeWorkflow({
       rootDir: instanceRoot,
@@ -279,7 +285,9 @@ describe("operator ready promotion", () => {
         blockedDownstream: [],
         unresolvedReferences: [],
       },
-      promotion: createEmptyOperatorReadyPromotionResult("2026-03-30T00:00:00Z"),
+      promotion: createEmptyOperatorReadyPromotionResult(
+        "2026-03-30T00:00:00Z",
+      ),
     });
     await writeIssueSummary({
       instanceRoot,
@@ -303,9 +311,9 @@ describe("operator ready promotion", () => {
       },
     );
 
-    expect(server.getIssue(112).labels.map((label) => label.name)).not.toContain(
-      "symphony:ready",
-    );
+    expect(
+      server.getIssue(112).labels.map((label) => label.name),
+    ).not.toContain("symphony:ready");
 
     const state = await readOperatorReleaseState(releaseStatePath);
     expect(state.evaluation.advancementState).toBe(

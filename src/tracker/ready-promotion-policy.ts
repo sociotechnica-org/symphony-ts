@@ -56,7 +56,10 @@ export function evaluateReadyPromotion(args: {
   const trackerIssuesByNumber = new Map(
     args.trackerIssues.map((issue) => [issue.issueNumber, issue]),
   );
-  const prerequisitesByDownstream = new Map<number, OperatorReleaseIssueReference[]>();
+  const prerequisitesByDownstream = new Map<
+    number,
+    OperatorReleaseIssueReference[]
+  >();
   const downstreamReferences = new Map<number, OperatorReleaseIssueReference>();
   const unresolved: OperatorReleaseIssueReference[] = [];
 

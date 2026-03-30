@@ -41,7 +41,9 @@ function readOptionalOptionValue(
 
 function renderText(args: {
   readonly releaseStateFile: string;
-  readonly state: Awaited<ReturnType<typeof promoteOperatorReadyIssues>>["state"];
+  readonly state: Awaited<
+    ReturnType<typeof promoteOperatorReadyIssues>
+  >["state"];
 }): string {
   const promotion = args.state.promotion;
   return [

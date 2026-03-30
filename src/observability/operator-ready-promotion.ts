@@ -102,7 +102,8 @@ async function createPromotionResult(args: {
     ),
   );
   const availableTrackerIssues = trackerIssues.filter(
-    (issue): issue is NonNullable<(typeof trackerIssues)[number]> => issue !== null,
+    (issue): issue is NonNullable<(typeof trackerIssues)[number]> =>
+      issue !== null,
   );
   const decision = evaluateReadyPromotion({
     configuration: args.releaseState.configuration,
@@ -157,7 +158,9 @@ async function createPromotionResult(args: {
         continue;
       }
       await client.updateIssue(issue.issueNumber, {
-        labels: trackerIssue.labels.filter((label) => label !== tracker.readyLabel),
+        labels: trackerIssue.labels.filter(
+          (label) => label !== tracker.readyLabel,
+        ),
       });
       readyLabelsRemoved.push(issue);
     }
