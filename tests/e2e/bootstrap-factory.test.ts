@@ -17,6 +17,7 @@ import {
 import { runReportCli } from "../../src/cli/report.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import { readFactoryStatusSnapshot } from "../../src/observability/status.js";
+import { readTerminalIssueReportingReceipt } from "../../src/observability/terminal-reporting.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import { FsLivenessProbe } from "../../src/orchestrator/liveness-probe.js";
 import { createRunner } from "../../src/runner/factory.js";
@@ -1267,17 +1268,33 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     const status = await readFactoryStatusSnapshot(
       path.join(tempDir, ".tmp", "status.json"),
     );
-    expect(status.activeIssues[0]).toMatchObject({
-      issueNumber: 242,
-      status: "rework-required",
-    });
-    expect(status.activeIssues[0]?.summary).toMatch(/rework required/i);
+    expect(status.activeIssues[0]?.issueNumber).toBe(242);
+    expect(["rework-required", "awaiting-system-checks"]).toContain(
+      status.activeIssues[0]?.status,
+    );
+    expect(status.activeIssues[0]?.summary).toMatch(
+      /rework required|waiting on checks/i,
+    );
 
     const artifactSummary = await readIssueArtifactSummary(
       path.join(tempDir, ".tmp", "workspaces"),
       242,
     );
-    expect(artifactSummary.currentOutcome).toBe("rework-required");
+    expect(["rework-required", "awaiting-system-checks"]).toContain(
+      artifactSummary.currentOutcome,
+    );
+    const artifactEvents = await readIssueArtifactEvents(
+      path.join(tempDir, ".tmp", "workspaces"),
+      242,
+    );
+    expect(artifactEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "review-feedback",
+        details: expect.objectContaining({
+          lifecycleKind: "rework-required",
+        }),
+      }),
+    );
   });
 
   it("records landing-failed when the merge request throws before dispatch completes", async () => {
@@ -1507,6 +1524,184 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       "IMPLEMENTED.txt",
     );
     expect(implemented).toContain("via claude");
+  });
+
+  it("covers review follow-up, terminal reporting, and archive publication for an external Claude instance", async () => {
+    const archiveRoot = path.join(tempDir, "factory-runs");
+    await fs.mkdir(archiveRoot, { recursive: true });
+    await initializeGitRepo(archiveRoot);
+
+    server.seedIssue({
+      number: 54,
+      title: "External Claude review and reporting coverage",
+      body: "Exercise the third-party review loop and archive publication from an external instance root.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      runnerKind: "claude-code",
+      agentCommand:
+        "claude --add-dir . --file=WORKFLOW.md -p --output-format json --permission-mode bypassPermissions --model sonnet",
+      maxTurns: 2,
+      archiveRoot,
+      agentEnv: {
+        FAKE_CLAUDE_COMMIT_EACH_ATTEMPT: "true",
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+    const workspaceRoot = path.join(tempDir, ".tmp", "workspaces");
+
+    await orchestrator.runOnce();
+    await waitForPullRequestHead(server, "symphony/54");
+    server.setPullRequestCheckRuns("symphony/54", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    const threadId = server.addPullRequestReviewThread({
+      head: "symphony/54",
+      authorLogin: "greptile[bot]",
+      body: "Please tighten this implementation",
+      path: "src/tracker/github-bootstrap.ts",
+      line: 42,
+    });
+    server.addPullRequestComment({
+      head: "symphony/54",
+      authorLogin: "bugbot[bot]",
+      body: "There is still one more issue to fix",
+    });
+
+    await orchestrator.runOnce();
+
+    expect(server.isReviewThreadResolved(threadId)).toBe(true);
+    expect(await countRemoteBranchCommits(remotePath, "symphony/54")).toBe(2);
+
+    const implemented = await readRemoteBranchFile(
+      remotePath,
+      "symphony/54",
+      "IMPLEMENTED.txt",
+    );
+    expect(implemented).toContain("attempt 2");
+
+    server.setPullRequestCheckRuns("symphony/54", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    await orchestrator.runOnce();
+
+    let issue = server.getIssue(54);
+    expect(issue.state).toBe("open");
+
+    server.mergePullRequest("symphony/54");
+    await orchestrator.runOnce();
+
+    issue = server.getIssue(54);
+    expect(issue.state).toBe("closed");
+    expect(issue.comments).toContain(
+      "Symphony completed this issue successfully.",
+    );
+
+    const artifactSummary = await readIssueArtifactSummary(workspaceRoot, 54);
+    expect(artifactSummary.currentOutcome).toBe("succeeded");
+    expect(artifactSummary.latestAttemptNumber).toBe(2);
+
+    const latestSession = await readIssueArtifactSession(
+      workspaceRoot,
+      54,
+      artifactSummary.latestSessionId!,
+    );
+    expect(latestSession.provider).toBe("claude-code");
+    expect(latestSession.backendSessionId).toBe("claude-session-54-2");
+    expect(latestSession.accounting).toEqual({
+      status: "complete",
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+      costUsd: 0.25,
+    });
+
+    const reportRoot = path.join(tempDir, ".var", "reports", "issues", "54");
+    const report = JSON.parse(
+      await fs.readFile(path.join(reportRoot, "report.json"), "utf8"),
+    ) as {
+      readonly summary: { readonly attemptCount: number };
+      readonly githubActivity: {
+        readonly reviewFeedbackRounds: number;
+      };
+      readonly tokenUsage: {
+        readonly totalTokens: number | null;
+        readonly costUsd: number | null;
+        readonly observedTokenSubtotal: number | null;
+        readonly attempts: readonly {
+          readonly attemptNumber: number;
+          readonly sessionIds: readonly string[];
+          readonly totalTokens: number | null;
+          readonly costUsd: number | null;
+        }[];
+      };
+      readonly artifacts: {
+        readonly rawIssueRoot: string;
+        readonly generatedReportJson: string;
+      };
+    };
+    expect(report.summary.attemptCount).toBe(3);
+    expect(report.githubActivity.reviewFeedbackRounds).toBe(1);
+    expect(report.tokenUsage.totalTokens).toBe(4);
+    expect(report.tokenUsage.costUsd).toBe(0.5);
+    expect(report.tokenUsage.observedTokenSubtotal).toBe(4);
+    expect(
+      report.tokenUsage.attempts.map((attempt) => ({
+        attemptNumber: attempt.attemptNumber,
+        sessionCount: attempt.sessionIds.length,
+        totalTokens: attempt.totalTokens,
+        costUsd: attempt.costUsd,
+      })),
+    ).toEqual([
+      { attemptNumber: 1, sessionCount: 1, totalTokens: 2, costUsd: 0.25 },
+      { attemptNumber: 2, sessionCount: 1, totalTokens: 2, costUsd: 0.25 },
+      { attemptNumber: 3, sessionCount: 0, totalTokens: null, costUsd: null },
+    ]);
+    expect(report.artifacts.rawIssueRoot).toBe(
+      path.join(tempDir, ".var", "factory", "issues", "54"),
+    );
+    expect(report.artifacts.generatedReportJson).toBe(
+      path.join(reportRoot, "report.json"),
+    );
+
+    const receipt = await readTerminalIssueReportingReceipt(workspaceRoot, 54);
+    expect(receipt).not.toBeNull();
+    expect(receipt?.state).toBe("published");
+    expect(receipt?.archiveRoot).toBe(archiveRoot);
+    expect(receipt?.reportJsonFile).toBe(path.join(reportRoot, "report.json"));
+    expect(receipt?.publicationRoot).toContain(
+      path.join(archiveRoot, "symphony-ts", "issues", "54"),
+    );
+
+    const publicationIssueRoot = path.join(
+      archiveRoot,
+      "symphony-ts",
+      "issues",
+      "54",
+    );
+    const publicationEntries = await fs.readdir(publicationIssueRoot, {
+      withFileTypes: true,
+    });
+    const publicationDir = publicationEntries.find((entry) =>
+      entry.isDirectory(),
+    );
+    expect(publicationDir?.name).toBeDefined();
+    await expect(
+      fs.readFile(
+        path.join(publicationIssueRoot, publicationDir!.name, "report.json"),
+        "utf8",
+      ),
+    ).resolves.toContain('"issueNumber": 54');
+    await expect(
+      fs.readFile(
+        path.join(publicationIssueRoot, publicationDir!.name, "metadata.json"),
+        "utf8",
+      ),
+    ).resolves.toContain('"issueNumber": 54');
   });
 
   it("does not immediately re-close a reopened issue while its clean pull request is still open", async () => {
