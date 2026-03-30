@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { RunnerError, RunnerShutdownError } from "../domain/errors.js";
 import type { RunSession, RunUpdateEvent } from "../domain/run.js";
 import { getPreparedWorkspacePath } from "../domain/workspace.js";
+import { deriveWatchdogLogPath } from "../domain/watchdog-log.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import { parseRunUpdateEvent } from "./run-update-event.js";
@@ -100,6 +101,11 @@ export async function executeLocalRunnerCommand(
   });
 
   return await new Promise<RunnerExecutionResult>((resolve, reject) => {
+    const watchdogLogPath = deriveWatchdogLogPath({
+      workspaceRoot: path.dirname(workspacePath),
+      issueNumber: execution.session.issue.number,
+      runSessionId: execution.session.id,
+    });
     const child = spawn("bash", ["-lc", command], {
       cwd: workspacePath,
       detached: true,
@@ -125,6 +131,31 @@ export async function executeLocalRunnerCommand(
     let spawnError: RunnerError | null = null;
     let forcedKillTimeout: NodeJS.Timeout | null = null;
     let spawnNotificationPromise: Promise<void> = Promise.resolve();
+    let activityLogWriteChain: Promise<void> = Promise.resolve();
+
+    const noteWatchdogActivity = (
+      stream: "stdout" | "stderr",
+      text: string,
+    ): void => {
+      if (text.length === 0) {
+        return;
+      }
+      const entry = `${new Date().toISOString()} ${stream} ${Buffer.byteLength(text).toString()}\n`;
+      activityLogWriteChain = activityLogWriteChain
+        .catch(() => undefined)
+        .then(async () => {
+          await fs.mkdir(path.dirname(watchdogLogPath), { recursive: true });
+          await fs.appendFile(watchdogLogPath, entry, "utf8");
+        })
+        .catch((error: unknown) => {
+          logger.warn("Failed to append watchdog activity log", {
+            issueIdentifier: execution.session.issue.identifier,
+            runSessionId: execution.session.id,
+            watchdogLogPath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+    };
 
     const finish = (callback: () => void): void => {
       if (settled) {
@@ -242,6 +273,7 @@ export async function executeLocalRunnerCommand(
     child.stdout.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
       stdout += text;
+      noteWatchdogActivity("stdout", text);
       if (execution.options?.onUpdate !== undefined) {
         stdoutLineBuffer += text;
         const lines = stdoutLineBuffer.split("\n");
@@ -259,7 +291,9 @@ export async function executeLocalRunnerCommand(
       }
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
+      const text = chunk.toString();
+      stderr += text;
+      noteWatchdogActivity("stderr", text);
     });
     child.stdin.on("error", handleStdinError);
     child.on("error", (error) => {
@@ -286,7 +320,7 @@ export async function executeLocalRunnerCommand(
           }
         }
       }
-      void spawnNotificationPromise.finally(() => {
+      void Promise.allSettled([spawnNotificationPromise, activityLogWriteChain]).finally(() => {
         finish(() => {
           const finishedAt = new Date().toISOString();
           if (timedOut) {

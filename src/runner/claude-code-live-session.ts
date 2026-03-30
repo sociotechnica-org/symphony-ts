@@ -49,7 +49,7 @@ export class ClaudeCodeLiveSession implements LiveRunnerSession {
     this.#logger = logger;
     this.#runSession = session;
     this.#executeCommand = executeCommand;
-    this.#description = describeClaudeCodeSession(config.command);
+    this.#description = describeClaudeCodeSession(config.command, session);
   }
 
   describe(): RunnerSessionDescription {

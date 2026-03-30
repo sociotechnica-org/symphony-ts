@@ -64,6 +64,9 @@ git config user.name "Symphony Test Claude"
 git config user.email "symphony-claude@example.com"
 
 SESSION_ID="${RESUME_SESSION_ID:-claude-session-${SYMPHONY_ISSUE_NUMBER}-${SYMPHONY_RUN_ATTEMPT}}"
+ACTIVITY_TICKS="${FAKE_CLAUDE_ACTIVITY_TICKS:-0}"
+ACTIVITY_INTERVAL_MS="${FAKE_CLAUDE_ACTIVITY_INTERVAL_MS:-0.05}"
+ACTIVITY_STREAM="${FAKE_CLAUDE_ACTIVITY_STREAM:-stderr}"
 
 if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
   echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER} via claude" > IMPLEMENTED.txt
@@ -79,6 +82,17 @@ if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
     --body "Automated PR for ${SYMPHONY_ISSUE_IDENTIFIER} via Claude" \
     --base main \
     --head "${SYMPHONY_BRANCH_NAME}"
+fi
+
+if [[ "$ACTIVITY_TICKS" != "0" ]]; then
+  for ((tick = 1; tick <= ACTIVITY_TICKS; tick += 1)); do
+    if [[ "$ACTIVITY_STREAM" == "stdout" ]]; then
+      printf 'claude activity tick %s\n' "$tick"
+    else
+      printf 'claude activity tick %s\n' "$tick" >&2
+    fi
+    sleep "$ACTIVITY_INTERVAL_MS"
+  done
 fi
 
 printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"%s","cost_usd":0.25,"modelUsage":{"%s":{"inputTokens":1,"outputTokens":1}}}\n' \

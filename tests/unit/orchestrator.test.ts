@@ -119,6 +119,26 @@ function createRunnerVisibilityProbe(): LivenessProbe {
   };
 }
 
+function createAdvancingLogProbe(): LivenessProbe {
+  let logSizeBytes = 0;
+  return {
+    async capture(options) {
+      logSizeBytes += 1;
+      return {
+        logSizeBytes,
+        workspaceDiffHash: "workspace-diff-1",
+        prHeadSha: options.prHeadSha,
+        runStartedAt: options.runStartedAt,
+        runnerPhase: options.runnerPhase,
+        runnerHeartbeatAt: options.runnerHeartbeatAt,
+        runnerActionAt: options.runnerActionAt,
+        hasActionableFeedback: options.hasActionableFeedback,
+        capturedAt: Date.now(),
+      };
+    },
+  };
+}
+
 const BASE_INSTANCE_ROOT = path.join(
   "/tmp",
   `symphony-orchestrator-test-${process.pid}`,
@@ -4302,6 +4322,81 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.retried).toEqual([]);
     expect(tracker.failed).toEqual([]);
     expect(tracker.completed).toEqual([91]);
+  });
+
+  it("keeps an early-write run alive while watchdog log growth keeps advancing", async () => {
+    const issue = createIssue(94);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(94, [
+      lifecycle("handoff-ready", "symphony/94"),
+    ]);
+
+    let runAborted = false;
+
+    const slowRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        const startedAt = new Date().toISOString();
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            options?.signal?.removeEventListener("abort", handleAbort);
+            resolve();
+          }, 35);
+          const handleAbort = (): void => {
+            clearTimeout(timer);
+            runAborted = true;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+        };
+      },
+    };
+
+    const watchdogConfig = {
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 1,
+          stallThresholdMs: 5,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      slowRunner,
+      new NullLogger(),
+      undefined,
+      createAdvancingLogProbe(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runAborted).toBe(false);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([94]);
   });
 
   it("recovers a startup run that never advances beyond its start time", async () => {

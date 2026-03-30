@@ -1012,6 +1012,66 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
   });
 
+  it("keeps a third-party Claude run alive when raw stdio activity continues after an early workspace write", async () => {
+    server.seedIssue({
+      number: 84,
+      title: "Claude watchdog activity",
+      body: "Keep the run alive while Claude emits raw stdio activity.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      runnerKind: "claude-code",
+      agentCommand:
+        "claude --add-dir . --file=WORKFLOW.md -p --output-format json --permission-mode bypassPermissions --model sonnet",
+      maxAttempts: 1,
+      maxTurns: 2,
+      watchdog: {
+        enabled: true,
+        checkIntervalMs: 5,
+        stallThresholdMs: 40,
+        maxRecoveryAttempts: 0,
+      },
+      agentEnv: {
+        FAKE_CLAUDE_ACTIVITY_TICKS: "5",
+        FAKE_CLAUDE_ACTIVITY_INTERVAL_MS: "0.03",
+        FAKE_CLAUDE_ACTIVITY_STREAM: "stderr",
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/84", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/84",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(84);
+    expect(issue.state).toBe("closed");
+    expect(
+      issue.comments.some((comment) =>
+        comment.includes("Stall detected (workspace-stall)"),
+      ),
+    ).toBe(false);
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      84,
+    );
+    expect(artifactSummary.currentOutcome).toBe("succeeded");
+    expect(artifactSummary.currentSummary).not.toContain(
+      "Stall detected (workspace-stall)",
+    );
+  });
+
   it("blocks landing when unresolved non-outdated review threads remain even if checks are green", async () => {
     server.seedIssue({
       number: 80,

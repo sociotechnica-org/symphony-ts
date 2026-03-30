@@ -24,8 +24,8 @@ export class ClaudeCodeRunner implements Runner {
     this.#logger = logger;
   }
 
-  describeSession(_session: RunSession): RunnerSessionDescription {
-    return describeClaudeCodeSession(this.#config.command);
+  describeSession(session: RunSession): RunnerSessionDescription {
+    return describeClaudeCodeSession(this.#config.command, session);
   }
 
   startSession(session: RunSession): Promise<ClaudeCodeLiveSession> {

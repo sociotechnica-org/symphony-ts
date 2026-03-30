@@ -45,7 +45,7 @@ export class LocalRunnerSession implements LiveRunnerSession {
     this.#config = config;
     this.#logger = logger;
     this.#runSession = session;
-    this.#baseDescription = describeLocalRunnerSession(config.command);
+    this.#baseDescription = describeLocalRunnerSession(config.command, session);
     validateContinuationSessionConfig(config, this.#baseDescription);
     warnIfContinuationColdStarts(
       this.#logger,

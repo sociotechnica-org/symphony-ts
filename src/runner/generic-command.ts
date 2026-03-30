@@ -9,13 +9,16 @@ import { executeLocalRunnerCommand } from "./local-execution.js";
 import type {
   Runner,
   RunnerExecutionResult,
+  RunnerLogPointer,
   RunnerRunOptions,
   RunnerSessionDescription,
 } from "./service.js";
 import { createRunnerTransportMetadata } from "./service.js";
+import { createLocalProcessWatchdogLogPointers } from "./watchdog-log-pointer.js";
 
 function describeGenericCommandSession(
   config: GenericCommandRunnerConfig,
+  logPointers: readonly RunnerLogPointer[],
 ): RunnerSessionDescription {
   return {
     provider: config.provider ?? "generic-command",
@@ -27,7 +30,7 @@ function describeGenericCommandSession(
     backendThreadId: null,
     latestTurnId: null,
     latestTurnNumber: null,
-    logPointers: [],
+    logPointers,
   };
 }
 
@@ -48,8 +51,11 @@ export class GenericCommandRunner implements Runner {
     this.#logger = logger;
   }
 
-  describeSession(_session: RunSession): RunnerSessionDescription {
-    return describeGenericCommandSession(this.#runnerConfig);
+  describeSession(session: RunSession): RunnerSessionDescription {
+    return describeGenericCommandSession(
+      this.#runnerConfig,
+      createLocalProcessWatchdogLogPointers(session),
+    );
   }
 
   async run(

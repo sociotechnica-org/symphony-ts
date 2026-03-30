@@ -1,9 +1,11 @@
 import path from "node:path";
+import type { RunSession } from "../domain/run.js";
 import { RunnerError } from "../domain/errors.js";
 import type { AgentConfig } from "../domain/workflow.js";
 import { parseLocalRunnerCommand, quoteShellToken } from "./local-command.js";
 import type { RunnerSessionDescription } from "./service.js";
 import { createRunnerTransportMetadata } from "./service.js";
+import { createLocalProcessWatchdogLogPointers } from "./watchdog-log-pointer.js";
 
 interface ParsedClaudeCodeResult {
   readonly sessionId: string | null;
@@ -53,6 +55,7 @@ const CLAUDE_VALUE_FLAGS = new Set([
 
 export function describeClaudeCodeSession(
   command: string,
+  session?: RunSession,
 ): RunnerSessionDescription {
   return {
     provider: "claude-code",
@@ -64,7 +67,8 @@ export function describeClaudeCodeSession(
     backendThreadId: null,
     latestTurnId: null,
     latestTurnNumber: null,
-    logPointers: [],
+    logPointers:
+      session === undefined ? [] : createLocalProcessWatchdogLogPointers(session),
   };
 }
 
