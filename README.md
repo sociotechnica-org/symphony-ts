@@ -167,8 +167,9 @@ pnpm operator -- --workflow ../target-repo/WORKFLOW.md
 ```
 
 The checked-in loop lives under `skills/symphony-operator/`. `.ralph/` remains
-local/generated-only for per-instance scratch notes, loop status, logs, and
-lock files under `.ralph/instances/<instance-key>/`, including the
+local/generated-only for per-instance standing context, append-only wake-up
+history, loop status, logs, and lock files under
+`.ralph/instances/<instance-key>/`, including the
 machine-readable completed-run review ledger `report-review-state.json`.
 Operator wake-ups now inspect that ledger before ordinary queue advancement so
 completed-run report findings are turned into tracked follow-up work promptly.
