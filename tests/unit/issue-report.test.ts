@@ -17,6 +17,7 @@ import {
   downgradeIssueReportSchemaVersion,
   deriveReportInstance,
   deriveWorkspaceRoot,
+  seedEventOnlyIssueArtifacts,
   seedSessionAnchoredPartialArtifacts,
   seedSuccessfulIssueArtifacts,
 } from "../support/issue-report-fixtures.js";
@@ -108,6 +109,168 @@ describe("issue report generation", () => {
     );
     expect(generated.report.tokenUsage.explanation).not.toContain(
       "remained estimated",
+    );
+  });
+
+  it("collapses duplicate same-attempt runner starts into one readable start entry", async () => {
+    const tempDir = await createTempDir(
+      "symphony-issue-report-duplicate-starts-",
+    );
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionId = "sociotechnica-org/symphony-ts#44/attempt-1/session-1";
+
+    await seedEventOnlyIssueArtifacts(workspaceRoot, 44, {
+      currentOutcome: "retry-scheduled",
+      currentSummary: "Retry scheduled after repeated same-attempt start facts",
+      observedAt: "2026-03-09T10:09:00.000Z",
+      events: [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "runner-spawned",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:05:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: { pid: 4242 },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "runner-spawned",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:06:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: { pid: 4343 },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "retry-scheduled",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:09:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: {
+            summary: "Retry scheduled for attempt 2",
+            nextAttempt: 2,
+          },
+        },
+      ],
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:05:00.000Z",
+    });
+
+    expect(
+      generated.report.timeline.filter(
+        (entry) => entry.title === "Attempt 1 started",
+      ),
+    ).toHaveLength(1);
+    expect(generated.report.timeline).toContainEqual(
+      expect.objectContaining({
+        title: "Attempt 1 started",
+        summary: expect.stringContaining(
+          "Additional same-attempt start evidence was observed and collapsed into this entry.",
+        ),
+        details: expect.arrayContaining([
+          "Runner PID: 4242",
+          "Additional same-attempt start evidence observed at 2026-03-09T10:06:00.000Z (session sociotechnica-org/symphony-ts#44/attempt-1/session-1).",
+        ]),
+      }),
+    );
+  });
+
+  it("narrates a later same-attempt spawn as a shutdown-backed resume", async () => {
+    const tempDir = await createTempDir(
+      "symphony-issue-report-recovery-resume-",
+    );
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionId = "sociotechnica-org/symphony-ts#44/attempt-1/session-1";
+
+    await seedEventOnlyIssueArtifacts(workspaceRoot, 44, {
+      currentOutcome: "retry-scheduled",
+      currentSummary: "Retry scheduled after shutdown-backed resume",
+      observedAt: "2026-03-09T10:09:00.000Z",
+      events: [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "runner-spawned",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:05:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: { pid: 4242 },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "shutdown-requested",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:06:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: {
+            summary: "Shutdown requested for sociotechnica-org/symphony-ts#44",
+          },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "shutdown-terminated",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:07:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: {
+            summary:
+              "Runner exited during coordinated shutdown for sociotechnica-org/symphony-ts#44",
+            forced: false,
+          },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "runner-spawned",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:08:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: { pid: 4343 },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "retry-scheduled",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:09:00.000Z",
+          attemptNumber: 1,
+          sessionId,
+          details: {
+            summary: "Retry scheduled for attempt 2",
+            nextAttempt: 2,
+          },
+        },
+      ],
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:10:00.000Z",
+    });
+
+    expect(
+      generated.report.timeline.filter(
+        (entry) => entry.title === "Attempt 1 started",
+      ),
+    ).toHaveLength(1);
+    expect(generated.report.timeline).toContainEqual(
+      expect.objectContaining({
+        title: "Attempt 1 resumed after shutdown",
+        summary:
+          "A local coding-agent session resumed for the same attempt after shutdown interrupted the prior run.",
+        details: expect.arrayContaining([
+          "Recovery cue: Shutdown completed",
+          "Recovery cue observed at: 2026-03-09T10:07:00.000Z",
+          "Runner PID: 4343",
+        ]),
+      }),
     );
   });
 

@@ -9,6 +9,8 @@ import {
   ISSUE_ARTIFACT_SCHEMA_VERSION,
   LocalIssueArtifactStore,
   deriveIssueArtifactPaths,
+  type IssueArtifactEvent,
+  type IssueArtifactOutcome,
 } from "../../src/observability/issue-artifacts.js";
 import type { RunnerAccountingSnapshot } from "../../src/runner/accounting.js";
 import { createRunnerTransportMetadata } from "../../src/runner/service.js";
@@ -342,6 +344,57 @@ export async function seedSuccessfulIssueArtifacts(
       },
     ],
   });
+}
+
+export async function seedEventOnlyIssueArtifacts(
+  workspaceRoot: string,
+  issueNumber: number,
+  options: {
+    readonly currentOutcome: IssueArtifactOutcome;
+    readonly currentSummary: string;
+    readonly observedAt: string;
+    readonly events: readonly IssueArtifactEvent[];
+    readonly title?: string | undefined;
+    readonly branch?: string | null | undefined;
+  },
+): Promise<void> {
+  const artifactPaths = deriveIssueArtifactPaths(
+    deriveInstanceFromWorkspaceRoot(workspaceRoot),
+    issueNumber,
+  );
+  const issueIdentifier = `sociotechnica-org/symphony-ts#${issueNumber.toString()}`;
+  const issueUrl = `https://github.com/sociotechnica-org/symphony-ts/issues/${issueNumber.toString()}`;
+
+  await fs.mkdir(artifactPaths.issueRoot, { recursive: true });
+  await fs.writeFile(
+    artifactPaths.issueFile,
+    `${JSON.stringify(
+      {
+        version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+        issueNumber,
+        issueIdentifier,
+        repo: "sociotechnica-org/symphony-ts",
+        title:
+          options.title ?? "Generate per-issue reports from local artifacts",
+        issueUrl,
+        branch: options.branch ?? `symphony/${issueNumber.toString()}`,
+        currentOutcome: options.currentOutcome,
+        currentSummary: options.currentSummary,
+        firstObservedAt: options.events[0]?.observedAt ?? options.observedAt,
+        lastUpdatedAt: options.observedAt,
+        latestAttemptNumber: options.events.at(-1)?.attemptNumber ?? null,
+        latestSessionId: options.events.at(-1)?.sessionId ?? null,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  await fs.writeFile(
+    artifactPaths.eventsFile,
+    options.events.map((event) => JSON.stringify(event)).join("\n"),
+    "utf8",
+  );
 }
 
 export async function seedFailedIssueArtifacts(
