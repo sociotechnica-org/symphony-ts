@@ -89,6 +89,28 @@ async function runOperatorLoop(workflowPath: string): Promise<{
   };
 }
 
+async function runOperatorLoopWithCommand(
+  workflowPath: string,
+  command: string,
+): Promise<void> {
+  await execFileAsync(
+    "bash",
+    [
+      path.join("skills", "symphony-operator", "operator-loop.sh"),
+      "--once",
+      "--workflow",
+      workflowPath,
+    ],
+    {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        SYMPHONY_OPERATOR_COMMAND: command,
+      },
+    },
+  );
+}
+
 describe("operator loop workflow selection", () => {
   const createdPaths = new Set<string>();
 
@@ -177,6 +199,32 @@ describe("operator loop workflow selection", () => {
     } finally {
       await fs.rm(firstDir, { recursive: true, force: true });
       await fs.rm(secondDir, { recursive: true, force: true });
+    }
+  });
+
+  it("prompts the operator to review completed-run reports before other queue work", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-prompt-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const promptCapture = path.join(tempDir, "operator-prompt.txt");
+
+    try {
+      await runOperatorLoopWithCommand(
+        workflowPath,
+        `cat > ${JSON.stringify(promptCapture)}`,
+      );
+      createdPaths.add(tempDir);
+      const prompt = await fs.readFile(promptCapture, "utf8");
+      const reportReviewIndex = prompt.indexOf(
+        "bin/symphony-report.ts review-pending",
+      );
+      const queueWorkIndex = prompt.indexOf("review any active `plan-ready`");
+
+      expect(reportReviewIndex).toBeGreaterThanOrEqual(0);
+      expect(queueWorkIndex).toBeGreaterThanOrEqual(0);
+      expect(reportReviewIndex).toBeLessThan(queueWorkIndex);
+      expect(prompt).toContain("bin/symphony-report.ts review-pending");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 });

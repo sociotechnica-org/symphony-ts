@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 import { parseReportArgs } from "../../src/cli/report.js";
 
 describe("parseReportArgs", () => {
-  it("parses the issue report command", () => {
-    expect(
+  it("parses the issue report command", async () => {
+    await expect(
       parseReportArgs(["node", "symphony-report", "issue", "--issue", "44"]),
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       command: "issue",
       issueNumber: 44,
     });
   });
 
-  it("parses the publish command", () => {
-    expect(
+  it("parses the publish command", async () => {
+    await expect(
       parseReportArgs([
         "node",
         "symphony-report",
@@ -22,14 +22,14 @@ describe("parseReportArgs", () => {
         "--archive-root",
         "../factory-runs",
       ]),
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       command: "publish",
       issueNumber: 44,
     });
   });
 
-  it("parses the campaign command for an explicit issue list", () => {
-    expect(
+  it("parses the campaign command for an explicit issue list", async () => {
+    await expect(
       parseReportArgs([
         "node",
         "symphony-report",
@@ -37,7 +37,7 @@ describe("parseReportArgs", () => {
         "--issues",
         "44,32,43",
       ]),
-    ).toEqual({
+    ).resolves.toEqual({
       command: "campaign",
       workflowPath: expect.stringContaining("WORKFLOW.md"),
       selection: {
@@ -47,8 +47,8 @@ describe("parseReportArgs", () => {
     });
   });
 
-  it("parses the campaign command for a date window", () => {
-    expect(
+  it("parses the campaign command for a date window", async () => {
+    await expect(
       parseReportArgs([
         "node",
         "symphony-report",
@@ -58,7 +58,7 @@ describe("parseReportArgs", () => {
         "--to",
         "2026-03-07",
       ]),
-    ).toEqual({
+    ).resolves.toEqual({
       command: "campaign",
       workflowPath: expect.stringContaining("WORKFLOW.md"),
       selection: {
@@ -69,40 +69,74 @@ describe("parseReportArgs", () => {
     });
   });
 
-  it("requires a valid issue number", () => {
-    expect(() =>
+  it("parses report-review commands", async () => {
+    await expect(
+      parseReportArgs([
+        "node",
+        "symphony-report",
+        "review-pending",
+        "--operator-repo-root",
+        "../operator",
+        "--json",
+      ]),
+    ).resolves.toMatchObject({
+      command: "review-pending",
+      output: "json",
+    });
+
+    await expect(
+      parseReportArgs([
+        "node",
+        "symphony-report",
+        "review-record",
+        "--issue",
+        "44",
+        "--status",
+        "reviewed-no-follow-up",
+        "--summary",
+        "No action needed.",
+      ]),
+    ).resolves.toMatchObject({
+      command: "review-record",
+      issueNumber: 44,
+      status: "reviewed-no-follow-up",
+    });
+  });
+
+  it("requires a valid issue number", async () => {
+    await expect(
       parseReportArgs(["node", "symphony-report", "issue", "--issue", "abc"]),
-    ).toThrowError("Invalid issue number: abc");
-    expect(() =>
+    ).rejects.toThrowError("Invalid issue number: abc");
+    await expect(
       parseReportArgs(["node", "symphony-report", "issue", "--issue", "44x"]),
-    ).toThrowError("Invalid issue number: 44x");
-    expect(() =>
+    ).rejects.toThrowError("Invalid issue number: 44x");
+    await expect(
       parseReportArgs(["node", "symphony-report", "issue", "--issue", "0"]),
-    ).toThrowError("Invalid issue number: 0");
+    ).rejects.toThrowError("Invalid issue number: 0");
   });
 
-  it("requires the issue flag", () => {
-    expect(() =>
+  it("requires the issue flag", async () => {
+    await expect(
       parseReportArgs(["node", "symphony-report", "issue"]),
-    ).toThrowError("Missing required --issue <number> option");
+    ).rejects.toThrowError("Missing required --issue <number> option");
   });
 
-  it("shows usage for unknown commands", () => {
-    expect(() =>
+  it("shows usage for unknown commands", async () => {
+    await expect(
       parseReportArgs(["node", "symphony-report", "status"]),
-    ).toThrowError(
-      "Usage: symphony-report <issue|publish|campaign> [--issue <number>] [--issues <a,b,c> | --from <YYYY-MM-DD> --to <YYYY-MM-DD>] [--workflow <path>] [--archive-root <path>]",
+    ).rejects.toThrowError(
+      "Usage: symphony-report <issue|publish|campaign|review-pending|review-record|review-follow-up> [--issue <number>] [--issues <a,b,c> | --from <YYYY-MM-DD> --to <YYYY-MM-DD>] [--workflow <path>] [--archive-root <path>] [--operator-repo-root <path>] [--json]",
     );
   });
 
-  it("requires the archive root for publish", () => {
-    expect(() =>
+  it("requires the archive root for publish", async () => {
+    await expect(
       parseReportArgs(["node", "symphony-report", "publish", "--issue", "44"]),
-    ).toThrowError("Missing required --archive-root <path> option");
+    ).rejects.toThrowError("Missing required --archive-root option");
   });
 
-  it("rejects invalid campaign selection combinations", () => {
-    expect(() =>
+  it("rejects invalid campaign selection combinations", async () => {
+    await expect(
       parseReportArgs([
         "node",
         "symphony-report",
@@ -114,15 +148,15 @@ describe("parseReportArgs", () => {
         "--to",
         "2026-03-07",
       ]),
-    ).toThrowError(
+    ).rejects.toThrowError(
       "Campaign selection must use either --issues or --from/--to, not both",
     );
-    expect(() =>
+    await expect(
       parseReportArgs(["node", "symphony-report", "campaign"]),
-    ).toThrowError(
+    ).rejects.toThrowError(
       "Campaign generation requires either --issues <a,b,c> or --from <YYYY-MM-DD> --to <YYYY-MM-DD>",
     );
-    expect(() =>
+    await expect(
       parseReportArgs([
         "node",
         "symphony-report",
@@ -130,7 +164,7 @@ describe("parseReportArgs", () => {
         "--from",
         "2026-03-07",
       ]),
-    ).toThrowError(
+    ).rejects.toThrowError(
       "Campaign date-window selection requires both --from and --to",
     );
   });

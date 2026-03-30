@@ -81,6 +81,41 @@ if [[ "$1" == "issue" && "$2" == "comment" ]]; then
   exit 0
 fi
 
+if [[ "$1" == "issue" && "$2" == "create" ]]; then
+  shift 2
+  REPO="sociotechnica-org/symphony-ts"
+  TITLE=""
+  BODY=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        REPO="$2"
+        shift 2
+        ;;
+      --title)
+        TITLE="$2"
+        shift 2
+        ;;
+      --body)
+        BODY="$2"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  JSON_PAYLOAD="$(
+    TITLE="$TITLE" BODY="$BODY" \
+      node -e 'process.stdout.write(JSON.stringify({ title: process.env.TITLE, body: process.env.BODY }))'
+  )"
+  RESPONSE="$(curl -sS -X POST "${MOCK_GITHUB_API_URL}/repos/${REPO}/issues" \
+    -H 'content-type: application/json' \
+    -d "$JSON_PAYLOAD")"
+  RESPONSE="$RESPONSE" node -e 'process.stdout.write(`${JSON.parse(process.env.RESPONSE).html_url}\n`)'
+  exit 0
+fi
+
 if [[ "$1" == "auth" && "$2" == "token" ]]; then
   printf '%s\n' "${GH_TOKEN:-test-token}"
   exit 0

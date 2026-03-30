@@ -20,6 +20,7 @@ export interface OperatorInstanceStatePaths {
   readonly statusJsonPath: string;
   readonly statusMdPath: string;
   readonly scratchpadPath: string;
+  readonly reportReviewStatePath: string;
 }
 
 export function deriveSymphonyInstanceIdentity(
@@ -63,6 +64,10 @@ export function deriveOperatorInstanceStatePaths(args: {
     statusJsonPath: path.join(operatorStateRoot, "status.json"),
     statusMdPath: path.join(operatorStateRoot, "status.md"),
     scratchpadPath: path.join(operatorStateRoot, "operator-scratchpad.md"),
+    reportReviewStatePath: path.join(
+      operatorStateRoot,
+      "report-review-state.json",
+    ),
   };
 }
 

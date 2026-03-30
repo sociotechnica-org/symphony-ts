@@ -62,14 +62,26 @@ Normal path rules:
 Run this sequence at the start of each operator pass:
 
 1. Inspect `pnpm tsx bin/symphony.ts factory status --json`, appending `--workflow <path>` whenever the operator checkout is not the target instance root.
-2. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
-3. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
-4. Check for operator-gated work the factory cannot clear by itself:
+2. Before ordinary queue work, inspect completed-run report review state with:
+
+```bash
+pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-checkout> --json
+pnpm tsx bin/symphony-report.ts review-pending --workflow ../target-repo/WORKFLOW.md --operator-repo-root <operator-checkout> --json
+```
+
+3. If `review-pending` reports any `report-ready` or `review-blocked` entries, handle those completed-run reports first:
+   - read the generated evidence under `.var/reports/issues/<issue-number>/`
+   - record a no-follow-up decision with `symphony-report.ts review-record`
+   - or create a tracked follow-up issue with `symphony-report.ts review-follow-up`
+   - and update the instance scratchpad with what the review found and what work was queued
+4. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
+5. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
+6. Check for operator-gated work the factory cannot clear by itself:
    - active issues in `awaiting-human-handoff`
    - active issues or PRs in `awaiting-landing-command`
-5. If the detached runtime is stopped or degraded, repair that first.
-6. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
-7. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
+7. If the detached runtime is stopped or degraded, repair that first.
+8. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
+9. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
 
@@ -185,6 +197,10 @@ Operator-loop generated state is separate from that runtime surface. It stays
 under the operator checkout's `.ralph/instances/<instance-key>/` tree so two
 operator loops targeting different instances do not overwrite each other's
 scratchpad, status, logs, or lock files.
+Completed-run report review state also lives there in
+`report-review-state.json`; this is the machine-readable ledger for which
+generated reports are pending review, reviewed, or blocked, and which follow-up
+issues were filed from report findings.
 
 Workspace retention is config-driven. By default, failures stay inspectable and successes are cleaned up. If you need to inspect a successful workspace, temporarily set `workspace.retention.on_success: retain` before the run.
 

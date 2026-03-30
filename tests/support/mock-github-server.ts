@@ -237,6 +237,22 @@ export class MockGitHubServer {
     };
   }
 
+  listIssues(): ReadonlyArray<{
+    readonly number: number;
+    readonly title: string;
+    readonly body: string;
+    readonly state: string;
+  }> {
+    return [...this.#issues.values()]
+      .sort((left, right) => left.number - right.number)
+      .map((issue) => ({
+        number: issue.number,
+        title: issue.title,
+        body: issue.body,
+        state: issue.state,
+      }));
+  }
+
   setIssueLabels(number: number, labels: readonly string[]): void {
     const issue = this.#issues.get(number);
     if (!issue) {
@@ -702,6 +718,34 @@ export class MockGitHubServer {
           return issue.labels.some((entry) => entry.name === label);
         });
       json(response, 200, issues);
+      return;
+    }
+
+    if (method === "POST" && suffix === "issues") {
+      const body = (await readJson(request)) as {
+        title?: string;
+        body?: string;
+      };
+      const number =
+        [...this.#issues.keys()].reduce(
+          (max, current) => (current > max ? current : max),
+          0,
+        ) + 1;
+      const now = new Date().toISOString();
+      const issue: MockIssue = {
+        id: randomUUID(),
+        number,
+        title: body.title ?? "",
+        body: body.body ?? "",
+        state: "open",
+        html_url: `${this.#baseUrl}/issues/${number.toString()}`,
+        created_at: now,
+        updated_at: now,
+        labels: [],
+        comments: [],
+      };
+      this.#issues.set(number, issue);
+      json(response, 201, issue);
       return;
     }
 
