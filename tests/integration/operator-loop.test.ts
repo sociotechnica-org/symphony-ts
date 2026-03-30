@@ -236,6 +236,9 @@ describe("operator loop workflow selection", () => {
       );
       createdPaths.add(tempDir);
       const prompt = await fs.readFile(promptCapture, "utf8");
+      const freshnessIndex = prompt.indexOf(
+        "bin/check-factory-runtime-freshness.ts",
+      );
       const reportReviewIndex = prompt.indexOf(
         "bin/symphony-report.ts review-pending",
       );
@@ -248,12 +251,15 @@ describe("operator loop workflow selection", () => {
         "append a new timestamped journal entry",
       );
 
+      expect(freshnessIndex).toBeGreaterThanOrEqual(0);
       expect(reportReviewIndex).toBeGreaterThanOrEqual(0);
       expect(queueWorkIndex).toBeGreaterThanOrEqual(0);
       expect(standingContextIndex).toBeGreaterThanOrEqual(0);
       expect(wakeUpLogIndex).toBeGreaterThanOrEqual(0);
       expect(appendIndex).toBeGreaterThanOrEqual(0);
+      expect(freshnessIndex).toBeLessThan(reportReviewIndex);
       expect(reportReviewIndex).toBeLessThan(queueWorkIndex);
+      expect(prompt).toContain("bin/check-factory-runtime-freshness.ts");
       expect(standingContextIndex).toBeLessThan(appendIndex);
       expect(prompt).toContain("bin/symphony-report.ts review-pending");
       expect(prompt).toContain("Read the instance-scoped standing context");
