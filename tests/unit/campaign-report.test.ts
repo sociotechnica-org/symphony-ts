@@ -236,6 +236,69 @@ describe("campaign report", () => {
     );
   });
 
+  it("treats blocking reviewer verdict totals as unavailable when legacy pull requests omit reviewer verdict data", () => {
+    const digest = buildCampaignDigest(
+      {
+        kind: "issues",
+        issueNumbers: [43, 44],
+      },
+      [
+        buildStoredIssueReport({
+          issueNumber: 43,
+          githubActivity: {
+            pullRequests: [
+              {
+                number: 143,
+                url: "https://example.test/pr/143",
+                attemptNumbers: [1],
+                firstObservedAt: "2026-03-04T14:10:00.000Z",
+                latestCommitAt: "2026-03-04T15:00:00.000Z",
+                reviewFeedbackRounds: 0,
+                actionableReviewCount: 0,
+                unresolvedThreadCount: 0,
+                reviewerVerdict: null,
+                blockingReviewerKeys: [],
+                requiredReviewerState: null,
+                pendingChecks: [],
+                failingChecks: [],
+              },
+            ],
+            reviewFeedbackRounds: 0,
+          },
+        }),
+        buildStoredIssueReport({
+          issueNumber: 44,
+          githubActivity: {
+            pullRequests: [
+              {
+                number: 144,
+                url: "https://example.test/pr/144",
+                attemptNumbers: [1],
+                firstObservedAt: "2026-03-04T14:10:00.000Z",
+                latestCommitAt: "2026-03-04T15:00:00.000Z",
+                reviewFeedbackRounds: 0,
+                actionableReviewCount: 0,
+                unresolvedThreadCount: 0,
+                reviewerVerdict: "blocking-issues-found",
+                blockingReviewerKeys: ["devin"],
+                requiredReviewerState: "satisfied",
+                pendingChecks: [],
+                failingChecks: [],
+              },
+            ],
+            reviewFeedbackRounds: 0,
+          },
+        }),
+      ],
+      "2026-03-11T12:00:00.000Z",
+    );
+
+    expect(digest.githubActivity.blockingReviewerVerdictCount).toBeNull();
+    expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
+      "- Blocking reviewer-app verdicts: Unavailable",
+    );
+  });
+
   it("renders all five markdown outputs with stable headings", () => {
     const digest = buildCampaignDigest(
       {

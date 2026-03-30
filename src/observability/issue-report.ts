@@ -1340,7 +1340,11 @@ function buildReviewLoopSummary(
     return "No pull request was observed in canonical local artifacts.";
   }
   if (blockingReviewerVerdicts.length > 0) {
-    return `Observed reviewer-app blocking verdicts on ${blockingReviewerVerdicts.length.toString()} pull request(s) in canonical local artifacts.`;
+    const blockingSummary = `Observed reviewer-app blocking verdicts on ${blockingReviewerVerdicts.length.toString()} pull request(s) in canonical local artifacts.`;
+    if (reviewFeedbackRounds === 0) {
+      return blockingSummary;
+    }
+    return `${blockingSummary} Recorded ${reviewFeedbackRounds.toString()} review-feedback round(s) across ${pullRequests.length.toString()} pull request(s).`;
   }
   if (reviewFeedbackRounds === 0) {
     return "A pull request was observed with no recorded actionable review-feedback rounds in canonical local artifacts.";

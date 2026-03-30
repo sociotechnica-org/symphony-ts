@@ -496,7 +496,8 @@ function buildCampaignGitHubActivity(
       ? null
       : actionableReviewValues.reduce((sum, value) => sum + value, 0);
   const blockingReviewerVerdictCount =
-    pullRequests.length === 0
+    pullRequests.length === 0 ||
+    pullRequests.some((pullRequest) => pullRequest.reviewerVerdict === null)
       ? null
       : pullRequests.filter(
           (pullRequest) =>

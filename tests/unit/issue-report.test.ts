@@ -139,6 +139,48 @@ describe("issue report generation", () => {
     );
   });
 
+  it("keeps review rounds visible when reviewer-app blocking verdicts are also recorded", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-review-rounds-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      review: {
+        actionableCount: 2,
+        unresolvedThreadCount: 0,
+        reviewerVerdict: "blocking-issues-found",
+        blockingReviewerKeys: ["devin"],
+        requiredReviewerState: "satisfied",
+      },
+    });
+    const paths = deriveIssueArtifactPaths(deriveReportInstance(tempDir), 44);
+    const reviewFeedbackEvent = {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      kind: "review-feedback",
+      issueNumber: 44,
+      observedAt: "2026-03-09T10:15:00.000Z",
+      attemptNumber: 1,
+      sessionId: "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
+      details: {
+        summary: "Follow-up review feedback recorded.",
+      },
+    };
+    await fs.appendFile(
+      paths.eventsFile,
+      `${JSON.stringify(reviewFeedbackEvent)}\n${JSON.stringify(reviewFeedbackEvent)}\n${JSON.stringify(reviewFeedbackEvent)}\n`,
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:08:00.000Z",
+    });
+
+    expect(generated.report.githubActivity.reviewLoopSummary).toContain(
+      "reviewer-app blocking verdicts",
+    );
+    expect(generated.report.githubActivity.reviewLoopSummary).toContain(
+      "Recorded 3 review-feedback round(s)",
+    );
+  });
+
   it("generates a partial report when issue and event artifacts are missing but session artifacts remain", async () => {
     const tempDir = await createTempDir("symphony-issue-report-partial-");
     tempRoots.push(tempDir);
