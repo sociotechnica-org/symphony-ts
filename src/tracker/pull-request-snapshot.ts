@@ -6,6 +6,7 @@ import type {
 } from "../domain/pull-request.js";
 import type { GitHubReviewerAppConfig } from "../domain/workflow.js";
 import type {
+  GitHubPullRequestDetailsResponse,
   GitHubPullRequestResponse,
   PullRequestReviewState,
 } from "./github-client.js";
@@ -24,6 +25,8 @@ export interface PullRequestSnapshot {
   readonly branchName: string;
   readonly pullRequest: PullRequestHandle;
   readonly landingState: "open" | "merged";
+  readonly mergeable: boolean | null;
+  readonly mergeStateStatus: string | null;
   readonly hasLandingCommand: boolean;
   readonly checks: readonly PullRequestCheck[];
   readonly pendingCheckNames: readonly string[];
@@ -34,6 +37,16 @@ export interface PullRequestSnapshot {
   readonly reviewerApps: readonly ReviewerAppSnapshot[];
   readonly requiredReviewerState: RequiredReviewerState;
   readonly observedReviewerKeys: readonly string[];
+}
+
+function hasMergeabilityFields(
+  pullRequest: GitHubPullRequestResponse,
+): pullRequest is GitHubPullRequestResponse & GitHubPullRequestDetailsResponse {
+  return (
+    "mergeable" in pullRequest &&
+    "mergeable_state" in pullRequest &&
+    "draft" in pullRequest
+  );
 }
 
 function isAfter(left: string, right: string | null): boolean {
@@ -185,6 +198,12 @@ export function createPullRequestSnapshot(input: {
       latestCommitAt,
     },
     landingState: input.pullRequest.landingState,
+    mergeable: hasMergeabilityFields(input.pullRequest)
+      ? input.pullRequest.mergeable
+      : null,
+    mergeStateStatus: hasMergeabilityFields(input.pullRequest)
+      ? (input.pullRequest.mergeable_state?.toLowerCase() ?? null)
+      : null,
     hasLandingCommand,
     checks: input.checks,
     pendingCheckNames,

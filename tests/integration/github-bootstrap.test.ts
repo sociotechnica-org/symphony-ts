@@ -795,6 +795,31 @@ describe("GitHubTracker", () => {
     });
   });
 
+  it("does not report awaiting landing command when the pull request is conflicting", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.setPullRequestMergeGate("symphony/7", {
+      mergeable: false,
+      mergeableState: "dirty",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("rework-required");
+    expect(lifecycle.summary).toMatch(
+      /does not consider the pull request mergeable/i,
+    );
+  });
+
   it("reports merged when the pull request is already merged before landing executes", async () => {
     const tracker = createTracker(server);
 

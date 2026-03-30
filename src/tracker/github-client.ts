@@ -53,6 +53,9 @@ interface GitHubPullRequestListResponse {
 export interface GitHubPullRequestResponse extends GitHubPullRequestListResponse {
   readonly landingState: "open" | "merged";
   readonly mergedAt: string | null;
+  readonly mergeable?: boolean | null;
+  readonly mergeable_state?: string | null;
+  readonly draft?: boolean;
 }
 
 export interface GitHubPullRequestDetailsResponse extends GitHubPullRequestListResponse {
@@ -726,8 +729,9 @@ export class GitHubClient {
     const matchingPulls = pulls.filter((pull) => pull.head.ref === headBranch);
     const openPull = matchingPulls.find((pull) => pull.state === "open");
     if (openPull) {
+      const details = await this.getPullRequest(openPull.number);
       return {
-        ...openPull,
+        ...details,
         landingState: "open",
         mergedAt: null,
       };
