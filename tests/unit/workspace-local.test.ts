@@ -46,6 +46,14 @@ async function withScrubbedGitIdentity<T>(
   }
 }
 
+async function listStashEntries(cwd: string): Promise<readonly string[]> {
+  const result = await execFile("git", ["stash", "list"], { cwd });
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 function createIssue(number: number) {
   return {
     id: String(number),
@@ -253,6 +261,61 @@ describe("LocalWorkspaceManager", () => {
           "IMPLEMENTED.txt",
         ),
       ).resolves.toContain("bootstrap push path");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stashes dirty retained workspaces before resetting them for reuse", async () => {
+    const tempDir = await createTempDir("workspace-retained-dirty-");
+    const remote = await createSeedRemote();
+    const logger = new JsonLogger();
+    const manager = new LocalWorkspaceManager(
+      {
+        root: path.join(tempDir, ".tmp", "workspaces"),
+        repoUrl: remote.remotePath,
+        branchPrefix: "symphony/",
+        retention: {
+          onSuccess: "retain",
+          onFailure: "retain",
+        },
+      },
+      [],
+      logger,
+    );
+
+    try {
+      const prepared = await manager.prepareWorkspace({
+        issue: createIssue(11),
+      });
+      const workspacePath = getPreparedWorkspacePath(prepared);
+      if (workspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      await fs.writeFile(
+        path.join(workspacePath, "README.md"),
+        "# locally modified for retry\n",
+        "utf8",
+      );
+
+      const reused = await manager.prepareWorkspace({
+        issue: createIssue(11),
+      });
+      const reusedWorkspacePath = getPreparedWorkspacePath(reused);
+      if (reusedWorkspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      expect(reused.createdNow).toBe(false);
+      await expect(
+        fs.readFile(path.join(reusedWorkspacePath, "README.md"), "utf8"),
+      ).resolves.toContain("# mock repo");
+
+      const stashEntries = await listStashEntries(reusedWorkspacePath);
+      expect(stashEntries).toHaveLength(1);
+      expect(stashEntries[0]).toContain("symphony-retained-workspace-");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
       await fs.rm(remote.rootDir, { recursive: true, force: true });
