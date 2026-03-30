@@ -66,6 +66,28 @@ function renderText(
             .map((issue) => `#${issue.issueNumber.toString()}`)
             .join(", ")
     }`,
+    `Ready promotion: ${state.promotion.state}`,
+    `Ready promotion eligible issues: ${
+      state.promotion.eligibleIssues.length === 0
+        ? "none"
+        : state.promotion.eligibleIssues
+            .map((issue) => `#${issue.issueNumber.toString()}`)
+            .join(", ")
+    }`,
+    `Ready promotion added: ${
+      state.promotion.readyLabelsAdded.length === 0
+        ? "none"
+        : state.promotion.readyLabelsAdded
+            .map((issue) => `#${issue.issueNumber.toString()}`)
+            .join(", ")
+    }`,
+    `Ready promotion removed: ${
+      state.promotion.readyLabelsRemoved.length === 0
+        ? "none"
+        : state.promotion.readyLabelsRemoved
+            .map((issue) => `#${issue.issueNumber.toString()}`)
+            .join(", ")
+    }`,
     `Updated at: ${state.updatedAt}`,
     `Summary: ${state.evaluation.summary}`,
   ].join("\n");

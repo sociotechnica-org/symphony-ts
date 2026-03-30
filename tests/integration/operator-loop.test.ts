@@ -7,7 +7,10 @@ import {
   deriveOperatorInstanceStatePaths,
   deriveSymphonyInstanceKey,
 } from "../../src/domain/instance-identity.js";
-import { writeOperatorReleaseState } from "../../src/observability/operator-release-state.js";
+import {
+  createEmptyOperatorReadyPromotionResult,
+  writeOperatorReleaseState,
+} from "../../src/observability/operator-release-state.js";
 import { createTempDir } from "../support/git.js";
 
 const execFileAsync = promisify(execFile);
@@ -22,11 +25,24 @@ async function writeWorkflow(rootDir: string): Promise<string> {
 tracker:
   kind: github-bootstrap
   repo: sociotechnica-org/symphony-ts
+  api_url: http://127.0.0.1:9
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
 polling:
   interval_ms: 1000
   max_concurrent_runs: 1
+  retry:
+    max_attempts: 1
+    backoff_ms: 1000
 workspace:
   root: ./.tmp/workspaces
+  repo_url: https://github.com/sociotechnica-org/symphony-ts.git
+  branch_prefix: symphony/
+  retention:
+    on_success: delete
+    on_failure: retain
 hooks:
   after_create: []
 agent:
@@ -35,6 +51,7 @@ agent:
   command: codex
   prompt_transport: stdin
   timeout_ms: 1000
+  max_turns: 3
   env: {}
 ---
 Prompt body
@@ -67,6 +84,7 @@ async function runOperatorLoop(workflowPath: string): Promise<{
       env: {
         ...process.env,
         SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
+        GH_TOKEN: "test-token",
       },
     },
   );
@@ -113,6 +131,7 @@ async function runOperatorLoopWithCommand(
       env: {
         ...process.env,
         SYMPHONY_OPERATOR_COMMAND: command,
+        GH_TOKEN: "test-token",
       },
     },
   );
@@ -197,6 +216,9 @@ describe("operator loop workflow selection", () => {
         readonly releaseState: {
           readonly path: string;
           readonly advancementState: string;
+          readonly promotion: {
+            readonly state: string;
+          };
         };
       };
       const statusMd = await fs.readFile(run.statusMdPath, "utf8");
@@ -209,6 +231,7 @@ describe("operator loop workflow selection", () => {
       expect(statusJson.wakeUpLog).toBe(run.wakeUpLogPath);
       expect(statusJson.releaseState.path).toBe(run.releaseStatePath);
       expect(statusJson.releaseState.advancementState).toBe("unconfigured");
+      expect(statusJson.releaseState.promotion.state).toBe("unconfigured");
       expect(statusMd).toContain(`- Selected workflow: ${workflowPath}`);
       expect(statusMd).toContain(`- Operator state root: ${run.stateRoot}`);
       expect(statusMd).toContain(
@@ -216,6 +239,7 @@ describe("operator loop workflow selection", () => {
       );
       expect(statusMd).toContain(`- Wake-up log: ${run.wakeUpLogPath}`);
       expect(statusMd).toContain(`- Release state: ${run.releaseStatePath}`);
+      expect(statusMd).toContain(`- Ready promotion state: unconfigured`);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -520,6 +544,9 @@ describe("operator loop workflow selection", () => {
           blockedDownstream: [],
           unresolvedReferences: [],
         },
+        promotion: createEmptyOperatorReadyPromotionResult(
+          "2026-03-30T00:00:00Z",
+        ),
       });
       await writeIssueSummary({
         workflowPath,

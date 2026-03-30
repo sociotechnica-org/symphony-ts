@@ -8,6 +8,7 @@ PROMPT_FILE="$SCRIPT_DIR/operator-prompt.md"
 RALPH_DIR="$REPO_ROOT/.ralph"
 INSTANCE_STATE_RESOLVER="$REPO_ROOT/bin/resolve-operator-instance.ts"
 RELEASE_STATE_CHECKER="$REPO_ROOT/bin/check-operator-release-state.ts"
+READY_PROMOTER="$REPO_ROOT/bin/promote-operator-ready-issues.ts"
 INSTANCE_KEY=""
 DETACHED_SESSION_NAME=""
 INSTANCE_STATE_ROOT=""
@@ -43,6 +44,12 @@ RELEASE_ID=""
 RELEASE_BLOCKING_PREREQUISITE_NUMBER=""
 RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER=""
 RELEASE_STATE_REFRESH_ERROR=""
+READY_PROMOTION_STATE="unavailable"
+READY_PROMOTION_SUMMARY="Ready promotion is unavailable."
+READY_PROMOTION_UPDATED_AT=""
+READY_PROMOTION_ELIGIBLE_ISSUES=""
+READY_PROMOTION_ADDED=""
+READY_PROMOTION_REMOVED=""
 
 usage() {
   cat <<'EOF'
@@ -151,20 +158,47 @@ refresh_release_state_nonfatal() {
   return 1
 }
 
+run_ready_promotion_nonfatal() {
+  local promoter_output
+  if [ ! -f "$READY_PROMOTER" ]; then
+    echo "operator-loop: ready promoter not found: $READY_PROMOTER" >&2
+    return 1
+  fi
+
+  if promoter_output="$(
+    pnpm tsx "$READY_PROMOTER" \
+      --workflow "$WORKFLOW_PATH" \
+      --operator-repo-root "$REPO_ROOT" \
+      --json 2>&1 >/dev/null
+  )"; then
+    return 0
+  fi
+
+  promoter_output="$(printf '%s' "$promoter_output" | tr '\r\n' ' ' | tr -s ' ')"
+  echo "operator-loop: ready promotion failed unexpectedly: ${promoter_output:-unknown error}" >&2
+  return 1
+}
+
 load_release_state_snapshot() {
   local release_state_exports
   release_state_exports="$(
     RELEASE_STATE="$RELEASE_STATE" node -e '
 const fs = require("node:fs");
 const filePath = process.env.RELEASE_STATE;
-const defaults = {
-  advancementState: "unavailable",
-  summary: "Release state is unavailable.",
-  updatedAt: "",
-  releaseId: "",
-  blockingPrerequisiteNumber: "",
-  blockingPrerequisiteIdentifier: "",
-};
+  const defaults = {
+    advancementState: "unavailable",
+    summary: "Release state is unavailable.",
+    updatedAt: "",
+    releaseId: "",
+    blockingPrerequisiteNumber: "",
+    blockingPrerequisiteIdentifier: "",
+    promotionState: "unavailable",
+    promotionSummary: "Ready promotion is unavailable.",
+    promotionUpdatedAt: "",
+    promotionEligibleIssues: "",
+    promotionAdded: "",
+    promotionRemoved: "",
+  };
 
 try {
   const raw = fs.readFileSync(filePath, "utf8");
@@ -202,6 +236,52 @@ try {
     typeof blocking.issueIdentifier === "string"
       ? blocking.issueIdentifier
       : defaults.blockingPrerequisiteIdentifier;
+  const promotion =
+    parsed && typeof parsed === "object" && parsed.promotion && typeof parsed.promotion === "object"
+      ? parsed.promotion
+      : {};
+  const eligibleIssues = Array.isArray(promotion.eligibleIssues)
+    ? promotion.eligibleIssues
+        .map((issue) =>
+          issue && typeof issue === "object" && typeof issue.issueNumber === "number"
+            ? String(issue.issueNumber)
+            : null,
+        )
+        .filter((value) => value !== null)
+    : [];
+  const readyLabelsAdded = Array.isArray(promotion.readyLabelsAdded)
+    ? promotion.readyLabelsAdded
+        .map((issue) =>
+          issue && typeof issue === "object" && typeof issue.issueNumber === "number"
+            ? String(issue.issueNumber)
+            : null,
+        )
+        .filter((value) => value !== null)
+    : [];
+  const readyLabelsRemoved = Array.isArray(promotion.readyLabelsRemoved)
+    ? promotion.readyLabelsRemoved
+        .map((issue) =>
+          issue && typeof issue === "object" && typeof issue.issueNumber === "number"
+            ? String(issue.issueNumber)
+            : null,
+        )
+        .filter((value) => value !== null)
+    : [];
+  defaults.promotionState =
+    typeof promotion.state === "string"
+      ? promotion.state
+      : defaults.promotionState;
+  defaults.promotionSummary =
+    typeof promotion.summary === "string"
+      ? promotion.summary
+      : defaults.promotionSummary;
+  defaults.promotionUpdatedAt =
+    typeof promotion.promotedAt === "string"
+      ? promotion.promotedAt
+      : defaults.promotionUpdatedAt;
+  defaults.promotionEligibleIssues = eligibleIssues.join(",");
+  defaults.promotionAdded = readyLabelsAdded.join(",");
+  defaults.promotionRemoved = readyLabelsRemoved.join(",");
 } catch (error) {
   if (!error || error.code !== "ENOENT") {
     defaults.summary = `Release state could not be read: ${error instanceof Error ? error.message : String(error)}`;
@@ -229,6 +309,12 @@ for (const line of lines) {
     releaseId: "RELEASE_ID",
     blockingPrerequisiteNumber: "RELEASE_BLOCKING_PREREQUISITE_NUMBER",
     blockingPrerequisiteIdentifier: "RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER",
+    promotionState: "READY_PROMOTION_STATE",
+    promotionSummary: "READY_PROMOTION_SUMMARY",
+    promotionUpdatedAt: "READY_PROMOTION_UPDATED_AT",
+    promotionEligibleIssues: "READY_PROMOTION_ELIGIBLE_ISSUES",
+    promotionAdded: "READY_PROMOTION_ADDED",
+    promotionRemoved: "READY_PROMOTION_REMOVED",
   };
   console.log(`${mapping[key]}=${JSON.stringify(value)}`);
 }
@@ -281,7 +367,15 @@ write_status() {
     "summary": "$(json_escape "$RELEASE_STATE_SUMMARY")",
     "updatedAt": $(if [ -n "$RELEASE_STATE_UPDATED_AT" ]; then printf '"%s"' "$(json_escape "$RELEASE_STATE_UPDATED_AT")"; else printf 'null'; fi),
     "blockingPrerequisiteNumber": $(if [ -n "$RELEASE_BLOCKING_PREREQUISITE_NUMBER" ]; then printf '%s' "$RELEASE_BLOCKING_PREREQUISITE_NUMBER"; else printf 'null'; fi),
-    "blockingPrerequisiteIdentifier": $(if [ -n "$RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER" ]; then printf '"%s"' "$(json_escape "$RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER")"; else printf 'null'; fi)
+    "blockingPrerequisiteIdentifier": $(if [ -n "$RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER" ]; then printf '"%s"' "$(json_escape "$RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER")"; else printf 'null'; fi),
+    "promotion": {
+      "state": "$(json_escape "$READY_PROMOTION_STATE")",
+      "summary": "$(json_escape "$READY_PROMOTION_SUMMARY")",
+      "updatedAt": $(if [ -n "$READY_PROMOTION_UPDATED_AT" ]; then printf '"%s"' "$(json_escape "$READY_PROMOTION_UPDATED_AT")"; else printf 'null'; fi),
+      "eligibleIssueNumbers": $(printf '%s' "$READY_PROMOTION_ELIGIBLE_ISSUES" | node -e 'const fs = require("node:fs"); const raw = fs.readFileSync(0, "utf8").trim(); const values = raw === "" ? [] : raw.split(",").map((value) => Number(value)); process.stdout.write(JSON.stringify(values));'),
+      "readyLabelsAdded": $(printf '%s' "$READY_PROMOTION_ADDED" | node -e 'const fs = require("node:fs"); const raw = fs.readFileSync(0, "utf8").trim(); const values = raw === "" ? [] : raw.split(",").map((value) => Number(value)); process.stdout.write(JSON.stringify(values));'),
+      "readyLabelsRemoved": $(printf '%s' "$READY_PROMOTION_REMOVED" | node -e 'const fs = require("node:fs"); const raw = fs.readFileSync(0, "utf8").trim(); const values = raw === "" ? [] : raw.split(",").map((value) => Number(value)); process.stdout.write(JSON.stringify(values));')
+    }
   },
   "reportReviewState": "$(json_escape "$REPORT_REVIEW_STATE")",
   "selectedWorkflowPath": $(if [ -n "$WORKFLOW_PATH" ]; then printf '"%s"' "$(json_escape "$WORKFLOW_PATH")"; else printf 'null'; fi),
@@ -314,6 +408,11 @@ EOF
 - Release advancement state: $RELEASE_ADVANCEMENT_STATE
 - Release summary: $RELEASE_STATE_SUMMARY
 - Release blocked by prerequisite: ${RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER:-${RELEASE_BLOCKING_PREREQUISITE_NUMBER:-n/a}}
+- Ready promotion state: $READY_PROMOTION_STATE
+- Ready promotion summary: $READY_PROMOTION_SUMMARY
+- Ready promotion eligible issues: ${READY_PROMOTION_ELIGIBLE_ISSUES:-none}
+- Ready promotion added: ${READY_PROMOTION_ADDED:-none}
+- Ready promotion removed: ${READY_PROMOTION_REMOVED:-none}
 - Report review state: $REPORT_REVIEW_STATE
 - Prompt: $PROMPT_FILE
 - Last cycle started: ${LAST_CYCLE_STARTED_AT:-n/a}
@@ -455,6 +554,9 @@ run_cycle() {
   if ! refresh_release_state_nonfatal; then
     :
   fi
+  if ! run_ready_promotion_nonfatal; then
+    :
+  fi
   write_status "acting" "Running operator wake-up cycle"
 
   {
@@ -497,6 +599,9 @@ run_cycle() {
   LAST_CYCLE_FINISHED_AT="$(now_utc)"
   LAST_CYCLE_EXIT_CODE="$exit_code"
   if ! refresh_release_state_nonfatal; then
+    :
+  fi
+  if ! run_ready_promotion_nonfatal; then
     :
   fi
 
