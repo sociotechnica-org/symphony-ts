@@ -13,7 +13,12 @@ import {
 import type { RunnerAccountingSnapshot } from "../../src/runner/accounting.js";
 import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 
-export async function writeReportWorkflow(rootDir: string): Promise<string> {
+export async function writeReportWorkflow(
+  rootDir: string,
+  options?: {
+    readonly archiveRoot?: string | undefined;
+  },
+): Promise<string> {
   const workflowPath = path.join(rootDir, "WORKFLOW.md");
   await fs.writeFile(
     workflowPath,
@@ -47,6 +52,14 @@ agent:
   prompt_transport: stdin
   timeout_ms: 1000
   env: {}
+observability:
+${
+  options?.archiveRoot === undefined
+    ? "  dashboard_enabled: true"
+    : `  dashboard_enabled: true
+  issue_reports:
+    archive_root: ${options.archiveRoot}`
+}
 ---
 Prompt body
 `,

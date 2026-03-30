@@ -78,6 +78,9 @@ function makeConfig(
     dashboardEnabled: true,
     refreshMs: 1000,
     renderIntervalMs: 16,
+    issueReports: {
+      archiveRoot: null,
+    },
     ...overrides,
   };
 }

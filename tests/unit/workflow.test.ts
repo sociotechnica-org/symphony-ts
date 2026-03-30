@@ -223,6 +223,9 @@ ${buildSharedWorkflowSections()}`,
           dashboardEnabled: true,
           refreshMs: 1000,
           renderIntervalMs: 16,
+          issueReports: {
+            archiveRoot: null,
+          },
         },
       }),
     ).toEqual(authoritative);
@@ -257,6 +260,33 @@ ${buildSharedWorkflowSections()}`,
     expect(workflow.config.workspace.repoUrl).toBe("git@example.com:repo.git");
     expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
       "sociotechnica-org/symphony-ts",
+    );
+  });
+
+  it("resolves issue report archive roots from the instance root", async () => {
+    const dir = await createTempDir("workflow-issue-reports-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}
+observability:
+  issue_reports:
+    archive_root: ../factory-runs`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.observability.issueReports.archiveRoot).toBe(
+      path.resolve(dir, "..", "factory-runs"),
     );
   });
 

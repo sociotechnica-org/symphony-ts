@@ -214,6 +214,9 @@ const baseConfig: ResolvedConfig = {
     dashboardEnabled: false,
     refreshMs: 1000,
     renderIntervalMs: 16,
+    issueReports: {
+      archiveRoot: null,
+    },
   },
 };
 

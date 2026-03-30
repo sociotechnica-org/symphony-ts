@@ -163,6 +163,7 @@ import {
   setReadyQueue,
   setRestartRecoveryState,
   setTrackerIssueCounts,
+  upsertTerminalIssue,
   upsertActiveIssue,
 } from "./status-state.js";
 import { decideRestartRecovery } from "./restart-recovery.js";
@@ -180,6 +181,12 @@ import {
   extractRateLimitsSnapshot,
   extractTransientFailureSignal,
 } from "../runner/transient-failure.js";
+import {
+  deriveTerminalIssueReportingReceiptPaths,
+  listTerminalIssues,
+  reconcileTerminalIssueReporting,
+  type TerminalIssueReportingReceipt,
+} from "../observability/terminal-reporting.js";
 import {
   classifyWorkspaceCleanupFailure,
   classifyWorkspaceCleanupSuccess,
@@ -686,6 +693,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.polling.checkingNow = false;
     this.#notifyDashboard();
     await this.#persistStatusSnapshot();
+    await this.#reconcileTerminalIssueReporting();
 
     if (availableSlots <= 0) {
       return;
@@ -707,6 +715,75 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     await Promise.all(runs);
+  }
+
+  async #reconcileTerminalIssueReporting(): Promise<void> {
+    const terminalIssues = await listTerminalIssues(getConfigInstancePaths(this.#config));
+    for (const issue of terminalIssues) {
+      try {
+        const result = await reconcileTerminalIssueReporting({
+          instance: getConfigInstancePaths(this.#config),
+          issue,
+          archiveRoot: this.#config.observability.issueReports.archiveRoot,
+        });
+        const existingTerminal = this.#state.status.terminalIssues.find(
+          (entry) => entry.issueNumber === issue.issueNumber,
+        );
+        this.#upsertTerminalReportingStatus(
+          {
+            number: issue.issueNumber,
+            identifier: issue.issueIdentifier,
+            title: issue.title,
+          },
+          {
+            branchName: existingTerminal?.branchName ?? this.#branchName(issue.issueNumber),
+            terminalOutcome:
+              issue.currentOutcome === "succeeded" ? "success" : "failure",
+            observedAt: issue.lastUpdatedAt,
+            workspaceRetentionState:
+              existingTerminal?.workspaceRetention.state ?? "unknown",
+            summary:
+              existingTerminal?.summary ??
+              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
+            receipt: result.receipt,
+          },
+        );
+        if (result.changed) {
+          await this.#persistStatusSnapshot();
+        }
+      } catch (error) {
+        const normalizedError = this.#normalizeFailure(error as Error);
+        this.#logger.error("Terminal issue reporting reconciliation failed", {
+          issueNumber: issue.issueNumber,
+          error: normalizedError,
+        });
+        const existingTerminal = this.#state.status.terminalIssues.find(
+          (entry) => entry.issueNumber === issue.issueNumber,
+        );
+        this.#upsertTerminalReportingStatus(
+          {
+            number: issue.issueNumber,
+            identifier: issue.issueIdentifier,
+            title: issue.title,
+          },
+          {
+            branchName: existingTerminal?.branchName ?? this.#branchName(issue.issueNumber),
+            terminalOutcome:
+              issue.currentOutcome === "succeeded" ? "success" : "failure",
+            observedAt: issue.lastUpdatedAt,
+            workspaceRetentionState:
+              existingTerminal?.workspaceRetention.state ?? "unknown",
+            summary:
+              existingTerminal?.summary ??
+              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
+            receipt: null,
+            fallbackReportingSummary: normalizedError,
+            fallbackBlockedStage: "report-generation",
+          },
+        );
+        await this.#persistStatusSnapshot();
+      }
+    }
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {
@@ -1995,6 +2072,13 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspaceRetention,
       }),
     );
+    await this.#runTerminalIssueReporting(issue, {
+      terminalOutcome: "success",
+      branchName: options?.branchName ?? this.#branchName(issue.number),
+      observedAt,
+      workspaceRetention,
+      summary,
+    });
   }
 
   async #refreshLifecycle(branchName: string): Promise<HandoffLifecycle> {
@@ -2609,6 +2693,65 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspaceRetention,
       }),
     );
+    await this.#runTerminalIssueReporting(issue, {
+      terminalOutcome: "failure",
+      branchName: options?.branchName ?? this.#branchName(issue.number),
+      observedAt,
+      workspaceRetention,
+      summary,
+    });
+  }
+
+  async #runTerminalIssueReporting(
+    issue: RuntimeIssue,
+    options: {
+      readonly terminalOutcome: "success" | "failure";
+      readonly branchName: string;
+      readonly observedAt: string;
+      readonly workspaceRetention: WorkspaceRetentionOutcome;
+      readonly summary: string;
+    },
+  ): Promise<void> {
+    try {
+      const { receipt } = await reconcileTerminalIssueReporting({
+        instance: getConfigInstancePaths(this.#config),
+        issue: {
+          issueNumber: issue.number,
+          issueIdentifier: issue.identifier,
+          title: issue.title,
+          currentOutcome:
+            options.terminalOutcome === "success" ? "succeeded" : "failed",
+          lastUpdatedAt: options.observedAt,
+        },
+        archiveRoot: this.#config.observability.issueReports.archiveRoot,
+      });
+      this.#upsertTerminalReportingStatus(issue, {
+        branchName: options.branchName,
+        terminalOutcome: options.terminalOutcome,
+        observedAt: options.observedAt,
+        workspaceRetentionState: options.workspaceRetention.state,
+        summary: options.summary,
+        receipt,
+      });
+      await this.#persistStatusSnapshot();
+    } catch (error) {
+      const normalizedError = this.#normalizeFailure(error as Error);
+      this.#logger.error("Terminal issue reporting failed", {
+        issueNumber: issue.number,
+        error: normalizedError,
+      });
+      this.#upsertTerminalReportingStatus(issue, {
+        branchName: options.branchName,
+        terminalOutcome: options.terminalOutcome,
+        observedAt: options.observedAt,
+        workspaceRetentionState: options.workspaceRetention.state,
+        summary: options.summary,
+        receipt: null,
+        fallbackReportingSummary: normalizedError,
+        fallbackBlockedStage: "report-generation",
+      });
+      await this.#persistStatusSnapshot();
+    }
   }
 
   async #applyTerminalWorkspacePolicy(
@@ -2672,6 +2815,54 @@ export class BootstrapOrchestrator implements Orchestrator {
     retention: WorkspaceRetentionOutcome,
   ): string {
     return `${summary}; ${this.#summarizeWorkspaceRetention(retention)}`;
+  }
+
+  #upsertTerminalReportingStatus(
+    issue: RuntimeIssue | { number: number; identifier: string; title: string },
+    options: {
+      readonly branchName: string;
+      readonly terminalOutcome: "success" | "failure";
+      readonly observedAt: string;
+      readonly workspaceRetentionState:
+        | "retry-retained"
+        | "terminal-retained"
+        | "cleanup-succeeded"
+        | "cleanup-failed"
+        | "unknown";
+      readonly summary: string;
+      readonly receipt: TerminalIssueReportingReceipt | null;
+      readonly fallbackReportingSummary?: string | undefined;
+      readonly fallbackBlockedStage?: "report-generation" | "publication";
+    },
+  ): void {
+    const receiptPaths = deriveTerminalIssueReportingReceiptPaths(
+      getConfigInstancePaths(this.#config),
+      issue.number,
+    );
+    const reportingSummary =
+      options.receipt === null
+        ? (options.fallbackReportingSummary ?? null)
+        : options.receipt.note === null
+          ? options.receipt.summary
+          : `${options.receipt.summary} ${options.receipt.note}`;
+    upsertTerminalIssue(this.#state.status, {
+      issueNumber: issue.number,
+      issueIdentifier: issue.identifier,
+      title: issue.title,
+      branchName: options.branchName,
+      terminalOutcome: options.terminalOutcome,
+      summary: options.summary,
+      observedAt: options.observedAt,
+      workspaceRetentionState: options.workspaceRetentionState,
+      reportingState: options.receipt?.state ?? "blocked",
+      reportingSummary,
+      reportingReceiptFile: receiptPaths.receiptFile,
+      reportJsonFile: options.receipt?.reportJsonFile ?? null,
+      reportMarkdownFile: options.receipt?.reportMarkdownFile ?? null,
+      publicationRoot: options.receipt?.publicationRoot ?? null,
+      blockedStage:
+        options.receipt?.blockedStage ?? options.fallbackBlockedStage ?? null,
+    });
   }
 
   #summarizeRetryScheduled(

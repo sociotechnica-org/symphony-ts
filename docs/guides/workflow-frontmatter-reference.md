@@ -650,6 +650,29 @@ The parser accepts:
 - Required: no
 - Default: `16`
 
+#### `observability.issue_reports`
+
+- Type: object
+- Required: no
+- Default: omitted
+
+Controls automatic per-issue report generation and optional archive
+publication after terminal issue outcomes.
+
+##### `observability.issue_reports.archive_root`
+
+- Type: string
+- Required: no
+- Default: omitted
+
+When configured, Symphony attempts to publish each terminal issue report into
+the checked-out `factory-runs` archive rooted at this path after generating or
+refreshing the local report. Relative paths resolve from the repository that
+owns `WORKFLOW.md`.
+
+If omitted, Symphony still generates the local terminal issue report
+automatically, but publication stays manual through `symphony-report publish`.
+
 ## Minimal GitHub Example
 
 ```yaml

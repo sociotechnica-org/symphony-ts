@@ -10,6 +10,7 @@ import type {
   FactoryState,
   FactoryStatusAction,
   FactoryStatusSnapshot,
+  FactoryTerminalIssueSnapshot,
 } from "../observability/status.js";
 import type { FactoryRuntimeIdentity } from "../observability/runtime-identity.js";
 import type { DispatchPressureStateSnapshot } from "../domain/transient-failure.js";
@@ -299,6 +300,48 @@ export function noteTerminalIssue(
     summary: options.summary,
     observedAt: options.observedAt,
     workspaceRetention: options.workspaceRetention,
+    reportingState: null,
+    reportingSummary: null,
+    reportingReceiptFile: null,
+    reportJsonFile: null,
+    reportMarkdownFile: null,
+    publicationRoot: null,
+    blockedStage: null,
+  });
+}
+
+export function upsertTerminalIssue(
+  state: RuntimeStatusState,
+  issue: FactoryTerminalIssueSnapshot,
+): void {
+  state.terminalIssues = noteTerminalCleanupPosture(state.terminalIssues, {
+    issueNumber: issue.issueNumber,
+    issueIdentifier: issue.issueIdentifier,
+    title: issue.title,
+    branchName: issue.branchName,
+    terminalOutcome: issue.terminalOutcome,
+    summary: issue.summary,
+    observedAt: issue.observedAt,
+    workspaceRetention: {
+      reason:
+        issue.terminalOutcome === "success" ? "success" : "failure",
+      state:
+        issue.workspaceRetentionState === "unknown"
+          ? "terminal-retained"
+          : issue.workspaceRetentionState,
+      action:
+        issue.workspaceRetentionState === "terminal-retained" ||
+        issue.workspaceRetentionState === "unknown"
+          ? "retain"
+          : "cleanup",
+      },
+    reportingState: issue.reportingState,
+    reportingSummary: issue.reportingSummary,
+    reportingReceiptFile: issue.reportingReceiptFile,
+    reportJsonFile: issue.reportJsonFile,
+    reportMarkdownFile: issue.reportMarkdownFile,
+    publicationRoot: issue.publicationRoot,
+    blockedStage: issue.blockedStage,
   });
 }
 
@@ -347,6 +390,24 @@ export function buildFactoryStatusSnapshot(input: {
           hosts: listHostDispatchSnapshots(input.hostDispatch),
         };
 
+  const terminalIssues = input.state.terminalIssues.map((issue) => ({
+    issueNumber: issue.issueNumber,
+    issueIdentifier: issue.issueIdentifier,
+    title: issue.title,
+    branchName: issue.branchName,
+    terminalOutcome: issue.terminalOutcome,
+    summary: issue.summary,
+    observedAt: issue.observedAt,
+    workspaceRetentionState: issue.workspaceRetention.state,
+    reportingState: issue.reportingState,
+    reportingSummary: issue.reportingSummary,
+    reportingReceiptFile: issue.reportingReceiptFile,
+    reportJsonFile: issue.reportJsonFile,
+    reportMarkdownFile: issue.reportMarkdownFile,
+    publicationRoot: issue.publicationRoot,
+    blockedStage: issue.blockedStage,
+  })) satisfies readonly FactoryTerminalIssueSnapshot[];
+
   return {
     version: 1,
     generatedAt: new Date().toISOString(),
@@ -390,6 +451,7 @@ export function buildFactoryStatusSnapshot(input: {
     },
     lastAction: input.state.lastAction,
     activeIssues,
+    terminalIssues,
     readyQueue: input.state.readyQueue,
     retries,
   };
