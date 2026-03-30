@@ -15,7 +15,9 @@ LOCK_DIR=""
 LOCK_INFO_FILE=""
 STATUS_JSON=""
 STATUS_MD=""
-SCRATCHPAD=""
+STANDING_CONTEXT=""
+WAKE_UP_LOG=""
+LEGACY_SCRATCHPAD=""
 REPORT_REVIEW_STATE=""
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
@@ -97,7 +99,9 @@ const data = JSON.parse(fs.readFileSync(0, "utf8"));
   lockInfoFile: "LOCK_INFO_FILE",
   statusJsonPath: "STATUS_JSON",
   statusMdPath: "STATUS_MD",
-  scratchpadPath: "SCRATCHPAD",
+  standingContextPath: "STANDING_CONTEXT",
+  wakeUpLogPath: "WAKE_UP_LOG",
+  legacyScratchpadPath: "LEGACY_SCRATCHPAD",
   reportReviewStatePath: "REPORT_REVIEW_STATE",
 };
 for (const [jsonKey, shellKey] of Object.entries(mappings)) {
@@ -139,7 +143,8 @@ write_status() {
   "intervalSeconds": $INTERVAL_SECONDS,
   "command": "$(json_escape "$OPERATOR_COMMAND")",
   "promptFile": "$(json_escape "$PROMPT_FILE")",
-  "scratchpad": "$(json_escape "$SCRATCHPAD")",
+  "standingContext": "$(json_escape "$STANDING_CONTEXT")",
+  "wakeUpLog": "$(json_escape "$WAKE_UP_LOG")",
   "reportReviewState": "$(json_escape "$REPORT_REVIEW_STATE")",
   "selectedWorkflowPath": $(if [ -n "$WORKFLOW_PATH" ]; then printf '"%s"' "$(json_escape "$WORKFLOW_PATH")"; else printf 'null'; fi),
   "lastCycle": {
@@ -165,7 +170,8 @@ EOF
 - Mode: $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'once'; else printf 'continuous'; fi)
 - Interval seconds: $INTERVAL_SECONDS
 - Selected workflow: ${WORKFLOW_PATH:-n/a}
-- Scratchpad: $SCRATCHPAD
+- Standing context: $STANDING_CONTEXT
+- Wake-up log: $WAKE_UP_LOG
 - Report review state: $REPORT_REVIEW_STATE
 - Prompt: $PROMPT_FILE
 - Last cycle started: ${LAST_CYCLE_STARTED_AT:-n/a}
@@ -179,12 +185,55 @@ EOF
 ensure_runtime_paths() {
   mkdir -p "$LOG_DIR"
 
-  if [ ! -f "$SCRATCHPAD" ]; then
-    cat >"$SCRATCHPAD" <<'EOF'
-# Operator Scratchpad
+  if [ -f "$LEGACY_SCRATCHPAD" ] && [ ! -f "$STANDING_CONTEXT" ] && [ ! -f "$WAKE_UP_LOG" ]; then
+    {
+      cat <<'EOF'
+# Standing Context
 
-Local-only operator notes. Durable process changes belong in tracked docs,
-skills, code, and plans instead of this file.
+Durable operator guidance for this selected Symphony instance belongs here.
+Update this file intentionally when queue policy, release sequencing, campaign
+notes, or known temporary workarounds change.
+
+## Migrated Legacy Scratchpad
+
+The prior `operator-scratchpad.md` content was preserved below during notebook
+migration. Curate the durable guidance you still need from it here.
+
+EOF
+      cat "$LEGACY_SCRATCHPAD"
+      printf '\n'
+    } >"$STANDING_CONTEXT"
+
+    cat >"$WAKE_UP_LOG" <<'EOF'
+# Wake-Up Log
+
+Append a new timestamped entry for each operator wake-up. Keep earlier entries
+intact unless you are running an explicit maintenance or compaction flow.
+
+## Migration Note
+
+Legacy `operator-scratchpad.md` content was preserved in `standing-context.md`
+when this notebook was initialized.
+EOF
+    return
+  fi
+
+  if [ ! -f "$STANDING_CONTEXT" ]; then
+    cat >"$STANDING_CONTEXT" <<'EOF'
+# Standing Context
+
+Durable operator guidance for this selected Symphony instance belongs here.
+Update this file intentionally when queue policy, release sequencing, campaign
+notes, or known temporary workarounds change.
+EOF
+  fi
+
+  if [ ! -f "$WAKE_UP_LOG" ]; then
+    cat >"$WAKE_UP_LOG" <<'EOF'
+# Wake-Up Log
+
+Append a new timestamped entry for each operator wake-up. Keep earlier entries
+intact unless you are running an explicit maintenance or compaction flow.
 EOF
   fi
 }
@@ -276,7 +325,9 @@ run_cycle() {
     export SYMPHONY_OPERATOR_INSTANCE_KEY="$INSTANCE_KEY"
     export SYMPHONY_OPERATOR_DETACHED_SESSION_NAME="$DETACHED_SESSION_NAME"
     export SYMPHONY_OPERATOR_STATE_ROOT="$INSTANCE_STATE_ROOT"
-    export SYMPHONY_OPERATOR_SCRATCHPAD="$SCRATCHPAD"
+    export SYMPHONY_OPERATOR_STANDING_CONTEXT="$STANDING_CONTEXT"
+    export SYMPHONY_OPERATOR_WAKE_UP_LOG="$WAKE_UP_LOG"
+    export SYMPHONY_OPERATOR_LEGACY_SCRATCHPAD="$LEGACY_SCRATCHPAD"
     export SYMPHONY_OPERATOR_STATUS_JSON="$STATUS_JSON"
     export SYMPHONY_OPERATOR_STATUS_MD="$STATUS_MD"
     export SYMPHONY_OPERATOR_LOG_DIR="$LOG_DIR"

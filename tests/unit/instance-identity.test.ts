@@ -40,7 +40,13 @@ describe("instance identity helpers", () => {
     expect(paths.statusJsonPath).toBe(
       path.join(paths.operatorStateRoot, "status.json"),
     );
-    expect(paths.scratchpadPath).toBe(
+    expect(paths.standingContextPath).toBe(
+      path.join(paths.operatorStateRoot, "standing-context.md"),
+    );
+    expect(paths.wakeUpLogPath).toBe(
+      path.join(paths.operatorStateRoot, "wake-up-log.md"),
+    );
+    expect(paths.legacyScratchpadPath).toBe(
       path.join(paths.operatorStateRoot, "operator-scratchpad.md"),
     );
     expect(paths.reportReviewStatePath).toBe(

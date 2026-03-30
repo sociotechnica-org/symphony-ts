@@ -5,7 +5,7 @@ Run exactly one wake-up cycle, then stop.
 Required workflow:
 
 1. Read `skills/symphony-operator/SKILL.md`.
-2. Read the instance-scoped scratchpad at `SYMPHONY_OPERATOR_SCRATCHPAD` if it exists.
+2. Read the instance-scoped standing context at `SYMPHONY_OPERATOR_STANDING_CONTEXT` and the wake-up log at `SYMPHONY_OPERATOR_WAKE_UP_LOG` if they exist.
 3. If `SYMPHONY_OPERATOR_WORKFLOW_PATH` is set, append `--workflow "$SYMPHONY_OPERATOR_WORKFLOW_PATH"` to each `symphony` factory-control command that targets an instance.
 4. Inspect the detached factory via `pnpm tsx bin/symphony.ts factory status --json` as the primary source of truth.
 5. Immediately after the factory-health check, inspect completed-run report review state before any ordinary queue-advancement work by running `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
@@ -13,7 +13,7 @@ Required workflow:
    - read the report evidence under `.var/reports/issues/<issue-number>/`,
    - record a no-follow-up decision with `pnpm tsx bin/symphony-report.ts review-record --issue <number> --status reviewed-no-follow-up --summary <...>`,
    - or create a tracked follow-up issue with `pnpm tsx bin/symphony-report.ts review-follow-up --issue <number> --title <...> --body-file <...> --summary <...>`,
-   - and update `SYMPHONY_OPERATOR_SCRATCHPAD` with what was learned and queued before moving on.
+   - and record what was learned and queued in the standing context or wake-up log as appropriate before moving on.
 7. Use bounded, one-shot inspection commands during this wake-up. Do not use long-running watch/follow commands in the critical path; if a secondary probe is slow or non-terminal, proceed from the latest successful control snapshot.
 8. Inspect the live watch surface only when useful and only with bounded probes, but treat `factory status --json` as canonical.
 9. Review active issues, PRs, CI, and automated review feedback after the completed-run report-review checkpoint is clear.
@@ -25,7 +25,7 @@ Required workflow:
 - and after any successful landing, pull latest `origin/main`, refresh `.tmp/factory-main`, and restart the detached factory from that merged code.
 
 12. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
-13. Update `SYMPHONY_OPERATOR_SCRATCHPAD` before finishing the cycle.
+13. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
 
 Constraints:
 

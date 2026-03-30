@@ -73,7 +73,7 @@ pnpm tsx bin/symphony-report.ts review-pending --workflow ../target-repo/WORKFLO
    - read the generated evidence under `.var/reports/issues/<issue-number>/`
    - record a no-follow-up decision with `symphony-report.ts review-record`
    - or create a tracked follow-up issue with `symphony-report.ts review-follow-up`
-   - and update the instance scratchpad with what the review found and what work was queued
+   - and record durable guidance in standing context plus per-cycle findings in the wake-up log
 4. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
 5. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
 6. Check for operator-gated work the factory cannot clear by itself:
@@ -196,7 +196,7 @@ instance.
 Operator-loop generated state is separate from that runtime surface. It stays
 under the operator checkout's `.ralph/instances/<instance-key>/` tree so two
 operator loops targeting different instances do not overwrite each other's
-scratchpad, status, logs, or lock files.
+standing context, wake-up log, status, logs, or lock files.
 Completed-run report review state also lives there in
 `report-review-state.json`; this is the machine-readable ledger for which
 generated reports are pending review, reviewed, or blocked, and which follow-up

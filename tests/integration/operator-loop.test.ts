@@ -47,7 +47,9 @@ async function runOperatorLoop(workflowPath: string): Promise<{
   readonly stateRoot: string;
   readonly statusJsonPath: string;
   readonly statusMdPath: string;
-  readonly scratchpadPath: string;
+  readonly standingContextPath: string;
+  readonly wakeUpLogPath: string;
+  readonly legacyScratchpadPath: string;
   readonly logFile: string | null;
 }> {
   await execFileAsync(
@@ -84,7 +86,9 @@ async function runOperatorLoop(workflowPath: string): Promise<{
     stateRoot: paths.operatorStateRoot,
     statusJsonPath: paths.statusJsonPath,
     statusMdPath: paths.statusMdPath,
-    scratchpadPath: paths.scratchpadPath,
+    standingContextPath: paths.standingContextPath,
+    wakeUpLogPath: paths.wakeUpLogPath,
+    legacyScratchpadPath: paths.legacyScratchpadPath,
     logFile: statusJson.lastCycle.logFile,
   };
 }
@@ -109,6 +113,12 @@ async function runOperatorLoopWithCommand(
       },
     },
   );
+}
+
+function buildAppendWakeUpLogCommand(entryTitle: string): string {
+  const entry = `\n## ${entryTitle}\n- Appended by integration test.\n`;
+  const program = `const fs = require("node:fs"); fs.appendFileSync(process.env.SYMPHONY_OPERATOR_WAKE_UP_LOG, ${JSON.stringify(entry)});`;
+  return `node -e ${JSON.stringify(program)}`;
 }
 
 describe("operator loop workflow selection", () => {
@@ -139,7 +149,8 @@ describe("operator loop workflow selection", () => {
         readonly state: string;
         readonly selectedWorkflowPath: string | null;
         readonly operatorStateRoot: string;
-        readonly scratchpad: string;
+        readonly standingContext: string;
+        readonly wakeUpLog: string;
       };
       const statusMd = await fs.readFile(run.statusMdPath, "utf8");
 
@@ -147,9 +158,14 @@ describe("operator loop workflow selection", () => {
       expect(statusJson.state).toBe("idle");
       expect(statusJson.selectedWorkflowPath).toBe(workflowPath);
       expect(statusJson.operatorStateRoot).toBe(run.stateRoot);
-      expect(statusJson.scratchpad).toBe(run.scratchpadPath);
+      expect(statusJson.standingContext).toBe(run.standingContextPath);
+      expect(statusJson.wakeUpLog).toBe(run.wakeUpLogPath);
       expect(statusMd).toContain(`- Selected workflow: ${workflowPath}`);
       expect(statusMd).toContain(`- Operator state root: ${run.stateRoot}`);
+      expect(statusMd).toContain(
+        `- Standing context: ${run.standingContextPath}`,
+      );
+      expect(statusMd).toContain(`- Wake-up log: ${run.wakeUpLogPath}`);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -176,11 +192,17 @@ describe("operator loop workflow selection", () => {
       }
 
       expect(firstRun.stateRoot).not.toBe(secondRun.stateRoot);
-      expect(await fs.readFile(firstRun.scratchpadPath, "utf8")).toContain(
-        "# Operator Scratchpad",
+      expect(await fs.readFile(firstRun.standingContextPath, "utf8")).toContain(
+        "# Standing Context",
       );
-      expect(await fs.readFile(secondRun.scratchpadPath, "utf8")).toContain(
-        "# Operator Scratchpad",
+      expect(await fs.readFile(firstRun.wakeUpLogPath, "utf8")).toContain(
+        "# Wake-Up Log",
+      );
+      expect(
+        await fs.readFile(secondRun.standingContextPath, "utf8"),
+      ).toContain("# Standing Context");
+      expect(await fs.readFile(secondRun.wakeUpLogPath, "utf8")).toContain(
+        "# Wake-Up Log",
       );
 
       const firstStatus = JSON.parse(
@@ -202,7 +224,7 @@ describe("operator loop workflow selection", () => {
     }
   });
 
-  it("prompts the operator to review completed-run reports before other queue work", async () => {
+  it("prompts the operator to read the notebook first and review completed-run reports before other queue work", async () => {
     const tempDir = await createTempDir("symphony-operator-loop-prompt-");
     const workflowPath = await writeWorkflow(tempDir);
     const promptCapture = path.join(tempDir, "operator-prompt.txt");
@@ -218,11 +240,108 @@ describe("operator loop workflow selection", () => {
         "bin/symphony-report.ts review-pending",
       );
       const queueWorkIndex = prompt.indexOf("review any active `plan-ready`");
+      const standingContextIndex = prompt.indexOf(
+        "SYMPHONY_OPERATOR_STANDING_CONTEXT",
+      );
+      const wakeUpLogIndex = prompt.indexOf("SYMPHONY_OPERATOR_WAKE_UP_LOG");
+      const appendIndex = prompt.indexOf(
+        "append a new timestamped journal entry",
+      );
 
       expect(reportReviewIndex).toBeGreaterThanOrEqual(0);
       expect(queueWorkIndex).toBeGreaterThanOrEqual(0);
+      expect(standingContextIndex).toBeGreaterThanOrEqual(0);
+      expect(wakeUpLogIndex).toBeGreaterThanOrEqual(0);
+      expect(appendIndex).toBeGreaterThanOrEqual(0);
       expect(reportReviewIndex).toBeLessThan(queueWorkIndex);
+      expect(standingContextIndex).toBeLessThan(appendIndex);
       expect(prompt).toContain("bin/symphony-report.ts review-pending");
+      expect(prompt).toContain("Read the instance-scoped standing context");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves standing context while later cycles append wake-up history", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-notebook-");
+    const workflowPath = await writeWorkflow(tempDir);
+
+    try {
+      await runOperatorLoopWithCommand(
+        workflowPath,
+        buildAppendWakeUpLogCommand("Wake-up 1"),
+      );
+      const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+      const paths = deriveOperatorInstanceStatePaths({
+        operatorRepoRoot: repoRoot,
+        instanceKey,
+      });
+
+      await fs.appendFile(
+        paths.standingContextPath,
+        "\n## Release Queue\n- After SPIKE-001, queue FEAT-001.\n",
+        "utf8",
+      );
+
+      await runOperatorLoopWithCommand(
+        workflowPath,
+        buildAppendWakeUpLogCommand("Wake-up 2"),
+      );
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const standingContext = await fs.readFile(
+        paths.standingContextPath,
+        "utf8",
+      );
+      const wakeUpLog = await fs.readFile(paths.wakeUpLogPath, "utf8");
+
+      expect(standingContext).toContain("After SPIKE-001, queue FEAT-001.");
+      expect(wakeUpLog).toContain("## Wake-up 1");
+      expect(wakeUpLog).toContain("## Wake-up 2");
+      expect(wakeUpLog.indexOf("## Wake-up 1")).toBeLessThan(
+        wakeUpLog.indexOf("## Wake-up 2"),
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates legacy scratchpad content into standing context without dropping it", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-migrate-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+
+    try {
+      await fs.mkdir(paths.operatorStateRoot, { recursive: true });
+      await fs.writeFile(
+        paths.legacyScratchpadPath,
+        "# Operator Scratchpad\n\n- Preserve release sequencing notes.\n",
+        "utf8",
+      );
+
+      await runOperatorLoop(workflowPath);
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const standingContext = await fs.readFile(
+        paths.standingContextPath,
+        "utf8",
+      );
+      const wakeUpLog = await fs.readFile(paths.wakeUpLogPath, "utf8");
+      const legacyScratchpad = await fs.readFile(
+        paths.legacyScratchpadPath,
+        "utf8",
+      );
+
+      expect(standingContext).toContain("## Migrated Legacy Scratchpad");
+      expect(standingContext).toContain("Preserve release sequencing notes.");
+      expect(wakeUpLog).toContain("## Migration Note");
+      expect(legacyScratchpad).toContain("# Operator Scratchpad");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

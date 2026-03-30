@@ -19,7 +19,9 @@ export interface OperatorInstanceStatePaths {
   readonly lockInfoFile: string;
   readonly statusJsonPath: string;
   readonly statusMdPath: string;
-  readonly scratchpadPath: string;
+  readonly standingContextPath: string;
+  readonly wakeUpLogPath: string;
+  readonly legacyScratchpadPath: string;
   readonly reportReviewStatePath: string;
 }
 
@@ -63,7 +65,12 @@ export function deriveOperatorInstanceStatePaths(args: {
     lockInfoFile: path.join(lockDir, "owner"),
     statusJsonPath: path.join(operatorStateRoot, "status.json"),
     statusMdPath: path.join(operatorStateRoot, "status.md"),
-    scratchpadPath: path.join(operatorStateRoot, "operator-scratchpad.md"),
+    standingContextPath: path.join(operatorStateRoot, "standing-context.md"),
+    wakeUpLogPath: path.join(operatorStateRoot, "wake-up-log.md"),
+    legacyScratchpadPath: path.join(
+      operatorStateRoot,
+      "operator-scratchpad.md",
+    ),
     reportReviewStatePath: path.join(
       operatorStateRoot,
       "report-review-state.json",

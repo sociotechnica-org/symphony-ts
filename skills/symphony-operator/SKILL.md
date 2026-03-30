@@ -19,8 +19,8 @@ Supported repo-owned entry point:
 
 The checked-in loop and prompt live next to this skill under
 `skills/symphony-operator/`. `.ralph/` is local/generated-only state for the
-instance-scoped scratchpad, status snapshots, logs, and loop lock files under
-`.ralph/instances/<instance-key>/`.
+instance-scoped standing context, wake-up log, status snapshots, logs, and
+loop lock files under `.ralph/instances/<instance-key>/`.
 
 ## Scope
 
@@ -29,12 +29,13 @@ instance-scoped scratchpad, status snapshots, logs, and loop lock files under
 - Drive PRs through CI and automated review to a mergeable state.
 - Handle `plan-ready` issues: review plans, request changes when needed, and approve when ready.
 - Keep GitHub as a thin queue and rely on Symphony's own polling and concurrency.
-- Maintain a persistent local operator notebook in the selected instance's
-  `.ralph/instances/<instance-key>/operator-scratchpad.md`.
+- Maintain the selected instance's persistent local operator notebook as:
+  - `.ralph/instances/<instance-key>/standing-context.md` for durable guidance
+  - `.ralph/instances/<instance-key>/wake-up-log.md` for append-only wake-up history
 
 ## Wake-Up Workflow
 
-1. Read the selected instance's scratchpad first so the latest operator context survives session loss and compaction.
+1. Read the selected instance's standing context first, then read the wake-up log so durable guidance and recent history both survive session loss.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
 4. Before any ordinary queue-advancement work, run `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-repo-root> --json` for the selected instance and treat any `report-ready` or `review-blocked` entry as the first operator checkpoint after the factory-health read.
@@ -42,7 +43,7 @@ instance-scoped scratchpad, status snapshots, logs, and loop lock files under
    - read the generated report under `.var/reports/issues/<issue-number>/`
    - decide whether the report yields no tracked follow-up, a concrete follow-up issue, or a blocked review state
    - persist the decision through `symphony-report review-record` or `symphony-report review-follow-up`
-   - and update the instance scratchpad with what the report taught the factory and what follow-up work was queued
+   - and record what the report taught the factory in standing context or in the append-only wake-up log as appropriate
 6. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
 7. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
 8. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
@@ -132,10 +133,11 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 
 Before finishing each wake-up:
 
-1. update the selected instance scratchpad with current state, open risks, and the next operator checks,
+1. append a new timestamped entry to the selected instance wake-up log with current state, open risks, and the next operator checks,
 2. ask whether this cycle revealed something missing or ambiguous in this skill or the operator prompt,
 3. distinguish between:
    - durable process rules or generally correct operator behavior, which belong in this skill or the operator prompt,
-   - transient factory facts, temporary workarounds, and run-specific context, which belong in the selected instance scratchpad,
+   - durable instance guidance such as queue sequencing, release ordering, and campaign notes, which belong in standing context,
+   - transient factory facts and per-cycle observations, which belong in the append-only wake-up log,
 4. if a durable rule needs to change, make the improvement through the normal PR flow,
 5. and record the result in the final status summary.
