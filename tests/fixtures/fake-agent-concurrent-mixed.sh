@@ -8,7 +8,7 @@ git config user.name "Symphony Test Agent"
 git config user.email "symphony-test@example.com"
 
 if [[ "${SYMPHONY_ISSUE_NUMBER}" == "90" ]]; then
-  MARKER=".rate-limit-once"
+  MARKER="$(dirname "$PWD")/.rate-limit-once-${SYMPHONY_ISSUE_NUMBER}"
   if [[ ! -f "$MARKER" ]]; then
     touch "$MARKER"
     cat <<'JSON'
@@ -25,9 +25,6 @@ fi
 
 echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER}" > IMPLEMENTED.txt
 git add .agent-prompt.txt IMPLEMENTED.txt
-if [[ -f .rate-limit-once ]]; then
-  git add .rate-limit-once
-fi
 git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER}"
 git push origin HEAD:${SYMPHONY_BRANCH_NAME}
 curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/branch-pushes" \

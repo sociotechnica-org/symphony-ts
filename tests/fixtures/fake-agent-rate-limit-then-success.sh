@@ -4,7 +4,7 @@ set -euo pipefail
 PROMPT="$(cat)"
 printf '%s' "$PROMPT" > .agent-prompt.txt
 
-MARKER=".rate-limit-once"
+MARKER="$(dirname "$PWD")/.rate-limit-once-${SYMPHONY_ISSUE_NUMBER}"
 
 if [[ ! -f "$MARKER" ]]; then
   touch "$MARKER"
@@ -19,7 +19,7 @@ git config user.name "Symphony Test Agent"
 git config user.email "symphony-test@example.com"
 
 echo "Implemented ${SYMPHONY_ISSUE_IDENTIFIER}" > IMPLEMENTED.txt
-git add .agent-prompt.txt IMPLEMENTED.txt "$MARKER"
+git add .agent-prompt.txt IMPLEMENTED.txt
 git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER}"
 git push --force origin "HEAD:${SYMPHONY_BRANCH_NAME}"
 
