@@ -296,6 +296,25 @@ async function waitForFile(
   }
 }
 
+async function waitForPullRequestHead(
+  server: MockGitHubServer,
+  head: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (
+      server.getPullRequests().some((pullRequest) => pullRequest.head === head)
+    ) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for pull request ${head}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 describe("Phase 1.2 PR lifecycle factory", () => {
   let server: MockGitHubServer;
   let tempDir: string;
@@ -1009,6 +1028,67 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(artifactSummary.currentSummary).not.toContain(
       "Runner cancelled by shutdown",
+    );
+  });
+
+  it("keeps a third-party Claude run alive when raw stdio activity continues after an early workspace write", async () => {
+    server.seedIssue({
+      number: 84,
+      title: "Claude watchdog activity",
+      body: "Keep the run alive while Claude emits raw stdio activity.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      runnerKind: "claude-code",
+      agentCommand:
+        "claude --add-dir . --file=WORKFLOW.md -p --output-format json --permission-mode bypassPermissions --model sonnet",
+      maxAttempts: 1,
+      maxTurns: 2,
+      watchdog: {
+        enabled: true,
+        checkIntervalMs: 5,
+        stallThresholdMs: 500,
+        maxRecoveryAttempts: 0,
+      },
+      agentEnv: {
+        FAKE_CLAUDE_ACTIVITY_TICKS: "30",
+        FAKE_CLAUDE_ACTIVITY_INTERVAL_MS: "0.05",
+        FAKE_CLAUDE_ACTIVITY_STREAM: "stderr",
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    await waitForPullRequestHead(server, "symphony/84");
+    server.setPullRequestCheckRuns("symphony/84", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/84",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(84);
+    expect(issue.state).toBe("closed");
+    expect(
+      issue.comments.some((comment) =>
+        comment.includes("Stall detected (workspace-stall)"),
+      ),
+    ).toBe(false);
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      84,
+    );
+    expect(artifactSummary.currentOutcome).toBe("succeeded");
+    expect(artifactSummary.currentSummary).not.toContain(
+      "Stall detected (workspace-stall)",
     );
   });
 

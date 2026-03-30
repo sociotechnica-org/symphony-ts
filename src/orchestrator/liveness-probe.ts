@@ -1,5 +1,8 @@
 import type { LivenessSnapshot } from "./stall-detector.js";
 import type { RunnerVisibilityPhase } from "../runner/service.js";
+import { deriveWatchdogLogFileName } from "../domain/watchdog-log.js";
+
+export { deriveWatchdogLogFileName } from "../domain/watchdog-log.js";
 
 /**
  * Collects liveness signals for an active runner issue.
@@ -19,15 +22,6 @@ export interface LivenessProbe {
     readonly runnerActionAt: string | null;
     readonly hasActionableFeedback: boolean;
   }): Promise<LivenessSnapshot>;
-}
-
-export function deriveWatchdogLogFileName(options: {
-  readonly issueNumber: number;
-  readonly runSessionId: string | null;
-}): string {
-  return options.runSessionId === null
-    ? `${options.issueNumber.toString()}.log`
-    : `${encodeURIComponent(options.runSessionId)}.log`;
 }
 
 /**

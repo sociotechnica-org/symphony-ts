@@ -7,6 +7,7 @@ import type {
   GenericCommandRunnerConfig,
 } from "../../src/domain/workflow.js";
 import { RunnerShutdownError } from "../../src/domain/errors.js";
+import { deriveWatchdogLogPath } from "../../src/domain/watchdog-log.js";
 import { createConfiguredWorkspaceSource } from "../../src/domain/workspace.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import {
@@ -61,6 +62,22 @@ function createSession(): RunSession {
     startedAt: new Date().toISOString(),
     attempt: {
       sequence: 1,
+    },
+  };
+}
+
+function createSessionForWorkspace(workspacePath: string): RunSession {
+  return {
+    ...createSession(),
+    workspace: {
+      key: "sociotechnica-org_symphony-ts_1",
+      branchName: "symphony/1",
+      createdNow: false,
+      source: createConfiguredWorkspaceSource(path.dirname(workspacePath)),
+      target: {
+        kind: "local",
+        path: workspacePath,
+      },
     },
   };
 }
@@ -615,7 +632,8 @@ describe("runners", () => {
       new JsonLogger(),
     );
 
-    expect(runner.describeSession(createSession())).toEqual({
+    const session = createSession();
+    expect(runner.describeSession(session)).toEqual({
       provider: "generic-command",
       model: null,
       transport: createRunnerTransportMetadata("local-process", {
@@ -625,7 +643,17 @@ describe("runners", () => {
       backendThreadId: null,
       latestTurnId: null,
       latestTurnNumber: null,
-      logPointers: [],
+      logPointers: [
+        {
+          name: "watchdog-activity",
+          location: deriveWatchdogLogPath({
+            workspaceRoot: path.dirname(process.cwd()),
+            issueNumber: session.issue.number,
+            runSessionId: session.id,
+          }),
+          archiveLocation: null,
+        },
+      ],
     });
   });
 
@@ -638,7 +666,8 @@ describe("runners", () => {
       new JsonLogger(),
     );
 
-    expect(runner.describeSession(createSession())).toEqual({
+    const session = createSession();
+    expect(runner.describeSession(session)).toEqual({
       provider: "pi",
       model: "pi-pro",
       transport: createRunnerTransportMetadata("local-process", {
@@ -648,7 +677,17 @@ describe("runners", () => {
       backendThreadId: null,
       latestTurnId: null,
       latestTurnNumber: null,
-      logPointers: [],
+      logPointers: [
+        {
+          name: "watchdog-activity",
+          location: deriveWatchdogLogPath({
+            workspaceRoot: path.dirname(process.cwd()),
+            issueNumber: session.issue.number,
+            runSessionId: session.id,
+          }),
+          archiveLocation: null,
+        },
+      ],
     });
   });
 
@@ -658,7 +697,8 @@ describe("runners", () => {
       new JsonLogger(),
     );
 
-    expect(runner.describeSession(createSession())).toEqual({
+    const session = createSession();
+    expect(runner.describeSession(session)).toEqual({
       provider: "claude-code",
       model: "sonnet",
       transport: createRunnerTransportMetadata("local-process", {
@@ -668,7 +708,17 @@ describe("runners", () => {
       backendThreadId: null,
       latestTurnId: null,
       latestTurnNumber: null,
-      logPointers: [],
+      logPointers: [
+        {
+          name: "watchdog-activity",
+          location: deriveWatchdogLogPath({
+            workspaceRoot: path.dirname(process.cwd()),
+            issueNumber: session.issue.number,
+            runSessionId: session.id,
+          }),
+          archiveLocation: null,
+        },
+      ],
     });
   });
 
@@ -859,6 +909,36 @@ describe("runners", () => {
     await expect(runner.run(session)).rejects.toMatchObject({
       message: "Runner timed out after 50ms",
     });
+  });
+
+  it("writes a watchdog activity log for local stdout and stderr traffic", async () => {
+    const workspaceRoot = await createTempDir("local-runner-watchdog-");
+    const workspacePath = path.join(workspaceRoot, "workspace");
+    await fs.mkdir(workspacePath, { recursive: true });
+    const runner = new GenericCommandRunner(
+      createGenericCommandConfig(
+        `node -e "process.stdout.write('tick\\\\n'); setTimeout(() => process.stderr.write('tock\\\\n'), 20); setTimeout(() => process.exit(0), 40)"`,
+      ),
+      new JsonLogger(),
+    );
+    const session = createSessionForWorkspace(workspacePath);
+    const watchdogLogPath = deriveWatchdogLogPath({
+      workspaceRoot,
+      issueNumber: session.issue.number,
+      runSessionId: session.id,
+    });
+
+    try {
+      await expect(runner.run(session)).resolves.toMatchObject({
+        exitCode: 0,
+      });
+
+      const activityLog = await fs.readFile(watchdogLogPath, "utf8");
+      expect(activityLog).toContain("stdout");
+      expect(activityLog).toContain("stderr");
+    } finally {
+      await fs.rm(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("reuses the Claude backend session id for continuation turns", async () => {

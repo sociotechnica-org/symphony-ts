@@ -124,6 +124,29 @@ describe("checkStall", () => {
     expect(result.reason).toBeNull();
   });
 
+  it("keeps a workspace-written run alive while the watchdog log keeps growing", () => {
+    const entry = createWatchdogEntry(
+      1,
+      snapshot({
+        logSizeBytes: 10,
+        workspaceDiffHash: "diff-1",
+        capturedAt: 1000,
+      }),
+    );
+    const result = checkStall(
+      entry,
+      snapshot({
+        logSizeBytes: 11,
+        workspaceDiffHash: "diff-1",
+        capturedAt: 7000,
+      }),
+      config,
+    );
+    expect(result.stalled).toBe(false);
+    expect(result.reason).toBeNull();
+    expect(result.lastObservableActivitySource).toBe("watchdog-log");
+  });
+
   it("reports not stalled when workspace diff changes", () => {
     const entry = createWatchdogEntry(
       1,
