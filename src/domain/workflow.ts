@@ -147,6 +147,9 @@ export interface ObservabilityConfig {
   readonly dashboardEnabled: boolean;
   readonly refreshMs: number;
   readonly renderIntervalMs: number;
+  readonly issueReports: {
+    readonly archiveRoot: string | null;
+  };
 }
 
 export interface RuntimeInstancePaths {

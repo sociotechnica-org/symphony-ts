@@ -75,6 +75,11 @@ agent:
   timeout_ms: 5400000
   max_turns: 20
   env: {}
+observability:
+  # Optional automatic archive publication for terminal issue reports.
+  # Relative paths resolve from the repository that owns this WORKFLOW.md.
+  # issue_reports:
+  #   archive_root: ../factory-runs
 ---
 
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.

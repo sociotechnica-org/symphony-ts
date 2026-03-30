@@ -29,6 +29,10 @@ import {
   createWatchdogRuntimeState,
   type WatchdogRuntimeState,
 } from "./watchdog-state.js";
+import {
+  createTerminalIssueReportingRuntimeState,
+  type TerminalIssueReportingRuntimeState,
+} from "./terminal-reporting-state.js";
 
 export interface CodexTotals {
   inputTokens: number;
@@ -44,6 +48,7 @@ export interface PollingState {
 
 export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
+  readonly terminalIssueReporting: TerminalIssueReportingRuntimeState;
   readonly runAbortControllers: Map<number, AbortController>;
   readonly retries: RetryRuntimeState;
   readonly hostDispatch: HostDispatchRuntimeState;
@@ -65,6 +70,7 @@ export function createOrchestratorState(
 ): OrchestratorState {
   return {
     runningIssueNumbers: new Set<number>(),
+    terminalIssueReporting: createTerminalIssueReportingRuntimeState(),
     runAbortControllers: new Map<number, AbortController>(),
     retries: createRetryRuntimeState(),
     hostDispatch: createHostDispatchState(hostDispatchWorkerHosts),

@@ -47,6 +47,20 @@ export interface RuntimeTerminalCleanupPosture {
   readonly summary: string;
   readonly observedAt: string;
   readonly workspaceRetention: WorkspaceRetentionOutcome;
+  readonly reportingState:
+    | "pending-generation"
+    | "report-generated"
+    | "pending-publication"
+    | "published"
+    | "publication-partial"
+    | "blocked"
+    | null;
+  readonly reportingSummary: string | null;
+  readonly reportingReceiptFile: string | null;
+  readonly reportJsonFile: string | null;
+  readonly reportMarkdownFile: string | null;
+  readonly publicationRoot: string | null;
+  readonly blockedStage: "report-generation" | "publication" | null;
 }
 
 export function noteTerminalCleanupPosture(
@@ -202,7 +216,10 @@ export function projectRecoveryPosture(input: {
       issueIdentifier: issue.issueIdentifier,
       title: issue.title,
       source: "terminal-cleanup",
-      summary: issue.summary,
+      summary:
+        issue.reportingSummary === null
+          ? issue.summary
+          : `${issue.summary} Reporting: ${issue.reportingSummary}`,
       observedAt: issue.observedAt,
     });
   }

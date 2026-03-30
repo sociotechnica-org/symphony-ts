@@ -182,6 +182,11 @@ Generate a per-issue report from local artifacts:
 pnpm tsx bin/symphony-report.ts issue --issue 44
 ```
 
+Symphony now runs this generation step automatically after a terminal issue
+outcome is recorded. Successful runs generate reports after merge is observed;
+failed runs generate reports after the terminal failure is recorded. The manual
+command remains available for ad hoc regeneration.
+
 Inspect pending completed-run report reviews for the selected operator
 instance:
 
@@ -227,6 +232,10 @@ worktree:
 ```bash
 pnpm tsx bin/symphony-report.ts publish --issue 44 --archive-root ../factory-runs
 ```
+
+If `WORKFLOW.md` sets `observability.issue_reports.archive_root`, Symphony also
+attempts this publication step automatically after each terminal run. Local
+artifacts remain canonical if archive publication is blocked or partial.
 
 Archive publication stays detached from `symphony run` and `symphony-ts` CI. It
 copies the already-canonical local `report.json`, `report.md`, and available
@@ -276,7 +285,7 @@ If expected reviewer apps are configured and never produce qualifying output on 
 
 If a run fails, Symphony retries. After retries are exhausted, it marks the issue `symphony:failed`.
 
-Active run ownership is persisted locally as a transport-aware execution-owner record. On restart, Symphony reconciles `symphony:running` issues against local state, recovers orphaned runs, and resumes or fails them cleanly without assuming every execution owns a local runner PID. Per-issue reporting artifacts are written to `.var/factory/issues/` so they survive workspace cleanup. Generated per-issue reports are written under `.var/reports/issues/<issue-number>/` when the report command is run.
+Active run ownership is persisted locally as a transport-aware execution-owner record. On restart, Symphony reconciles `symphony:running` issues against local state, recovers orphaned runs, and resumes or fails them cleanly without assuming every execution owns a local runner PID. Per-issue reporting artifacts are written to `.var/factory/issues/` so they survive workspace cleanup. Symphony records automatic report-generation/publication receipts in `.var/factory/issues/<issue-number>/terminal-reporting.json` and writes generated per-issue reports under `.var/reports/issues/<issue-number>/`.
 Those paths are instance-owned: for any given run they live under the repository that owns the active `WORKFLOW.md`, not under a shared engine-global temp root.
 
 ## Configuration

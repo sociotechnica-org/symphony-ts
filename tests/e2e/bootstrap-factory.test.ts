@@ -29,6 +29,7 @@ import {
   countRemoteBranchCommits,
   createSeedRemote,
   createTempDir,
+  initializeGitRepo,
   readRemoteBranchFile,
 } from "../support/git.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
@@ -85,6 +86,7 @@ async function writeWorkflow(options: {
         readonly required: boolean;
       }[]
     | undefined;
+  archiveRoot?: string | undefined;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
   const workerHostsBlock =
@@ -203,7 +205,14 @@ ${remoteExecutionBlock}${
   timeout_ms: 30000
   max_turns: ${options.maxTurns ?? 3}
   env:
-${agentEnvBlock}---
+${agentEnvBlock}${
+      options.archiveRoot === undefined
+        ? ""
+        : `observability:
+  issue_reports:
+    archive_root: ${options.archiveRoot}
+`
+    }---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 Issue summary: {{ issue.summary }}
 {% if pull_request %}
@@ -1483,16 +1492,6 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       costUsd: 0.25,
     });
 
-    await runReportCli([
-      "node",
-      "symphony-report",
-      "issue",
-      "--issue",
-      "12",
-      "--workflow",
-      workflowPath,
-    ]);
-
     const reportJson = await fs.readFile(
       path.join(tempDir, ".var", "reports", "issues", "12", "report.json"),
       "utf8",
@@ -1560,6 +1559,62 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       status: "awaiting-landing-command",
       branchName: "symphony/47",
     });
+  });
+
+  it("publishes the terminal issue report automatically when an archive root is configured", async () => {
+    const archiveRoot = await createTempDir("symphony-factory-runs-e2e-");
+
+    server.seedIssue({
+      number: 49,
+      title: "Archive report automatically",
+      body: "Publish terminal reports without manual CLI follow-up",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+      archiveRoot,
+    });
+    await initializeGitRepo(archiveRoot);
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    server.setPullRequestCheckRuns("symphony/49", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    await orchestrator.runOnce();
+    server.mergePullRequest("symphony/49");
+    await orchestrator.runOnce();
+
+    await expect(
+      fs.readFile(
+        path.join(tempDir, ".var", "reports", "issues", "49", "report.json"),
+        "utf8",
+      ),
+    ).resolves.toContain('"issueNumber": 49');
+
+    const publicationIssueRoot = path.join(
+      archiveRoot,
+      "symphony-ts",
+      "issues",
+      "49",
+    );
+    const publicationEntries = await fs.readdir(publicationIssueRoot, {
+      withFileTypes: true,
+    });
+    const publicationDir = publicationEntries.find((entry) =>
+      entry.isDirectory(),
+    );
+    expect(publicationDir?.name).toBeDefined();
+    await expect(
+      fs.readFile(
+        path.join(publicationIssueRoot, publicationDir!.name, "metadata.json"),
+        "utf8",
+      ),
+    ).resolves.toContain('"issueNumber": 49');
   });
 
   it("does not immediately re-close a reopened issue because of a previously merged PR", async () => {
@@ -1670,6 +1725,37 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     expect(reportMd).toContain("## Token Usage");
     expect(summaryAfter).toBe(summaryBefore);
     expect(eventsAfter).toBe(eventsBefore);
+  });
+
+  it("generates a terminal issue report automatically after a failed run", async () => {
+    server.seedIssue({
+      number: 13,
+      title: "Persist failed run report",
+      body: "Generate a report even when the run fails terminally",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-fail.sh"),
+      maxAttempts: 1,
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(13);
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:failed",
+    );
+    await expect(
+      fs.readFile(
+        path.join(tempDir, ".var", "reports", "issues", "13", "report.json"),
+        "utf8",
+      ),
+    ).resolves.toContain('"outcome": "failed"');
   });
 
   it("reruns the same PR branch after CI failure and closes only after the rerun goes green", async () => {
@@ -2054,7 +2140,14 @@ describe("TUI dashboard integration", () => {
     const frames: string[] = [];
     const dashboard = new StatusDashboard(
       () => orchestrator.snapshot(),
-      () => ({ dashboardEnabled: true, refreshMs: 50, renderIntervalMs: 10 }),
+      () => ({
+        dashboardEnabled: true,
+        refreshMs: 50,
+        renderIntervalMs: 10,
+        issueReports: {
+          archiveRoot: null,
+        },
+      }),
       {
         enabled: true,
         refreshMs: 50,

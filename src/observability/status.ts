@@ -185,6 +185,36 @@ export interface FactoryReadyQueueIssueSnapshot {
   readonly queuePriorityLabel: string | null;
 }
 
+export interface FactoryTerminalIssueSnapshot {
+  readonly issueNumber: number;
+  readonly issueIdentifier: string;
+  readonly title: string;
+  readonly branchName: string;
+  readonly terminalOutcome: "success" | "failure";
+  readonly summary: string;
+  readonly observedAt: string;
+  readonly workspaceRetentionState:
+    | "retry-retained"
+    | "terminal-retained"
+    | "cleanup-succeeded"
+    | "cleanup-failed"
+    | "unknown";
+  readonly reportingState:
+    | "pending-generation"
+    | "report-generated"
+    | "pending-publication"
+    | "published"
+    | "publication-partial"
+    | "blocked"
+    | null;
+  readonly reportingSummary: string | null;
+  readonly reportingReceiptFile: string | null;
+  readonly reportJsonFile: string | null;
+  readonly reportMarkdownFile: string | null;
+  readonly publicationRoot: string | null;
+  readonly blockedStage: "report-generation" | "publication" | null;
+}
+
 export interface FactoryHostDispatchHostSnapshot {
   readonly name: string;
   readonly occupiedByIssueNumber: number | null;
@@ -246,6 +276,7 @@ export interface FactoryStatusSnapshot {
   readonly counts: FactoryStatusCounts;
   readonly lastAction: FactoryStatusAction | null;
   readonly activeIssues: readonly FactoryActiveIssueSnapshot[];
+  readonly terminalIssues?: readonly FactoryTerminalIssueSnapshot[];
   readonly readyQueue?: readonly FactoryReadyQueueIssueSnapshot[];
   readonly retries: readonly FactoryRetrySnapshot[];
 }
@@ -584,6 +615,42 @@ export function renderFactoryStatusSnapshot(
   }
 
   lines.push("");
+  lines.push("Terminal issues:");
+  if ((snapshot.terminalIssues ?? []).length === 0) {
+    lines.push("  none");
+  } else {
+    for (const issue of snapshot.terminalIssues ?? []) {
+      lines.push(
+        `  #${issue.issueNumber.toString()} ${issue.title} [${issue.terminalOutcome}]`,
+      );
+      lines.push(`    Summary: ${issue.summary}`);
+      lines.push(`    Branch: ${issue.branchName}`);
+      lines.push(`    Observed: ${issue.observedAt}`);
+      lines.push(`    Workspace retention: ${issue.workspaceRetentionState}`);
+      lines.push(
+        `    Reporting: ${issue.reportingState ?? "unavailable"}${
+          issue.reportingSummary === null ? "" : ` - ${issue.reportingSummary}`
+        }`,
+      );
+      if (issue.reportingReceiptFile !== null) {
+        lines.push(`    Reporting receipt: ${issue.reportingReceiptFile}`);
+      }
+      if (issue.reportJsonFile !== null) {
+        lines.push(`    report.json: ${issue.reportJsonFile}`);
+      }
+      if (issue.reportMarkdownFile !== null) {
+        lines.push(`    report.md: ${issue.reportMarkdownFile}`);
+      }
+      if (issue.publicationRoot !== null) {
+        lines.push(`    Published at: ${issue.publicationRoot}`);
+      }
+      if (issue.blockedStage !== null) {
+        lines.push(`    Blocked stage: ${issue.blockedStage}`);
+      }
+    }
+  }
+
+  lines.push("");
   lines.push("Ready queue:");
   if (readyQueue.length === 0) {
     lines.push("  none");
@@ -849,6 +916,21 @@ function parseFactoryStatusSnapshot(
       (entry, index) =>
         parseActiveIssue(entry, filePath, `activeIssues[${index.toString()}]`),
     ),
+    ...(snapshot.terminalIssues === undefined
+      ? {}
+      : {
+          terminalIssues: expectArray(
+            snapshot.terminalIssues,
+            filePath,
+            "terminalIssues",
+            (entry, index) =>
+              parseTerminalIssue(
+                entry,
+                filePath,
+                `terminalIssues[${index.toString()}]`,
+              ),
+          ),
+        }),
     readyQueue: expectArray(
       snapshot.readyQueue ?? [],
       filePath,
@@ -1400,6 +1482,92 @@ function parseActiveIssue(
       issue.runnerVisibility,
       filePath,
       `${field}.runnerVisibility`,
+    ),
+  };
+}
+
+function parseTerminalIssue(
+  value: unknown,
+  filePath: string,
+  field: string,
+): FactoryTerminalIssueSnapshot {
+  const issue = expectObject(value, filePath, field);
+  return {
+    issueNumber: expectInteger(
+      issue.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
+    issueIdentifier: expectString(
+      issue.issueIdentifier,
+      filePath,
+      `${field}.issueIdentifier`,
+    ),
+    title: expectString(issue.title, filePath, `${field}.title`),
+    branchName: expectString(issue.branchName, filePath, `${field}.branchName`),
+    terminalOutcome: expectEnum(
+      issue.terminalOutcome,
+      ["success", "failure"],
+      filePath,
+      `${field}.terminalOutcome`,
+    ),
+    summary: expectString(issue.summary, filePath, `${field}.summary`),
+    observedAt: expectString(issue.observedAt, filePath, `${field}.observedAt`),
+    workspaceRetentionState: expectEnum(
+      issue.workspaceRetentionState,
+      [
+        "retry-retained",
+        "terminal-retained",
+        "cleanup-succeeded",
+        "cleanup-failed",
+        "unknown",
+      ],
+      filePath,
+      `${field}.workspaceRetentionState`,
+    ),
+    reportingState: expectNullableEnum(
+      issue.reportingState,
+      [
+        "pending-generation",
+        "report-generated",
+        "pending-publication",
+        "published",
+        "publication-partial",
+        "blocked",
+      ],
+      filePath,
+      `${field}.reportingState`,
+    ),
+    reportingSummary: expectNullableString(
+      issue.reportingSummary,
+      filePath,
+      `${field}.reportingSummary`,
+    ),
+    reportingReceiptFile: expectNullableString(
+      issue.reportingReceiptFile,
+      filePath,
+      `${field}.reportingReceiptFile`,
+    ),
+    reportJsonFile: expectNullableString(
+      issue.reportJsonFile,
+      filePath,
+      `${field}.reportJsonFile`,
+    ),
+    reportMarkdownFile: expectNullableString(
+      issue.reportMarkdownFile,
+      filePath,
+      `${field}.reportMarkdownFile`,
+    ),
+    publicationRoot: expectNullableString(
+      issue.publicationRoot,
+      filePath,
+      `${field}.publicationRoot`,
+    ),
+    blockedStage: expectNullableEnum(
+      issue.blockedStage,
+      ["report-generation", "publication"],
+      filePath,
+      `${field}.blockedStage`,
     ),
   };
 }

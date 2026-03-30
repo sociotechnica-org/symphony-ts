@@ -116,6 +116,13 @@ import {
   getActiveDispatchPressure,
 } from "./dispatch-pressure-state.js";
 import {
+  clearTerminalIssueReportingState,
+  enqueueTerminalIssueReporting,
+  isTerminalIssueReportingDue,
+  scheduleTerminalIssueReportingRetry,
+  seedTerminalIssueReportingBackoff,
+} from "./terminal-reporting-state.js";
+import {
   bindHostReservationToRunSession,
   claimHostForIssue,
   clearPreferredHost,
@@ -163,6 +170,7 @@ import {
   setReadyQueue,
   setRestartRecoveryState,
   setTrackerIssueCounts,
+  upsertTerminalIssue,
   upsertActiveIssue,
 } from "./status-state.js";
 import { decideRestartRecovery } from "./restart-recovery.js";
@@ -180,6 +188,15 @@ import {
   extractRateLimitsSnapshot,
   extractTransientFailureSignal,
 } from "../runner/transient-failure.js";
+import {
+  deriveTerminalIssueReportingReceiptPaths,
+  listTerminalIssues,
+  readTerminalIssue,
+  readTerminalIssueReportingReceipt,
+  reconcileTerminalIssueReporting,
+  shouldReconcileTerminalIssue,
+  type TerminalIssueReportingReceipt,
+} from "../observability/terminal-reporting.js";
 import {
   classifyWorkspaceCleanupFailure,
   classifyWorkspaceCleanupSuccess,
@@ -686,6 +703,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     this.#state.polling.checkingNow = false;
     this.#notifyDashboard();
     await this.#persistStatusSnapshot();
+    await this.#reconcileTerminalIssueReporting();
 
     if (availableSlots <= 0) {
       return;
@@ -707,6 +725,207 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
 
     await Promise.all(runs);
+  }
+
+  async #reconcileTerminalIssueReporting(): Promise<void> {
+    const instance = getConfigInstancePaths(this.#config);
+    const archiveRoot = this.#config.observability.issueReports.archiveRoot;
+
+    if (!this.#state.terminalIssueReporting.backlogScanned) {
+      const terminalIssues = await listTerminalIssues(instance);
+      for (const issue of terminalIssues) {
+        const receipt = await readTerminalIssueReportingReceipt(
+          instance,
+          issue.issueNumber,
+        );
+        if (
+          shouldReconcileTerminalIssue({
+            issue,
+            receipt,
+            archiveRoot,
+          })
+        ) {
+          if (receipt?.state === "blocked") {
+            seedTerminalIssueReportingBackoff(
+              this.#state.terminalIssueReporting,
+              {
+                issueNumber: issue.issueNumber,
+                updatedAt: receipt.updatedAt,
+                baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+              },
+            );
+          } else {
+            enqueueTerminalIssueReporting(
+              this.#state.terminalIssueReporting,
+              issue.issueNumber,
+            );
+          }
+          continue;
+        }
+
+        const existingTerminal = this.#state.status.terminalIssues.find(
+          (entry) => entry.issueNumber === issue.issueNumber,
+        );
+        this.#upsertTerminalReportingStatus(
+          {
+            number: issue.issueNumber,
+            identifier: issue.issueIdentifier,
+            title: issue.title,
+          },
+          {
+            branchName:
+              existingTerminal?.branchName ??
+              this.#branchName(issue.issueNumber),
+            terminalOutcome:
+              issue.currentOutcome === "succeeded" ? "success" : "failure",
+            observedAt: issue.lastUpdatedAt,
+            workspaceRetentionState:
+              existingTerminal?.workspaceRetention.state ?? "unknown",
+            summary:
+              existingTerminal?.summary ??
+              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
+            receipt,
+          },
+        );
+      }
+      this.#state.terminalIssueReporting.backlogScanned = true;
+      if (terminalIssues.length > 0) {
+        await this.#persistStatusSnapshot();
+      }
+    }
+
+    if (this.#state.terminalIssueReporting.queuedIssueNumbers.size === 0) {
+      return;
+    }
+
+    let statusChanged = false;
+    for (const issueNumber of [
+      ...this.#state.terminalIssueReporting.queuedIssueNumbers,
+    ]) {
+      if (
+        !isTerminalIssueReportingDue(
+          this.#state.terminalIssueReporting,
+          issueNumber,
+        )
+      ) {
+        continue;
+      }
+
+      const issue = await readTerminalIssue(instance, issueNumber);
+      if (issue === null) {
+        clearTerminalIssueReportingState(
+          this.#state.terminalIssueReporting,
+          issueNumber,
+        );
+        continue;
+      }
+
+      try {
+        const result = await reconcileTerminalIssueReporting({
+          instance,
+          issue,
+          archiveRoot,
+        });
+        const existingTerminal = this.#state.status.terminalIssues.find(
+          (entry) => entry.issueNumber === issue.issueNumber,
+        );
+        this.#upsertTerminalReportingStatus(
+          {
+            number: issue.issueNumber,
+            identifier: issue.issueIdentifier,
+            title: issue.title,
+          },
+          {
+            branchName:
+              existingTerminal?.branchName ??
+              this.#branchName(issue.issueNumber),
+            terminalOutcome:
+              issue.currentOutcome === "succeeded" ? "success" : "failure",
+            observedAt: issue.lastUpdatedAt,
+            workspaceRetentionState:
+              existingTerminal?.workspaceRetention.state ?? "unknown",
+            summary:
+              existingTerminal?.summary ??
+              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
+            receipt: result.receipt,
+          },
+        );
+        if (
+          shouldReconcileTerminalIssue({
+            issue,
+            receipt: result.receipt,
+            archiveRoot,
+          })
+        ) {
+          if (result.receipt.state === "blocked") {
+            scheduleTerminalIssueReportingRetry(
+              this.#state.terminalIssueReporting,
+              {
+                issueNumber: issue.issueNumber,
+                baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+                maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+              },
+            );
+          } else {
+            enqueueTerminalIssueReporting(
+              this.#state.terminalIssueReporting,
+              issue.issueNumber,
+            );
+          }
+        } else {
+          clearTerminalIssueReportingState(
+            this.#state.terminalIssueReporting,
+            issue.issueNumber,
+          );
+        }
+        statusChanged = statusChanged || result.changed;
+      } catch (error) {
+        const normalizedError = this.#normalizeFailure(error as Error);
+        this.#logger.error("Terminal issue reporting reconciliation failed", {
+          issueNumber: issue.issueNumber,
+          error: normalizedError,
+        });
+        const existingTerminal = this.#state.status.terminalIssues.find(
+          (entry) => entry.issueNumber === issue.issueNumber,
+        );
+        this.#upsertTerminalReportingStatus(
+          {
+            number: issue.issueNumber,
+            identifier: issue.issueIdentifier,
+            title: issue.title,
+          },
+          {
+            branchName:
+              existingTerminal?.branchName ??
+              this.#branchName(issue.issueNumber),
+            terminalOutcome:
+              issue.currentOutcome === "succeeded" ? "success" : "failure",
+            observedAt: issue.lastUpdatedAt,
+            workspaceRetentionState:
+              existingTerminal?.workspaceRetention.state ?? "unknown",
+            summary:
+              existingTerminal?.summary ??
+              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
+            receipt: null,
+            fallbackReportingSummary: normalizedError,
+            fallbackBlockedStage: "report-generation",
+          },
+        );
+        scheduleTerminalIssueReportingRetry(
+          this.#state.terminalIssueReporting,
+          {
+            issueNumber: issue.issueNumber,
+            baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+            maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+          },
+        );
+        statusChanged = true;
+      }
+    }
+
+    if (statusChanged) {
+      await this.#persistStatusSnapshot();
+    }
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {
@@ -1995,6 +2214,13 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspaceRetention,
       }),
     );
+    await this.#runTerminalIssueReporting(issue, {
+      terminalOutcome: "success",
+      branchName: options?.branchName ?? this.#branchName(issue.number),
+      observedAt,
+      workspaceRetention,
+      summary,
+    });
   }
 
   async #refreshLifecycle(branchName: string): Promise<HandoffLifecycle> {
@@ -2609,6 +2835,119 @@ export class BootstrapOrchestrator implements Orchestrator {
         workspaceRetention,
       }),
     );
+    await this.#runTerminalIssueReporting(issue, {
+      terminalOutcome: "failure",
+      branchName: options?.branchName ?? this.#branchName(issue.number),
+      observedAt,
+      workspaceRetention,
+      summary,
+    });
+  }
+
+  async #runTerminalIssueReporting(
+    issue: RuntimeIssue,
+    options: {
+      readonly terminalOutcome: "success" | "failure";
+      readonly branchName: string;
+      readonly observedAt: string;
+      readonly workspaceRetention: WorkspaceRetentionOutcome;
+      readonly summary: string;
+    },
+  ): Promise<void> {
+    try {
+      const { receipt } = await reconcileTerminalIssueReporting({
+        instance: getConfigInstancePaths(this.#config),
+        issue: {
+          issueNumber: issue.number,
+          issueIdentifier: issue.identifier,
+          title: issue.title,
+          currentOutcome:
+            options.terminalOutcome === "success" ? "succeeded" : "failed",
+          lastUpdatedAt: options.observedAt,
+        },
+        archiveRoot: this.#config.observability.issueReports.archiveRoot,
+      });
+      this.#upsertTerminalReportingStatus(issue, {
+        branchName: options.branchName,
+        terminalOutcome: options.terminalOutcome,
+        observedAt: options.observedAt,
+        workspaceRetentionState: options.workspaceRetention.state,
+        summary: options.summary,
+        receipt,
+      });
+      if (
+        shouldReconcileTerminalIssue({
+          issue: {
+            issueNumber: issue.number,
+            issueIdentifier: issue.identifier,
+            title: issue.title,
+            currentOutcome:
+              options.terminalOutcome === "success" ? "succeeded" : "failed",
+            lastUpdatedAt: options.observedAt,
+          },
+          receipt,
+          archiveRoot: this.#config.observability.issueReports.archiveRoot,
+        })
+      ) {
+        if (receipt.state === "blocked") {
+          scheduleTerminalIssueReportingRetry(
+            this.#state.terminalIssueReporting,
+            {
+              issueNumber: issue.number,
+              baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+              maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+            },
+          );
+        } else {
+          enqueueTerminalIssueReporting(
+            this.#state.terminalIssueReporting,
+            issue.number,
+          );
+        }
+      } else {
+        clearTerminalIssueReportingState(
+          this.#state.terminalIssueReporting,
+          issue.number,
+        );
+      }
+      await this.#persistStatusSnapshot();
+    } catch (error) {
+      const normalizedError = this.#normalizeFailure(error as Error);
+      this.#logger.error("Terminal issue reporting failed", {
+        issueNumber: issue.number,
+        error: normalizedError,
+      });
+      this.#upsertTerminalReportingStatus(issue, {
+        branchName: options.branchName,
+        terminalOutcome: options.terminalOutcome,
+        observedAt: options.observedAt,
+        workspaceRetentionState: options.workspaceRetention.state,
+        summary: options.summary,
+        receipt: null,
+        fallbackReportingSummary: normalizedError,
+        fallbackBlockedStage: "report-generation",
+      });
+      scheduleTerminalIssueReportingRetry(this.#state.terminalIssueReporting, {
+        issueNumber: issue.number,
+        baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+        maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+      });
+      await this.#persistStatusSnapshot();
+    }
+  }
+
+  #terminalIssueReportingBaseBackoffMs(): number {
+    return Math.max(
+      this.#config.polling.intervalMs * 2,
+      this.#config.polling.retry.backoffMs,
+    );
+  }
+
+  #terminalIssueReportingMaxBackoffMs(): number {
+    return Math.max(
+      this.#terminalIssueReportingBaseBackoffMs(),
+      this.#config.polling.intervalMs * 16,
+    );
   }
 
   async #applyTerminalWorkspacePolicy(
@@ -2672,6 +3011,54 @@ export class BootstrapOrchestrator implements Orchestrator {
     retention: WorkspaceRetentionOutcome,
   ): string {
     return `${summary}; ${this.#summarizeWorkspaceRetention(retention)}`;
+  }
+
+  #upsertTerminalReportingStatus(
+    issue: RuntimeIssue | { number: number; identifier: string; title: string },
+    options: {
+      readonly branchName: string;
+      readonly terminalOutcome: "success" | "failure";
+      readonly observedAt: string;
+      readonly workspaceRetentionState:
+        | "retry-retained"
+        | "terminal-retained"
+        | "cleanup-succeeded"
+        | "cleanup-failed"
+        | "unknown";
+      readonly summary: string;
+      readonly receipt: TerminalIssueReportingReceipt | null;
+      readonly fallbackReportingSummary?: string | undefined;
+      readonly fallbackBlockedStage?: "report-generation" | "publication";
+    },
+  ): void {
+    const receiptPaths = deriveTerminalIssueReportingReceiptPaths(
+      getConfigInstancePaths(this.#config),
+      issue.number,
+    );
+    const reportingSummary =
+      options.receipt === null
+        ? (options.fallbackReportingSummary ?? null)
+        : options.receipt.note === null
+          ? options.receipt.summary
+          : `${options.receipt.summary} ${options.receipt.note}`;
+    upsertTerminalIssue(this.#state.status, {
+      issueNumber: issue.number,
+      issueIdentifier: issue.identifier,
+      title: issue.title,
+      branchName: options.branchName,
+      terminalOutcome: options.terminalOutcome,
+      summary: options.summary,
+      observedAt: options.observedAt,
+      workspaceRetentionState: options.workspaceRetentionState,
+      reportingState: options.receipt?.state ?? "blocked",
+      reportingSummary,
+      reportingReceiptFile: receiptPaths.receiptFile,
+      reportJsonFile: options.receipt?.reportJsonFile ?? null,
+      reportMarkdownFile: options.receipt?.reportMarkdownFile ?? null,
+      publicationRoot: options.receipt?.publicationRoot ?? null,
+      blockedStage:
+        options.receipt?.blockedStage ?? options.fallbackBlockedStage ?? null,
+    });
   }
 
   #summarizeRetryScheduled(

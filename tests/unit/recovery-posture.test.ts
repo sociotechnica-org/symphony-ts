@@ -144,6 +144,13 @@ describe("projectRecoveryPosture", () => {
             action: "cleanup",
             cleanupError: "rm failed",
           },
+          reportingState: null,
+          reportingSummary: null,
+          reportingReceiptFile: null,
+          reportJsonFile: null,
+          reportMarkdownFile: null,
+          publicationRoot: null,
+          blockedStage: null,
         },
       ],
     });

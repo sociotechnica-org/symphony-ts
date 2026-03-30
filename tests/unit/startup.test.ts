@@ -87,6 +87,9 @@ function createConfig(
       dashboardEnabled: false,
       refreshMs: 1_000,
       renderIntervalMs: 1_000,
+      issueReports: {
+        archiveRoot: null,
+      },
     },
   };
 }
