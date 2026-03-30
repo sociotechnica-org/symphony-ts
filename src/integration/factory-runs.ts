@@ -118,6 +118,7 @@ interface SessionLogSource {
   readonly sessionId: string;
   readonly logName: string;
   readonly pointer: IssueArtifactLogPointer;
+  readonly origin: "session-pointer" | "pointer-document" | "report-artifact";
 }
 
 export function deriveFactoryRunsPublicationId(
@@ -213,6 +214,7 @@ export async function publishIssueToFactoryRuns(
       stagingRoot,
       archiveRoot,
       publicationPaths: paths,
+      report: reportInput.report,
       loadedArtifacts,
     });
     const metadata = buildFactoryRunsPublicationMetadata({
@@ -271,14 +273,14 @@ export function buildFactoryRunsPublicationMetadata(args: {
     (entry) => entry.status === "unavailable",
   ).length;
   const logStatus =
-    args.logEntries.length === 0
+    args.logEntries.length === 0 || unavailableCount === args.logEntries.length
       ? "unavailable"
       : referencedCount > 0 || unavailableCount > 0
         ? "partial"
         : "complete";
   const notes: string[] = [];
 
-  if (args.logEntries.length === 0) {
+  if (logStatus === "unavailable") {
     notes.push("No session logs were available for publication.");
   } else if (logStatus === "partial") {
     notes.push(
@@ -485,9 +487,13 @@ async function publishSessionLogs(args: {
   readonly stagingRoot: string;
   readonly archiveRoot: string;
   readonly publicationPaths: FactoryRunsPublicationPaths;
+  readonly report: IssueReportDocument;
   readonly loadedArtifacts: LoadedIssueArtifacts;
 }): Promise<readonly FactoryRunsLogPublicationResult[]> {
-  const logSources = collectSessionLogSources(args.loadedArtifacts);
+  const logSources = collectSessionLogSources(
+    args.loadedArtifacts,
+    args.report,
+  );
   const results: FactoryRunsLogPublicationResult[] = [];
 
   for (const source of logSources) {
@@ -513,18 +519,24 @@ async function publishSessionLogs(args: {
       encodedSessionId,
       `${encodedLogName}.pointer.json`,
     );
+    const selectedCopySource = await selectReadableLogSource(source.sources);
+    let referenceSource: SessionLogSource | null =
+      selectedCopySource ?? selectReferenceLogSource(source.sources);
     let pointerNoteOverride: string | null = null;
 
-    if (await isReadableFile(source.pointer.location)) {
+    if (selectedCopySource !== null) {
       try {
         await fs.mkdir(stagedSessionDir, { recursive: true });
-        await fs.copyFile(source.pointer.location as string, stagedCopiedPath);
+        await fs.copyFile(
+          selectedCopySource.pointer.location as string,
+          stagedCopiedPath,
+        );
         results.push({
           sessionId: source.sessionId,
           logName: source.logName,
           status: "copied",
-          sourceLocation: source.pointer.location,
-          sourceArchiveLocation: source.pointer.archiveLocation,
+          sourceLocation: selectedCopySource.pointer.location,
+          sourceArchiveLocation: selectedCopySource.pointer.archiveLocation,
           archivePath: toArchiveRelativePath(args.archiveRoot, finalCopiedPath),
           pointerFile: null,
           note: null,
@@ -532,20 +544,18 @@ async function publishSessionLogs(args: {
         continue;
       } catch {
         await fs.rm(stagedCopiedPath, { force: true }).catch(() => undefined);
-        pointerNoteOverride =
-          "Local log file could not be copied during publication; preserved the original pointer metadata.";
+        referenceSource =
+          selectReferenceLogSource(source.sources) ?? selectedCopySource;
+        pointerNoteOverride = buildCopyFailureNote(referenceSource);
       }
     }
 
     if (
-      source.pointer.location !== null ||
-      source.pointer.archiveLocation !== null
+      referenceSource !== null &&
+      (referenceSource.pointer.location !== null ||
+        referenceSource.pointer.archiveLocation !== null)
     ) {
-      const note =
-        pointerNoteOverride ??
-        (source.pointer.location === null
-          ? "Local log file was not recorded; preserved the original pointer metadata."
-          : "Local log file was not readable during publication; preserved the original pointer metadata.");
+      const note = pointerNoteOverride ?? buildReferenceNote(referenceSource);
       await fs.mkdir(stagedSessionDir, { recursive: true });
       await fs.writeFile(
         stagedPointerFile,
@@ -554,7 +564,8 @@ async function publishSessionLogs(args: {
             version: FACTORY_RUNS_PUBLICATION_SCHEMA_VERSION,
             sessionId: source.sessionId,
             logName: source.logName,
-            pointer: source.pointer,
+            evidenceSource: referenceSource.origin,
+            pointer: referenceSource.pointer,
             note,
           },
           null,
@@ -566,8 +577,8 @@ async function publishSessionLogs(args: {
         sessionId: source.sessionId,
         logName: source.logName,
         status: "referenced",
-        sourceLocation: source.pointer.location,
-        sourceArchiveLocation: source.pointer.archiveLocation,
+        sourceLocation: referenceSource.pointer.location,
+        sourceArchiveLocation: referenceSource.pointer.archiveLocation,
         archivePath: null,
         pointerFile: toArchiveRelativePath(args.archiveRoot, finalPointerFile),
         note,
@@ -620,29 +631,33 @@ function collectSessionIds(
 
 function collectSessionLogSources(
   loadedArtifacts: LoadedIssueArtifacts,
-): readonly SessionLogSource[] {
-  const seen = new Set<string>();
-  const entries: SessionLogSource[] = [];
+  report: IssueReportDocument,
+): readonly {
+  readonly sessionId: string;
+  readonly logName: string;
+  readonly sources: readonly SessionLogSource[];
+}[] {
+  const candidates = new Map<string, SessionLogSource[]>();
   const pushPointer = (
     sessionId: string,
     pointers: readonly IssueArtifactLogPointer[],
+    origin: SessionLogSource["origin"],
   ): void => {
     for (const pointer of pointers) {
       const key = `${sessionId}\u0000${pointer.name}`;
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      entries.push({
+      const existing = candidates.get(key) ?? [];
+      existing.push({
         sessionId,
         logName: pointer.name,
         pointer,
+        origin,
       });
+      candidates.set(key, existing);
     }
   };
 
   for (const session of loadedArtifacts.sessions) {
-    pushPointer(session.sessionId, session.logPointers);
+    pushPointer(session.sessionId, session.logPointers, "session-pointer");
   }
 
   for (const sessionEntry of Object.values(
@@ -651,10 +666,186 @@ function collectSessionLogSources(
     if (sessionEntry === undefined) {
       continue;
     }
-    pushPointer(sessionEntry.sessionId, sessionEntry.pointers);
+    pushPointer(
+      sessionEntry.sessionId,
+      sessionEntry.pointers,
+      "pointer-document",
+    );
+  }
+
+  for (const source of collectReportDerivedLogSources(
+    loadedArtifacts,
+    report,
+  )) {
+    pushPointer(source.sessionId, [source.pointer], source.origin);
+  }
+
+  const entries = [...candidates.entries()]
+    .map(([key, sources]) => {
+      const [sessionId, logName] = key.split("\u0000");
+      return {
+        sessionId: sessionId ?? "",
+        logName: logName ?? "",
+        sources,
+      };
+    })
+    .sort((left, right) => {
+      if (left.sessionId !== right.sessionId) {
+        return left.sessionId.localeCompare(right.sessionId);
+      }
+      return left.logName.localeCompare(right.logName);
+    });
+
+  const coveredSessionIds = new Set(entries.map((entry) => entry.sessionId));
+  for (const sessionId of collectEvidenceSessionIds(loadedArtifacts, report)) {
+    if (coveredSessionIds.has(sessionId)) {
+      continue;
+    }
+    entries.push({
+      sessionId,
+      logName: "raw-log",
+      sources: [],
+    });
+  }
+
+  return entries.sort((left, right) => {
+    if (left.sessionId !== right.sessionId) {
+      return left.sessionId.localeCompare(right.sessionId);
+    }
+    return left.logName.localeCompare(right.logName);
+  });
+}
+
+function collectReportDerivedLogSources(
+  loadedArtifacts: LoadedIssueArtifacts,
+  report: IssueReportDocument,
+): readonly SessionLogSource[] {
+  const canonicalSessionArtifacts = new Map(
+    loadedArtifacts.sessions.map((session) => [
+      session.sessionId,
+      path.resolve(
+        path.join(
+          loadedArtifacts.paths.sessionsDir,
+          `${encodeURIComponent(session.sessionId)}.json`,
+        ),
+      ),
+    ]),
+  );
+  const entries: SessionLogSource[] = [];
+
+  for (const session of report.tokenUsage.sessions) {
+    const canonicalArtifact =
+      canonicalSessionArtifacts.get(session.sessionId) ?? null;
+    for (const artifact of session.sourceArtifacts) {
+      if (artifact.trim() === "") {
+        continue;
+      }
+      if (
+        canonicalArtifact !== null &&
+        path.resolve(artifact) === canonicalArtifact
+      ) {
+        continue;
+      }
+      entries.push({
+        sessionId: session.sessionId,
+        logName: path.basename(artifact),
+        pointer: {
+          name: path.basename(artifact),
+          location: artifact,
+          archiveLocation: null,
+        },
+        origin: "report-artifact",
+      });
+    }
   }
 
   return entries;
+}
+
+function collectEvidenceSessionIds(
+  loadedArtifacts: LoadedIssueArtifacts,
+  report: IssueReportDocument,
+): readonly string[] {
+  return [
+    ...new Set([
+      ...collectSessionIds(loadedArtifacts),
+      ...report.tokenUsage.sessions.map((session) => session.sessionId),
+    ]),
+  ];
+}
+
+async function selectReadableLogSource(
+  sources: readonly SessionLogSource[],
+): Promise<SessionLogSource | null> {
+  const ranked = rankSessionLogSources(sources);
+  for (const source of ranked) {
+    if (await isReadableFile(source.pointer.location)) {
+      return source;
+    }
+  }
+  return null;
+}
+
+function selectReferenceLogSource(
+  sources: readonly SessionLogSource[],
+): SessionLogSource | null {
+  for (const source of rankSessionLogSources(sources)) {
+    if (
+      source.pointer.location !== null ||
+      source.pointer.archiveLocation !== null
+    ) {
+      return source;
+    }
+  }
+  return null;
+}
+
+function rankSessionLogSources(
+  sources: readonly SessionLogSource[],
+): readonly SessionLogSource[] {
+  return [...sources].sort((left, right) => {
+    if (left.origin !== right.origin) {
+      return (
+        rankSessionLogOrigin(left.origin) - rankSessionLogOrigin(right.origin)
+      );
+    }
+    const leftLocation = left.pointer.location ?? "";
+    const rightLocation = right.pointer.location ?? "";
+    if (leftLocation !== rightLocation) {
+      return leftLocation.localeCompare(rightLocation);
+    }
+    return (left.pointer.archiveLocation ?? "").localeCompare(
+      right.pointer.archiveLocation ?? "",
+    );
+  });
+}
+
+function rankSessionLogOrigin(origin: SessionLogSource["origin"]): number {
+  switch (origin) {
+    case "session-pointer":
+      return 0;
+    case "pointer-document":
+      return 1;
+    case "report-artifact":
+      return 2;
+  }
+}
+
+function buildCopyFailureNote(source: SessionLogSource): string {
+  return source.origin === "report-artifact"
+    ? "A report-derived raw log file could not be copied during publication; preserved the discovered raw log path."
+    : "Local log file could not be copied during publication; preserved the original pointer metadata.";
+}
+
+function buildReferenceNote(source: SessionLogSource): string {
+  if (source.origin === "report-artifact") {
+    return source.pointer.location === null
+      ? "A report-derived raw log path was not recorded; no durable raw log reference could be preserved."
+      : "A report-derived raw log file was not readable during publication; preserved the discovered raw log path.";
+  }
+  return source.pointer.location === null
+    ? "Local log file was not recorded; preserved the original pointer metadata."
+    : "Local log file was not readable during publication; preserved the original pointer metadata.";
 }
 
 async function isReadableFile(filePath: string | null): Promise<boolean> {

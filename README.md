@@ -236,6 +236,9 @@ pnpm tsx bin/symphony-report.ts publish --issue 44 --archive-root ../factory-run
 If `WORKFLOW.md` sets `observability.issue_reports.archive_root`, Symphony also
 attempts this publication step automatically after each terminal run. Local
 artifacts remain canonical if archive publication is blocked or partial.
+When the generated report already identified matched local raw runner logs
+such as Codex JSONL session files, archive publication now preserves that raw
+evidence by default even if canonical artifact `logPointers` were empty.
 
 Archive publication stays detached from `symphony run` and `symphony-ts` CI. It
 copies the already-canonical local `report.json`, `report.md`, and available
