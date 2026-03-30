@@ -18,6 +18,7 @@ export type OperatorReportReviewStatus =
 export type OperatorReportReviewBlockedStage =
   | "report-generation"
   | "issue-filing"
+  | "review-recording"
   | "publication"
   | "operator-review";
 
@@ -328,23 +329,54 @@ export async function blockOperatorReportFollowUpIssue(args: {
   };
   readonly summary: string;
   readonly note: string;
+  readonly blockedStage?: OperatorReportReviewBlockedStage | null | undefined;
+  readonly createdIssue?:
+    | {
+        readonly number: number;
+        readonly url: string;
+        readonly title: string;
+      }
+    | undefined;
 }): Promise<OperatorReportReviewRecord> {
   const current = await loadCurrentReviewContext({
     instance: args.instance,
     reviewStateFile: args.reviewStateFile,
     issueNumber: args.issueNumber,
   });
+  const findingKey = normalizeFindingKey(
+    args.findingKey || args.createdIssue?.title || args.draft.title,
+  );
+  const existing = current.record.followUpIssues.find(
+    (issue) => issue.findingKey === findingKey,
+  );
+  const followUpIssues =
+    args.createdIssue === undefined || existing
+      ? current.record.followUpIssues
+      : [
+          ...current.record.followUpIssues,
+          {
+            findingKey,
+            number: args.createdIssue.number,
+            url: args.createdIssue.url,
+            title: args.createdIssue.title,
+            createdAt: new Date().toISOString(),
+          },
+        ];
   const nextRecord = {
     ...current.record,
     status: "review-blocked",
     summary: args.summary,
     note: args.note,
-    blockedStage: "issue-filing",
-    draftFollowUpIssue: {
-      findingKey: normalizeFindingKey(args.findingKey || args.draft.title),
-      title: args.draft.title,
-      body: args.draft.body,
-    },
+    blockedStage: args.blockedStage ?? "issue-filing",
+    followUpIssues,
+    draftFollowUpIssue:
+      args.createdIssue === undefined
+        ? {
+            findingKey,
+            title: args.draft.title,
+            body: args.draft.body,
+          }
+        : null,
     recordedAt: new Date().toISOString(),
   } satisfies OperatorReportReviewRecord;
   const state = upsertReviewRecord(current.state, nextRecord);
@@ -485,9 +517,18 @@ async function listCompletedIssues(
           entry.name,
           "issue.json",
         );
-        const parsed = JSON.parse(
-          await fs.readFile(issueFile, "utf8"),
-        ) as Record<string, unknown>;
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(await fs.readFile(issueFile, "utf8")) as Record<
+            string,
+            unknown
+          >;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            return null;
+          }
+          throw error;
+        }
         const currentOutcome = parsed["currentOutcome"];
         if (currentOutcome !== "succeeded" && currentOutcome !== "failed") {
           return null;

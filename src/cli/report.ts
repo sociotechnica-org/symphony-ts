@@ -118,11 +118,12 @@ export async function parseReportArgs(
       blockedStage !== null &&
       blockedStage !== "report-generation" &&
       blockedStage !== "issue-filing" &&
+      blockedStage !== "review-recording" &&
       blockedStage !== "publication" &&
       blockedStage !== "operator-review"
     ) {
       throw new Error(
-        "review-record --blocked-stage must be report-generation, issue-filing, publication, or operator-review",
+        "review-record --blocked-stage must be report-generation, issue-filing, review-recording, publication, or operator-review",
       );
     }
     return {
@@ -288,12 +289,31 @@ export async function runReportCli(
     );
   }
 
+  let createdIssue: Awaited<ReturnType<typeof createGitHubFollowUpIssue>>;
   try {
-    const createdIssue = await createGitHubFollowUpIssue({
+    createdIssue = await createGitHubFollowUpIssue({
       repo: workflow.config.tracker.repo,
       title: args.title,
       body: args.body,
     });
+  } catch (error) {
+    await blockOperatorReportFollowUpIssue({
+      instance,
+      reviewStateFile,
+      issueNumber: args.issueNumber,
+      findingKey: args.findingKey,
+      draft: {
+        title: args.title,
+        body: args.body,
+      },
+      summary: args.summary,
+      note: error instanceof Error ? error.message : String(error),
+      blockedStage: "issue-filing",
+    });
+    throw error;
+  }
+
+  try {
     const recorded = await recordOperatorReportFollowUpIssue({
       instance,
       reviewStateFile,
@@ -318,6 +338,8 @@ export async function runReportCli(
       },
       summary: args.summary,
       note: error instanceof Error ? error.message : String(error),
+      blockedStage: "review-recording",
+      createdIssue,
     });
     throw error;
   }

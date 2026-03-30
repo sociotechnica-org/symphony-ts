@@ -12,6 +12,7 @@ import {
 } from "../../src/observability/operator-report-review.js";
 import { createTempDir } from "../support/git.js";
 import {
+  seedSessionAnchoredPartialArtifacts,
   seedSuccessfulIssueArtifacts,
   writeReportWorkflow,
 } from "../support/issue-report-fixtures.js";
@@ -152,6 +153,38 @@ describe("operator report review state", () => {
         title: "Capture merge and close lifecycle facts in issue reports",
         createdAt: expect.any(String),
       },
+    ]);
+  });
+
+  it("skips numeric artifact directories that do not have an issue summary", async () => {
+    const instanceRoot = await createTempDir("symphony-report-review-partial-");
+    const operatorRoot = await createTempDir(
+      "symphony-report-review-operator-",
+    );
+    tempRoots.push(instanceRoot, operatorRoot);
+
+    const workflowPath = await writeReportWorkflow(instanceRoot);
+    const instance = await loadWorkflowInstancePaths(workflowPath);
+    const workspaceRoot = `${instanceRoot}/.tmp/workspaces`;
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+    await seedSessionAnchoredPartialArtifacts(workspaceRoot, 45);
+
+    const identity = deriveSymphonyInstanceIdentity(workflowPath);
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: operatorRoot,
+      instanceKey: identity.instanceKey,
+    });
+
+    const synced = await syncOperatorReportReviews({
+      instance,
+      reviewStateFile: paths.reportReviewStatePath,
+    });
+
+    expect(synced.pending).toEqual([
+      expect.objectContaining({
+        issueNumber: 44,
+        status: "report-ready",
+      }),
     ]);
   });
 });
