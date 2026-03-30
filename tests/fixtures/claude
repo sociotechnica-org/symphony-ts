@@ -67,6 +67,7 @@ SESSION_ID="${RESUME_SESSION_ID:-claude-session-${SYMPHONY_ISSUE_NUMBER}-${SYMPH
 ACTIVITY_TICKS="${FAKE_CLAUDE_ACTIVITY_TICKS:-0}"
 ACTIVITY_INTERVAL_MS="${FAKE_CLAUDE_ACTIVITY_INTERVAL_MS:-0.05}"
 ACTIVITY_STREAM="${FAKE_CLAUDE_ACTIVITY_STREAM:-stderr}"
+COMMIT_EACH_ATTEMPT="${FAKE_CLAUDE_COMMIT_EACH_ATTEMPT:-false}"
 ACTIVITY_PID=""
 
 start_activity_ticks() {
@@ -97,20 +98,30 @@ wait_for_activity_ticks() {
 trap 'wait_for_activity_ticks' EXIT
 
 if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
-  echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER} via claude" > IMPLEMENTED.txt
-  git add .agent-prompt.txt IMPLEMENTED.txt
-  git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} via Claude"
-  start_activity_ticks
-  git push origin HEAD:${SYMPHONY_BRANCH_NAME}
-  curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/branch-pushes" \
-    -H 'content-type: application/json' \
-    -d "{\"head\":\"${SYMPHONY_BRANCH_NAME}\"}" >/dev/null
+  if [[ "$COMMIT_EACH_ATTEMPT" == "true" || "${SYMPHONY_RUN_ATTEMPT}" == "1" ]]; then
+    if [[ "$COMMIT_EACH_ATTEMPT" == "true" ]]; then
+      echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER} via claude attempt ${SYMPHONY_RUN_ATTEMPT}" > IMPLEMENTED.txt
+      git add .agent-prompt.txt IMPLEMENTED.txt
+      git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} via Claude attempt ${SYMPHONY_RUN_ATTEMPT}"
+    else
+      echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER} via claude" > IMPLEMENTED.txt
+      git add .agent-prompt.txt IMPLEMENTED.txt
+      git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} via Claude"
+    fi
+    start_activity_ticks
+    git push origin HEAD:${SYMPHONY_BRANCH_NAME}
+    curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/branch-pushes" \
+      -H 'content-type: application/json' \
+      -d "{\"head\":\"${SYMPHONY_BRANCH_NAME}\"}" >/dev/null
 
-  gh pr create \
-    --title "Implement ${SYMPHONY_ISSUE_IDENTIFIER}" \
-    --body "Automated PR for ${SYMPHONY_ISSUE_IDENTIFIER} via Claude" \
-    --base main \
-    --head "${SYMPHONY_BRANCH_NAME}"
+    if [[ "${SYMPHONY_RUN_ATTEMPT}" == "1" ]]; then
+      gh pr create \
+        --title "Implement ${SYMPHONY_ISSUE_IDENTIFIER}" \
+        --body "Automated PR for ${SYMPHONY_ISSUE_IDENTIFIER} via Claude" \
+        --base main \
+        --head "${SYMPHONY_BRANCH_NAME}"
+    fi
+  fi
 fi
 
 wait_for_activity_ticks

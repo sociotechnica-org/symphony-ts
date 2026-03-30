@@ -1236,6 +1236,12 @@ export class BootstrapOrchestrator implements Orchestrator {
       return false;
     }
 
+    if (lifecycle.kind === "rework-required") {
+      await this.#recordIssueArtifact(
+        this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
+      );
+    }
+
     return await this.#runIssue(
       issue,
       attempt,
