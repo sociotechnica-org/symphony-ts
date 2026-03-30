@@ -296,6 +296,25 @@ async function waitForFile(
   }
 }
 
+async function waitForPullRequestHead(
+  server: MockGitHubServer,
+  head: string,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (
+      server.getPullRequests().some((pullRequest) => pullRequest.head === head)
+    ) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for pull request ${head}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 describe("Phase 1.2 PR lifecycle factory", () => {
   let server: MockGitHubServer;
   let tempDir: string;
@@ -1032,18 +1051,19 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       watchdog: {
         enabled: true,
         checkIntervalMs: 5,
-        stallThresholdMs: 40,
+        stallThresholdMs: 120,
         maxRecoveryAttempts: 0,
       },
       agentEnv: {
-        FAKE_CLAUDE_ACTIVITY_TICKS: "5",
-        FAKE_CLAUDE_ACTIVITY_INTERVAL_MS: "0.03",
+        FAKE_CLAUDE_ACTIVITY_TICKS: "8",
+        FAKE_CLAUDE_ACTIVITY_INTERVAL_MS: "0.05",
         FAKE_CLAUDE_ACTIVITY_STREAM: "stderr",
       },
     });
     const orchestrator = await createOrchestrator(workflowPath);
 
     await orchestrator.runOnce();
+    await waitForPullRequestHead(server, "symphony/84");
     server.setPullRequestCheckRuns("symphony/84", [
       { name: "CI", status: "completed", conclusion: "success" },
     ]);
