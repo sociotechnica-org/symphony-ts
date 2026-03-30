@@ -2170,7 +2170,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     const branchName = options?.branchName ?? this.#branchName(issue.number);
     await this.#tracker.completeIssue(issue.number);
     const [completedIssue, completedLifecycle] = await Promise.all([
-      this.#tracker.getIssue(issue.number).catch(() => issue),
+      this.#tracker
+        .getIssue(issue.number)
+        .then((nextIssue) =>
+          hasRuntimeIssueIdentity(nextIssue) ? nextIssue : issue,
+        )
+        .catch(() => issue),
       this.#tracker.inspectIssueHandoff(branchName).catch(() => null),
     ]);
     clearRetryState(this.#state.retries, issue.number);
@@ -4845,4 +4850,15 @@ function resolvePublishedCodexTotals(
   }
 
   return visibleLiveTotals;
+}
+
+function hasRuntimeIssueIdentity(value: unknown): value is RuntimeIssue {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "number" in value &&
+    "identifier" in value &&
+    "title" in value &&
+    "url" in value
+  );
 }
