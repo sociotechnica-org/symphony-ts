@@ -40,6 +40,11 @@ interface ParsedCodexSession {
   readonly finalSummary: string | null;
 }
 
+interface ResolvedCodexSessionMatch {
+  readonly match: ParsedCodexSession | null;
+  readonly note: string | null;
+}
+
 export interface CodexIssueReportEnricherOptions {
   readonly sessionsRoot?: string | undefined;
 }
@@ -131,7 +136,8 @@ export class CodexIssueReportEnricher implements IssueReportEnricher {
       };
     }
 
-    if (matches.length > 1) {
+    const resolvedMatch = resolveCodexSessionMatch(matches, session);
+    if (resolvedMatch.match === null) {
       return {
         sessionId: session.sessionId,
         notes: [
@@ -140,10 +146,7 @@ export class CodexIssueReportEnricher implements IssueReportEnricher {
       };
     }
 
-    const matched = matches[0];
-    if (matched === undefined) {
-      return null;
-    }
+    const matched = resolvedMatch.match;
     return {
       sessionId: session.sessionId,
       tokenUsage: matched.tokenUsage,
@@ -155,11 +158,14 @@ export class CodexIssueReportEnricher implements IssueReportEnricher {
       gitCommit: matched.meta.gitCommit,
       finalSummary: matched.finalSummary,
       sourceArtifacts: [matched.filePath],
-      notes: sawParseFailure
-        ? [
-            "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
-          ]
-        : undefined,
+      notes: [
+        ...(sawParseFailure
+          ? [
+              "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
+            ]
+          : []),
+        ...(resolvedMatch.note === null ? [] : [resolvedMatch.note]),
+      ],
     };
   }
 
@@ -359,6 +365,52 @@ function matchesCodexSession(
   }
 
   return true;
+}
+
+function resolveCodexSessionMatch(
+  matches: readonly ParsedCodexSession[],
+  session: IssueArtifactSessionSnapshot,
+): ResolvedCodexSessionMatch {
+  if (matches.length === 0) {
+    return {
+      match: null,
+      note: null,
+    };
+  }
+  if (matches.length === 1) {
+    return {
+      match: matches[0] ?? null,
+      note: null,
+    };
+  }
+
+  const backendIdMatches = matches.filter((candidate) =>
+    matchesCanonicalBackendId(candidate.meta.id, session),
+  );
+  if (backendIdMatches.length === 1) {
+    return {
+      match: backendIdMatches[0] ?? null,
+      note:
+        "Runner log enrichment disambiguated multiple Codex logs by matching the canonical backend session identity.",
+    };
+  }
+
+  return {
+    match: null,
+    note: null,
+  };
+}
+
+function matchesCanonicalBackendId(
+  metaId: string | null,
+  session: IssueArtifactSessionSnapshot,
+): boolean {
+  if (metaId === null) {
+    return false;
+  }
+  return (
+    metaId === session.backendSessionId || metaId === session.backendThreadId
+  );
 }
 
 function deriveCandidateDayRoots(

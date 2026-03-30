@@ -379,6 +379,7 @@ export function formatSnapshotContent(
     maxTurns,
     projectUrl,
   } = snapshot;
+  const visibleCodexTotals = resolveVisibleHeaderTotals(codexTotals, running);
   const renderedTickets =
     tickets.length > 0 ? tickets : running.map(legacyRunningEntryToTicket);
   const detailWidth = ticketDetailWidth(terminalColumnsOverride);
@@ -428,8 +429,9 @@ export function formatSnapshotContent(
       colorize(`${formatTps(tps)} tps`, CYAN) +
       sparklineSuffix,
     colorize("│ Runtime: ", BOLD) +
-      colorize(formatRuntimeSeconds(codexTotals.secondsRunning), MAGENTA),
-    colorize("│ Factory tokens: ", BOLD) + formatHeaderTokens(codexTotals),
+      colorize(formatRuntimeSeconds(visibleCodexTotals.secondsRunning), MAGENTA),
+    colorize("│ Factory tokens: ", BOLD) +
+      formatHeaderTokens(visibleCodexTotals),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
     colorize("│ Dispatch: ", BOLD) +
       formatDispatchPressure(dispatchPressure, effectiveNowMs),
@@ -741,17 +743,84 @@ function formatTicketTokens(entry: TuiSnapshot["tickets"][number]): string {
       case "pending":
         return "pending";
       case "observed":
-        return formatCount(liveRun.codexTotalTokens);
+        return formatCount(resolveDisplayedLiveRunTokenTotal(liveRun));
       default:
         return unreachableCodexTokenState(liveRun.codexTokenState);
     }
   }
 
-  const totalTokens = entry.runnerAccounting?.totalTokens;
-  if (typeof totalTokens === "number" && totalTokens > 0) {
+  const totalTokens = resolveDisplayedTokenTotal(entry.runnerAccounting);
+  if (totalTokens !== null) {
     return formatCount(totalTokens);
   }
   return "n/a";
+}
+
+function resolveDisplayedTokenTotal(
+  accounting: { readonly inputTokens: number | null; readonly outputTokens: number | null; readonly totalTokens: number | null } | undefined,
+): number | null {
+  if (accounting === undefined) {
+    return null;
+  }
+  if (accounting.totalTokens !== null) {
+    return accounting.totalTokens;
+  }
+  if (accounting.inputTokens !== null && accounting.outputTokens !== null) {
+    return accounting.inputTokens + accounting.outputTokens;
+  }
+  return null;
+}
+
+function resolveDisplayedLiveRunTokenTotal(
+  liveRun: TuiSnapshot["running"][number],
+): number {
+  if (liveRun.codexTotalTokens > 0) {
+    return liveRun.codexTotalTokens;
+  }
+  if (liveRun.codexInputTokens > 0 || liveRun.codexOutputTokens > 0) {
+    return liveRun.codexInputTokens + liveRun.codexOutputTokens;
+  }
+  return resolveDisplayedTokenTotal(liveRun.accounting) ?? 0;
+}
+
+function resolveVisibleHeaderTotals(
+  codexTotals: TuiSnapshot["codexTotals"],
+  running: readonly TuiSnapshot["running"][number][],
+): TuiSnapshot["codexTotals"] {
+  if (
+    codexTotals.inputTokens > 0 ||
+    codexTotals.outputTokens > 0 ||
+    codexTotals.totalTokens > 0
+  ) {
+    return codexTotals;
+  }
+
+  const observedRuns = running.filter(
+    (entry) => entry.codexTokenState === "observed",
+  );
+  if (observedRuns.length === 0) {
+    return codexTotals;
+  }
+
+  return {
+    ...codexTotals,
+    inputTokens: observedRuns.reduce((sum, entry) => {
+      if (entry.codexInputTokens > 0) {
+        return sum + entry.codexInputTokens;
+      }
+      return sum + (entry.accounting?.inputTokens ?? 0);
+    }, 0),
+    outputTokens: observedRuns.reduce((sum, entry) => {
+      if (entry.codexOutputTokens > 0) {
+        return sum + entry.codexOutputTokens;
+      }
+      return sum + (entry.accounting?.outputTokens ?? 0);
+    }, 0),
+    totalTokens: observedRuns.reduce(
+      (sum, entry) => sum + resolveDisplayedLiveRunTokenTotal(entry),
+      0,
+    ),
+  };
 }
 
 function unreachableCodexTokenState(state: never): never {

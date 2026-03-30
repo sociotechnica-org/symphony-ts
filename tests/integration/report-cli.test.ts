@@ -192,6 +192,64 @@ describe("report CLI", () => {
     expect(reportMd).toContain("Final summary:");
   });
 
+  it("uses canonical backend session identity to disambiguate multiple matching Codex logs", async () => {
+    const tempDir = await createTempDir("symphony-report-cli-codex-backend-");
+    tempRoots.push(tempDir);
+    const workflowPath = await writeReportWorkflow(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      backendSessionId: "thread-44-turn-1",
+      backendThreadId: "thread-44",
+    });
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      workspacePath: path.join(workspaceRoot, "issue-44"),
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-unrelated.jsonl",
+      sessionMetaId: "thread-other",
+      totalTokens: 900,
+    });
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:06:00.000Z",
+      workspacePath: path.join(workspaceRoot, "issue-44"),
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-06-00-thread-44.jsonl",
+      sessionMetaId: "thread-44",
+      totalTokens: 3210,
+      finalSummary:
+        "- Enriched the report from the backend-identity-matched Codex JSONL session.",
+    });
+
+    await runReportCli(
+      [
+        "node",
+        "symphony-report",
+        "issue",
+        "--issue",
+        "44",
+        "--workflow",
+        workflowPath,
+      ],
+      {
+        issueEnrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+      },
+    );
+
+    const reportDir = path.join(tempDir, ".var", "reports", "issues", "44");
+    const reportJson = await fs.readFile(
+      path.join(reportDir, "report.json"),
+      "utf8",
+    );
+    expect(reportJson).toContain('"totalTokens": 3210');
+    expect(reportJson).toContain(
+      "disambiguated multiple Codex logs by matching the canonical backend session identity",
+    );
+    expect(reportJson).not.toContain("Multiple runner log files matched this session");
+  });
+
   it("generates a partial report when session artifacts still anchor the issue", async () => {
     const tempDir = await createTempDir("symphony-report-cli-partial-");
     tempRoots.push(tempDir);

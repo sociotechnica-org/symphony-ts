@@ -81,6 +81,7 @@ import {
 import {
   aggregateRunnerAccountingSnapshots,
   createRunnerAccountingSnapshot,
+  sumIfAnyPresent,
   type RunnerAccountingSnapshot,
 } from "../runner/accounting.js";
 import type { Tracker } from "../tracker/service.js";
@@ -485,6 +486,8 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     retrying.sort((a, b) => a.dueInMs - b.dueInMs);
 
+    const visibleLiveTokenTotals = summarizeVisibleLiveTokenTotals(running);
+
     return {
       trackerKind: this.#config.tracker.kind,
       trackerSubject: this.#trackerSubject(),
@@ -493,7 +496,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       running,
       retrying,
       codexTotals: {
-        ...this.#state.codexTotals,
+        inputTokens: visibleLiveTokenTotals.inputTokens,
+        outputTokens: visibleLiveTokenTotals.outputTokens,
+        totalTokens: visibleLiveTokenTotals.totalTokens,
         pendingRunCount,
         secondsRunning: Math.floor((now - this.#factoryStartedAt) / 1000),
       },
@@ -4320,4 +4325,28 @@ export class BootstrapOrchestrator implements Orchestrator {
       controller.abort();
     }
   }
+}
+
+function summarizeVisibleLiveTokenTotals(
+  running: readonly TuiRunningEntry[],
+): CodexTotals {
+  const aggregateInput = sumIfAnyPresent(
+    running.map((entry) => entry.accounting?.inputTokens ?? null),
+  );
+  const aggregateOutput = sumIfAnyPresent(
+    running.map((entry) => entry.accounting?.outputTokens ?? null),
+  );
+  const aggregateTotal = sumIfAnyPresent(
+    running.map((entry) => entry.accounting?.totalTokens ?? null),
+  );
+
+  return {
+    inputTokens: aggregateInput ?? 0,
+    outputTokens: aggregateOutput ?? 0,
+    totalTokens:
+      aggregateTotal ??
+      (aggregateInput !== null && aggregateOutput !== null
+        ? aggregateInput + aggregateOutput
+        : 0),
+  };
 }
