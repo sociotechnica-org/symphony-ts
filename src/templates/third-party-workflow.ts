@@ -42,6 +42,8 @@ export function renderThirdPartyWorkflowTemplate(
     "    enabled: true",
     "    check_interval_ms: 60000",
     "    stall_threshold_ms: 300000",
+    "    execution_stall_threshold_ms: 900000",
+    "    pr_follow_through_stall_threshold_ms: 1800000",
     "    max_recovery_attempts: 2",
     "workspace:",
     "  root: ./.tmp/workspaces",

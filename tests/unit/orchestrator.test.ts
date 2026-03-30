@@ -14,6 +14,7 @@ import {
 import type {
   PromptBuilder,
   ResolvedConfig,
+  WatchdogConfig,
 } from "../../src/domain/workflow.js";
 import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import { LocalIssueLeaseManager } from "../../src/orchestrator/issue-lease.js";
@@ -116,6 +117,23 @@ function createRunnerVisibilityProbe(): LivenessProbe {
         capturedAt: Date.now(),
       };
     },
+  };
+}
+
+function createWatchdogConfig(
+  overrides: Partial<WatchdogConfig>,
+): WatchdogConfig {
+  const stallThresholdMs = overrides.stallThresholdMs ?? 0;
+  return {
+    enabled: true,
+    checkIntervalMs: 0,
+    stallThresholdMs,
+    executionStallThresholdMs:
+      overrides.executionStallThresholdMs ?? stallThresholdMs,
+    prFollowThroughStallThresholdMs:
+      overrides.prFollowThroughStallThresholdMs ?? stallThresholdMs,
+    maxRecoveryAttempts: 1,
+    ...overrides,
   };
 }
 
@@ -4263,12 +4281,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 0,
           stallThresholdMs: 0, // immediate stall detection for testing
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 
@@ -4367,12 +4383,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 1,
           stallThresholdMs: 20,
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 
@@ -4442,12 +4456,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 1,
           stallThresholdMs: 5,
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 
@@ -4468,6 +4480,205 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.retried).toEqual([]);
     expect(tracker.failed).toEqual([]);
     expect(tracker.completed).toEqual([94]);
+  });
+
+  it("keeps a quiet execution run alive when the execution threshold exceeds the legacy baseline", async () => {
+    const issue = createIssue(95);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(95, [
+      lifecycle("handoff-ready", "symphony/95"),
+    ]);
+
+    let runAborted = false;
+
+    const quietRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        const startedAt = new Date().toISOString();
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            options?.signal?.removeEventListener("abort", handleAbort);
+            resolve();
+          }, 35);
+          const handleAbort = (): void => {
+            clearTimeout(timer);
+            runAborted = true;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+        };
+      },
+    };
+
+    const quietWorkspaceProbe: LivenessProbe = {
+      async capture(options) {
+        return {
+          logSizeBytes: null,
+          workspaceDiffHash: "diff-95",
+          prHeadSha: options.prHeadSha,
+          runStartedAt: options.runStartedAt,
+          runnerPhase: options.runnerPhase,
+          runnerHeartbeatAt: options.runnerHeartbeatAt,
+          runnerActionAt: options.runnerActionAt,
+          hasActionableFeedback: options.hasActionableFeedback,
+          capturedAt: Date.now(),
+        };
+      },
+    };
+
+    const watchdogConfig = {
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 1,
+          stallThresholdMs: 5,
+          executionStallThresholdMs: 50,
+          prFollowThroughStallThresholdMs: 5,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      quietRunner,
+      new NullLogger(),
+      undefined,
+      quietWorkspaceProbe,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runAborted).toBe(false);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([95]);
+  });
+
+  it("keeps a quiet PR follow-through run alive when the PR threshold exceeds the legacy baseline", async () => {
+    const issue = createIssue(96);
+    const tracker = new SequencedTracker({ ready: [issue] });
+    tracker.setLifecycleSequence(96, [
+      lifecycle("rework-required", "symphony/96"),
+      lifecycle("handoff-ready", "symphony/96"),
+    ]);
+
+    let turnNumber = 0;
+    let runAborted = false;
+
+    const quietFollowThroughRunner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(_session, options) {
+        turnNumber += 1;
+        const startedAt = new Date().toISOString();
+        if (turnNumber === 1) {
+          return {
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            startedAt,
+            finishedAt: new Date().toISOString(),
+          };
+        }
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            options?.signal?.removeEventListener("abort", handleAbort);
+            resolve();
+          }, 35);
+          const handleAbort = (): void => {
+            clearTimeout(timer);
+            runAborted = true;
+            reject(new RunnerAbortedError("Aborted"));
+          };
+          if (options?.signal?.aborted) {
+            handleAbort();
+            return;
+          }
+          options?.signal?.addEventListener("abort", handleAbort, {
+            once: true,
+          });
+        });
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+        };
+      },
+    };
+
+    const quietPrProbe: LivenessProbe = {
+      async capture(options) {
+        return {
+          logSizeBytes: null,
+          workspaceDiffHash: "diff-96",
+          prHeadSha: options.prHeadSha,
+          runStartedAt: options.runStartedAt,
+          runnerPhase: options.runnerPhase,
+          runnerHeartbeatAt: options.runnerHeartbeatAt,
+          runnerActionAt: options.runnerActionAt,
+          hasActionableFeedback: options.hasActionableFeedback,
+          capturedAt: Date.now(),
+        };
+      },
+    };
+
+    const watchdogConfig = {
+      ...withLocalInstanceRoot(baseConfig, tmpDir),
+      polling: {
+        ...baseConfig.polling,
+        watchdog: {
+          enabled: true,
+          checkIntervalMs: 1,
+          stallThresholdMs: 5,
+          executionStallThresholdMs: 5,
+          prFollowThroughStallThresholdMs: 200,
+          maxRecoveryAttempts: 1,
+        },
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      watchdogConfig,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      quietFollowThroughRunner,
+      new NullLogger(),
+      undefined,
+      quietPrProbe,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(turnNumber).toBe(2);
+    expect(runAborted).toBe(false);
+    expect(tracker.retried).toEqual([]);
+    expect(tracker.failed).toEqual([]);
+    expect(tracker.completed).toEqual([96]);
   });
 
   it("recovers a startup run that never advances beyond its start time", async () => {
@@ -4504,12 +4715,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 0,
           stallThresholdMs: 0,
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 
@@ -4587,12 +4796,10 @@ describe("BootstrapOrchestrator watchdog", () => {
         ...withLocalInstanceRoot(baseConfig, tmpDir),
         polling: {
           ...baseConfig.polling,
-          watchdog: {
-            enabled: true,
+          watchdog: createWatchdogConfig({
             checkIntervalMs: 0,
             stallThresholdMs: 0,
-            maxRecoveryAttempts: 1,
-          },
+          }),
         },
       },
       staticPromptBuilder,
@@ -4655,12 +4862,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 0,
           stallThresholdMs: 0,
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 
@@ -4759,12 +4964,11 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 0,
           stallThresholdMs: 0,
           maxRecoveryAttempts: 0,
-        },
+        }),
       },
     };
 
@@ -4802,12 +5006,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 50,
           stallThresholdMs: 0,
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 
@@ -4858,12 +5060,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 0,
           stallThresholdMs: 0,
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 
@@ -4905,12 +5105,10 @@ describe("BootstrapOrchestrator watchdog", () => {
       ...withLocalInstanceRoot(baseConfig, tmpDir),
       polling: {
         ...baseConfig.polling,
-        watchdog: {
-          enabled: true,
+        watchdog: createWatchdogConfig({
           checkIntervalMs: 0,
           stallThresholdMs: 0,
-          maxRecoveryAttempts: 1,
-        },
+        }),
       },
     };
 

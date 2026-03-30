@@ -68,6 +68,7 @@ ACTIVITY_TICKS="${FAKE_CLAUDE_ACTIVITY_TICKS:-0}"
 ACTIVITY_INTERVAL_MS="${FAKE_CLAUDE_ACTIVITY_INTERVAL_MS:-0.05}"
 ACTIVITY_STREAM="${FAKE_CLAUDE_ACTIVITY_STREAM:-stderr}"
 COMMIT_EACH_ATTEMPT="${FAKE_CLAUDE_COMMIT_EACH_ATTEMPT:-false}"
+QUIET_AFTER_WRITE_MS="${FAKE_CLAUDE_QUIET_AFTER_WRITE_MS:-0}"
 ACTIVITY_PID=""
 
 start_activity_ticks() {
@@ -97,6 +98,18 @@ wait_for_activity_ticks() {
 
 trap 'wait_for_activity_ticks' EXIT
 
+sleep_quiet_after_write() {
+  if [[ "$QUIET_AFTER_WRITE_MS" == "0" ]]; then
+    return
+  fi
+  python3 - "$QUIET_AFTER_WRITE_MS" <<'PY'
+import sys
+import time
+
+time.sleep(float(sys.argv[1]) / 1000.0)
+PY
+}
+
 if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
   if [[ "$COMMIT_EACH_ATTEMPT" == "true" || "${SYMPHONY_RUN_ATTEMPT}" == "1" ]]; then
     if [[ "$COMMIT_EACH_ATTEMPT" == "true" ]]; then
@@ -109,6 +122,7 @@ if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
       git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} via Claude"
     fi
     start_activity_ticks
+    sleep_quiet_after_write
     git push origin HEAD:${SYMPHONY_BRANCH_NAME}
     curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/branch-pushes" \
       -H 'content-type: application/json' \

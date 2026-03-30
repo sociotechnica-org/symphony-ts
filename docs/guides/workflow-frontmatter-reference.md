@@ -366,6 +366,27 @@ When `enabled: true`, the watchdog section requires the remaining fields.
   - no when `enabled: false`
 - Disabled fallback default: `300000`
 
+Acts as the compatibility baseline. If the phase-specific fields below are
+omitted, Symphony uses this value for both active execution and PR
+follow-through.
+
+##### `polling.watchdog.execution_stall_threshold_ms`
+
+- Type: integer
+- Required: no
+- Default: `polling.watchdog.stall_threshold_ms`
+
+Applies while an active run has not yet reached PR follow-through.
+
+##### `polling.watchdog.pr_follow_through_stall_threshold_ms`
+
+- Type: integer
+- Required: no
+- Default: `polling.watchdog.stall_threshold_ms`
+
+Applies while an active run already has an open PR and is following through on
+review/check context.
+
 ##### `polling.watchdog.max_recovery_attempts`
 
 - Type: integer
@@ -788,6 +809,8 @@ agent:
 - `polling.retry.max_attempts` must be `>= 1`
 - `polling.watchdog.check_interval_ms` must be an integer `> 0`
 - `polling.watchdog.stall_threshold_ms` must be an integer `> 0`
+- `polling.watchdog.execution_stall_threshold_ms` must be an integer `> 0`
+- `polling.watchdog.pr_follow_through_stall_threshold_ms` must be an integer `> 0`
 - `polling.watchdog.max_recovery_attempts` must be an integer `>= 0`
 - `agent.runner.kind: codex` requires `agent.command` to invoke `codex`
 - `agent.runner.kind: claude-code` requires `agent.command` to invoke `claude`

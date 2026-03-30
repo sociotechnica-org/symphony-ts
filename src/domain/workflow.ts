@@ -23,6 +23,8 @@ export interface WatchdogConfig {
   readonly enabled: boolean;
   readonly checkIntervalMs: number;
   readonly stallThresholdMs: number;
+  readonly executionStallThresholdMs: number;
+  readonly prFollowThroughStallThresholdMs: number;
   readonly maxRecoveryAttempts: number;
 }
 

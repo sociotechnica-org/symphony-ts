@@ -897,6 +897,64 @@ agent:
       enabled: true,
       checkIntervalMs: 60000,
       stallThresholdMs: 300000,
+      executionStallThresholdMs: 300000,
+      prFollowThroughStallThresholdMs: 300000,
+      maxRecoveryAttempts: 2,
+    });
+  });
+
+  it("loads explicit phase-specific polling.watchdog thresholds", async () => {
+    const dir = await createTempDir("workflow-watchdog-phase-thresholds-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+polling:
+  interval_ms: 1000
+  max_concurrent_runs: 1
+  retry:
+    max_attempts: 2
+    backoff_ms: 10
+  watchdog:
+    enabled: true
+    check_interval_ms: 60000
+    stall_threshold_ms: 300000
+    execution_stall_threshold_ms: 900000
+    pr_follow_through_stall_threshold_ms: 1800000
+    max_recovery_attempts: 2
+workspace:
+  root: ./.tmp/ws
+  repo_url: git@example.com:repo.git
+  branch_prefix: symphony/
+  cleanup_on_success: true
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex exec -
+  prompt_transport: stdin
+  timeout_ms: 1000
+  env: {}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+
+    expect(workflow.config.polling.watchdog).toEqual({
+      enabled: true,
+      checkIntervalMs: 60000,
+      stallThresholdMs: 300000,
+      executionStallThresholdMs: 900000,
+      prFollowThroughStallThresholdMs: 1800000,
       maxRecoveryAttempts: 2,
     });
   });
@@ -1040,6 +1098,8 @@ agent:
       enabled: false,
       checkIntervalMs: 60000,
       stallThresholdMs: 300000,
+      executionStallThresholdMs: 300000,
+      prFollowThroughStallThresholdMs: 300000,
       maxRecoveryAttempts: 2,
     });
   });

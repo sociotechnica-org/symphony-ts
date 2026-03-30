@@ -76,6 +76,8 @@ async function writeWorkflow(options: {
         readonly enabled: boolean;
         readonly checkIntervalMs: number;
         readonly stallThresholdMs: number;
+        readonly executionStallThresholdMs?: number;
+        readonly prFollowThroughStallThresholdMs?: number;
         readonly maxRecoveryAttempts: number;
       }
     | undefined;
@@ -177,7 +179,9 @@ ${
     enabled: ${options.watchdog.enabled ? "true" : "false"}
     check_interval_ms: ${options.watchdog.checkIntervalMs}
     stall_threshold_ms: ${options.watchdog.stallThresholdMs}
-    max_recovery_attempts: ${options.watchdog.maxRecoveryAttempts}
+${options.watchdog.executionStallThresholdMs === undefined ? "" : `    execution_stall_threshold_ms: ${options.watchdog.executionStallThresholdMs}
+`}${options.watchdog.prFollowThroughStallThresholdMs === undefined ? "" : `    pr_follow_through_stall_threshold_ms: ${options.watchdog.prFollowThroughStallThresholdMs}
+`}    max_recovery_attempts: ${options.watchdog.maxRecoveryAttempts}
 `
 }
 workspace:
@@ -1095,6 +1099,66 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     const artifactSummary = await readIssueArtifactSummary(
       path.join(tempDir, ".tmp", "workspaces"),
       84,
+    );
+    expect(artifactSummary.currentOutcome).toBe("succeeded");
+    expect(artifactSummary.currentSummary).not.toContain(
+      "Stall detected (workspace-stall)",
+    );
+  });
+
+  it("keeps a third-party Claude run alive through a quiet post-write execution window when the execution threshold is higher", async () => {
+    server.seedIssue({
+      number: 85,
+      title: "Claude quiet post-write watchdog window",
+      body: "Keep the run alive while Claude stays quiet after an early write.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      runnerKind: "claude-code",
+      agentCommand:
+        "claude --add-dir . --file=WORKFLOW.md -p --output-format json --permission-mode bypassPermissions --model sonnet",
+      maxAttempts: 1,
+      maxTurns: 2,
+      watchdog: {
+        enabled: true,
+        checkIntervalMs: 5,
+        stallThresholdMs: 100,
+        executionStallThresholdMs: 500,
+        maxRecoveryAttempts: 0,
+      },
+      agentEnv: {
+        FAKE_CLAUDE_QUIET_AFTER_WRITE_MS: "250",
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+    await waitForPullRequestHead(server, "symphony/85");
+    server.setPullRequestCheckRuns("symphony/85", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/85",
+      authorLogin: "jessmartin",
+      body: "/land",
+    });
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(85);
+    expect(issue.state).toBe("closed");
+    expect(
+      issue.comments.some((comment) =>
+        comment.includes("Stall detected (workspace-stall)"),
+      ),
+    ).toBe(false);
+
+    const artifactSummary = await readIssueArtifactSummary(
+      path.join(tempDir, ".tmp", "workspaces"),
+      85,
     );
     expect(artifactSummary.currentOutcome).toBe("succeeded");
     expect(artifactSummary.currentSummary).not.toContain(
