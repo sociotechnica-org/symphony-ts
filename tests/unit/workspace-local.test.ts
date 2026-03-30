@@ -322,6 +322,128 @@ describe("LocalWorkspaceManager", () => {
     }
   });
 
+  it("recovers from conflicting untracked files in retained workspaces", async () => {
+    const tempDir = await createTempDir("workspace-retained-untracked-");
+    const remote = await createSeedRemote();
+    const logger = new JsonLogger();
+    const manager = new LocalWorkspaceManager(
+      {
+        root: path.join(tempDir, ".tmp", "workspaces"),
+        repoUrl: remote.remotePath,
+        branchPrefix: "symphony/",
+        retention: {
+          onSuccess: "retain",
+          onFailure: "retain",
+        },
+      },
+      [],
+      logger,
+    );
+
+    try {
+      const prepared = await manager.prepareWorkspace({
+        issue: createIssue(12),
+      });
+      const workspacePath = getPreparedWorkspacePath(prepared);
+      if (workspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      await fs.writeFile(
+        path.join(workspacePath, "GENERATED.txt"),
+        "untracked artifact from failed run\n",
+        "utf8",
+      );
+
+      const reused = await manager.prepareWorkspace({
+        issue: createIssue(12),
+      });
+      const reusedWorkspacePath = getPreparedWorkspacePath(reused);
+      if (reusedWorkspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      expect(reused.createdNow).toBe(false);
+      const untrackedExists = await fs
+        .stat(path.join(reusedWorkspacePath, "GENERATED.txt"))
+        .then(() => true)
+        .catch(() => false);
+      expect(untrackedExists).toBe(false);
+
+      const stashEntries = await listStashEntries(reusedWorkspacePath);
+      expect(stashEntries).toHaveLength(1);
+      expect(stashEntries[0]).toContain("symphony-retained-workspace-");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stashes both tracked modifications and untracked files together", async () => {
+    const tempDir = await createTempDir("workspace-retained-mixed-");
+    const remote = await createSeedRemote();
+    const logger = new JsonLogger();
+    const manager = new LocalWorkspaceManager(
+      {
+        root: path.join(tempDir, ".tmp", "workspaces"),
+        repoUrl: remote.remotePath,
+        branchPrefix: "symphony/",
+        retention: {
+          onSuccess: "retain",
+          onFailure: "retain",
+        },
+      },
+      [],
+      logger,
+    );
+
+    try {
+      const prepared = await manager.prepareWorkspace({
+        issue: createIssue(13),
+      });
+      const workspacePath = getPreparedWorkspacePath(prepared);
+      if (workspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      await fs.writeFile(
+        path.join(workspacePath, "README.md"),
+        "# tracked modification\n",
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(workspacePath, "NEW_FILE.txt"),
+        "untracked new file\n",
+        "utf8",
+      );
+
+      const reused = await manager.prepareWorkspace({
+        issue: createIssue(13),
+      });
+      const reusedWorkspacePath = getPreparedWorkspacePath(reused);
+      if (reusedWorkspacePath === null) {
+        throw new Error("expected local workspace path");
+      }
+
+      expect(reused.createdNow).toBe(false);
+      await expect(
+        fs.readFile(path.join(reusedWorkspacePath, "README.md"), "utf8"),
+      ).resolves.toContain("# mock repo");
+      const newFileExists = await fs
+        .stat(path.join(reusedWorkspacePath, "NEW_FILE.txt"))
+        .then(() => true)
+        .catch(() => false);
+      expect(newFileExists).toBe(false);
+
+      const stashEntries = await listStashEntries(reusedWorkspacePath);
+      expect(stashEntries).toHaveLength(1);
+      expect(stashEntries[0]).toContain("symphony-retained-workspace-");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      await fs.rm(remote.rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("returns an idempotent cleanup result when the workspace is already absent", async () => {
     const tempDir = await createTempDir("workspace-cleanup-");
     const remote = await createSeedRemote();

@@ -96,7 +96,7 @@ async function stashDirtyWorkspaceForReuse(cwd: string): Promise<{
   readonly changedPaths: readonly string[];
 }> {
   const statusLines = await readWorktreeStatus(cwd, {
-    includeUntracked: false,
+    includeUntracked: true,
   });
   if (statusLines.length === 0) {
     return {
@@ -107,9 +107,11 @@ async function stashDirtyWorkspaceForReuse(cwd: string): Promise<{
   }
 
   const entryName = `symphony-retained-workspace-${new Date().toISOString()}`;
-  await execFileAsync("git", ["stash", "push", "--message", entryName], {
-    cwd,
-  });
+  await execFileAsync(
+    "git",
+    ["stash", "push", "--include-untracked", "--message", entryName],
+    { cwd },
+  );
   return {
     stashed: true,
     entryName,
