@@ -63,6 +63,12 @@ describe("init CLI integration", () => {
       );
       expect(workflowBody).toContain("kind: generic-command");
       expect(workflowBody).toContain("command: your-runner-command --print");
+      expect(workflowBody).toContain(
+        "ready for review by default, not as a draft",
+      );
+      expect(workflowBody).toContain(
+        "Only use draft mode when repository instructions or explicit issue/prompt policy require it",
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

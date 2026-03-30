@@ -131,7 +131,7 @@ Rules:
 14. Implement the issue completely, including docs and tests required by the repo process.
 15. Run a local self-review pass when a reliable review tool is available, and fix the findings before opening a PR. If no reliable tool is available, note that in the PR.
 16. Run the relevant local checks before finishing.
-17. Open a pull request against `main` in `{{ config.tracker.repo }}` and reference the issue in the PR body.
+17. Open or update the pull request against `main` in `{{ config.tracker.repo }}` ready for review by default, not as a draft. Only use draft mode when repository instructions or explicit issue/prompt policy require it, and reference the issue in the PR body.
 18. If the PR already exists, continue on the same branch and address CI or review feedback instead of opening a new PR.
 19. Monitor CI and automated review feedback, address follow-up comments, and do not treat the CI/review stage as complete until all checks pass and all actionable comments are resolved. If a CI or automated review check remains in a non-terminal state for more than 30 minutes without progress, comment on the issue describing the blocked check and wait for human guidance before proceeding.
 20. Leave the workspace in a git state that can be inspected if the run fails.
