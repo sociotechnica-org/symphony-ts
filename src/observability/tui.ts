@@ -544,10 +544,21 @@ function formatDispatchState(
     );
   }
   if (halt.state === "degraded") {
+    const pressureSuffix =
+      dispatchPressure === null
+        ? ""
+        : colorize(" | ", GRAY) +
+          colorize(
+            `pressure ${dispatchPressure.retryClass} until ${formatDueIn(
+              Date.parse(dispatchPressure.resumeAt) - nowMs,
+            )}`,
+            YELLOW,
+          );
     return (
       colorize("halt degraded", RED) +
       colorize(" | ", GRAY) +
-      colorize(truncate(halt.detail ?? "unreadable halt state", 80), GRAY)
+      colorize(truncate(halt.detail ?? "unreadable halt state", 80), GRAY) +
+      pressureSuffix
     );
   }
   return formatDispatchPressure(dispatchPressure, nowMs);
