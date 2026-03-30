@@ -487,6 +487,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     retrying.sort((a, b) => a.dueInMs - b.dueInMs);
 
     const visibleLiveTokenTotals = summarizeVisibleLiveTokenTotals(running);
+    const publishedCodexTotals = resolvePublishedCodexTotals(
+      this.#state.codexTotals,
+      visibleLiveTokenTotals,
+    );
 
     return {
       trackerKind: this.#config.tracker.kind,
@@ -496,9 +500,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       running,
       retrying,
       codexTotals: {
-        inputTokens: visibleLiveTokenTotals.inputTokens,
-        outputTokens: visibleLiveTokenTotals.outputTokens,
-        totalTokens: visibleLiveTokenTotals.totalTokens,
+        inputTokens: publishedCodexTotals.inputTokens,
+        outputTokens: publishedCodexTotals.outputTokens,
+        totalTokens: publishedCodexTotals.totalTokens,
         pendingRunCount,
         secondsRunning: Math.floor((now - this.#factoryStartedAt) / 1000),
       },
@@ -4349,4 +4353,19 @@ function summarizeVisibleLiveTokenTotals(
         ? aggregateInput + aggregateOutput
         : 0),
   };
+}
+
+function resolvePublishedCodexTotals(
+  lifetimeTotals: CodexTotals,
+  visibleLiveTotals: CodexTotals,
+): CodexTotals {
+  if (
+    lifetimeTotals.inputTokens > 0 ||
+    lifetimeTotals.outputTokens > 0 ||
+    lifetimeTotals.totalTokens > 0
+  ) {
+    return lifetimeTotals;
+  }
+
+  return visibleLiveTotals;
 }
