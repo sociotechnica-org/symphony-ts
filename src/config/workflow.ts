@@ -39,7 +39,7 @@ interface RawWorkflow {
   readonly workspace?: Record<string, unknown>;
   readonly hooks?: Record<string, unknown>;
   readonly agent?: Record<string, unknown>;
-  readonly observability?: Record<string, unknown>;
+  readonly observability?: Record<string, unknown> | null;
 }
 
 const liquid = new Liquid({
@@ -573,10 +573,10 @@ function resolveConfig(raw: RawWorkflow, workflowPath: string): ResolvedConfig {
   const workspace = coerceOptionalObject(raw.workspace, "workspace");
   const hooks = coerceOptionalObject(raw.hooks, "hooks");
   const agent = coerceOptionalObject(raw.agent, "agent");
-  const observabilityRaw = coerceOptionalObject(
-    raw.observability,
-    "observability",
-  );
+  const observabilityRaw =
+    raw.observability === null
+      ? {}
+      : coerceOptionalObject(raw.observability, "observability");
 
   // Apply SYMPHONY_REPO env override (GitHub-backed trackers only; ignored by other tracker kinds)
   const rawRepoEnv = process.env["SYMPHONY_REPO"];
