@@ -11,6 +11,8 @@ export interface PullRequestPolicyResult {
   readonly nextNoCheckObservation: NoCheckObservation | null;
 }
 
+const PASSING_MERGE_STATES = new Set(["clean", "has_hooks"]);
+
 function summarizeLifecycle(
   intro: string,
   url: string,
@@ -236,6 +238,48 @@ export function evaluatePullRequestLifecycle(
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
         summary: `Degraded external review infrastructure for ${snapshot.pullRequest.url}; required reviewer-app output was observed on the current head but no explicit pass verdict was normalized.`,
+      },
+      nextNoCheckObservation: previousNoCheckObservation ?? null,
+    };
+  }
+
+  if (snapshot.mergeable === null) {
+    return {
+      lifecycle: {
+        kind: "awaiting-system-checks",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        checks: snapshot.checks,
+        pendingCheckNames: snapshot.pendingCheckNames,
+        failingCheckNames: snapshot.failingCheckNames,
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: `Waiting for GitHub mergeability to settle on ${snapshot.pullRequest.url}`,
+      },
+      nextNoCheckObservation: previousNoCheckObservation ?? null,
+    };
+  }
+
+  if (
+    snapshot.mergeable !== true ||
+    (snapshot.mergeStateStatus !== null &&
+      !PASSING_MERGE_STATES.has(snapshot.mergeStateStatus))
+  ) {
+    const mergeStateSummary =
+      snapshot.mergeable !== true
+        ? "GitHub does not consider the pull request mergeable"
+        : `GitHub reports merge state '${snapshot.mergeStateStatus}'`;
+    return {
+      lifecycle: {
+        kind: "rework-required",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        checks: snapshot.checks,
+        pendingCheckNames: snapshot.pendingCheckNames,
+        failingCheckNames: snapshot.failingCheckNames,
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        summary: `${mergeStateSummary} for ${snapshot.pullRequest.url}`,
       },
       nextNoCheckObservation: previousNoCheckObservation ?? null,
     };
