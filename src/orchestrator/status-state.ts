@@ -1,5 +1,6 @@
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
+import type { FactoryHaltSnapshot } from "../domain/factory-halt.js";
 import type {
   FactoryActiveIssueSnapshot,
   FactoryHostDispatchSnapshot,
@@ -37,6 +38,7 @@ type RuntimeActiveIssueState = FactoryActiveIssueSnapshot;
 export interface RuntimeStatusState {
   readonly workerStartedAt: string;
   trackerCounts: TrackerIssueCounts;
+  factoryHalt: FactoryHaltSnapshot;
   readonly activeIssues: Map<number, RuntimeActiveIssueState>;
   readyQueue: readonly FactoryReadyQueueIssueSnapshot[];
   readonly watchdogIssues: Map<number, RuntimeWatchdogPosture>;
@@ -58,6 +60,14 @@ export function createRuntimeStatusState(): RuntimeStatusState {
       ready: 0,
       running: 0,
       failed: 0,
+    },
+    factoryHalt: {
+      state: "clear",
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
     },
     activeIssues: new Map<number, RuntimeActiveIssueState>(),
     readyQueue: [],
@@ -115,6 +125,13 @@ export function adjustTrackerIssueCounts(
         ? state.trackerCounts.failed
         : Math.max(0, state.trackerCounts.failed + change.failed),
   };
+}
+
+export function setFactoryHaltState(
+  state: RuntimeStatusState,
+  halt: FactoryHaltSnapshot,
+): void {
+  state.factoryHalt = halt;
 }
 
 export function upsertActiveIssue(
@@ -416,6 +433,7 @@ export function buildFactoryStatusSnapshot(input: {
       state: input.publicationState ?? "current",
       detail: input.publicationDetail ?? null,
     },
+    factoryHalt: input.state.factoryHalt,
     dispatchPressure: input.dispatchPressure,
     hostDispatch,
     restartRecovery: input.state.restartRecovery,
@@ -434,6 +452,7 @@ export function buildFactoryStatusSnapshot(input: {
       activeIssues,
       input.activeLocalRuns,
       retries.length,
+      input.state.factoryHalt,
     ),
     worker: {
       instanceId: input.instanceId,
@@ -461,6 +480,7 @@ function resolveFactoryState(
   activeIssues: readonly RuntimeActiveIssueState[],
   activeLocalRuns: number,
   retryCount: number,
+  factoryHalt: FactoryHaltSnapshot,
 ): FactoryState {
   if (
     activeLocalRuns > 0 ||
@@ -470,7 +490,12 @@ function resolveFactoryState(
   ) {
     return "running";
   }
-  if (activeIssues.length > 0 || retryCount > 0) {
+  if (
+    activeIssues.length > 0 ||
+    retryCount > 0 ||
+    factoryHalt.state === "halted" ||
+    factoryHalt.state === "degraded"
+  ) {
     return "blocked";
   }
   return "idle";

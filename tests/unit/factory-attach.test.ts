@@ -79,6 +79,14 @@ function createSnapshot(
       startupFilePath: "/repo/.tmp/startup.json",
     },
     sessionName: "symphony-factory-instance",
+    factoryHalt: {
+      state: "clear",
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
+    },
     sessions:
       controlState === "running"
         ? [

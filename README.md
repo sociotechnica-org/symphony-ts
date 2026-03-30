@@ -102,6 +102,8 @@ pnpm tsx bin/symphony.ts factory start --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory status --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory watch --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory attach --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory pause --reason "Prerequisite ticket failed; stop the line." --workflow ../target-repo/WORKFLOW.md
+pnpm tsx bin/symphony.ts factory resume --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory status --json --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory restart --workflow ../target-repo/WORKFLOW.md
 pnpm tsx bin/symphony.ts factory stop --workflow ../target-repo/WORKFLOW.md
@@ -113,6 +115,10 @@ omit `--workflow` and use the local `WORKFLOW.md` by default.
 `factory start` launches the same startup-preparation path as `symphony run`
 and surfaces startup preparation/failure details through `factory status`
 instead of relying on a separate wrapper command.
+Use `factory pause --reason ...` when operators need to stop the line without
+forgetting why. That halt is instance-owned durable runtime state under
+`.var/factory/`, survives `factory stop` / `factory start`, and requires an
+explicit `factory resume` before new work dispatches again.
 
 For the canonical detached-runtime operating procedure and failure rehearsals,
 see [Operator Runbook](docs/guides/operator-runbook.md) and

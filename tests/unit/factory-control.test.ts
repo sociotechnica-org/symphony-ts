@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { FactoryHaltSnapshot } from "../../src/domain/factory-halt.js";
 import { deriveSymphonyInstanceIdentity } from "../../src/domain/instance-identity.js";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import type { StartupSnapshot } from "../../src/startup/service.js";
@@ -15,7 +16,9 @@ import {
   parseLocaleListOutput,
   parseScreenLsFailureOutput,
   parseScreenLsOutput,
+  pauseFactory,
   renderFactoryControlStatus,
+  resumeFactory,
   resolveFactoryPaths,
   selectFactoryUtf8Locale,
   startFactory,
@@ -88,12 +91,27 @@ function createStartupSnapshot(
   };
 }
 
+function createFactoryHaltSnapshot(
+  overrides: Partial<FactoryHaltSnapshot> = {},
+): FactoryHaltSnapshot {
+  return {
+    state: "clear",
+    reason: null,
+    haltedAt: null,
+    source: null,
+    actor: null,
+    detail: null,
+    ...overrides,
+  };
+}
+
 function createControlDeps(
   options: {
     readonly processes?: readonly HostProcessSnapshot[];
     readonly sessions?: readonly ScreenSessionSnapshot[];
     readonly snapshot?: FactoryStatusSnapshot | null;
     readonly startupSnapshot?: StartupSnapshot | null;
+    readonly haltRaw?: string | null;
     readonly environment?: NodeJS.ProcessEnv;
     readonly availableLocales?: readonly string[];
     readonly nowValues?: readonly number[];
@@ -114,8 +132,10 @@ function createControlDeps(
   const workflowPath = instancePaths.runtimeWorkflowPath;
   const statusFilePath = instancePaths.statusFilePath;
   const startupFilePath = instancePaths.startupFilePath;
+  const haltFilePath = path.join(instancePaths.factoryArtifactsRoot, "halt-state.json");
   const nowValues = [...(options.nowValues ?? [0])];
   let lastNowValue = nowValues[0] ?? 0;
+  let haltRaw = options.haltRaw;
 
   return {
     cwd: () => runtimeRoot,
@@ -129,6 +149,7 @@ function createControlDeps(
         path.dirname(statusFilePath),
         statusFilePath,
         startupFilePath,
+        haltFilePath,
       ].includes(targetPath),
     loadWorkflowWorkspaceRoot: async () => instancePaths.workspaceRoot,
     loadWorkflowInstancePaths: async () => instancePaths,
@@ -168,6 +189,16 @@ function createControlDeps(
         }
         return `${JSON.stringify(options.startupSnapshot, null, 2)}\n`;
       }
+      if (filePath === haltFilePath) {
+        if (haltRaw === null || haltRaw === undefined) {
+          const error = new Error(
+            `ENOENT: no such file or directory, open '${filePath}'`,
+          ) as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return haltRaw;
+      }
       {
         const error = new Error(
           `ENOENT: no such file or directory, open '${filePath}'`,
@@ -180,8 +211,28 @@ function createControlDeps(
     listScreenSessions: async () => options.sessions ?? [],
     listAvailableLocales: async () =>
       options.availableLocales ?? ["en_US.UTF-8", "C", "POSIX"],
-    removeFile: options.removeFile ?? (async () => {}),
+    removeFile:
+      options.removeFile ??
+      (async (filePath) => {
+        if (filePath === haltFilePath || filePath.includes(".halt-state.")) {
+          haltRaw = null;
+        }
+      }),
     ensureDirectory: options.ensureDirectory ?? (async () => {}),
+    writeFile: async (filePath, content) => {
+      if (filePath.includes(".halt-state.")) {
+        haltRaw = content;
+        return;
+      }
+      if (filePath === haltFilePath) {
+        haltRaw = content;
+      }
+    },
+    rename: async (_fromPath, toPath) => {
+      if (toPath === haltFilePath) {
+        return;
+      }
+    },
     sleep: options.sleep ?? (async () => {}),
     isProcessAlive: (pid) =>
       (options.processes ?? []).some(
@@ -1097,6 +1148,11 @@ describe("startFactory", () => {
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
       readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (filePath.endsWith("startup.json")) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -1273,6 +1329,11 @@ describe("startFactory", () => {
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
       readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (filePath.endsWith("startup.json")) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -1331,6 +1392,11 @@ describe("startFactory", () => {
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
       readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
           return `${JSON.stringify(startupSnapshot, null, 2)}\n`;
         }
@@ -1382,6 +1448,11 @@ describe("startFactory", () => {
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
       readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
           return `${JSON.stringify(startupSnapshot, null, 2)}\n`;
         }
@@ -1427,8 +1498,13 @@ describe("startFactory", () => {
         }),
         listProcesses: async () => [],
         listScreenSessions: async () => [],
-        readFile: async (filePath) => {
-          if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
+      readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
             return `${JSON.stringify(startupSnapshot, null, 2)}\n`;
           }
           if (filePath.endsWith("status.json") && currentSnapshot !== null) {
@@ -1489,6 +1565,11 @@ describe("startFactory", () => {
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
       readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (filePath.endsWith("startup.json")) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -2126,6 +2207,11 @@ describe("factory restart launch contract", () => {
       listProcesses: async () => processesState,
       listScreenSessions: async () => sessionsState,
       readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
         if (filePath.endsWith("startup.json")) {
           const error = new Error("missing") as NodeJS.ErrnoException;
           error.code = "ENOENT";
@@ -2178,6 +2264,50 @@ describe("factory restart launch contract", () => {
   });
 });
 
+describe("pauseFactory and resumeFactory", () => {
+  it("persists halt state and clears it on resume", async () => {
+    const paused = await pauseFactory(
+      "Prerequisite ticket failed; stop the line.",
+      createControlDeps(),
+    );
+    expect(paused.status.factoryHalt).toEqual(
+      expect.objectContaining({
+        state: "halted",
+        reason: "Prerequisite ticket failed; stop the line.",
+        source: "factory-cli",
+      }),
+    );
+
+    const resumed = await resumeFactory(
+      createControlDeps({
+        haltRaw: JSON.stringify({
+          version: 1,
+          reason: "Prerequisite ticket failed; stop the line.",
+          haltedAt: "2026-03-13T12:00:00.000Z",
+          source: "factory-cli",
+          actor: "operator",
+        }),
+      }),
+    );
+    expect(resumed.status.factoryHalt).toEqual(createFactoryHaltSnapshot());
+  });
+
+  it("treats malformed halt state as degraded control", async () => {
+    const snapshot = await inspectFactoryControl(
+      createControlDeps({
+        haltRaw: "{",
+      }),
+    );
+    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.factoryHalt.state).toBe("degraded");
+    expect(snapshot.problems).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Failed to parse factory halt state"),
+      ]),
+    );
+  });
+});
+
 describe("renderFactoryControlStatus", () => {
   it("renders the runtime path and snapshot guidance for stopped state", () => {
     const output = renderFactoryControlStatus({
@@ -2190,6 +2320,11 @@ describe("renderFactoryControlStatus", () => {
         startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
       },
       sessionName: "symphony-factory",
+      factoryHalt: createFactoryHaltSnapshot({
+        state: "halted",
+        reason: "Stop the line.",
+        haltedAt: "2026-03-13T12:00:00.000Z",
+      }),
       sessions: [],
       workerAlive: false,
       startup: {
@@ -2222,6 +2357,8 @@ describe("renderFactoryControlStatus", () => {
     });
 
     expect(output).toContain("Factory control: stopped");
+    expect(output).toContain("Factory halt: halted since 2026-03-13T12:00:00.000Z");
+    expect(output).toContain("Factory halt reason: Stop the line.");
     expect(output).toContain("Runtime root: /repo/.tmp/factory-main");
     expect(output).toContain(
       "Runtime version: 4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26 | committed 2026-03-13T11:57:00.000Z | clean",

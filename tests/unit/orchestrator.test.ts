@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeFactoryHaltRecord } from "../../src/domain/factory-halt.js";
 import {
   RunnerAbortedError,
   RunnerShutdownError,
@@ -5047,6 +5048,77 @@ describe("BootstrapOrchestrator watchdog", () => {
       retryClass: "provider-rate-limit",
     });
     expect(tracker.readyIssues.has(2)).toBe(true);
+  });
+
+  it("blocks new dispatch while the factory is explicitly halted", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(11), createIssue(12)],
+    });
+    tracker.setLifecycleSequence(11, [
+      lifecycle("missing-target", "symphony/11"),
+    ]);
+    tracker.setLifecycleSequence(12, [
+      lifecycle("missing-target", "symphony/12"),
+    ]);
+
+    let runnerCalls = 0;
+    const runner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run() {
+        runnerCalls += 1;
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          startedAt: "2026-03-30T12:00:00.000Z",
+          finishedAt: "2026-03-30T12:00:00.000Z",
+        };
+      },
+    };
+
+    const config = withLocalInstanceRoot(baseConfig, tmpDir);
+    await writeFactoryHaltRecord(config.instance, {
+      reason: "Prerequisite ticket failed; stop the line.",
+      haltedAt: "2026-03-30T12:00:00.000Z",
+      source: "factory-cli",
+      actor: "operator",
+    });
+
+    const orchestrator = new BootstrapOrchestrator(
+      config,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runnerCalls).toBe(0);
+    const snapshot = await readFactoryStatusSnapshot(
+      deriveStatusFilePath(config.instance),
+    );
+    expect(snapshot.factoryHalt).toEqual({
+      state: "halted",
+      reason: "Prerequisite ticket failed; stop the line.",
+      haltedAt: "2026-03-30T12:00:00.000Z",
+      source: "factory-cli",
+      actor: "operator",
+      detail: null,
+    });
+    expect(snapshot.readyQueue).toEqual([
+      expect.objectContaining({ issueNumber: 11 }),
+      expect.objectContaining({ issueNumber: 12 }),
+    ]);
+    expect(snapshot.lastAction).toEqual(
+      expect.objectContaining({
+        kind: "poll-fetched",
+        summary: expect.stringContaining("Factory halted since"),
+      }),
+    );
   });
 
   it("keeps unrelated ready work dispatchable after an ordinary transient failure", async () => {

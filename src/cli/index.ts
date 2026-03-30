@@ -27,7 +27,9 @@ import { RemoteSshWorkspaceManager } from "../workspace/remote-ssh.js";
 import {
   type FactoryControlStatusSnapshot,
   inspectFactoryControl,
+  pauseFactory,
   renderFactoryControlStatus,
+  resumeFactory,
   startFactory,
   stopFactory,
 } from "./factory-control.js";
@@ -60,9 +62,10 @@ export type CliArgs =
     }
   | {
       readonly command: "factory";
-      readonly action: "start" | "stop" | "restart";
+      readonly action: "start" | "stop" | "restart" | "pause" | "resume";
       readonly format: "human" | "json";
       readonly workflowPath: string | null;
+      readonly reason?: string;
     }
   | {
       readonly command: "factory";
@@ -151,12 +154,32 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     const workflowPath = readOptionValue(args, "--workflow");
     const resolvedWorkflowPath =
       workflowPath === null ? null : path.resolve(process.cwd(), workflowPath);
-    if (action === "start" || action === "stop" || action === "restart") {
+    if (
+      action === "start" ||
+      action === "stop" ||
+      action === "restart" ||
+      action === "resume"
+    ) {
       return {
         command: "factory",
         action,
         format: args.includes("--json") ? "json" : "human",
         workflowPath: resolvedWorkflowPath,
+      };
+    }
+    if (action === "pause") {
+      const reason = readOptionValue(args, "--reason");
+      if (reason === null) {
+        throw new Error(
+          "Usage: symphony factory pause --reason <text> [--json] [--workflow <path>]",
+        );
+      }
+      return {
+        command: "factory",
+        action: "pause",
+        format: args.includes("--json") ? "json" : "human",
+        workflowPath: resolvedWorkflowPath,
+        reason,
       };
     }
     if (action === "watch") {
@@ -190,7 +213,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       };
     }
     throw new Error(
-      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
+      "Usage: symphony factory <start|stop|restart|resume|status> [--json] [--workflow <path>]\n       symphony factory pause --reason <text> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
     );
   }
 
@@ -257,6 +280,34 @@ export async function runCli(argv: readonly string[]): Promise<void> {
               `Terminated PIDs: ${result.terminatedPids.join(", ")}\n`,
             );
           }
+          process.stdout.write(
+            renderFactoryControlStatus(result.status, {
+              format: args.format,
+            }),
+          );
+          applyFactoryControlExitCode(result.status);
+          return;
+        }
+
+        case "pause": {
+          const result = await pauseFactory(args.reason!, {
+            workflowPath: args.workflowPath,
+          });
+          process.stdout.write("Factory paused.\n");
+          process.stdout.write(
+            renderFactoryControlStatus(result.status, {
+              format: args.format,
+            }),
+          );
+          applyFactoryControlExitCode(result.status);
+          return;
+        }
+
+        case "resume": {
+          const result = await resumeFactory({
+            workflowPath: args.workflowPath,
+          });
+          process.stdout.write("Factory resumed.\n");
           process.stdout.write(
             renderFactoryControlStatus(result.status, {
               format: args.format,

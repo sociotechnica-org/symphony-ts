@@ -6,7 +6,7 @@ Use [`operator-runbook.md`](./operator-runbook.md) as the daily-use companion.
 
 ## Ground Rules
 
-- Start from the checked-in control path: `factory status`, `factory watch`, `factory attach`, `factory start`, `factory restart`, `factory stop`.
+- Start from the checked-in control path: `factory status`, `factory watch`, `factory attach`, `factory start`, `factory restart`, `factory pause`, `factory resume`, `factory stop`.
 - Treat `factory status --json` as the primary evidence source.
 - Use retained workspaces and `.var/factory/issues/` artifacts to confirm what happened.
 - Do not normalize raw `screen` attachment or ad hoc process cleanup into the procedure unless the supported control path is broken.
@@ -88,6 +88,26 @@ Expected evidence:
 - the artifact summary and status surfaces agree about the terminal outcome
 - the retained workspace is still inspectable
 - cleanup failures remain visible as degraded posture rather than disappearing
+
+## Drill 6: Intentional Stop-The-Line Halt
+
+Goal: verify that operators can halt new dispatch with a durable reason, stop
+the detached runtime if needed, and later require an explicit resume.
+
+1. Start from a controlled repo state with at least one ready issue.
+2. Run `pnpm tsx bin/symphony.ts factory pause --reason "Prerequisite ticket failed; stop the line until release reconciliation finishes."`
+3. Inspect `factory status --json` and `factory watch`.
+4. Confirm `status.factoryHalt.state` is `halted`, the reason is present, and no fresh ready issue dispatches.
+5. Optionally run `pnpm tsx bin/symphony.ts factory stop`, then `factory start`.
+6. Confirm the instance still reports `halted` after restart.
+7. Run `pnpm tsx bin/symphony.ts factory resume` and confirm dispatch can proceed again.
+
+Expected evidence:
+
+- `status.factoryHalt` carries the halt reason and timestamp
+- ready queue facts remain visible, but no new dispatch starts while halted
+- stopping and restarting the detached runtime does not clear the halt
+- `factory resume` clears the halt and returns the instance to normal dispatch posture
 
 ## Stability Drill: Concurrent Legibility
 

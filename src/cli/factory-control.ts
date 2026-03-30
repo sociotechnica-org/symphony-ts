@@ -6,6 +6,12 @@ import { promisify } from "node:util";
 import { loadWorkflowInstancePaths } from "../config/workflow.js";
 import { deriveSymphonyInstanceIdentity } from "../domain/instance-identity.js";
 import {
+  clearFactoryHaltRecord,
+  inspectFactoryHalt,
+  writeFactoryHaltRecord,
+  type FactoryHaltSnapshot,
+} from "../domain/factory-halt.js";
+import {
   deriveRuntimeInstancePaths,
   type RuntimeInstancePaths,
 } from "../domain/workflow.js";
@@ -86,6 +92,7 @@ export interface FactoryControlStatusSnapshot {
   readonly controlState: FactoryControlState;
   readonly paths: FactoryPaths;
   readonly sessionName: string;
+  readonly factoryHalt: FactoryHaltSnapshot;
   readonly sessions: readonly ScreenSessionSnapshot[];
   readonly workerAlive: boolean;
   readonly startup: FactoryStartupAssessment | null;
@@ -101,6 +108,14 @@ export interface FactoryControlStartResult {
     | "already-running"
     | "blocked-degraded"
     | "startup-failed";
+  readonly status: FactoryControlStatusSnapshot;
+}
+
+export interface FactoryControlPauseResult {
+  readonly status: FactoryControlStatusSnapshot;
+}
+
+export interface FactoryControlResumeResult {
   readonly status: FactoryControlStatusSnapshot;
 }
 
@@ -140,6 +155,12 @@ export interface FactoryControlDeps {
   ) => Promise<RuntimeInstancePaths>;
   readonly deriveSessionName?: (instance: RuntimeInstancePaths) => string;
   readonly readFile?: (filePath: string, encoding: "utf8") => Promise<string>;
+  readonly writeFile?: (
+    filePath: string,
+    content: string,
+    encoding: "utf8",
+  ) => Promise<void>;
+  readonly rename?: (fromPath: string, toPath: string) => Promise<void>;
   readonly listProcesses?: () => Promise<readonly HostProcessSnapshot[]>;
   readonly listScreenSessions?: () => Promise<readonly ScreenSessionSnapshot[]>;
   readonly listAvailableLocales?: () => Promise<readonly string[]>;
@@ -317,6 +338,47 @@ export async function stopFactory(
   return stopFactoryAtPaths(paths, deps);
 }
 
+export async function pauseFactory(
+  reason: string,
+  deps: FactoryControlDeps = {},
+): Promise<FactoryControlPauseResult> {
+  const paths = await resolveFactoryPaths(deps);
+  const environment = deps.environment ?? (() => process.env);
+  await writeFactoryHaltRecord(
+    paths.instance ?? paths.runtimeRoot,
+    {
+      reason,
+      source: "factory-cli",
+      actor: environment().USER ?? environment().USERNAME ?? null,
+    },
+    {
+      ...(deps.writeFile === undefined ? {} : { writeFile: deps.writeFile }),
+      ...(deps.rename === undefined ? {} : { rename: deps.rename }),
+      ...(deps.removeFile === undefined
+        ? {}
+        : { removeFile: deps.removeFile }),
+      ...(deps.ensureDirectory === undefined
+        ? {}
+        : { ensureDirectory: deps.ensureDirectory }),
+    },
+  );
+  return {
+    status: await inspectFactoryControlAtPaths(paths, deps),
+  };
+}
+
+export async function resumeFactory(
+  deps: FactoryControlDeps = {},
+): Promise<FactoryControlResumeResult> {
+  const paths = await resolveFactoryPaths(deps);
+  await clearFactoryHaltRecord(paths.instance ?? paths.runtimeRoot, {
+    ...(deps.removeFile === undefined ? {} : { removeFile: deps.removeFile }),
+  });
+  return {
+    status: await inspectFactoryControlAtPaths(paths, deps),
+  };
+}
+
 export function renderFactoryControlStatus(
   snapshot: FactoryControlStatusSnapshot,
   options?: {
@@ -334,6 +396,22 @@ export function renderFactoryControlStatus(
     `Runtime root: ${snapshot.paths.runtimeRoot}`,
     `Screen session: ${snapshot.sessionName}`,
   ];
+
+  lines.push(
+    `Factory halt: ${
+      snapshot.factoryHalt.state === "clear"
+        ? "clear"
+        : snapshot.factoryHalt.state === "halted"
+          ? `halted since ${snapshot.factoryHalt.haltedAt}`
+          : "degraded"
+    }`,
+  );
+  if (snapshot.factoryHalt.reason !== null) {
+    lines.push(`Factory halt reason: ${snapshot.factoryHalt.reason}`);
+  }
+  if (snapshot.factoryHalt.detail !== null) {
+    lines.push(`Factory halt detail: ${snapshot.factoryHalt.detail}`);
+  }
 
   if (snapshot.sessions.length === 0) {
     lines.push("Screen session state: none");
@@ -492,6 +570,9 @@ async function inspectFactoryControlAtPaths(
     readStatusSnapshot(paths.statusFilePath, deps),
     readStartupSnapshot(paths.startupFilePath, deps),
   ]);
+  const factoryHalt = await inspectFactoryHalt(paths.instance ?? paths.runtimeRoot, {
+    ...(deps.readFile === undefined ? {} : { readFile: deps.readFile }),
+  });
 
   const matchingSessions = sessions.filter(
     (session) => session.name === paths.sessionName,
@@ -518,6 +599,9 @@ async function inspectFactoryControlAtPaths(
   if (startupRead.error !== null) {
     problems.push(startupRead.error.message);
   }
+  if (factoryHalt.state === "degraded" && factoryHalt.detail !== null) {
+    problems.push(factoryHalt.detail);
+  }
 
   const workerAlive =
     snapshotRead.snapshot === null
@@ -543,7 +627,9 @@ async function inspectFactoryControlAtPaths(
   }
 
   let controlState: FactoryControlState = "stopped";
-  if (liveSessions.length === 0 && processIds.length === 0) {
+  if (factoryHalt.state === "degraded") {
+    controlState = "degraded";
+  } else if (liveSessions.length === 0 && processIds.length === 0) {
     controlState =
       startup !== null && startup.stale && startup.state !== "ready"
         ? "degraded"
@@ -593,6 +679,7 @@ async function inspectFactoryControlAtPaths(
     controlState,
     paths: publicPaths,
     sessionName: paths.sessionName,
+    factoryHalt,
     sessions: liveSessions,
     workerAlive,
     startup,

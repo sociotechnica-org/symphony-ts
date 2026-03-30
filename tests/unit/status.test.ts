@@ -32,6 +32,14 @@ function createSnapshot(
       state: "current",
       detail: null,
     },
+    factoryHalt: {
+      state: "clear",
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
+    },
     dispatchPressure: null,
     hostDispatch: null,
     restartRecovery: {
