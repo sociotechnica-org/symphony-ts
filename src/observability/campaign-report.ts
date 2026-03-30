@@ -139,6 +139,8 @@ export interface CampaignTokenUsageIssue {
   readonly status: IssueReportTokenUsageStatus;
   readonly totalTokens: number | null;
   readonly costUsd: number | null;
+  readonly observedTokenSubtotal: number | null;
+  readonly observedCostSubtotal: number | null;
   readonly sessionCount: number;
   readonly notes: readonly string[];
 }
@@ -592,6 +594,8 @@ function buildCampaignTokenUsage(
       status: issueTokenUsage.status,
       totalTokens: issueTokenUsage.totalTokens,
       costUsd: issueTokenUsage.costUsd,
+      observedTokenSubtotal: issueTokenUsage.observedTokenSubtotal ?? null,
+      observedCostSubtotal: issueTokenUsage.observedCostSubtotal ?? null,
       sessionCount: issueTokenUsage.sessions.length,
       notes: issueTokenUsage.notes,
     };
@@ -605,21 +609,23 @@ function buildCampaignTokenUsage(
     ? issues.reduce((sum, issue) => sum + (issue.costUsd ?? 0), 0)
     : null;
   const observedTokenIssues = issues.filter(
-    (issue) => issue.totalTokens !== null,
+    (issue) => issue.observedTokenSubtotal !== null,
   );
-  const observedCostIssues = issues.filter((issue) => issue.costUsd !== null);
+  const observedCostIssues = issues.filter(
+    (issue) => issue.observedCostSubtotal !== null,
+  );
   const observedTokenSubtotal =
     observedTokenIssues.length === 0
       ? null
       : observedTokenIssues.reduce(
-          (sum, issue) => sum + (issue.totalTokens ?? 0),
+          (sum, issue) => sum + (issue.observedTokenSubtotal ?? 0),
           0,
         );
   const observedCostSubtotal =
     observedCostIssues.length === 0
       ? null
       : observedCostIssues.reduce(
-          (sum, issue) => sum + (issue.costUsd ?? 0),
+          (sum, issue) => sum + (issue.observedCostSubtotal ?? 0),
           0,
         );
   const explanation = buildCampaignTokenExplanation(
@@ -630,10 +636,10 @@ function buildCampaignTokenUsage(
   const notes = dedupeStrings([
     observedTokenIssues.length === issues.length
       ? ""
-      : `${observedTokenIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied token totals.`,
+      : `${observedTokenIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied observed token data.`,
     observedCostIssues.length === issues.length
       ? ""
-      : `${observedCostIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied cost totals.`,
+      : `${observedCostIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied observed cost data.`,
   ]);
 
   return {

@@ -195,6 +195,12 @@ describe("campaign report", () => {
     expect(digest.tokenUsage.status).toBe("partial");
     expect(digest.tokenUsage.totalTokens).toBeNull();
     expect(digest.tokenUsage.observedTokenSubtotal).toBe(4400);
+    expect(digest.tokenUsage.notes).toContain(
+      "2 of 3 selected issue reports supplied observed token data.",
+    );
+    expect(digest.tokenUsage.notes).toContain(
+      "0 of 3 selected issue reports supplied observed cost data.",
+    );
     expect(digest.learnings.changesToMake).toContain(
       "Expand token-usage capture or enrichment; campaign token coverage was partial across 3 issue reports.",
     );
@@ -396,6 +402,8 @@ function buildStoredIssueReport(options: {
       | undefined;
     readonly totalTokens?: number | null | undefined;
     readonly costUsd?: number | null | undefined;
+    readonly observedTokenSubtotal?: number | null | undefined;
+    readonly observedCostSubtotal?: number | null | undefined;
   };
   readonly learnings?: {
     readonly observations?:
@@ -462,6 +470,14 @@ function buildStoredIssueReport(options: {
       explanation: "Synthetic token usage for unit tests.",
       totalTokens: options.tokenUsage?.totalTokens ?? null,
       costUsd: options.tokenUsage?.costUsd ?? null,
+      observedTokenSubtotal:
+        options.tokenUsage?.observedTokenSubtotal ??
+        options.tokenUsage?.totalTokens ??
+        null,
+      observedCostSubtotal:
+        options.tokenUsage?.observedCostSubtotal ??
+        options.tokenUsage?.costUsd ??
+        null,
       sessions: [],
       attempts: [],
       agents: [],

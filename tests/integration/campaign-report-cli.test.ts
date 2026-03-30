@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runReportCli } from "../../src/cli/report.js";
+import { ISSUE_REPORT_SCHEMA_VERSION } from "../../src/observability/issue-report.js";
 import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
 import { createTempDir } from "../support/git.js";
 import {
@@ -253,6 +254,7 @@ describe("campaign report CLI", () => {
     );
     await downgradeIssueReportSchemaVersion(
       path.join(tempDir, ".var", "reports", "issues", "44", "report.json"),
+      ISSUE_REPORT_SCHEMA_VERSION - 1,
     );
 
     await expect(
@@ -265,7 +267,11 @@ describe("campaign report CLI", () => {
         "--workflow",
         workflowPath,
       ]),
-    ).rejects.toThrowError(/uses schema version 1/);
+    ).rejects.toThrowError(
+      new RegExp(
+        `uses schema version ${(ISSUE_REPORT_SCHEMA_VERSION - 1).toString()}`,
+      ),
+    );
   });
 
   it("keeps explicit partial-data notes in the generated campaign digest", async () => {

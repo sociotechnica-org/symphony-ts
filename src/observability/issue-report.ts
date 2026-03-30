@@ -26,11 +26,12 @@ import type {
 import { deriveIssueArtifactPaths } from "./issue-artifacts.js";
 import {
   createRunnerAccountingSnapshot,
+  sumIfAnyPresent,
   sumIfAllPresent,
 } from "../runner/accounting.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
 
-export const ISSUE_REPORT_SCHEMA_VERSION = 2 as const;
+export const ISSUE_REPORT_SCHEMA_VERSION = 3 as const;
 
 export type IssueReportAvailability = "complete" | "partial" | "unavailable";
 export type IssueReportTokenUsageStatus =
@@ -157,6 +158,8 @@ export interface IssueReportTokenUsage {
   readonly explanation: string;
   readonly totalTokens: number | null;
   readonly costUsd: number | null;
+  readonly observedTokenSubtotal: number | null;
+  readonly observedCostSubtotal: number | null;
   readonly sessions: readonly IssueReportTokenUsageSession[];
   readonly attempts: readonly IssueReportTokenUsageAttempt[];
   readonly agents: readonly IssueReportTokenUsageAgent[];
@@ -725,6 +728,12 @@ function buildTokenUsage(
     sessions.map((session) => session.totalTokens),
   );
   const costUsd = sumIfAllPresent(sessions.map((session) => session.costUsd));
+  const observedTokenSubtotal = sumIfAnyPresent(
+    sessions.map((session) => session.totalTokens),
+  );
+  const observedCostSubtotal = sumIfAnyPresent(
+    sessions.map((session) => session.costUsd),
+  );
   const completeCount = sessions.filter(
     (session) => session.status === "complete",
   ).length;
@@ -766,6 +775,16 @@ function buildTokenUsage(
               .join(", ")}.`
           : "Canonical runner-event accounting was unavailable for all recorded sessions.";
   const notes = [
+    ...(totalTokens === null && observedTokenSubtotal !== null
+      ? [
+          `${sessions.filter((session) => session.totalTokens !== null).length.toString()} of ${sessions.length.toString()} recorded session(s) supplied token totals, yielding an observed token subtotal of ${observedTokenSubtotal.toString()} even though the strict aggregate total remained unavailable.`,
+        ]
+      : []),
+    ...(costUsd === null && observedCostSubtotal !== null
+      ? [
+          `${sessions.filter((session) => session.costUsd !== null).length.toString()} of ${sessions.length.toString()} recorded session(s) supplied explicit cost facts, yielding an observed cost subtotal of ${observedCostSubtotal.toFixed(2)} USD even though the strict aggregate cost remained unavailable.`,
+        ]
+      : []),
     ...(sessions.some((session) => session.costUsd === null)
       ? [
           "At least one recorded session lacked an explicit backend-provided cost fact, so aggregate cost remained partial or unavailable.",
@@ -783,6 +802,8 @@ function buildTokenUsage(
     explanation,
     totalTokens,
     costUsd,
+    observedTokenSubtotal,
+    observedCostSubtotal,
     sessions,
     attempts,
     agents,

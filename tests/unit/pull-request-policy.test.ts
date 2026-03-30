@@ -15,6 +15,8 @@ function createSnapshot(
       latestCommitAt: "2026-03-06T00:00:00.000Z",
     },
     landingState: "open",
+    mergeable: true,
+    mergeStateStatus: "clean",
     hasLandingCommand: false,
     checks: [],
     pendingCheckNames: [],
@@ -190,6 +192,50 @@ describe("pull-request-policy", () => {
 
     expect(lifecycle.kind).toBe("degraded-review-infrastructure");
     expect(lifecycle.summary).toMatch(/explicit pass verdict/i);
+  });
+
+  it("does not surface /land when GitHub mergeability is still unknown", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        checks: [
+          {
+            name: "CI",
+            status: "success",
+            conclusion: "success",
+            detailsUrl: null,
+          },
+        ],
+        mergeable: null,
+        mergeStateStatus: "unknown",
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("awaiting-system-checks");
+    expect(lifecycle.summary).toMatch(/mergeability to settle/i);
+  });
+
+  it("requires rework instead of /land when GitHub reports conflicts", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        checks: [
+          {
+            name: "CI",
+            status: "success",
+            conclusion: "success",
+            detailsUrl: null,
+          },
+        ],
+        mergeable: false,
+        mergeStateStatus: "dirty",
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("rework-required");
+    expect(lifecycle.summary).toMatch(
+      /not consider the pull request mergeable/i,
+    );
   });
 
   it("requires rework for failing checks or bot feedback", () => {
