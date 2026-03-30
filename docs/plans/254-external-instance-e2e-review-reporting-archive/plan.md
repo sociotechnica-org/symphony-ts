@@ -240,14 +240,14 @@ This slice is primarily about coverage, but the scenario must explicitly exercis
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| External instance opens a PR but review feedback arrives on the current head | external workflow root, issue artifacts, branch/session data | actionable review feedback on current PR | rerun on the same branch and keep the issue open until feedback is addressed |
-| External instance reruns after review follow-up and the PR becomes clean | updated branch commit, resolved review thread, current session/accounting facts | clean review/check state | continue through landing/terminal success without reopening a new branch |
-| Terminal success occurs but no report is generated for the external instance | terminal issue artifact exists, no current report files | issue is terminal | treat as a failing regression; coverage should require automatic report generation |
-| Report exists but archive publication does not land in the configured archive root | report files exist, missing publication metadata/artifacts | issue is terminal | treat as a failing regression; coverage should require automatic publication |
-| Third-party runner path finishes but report/accounting fields are missing from the external-instance artifacts | session artifact and report files exist | issue/PR lifecycle succeeded | treat as a failing regression; coverage should assert provider/accounting visibility |
-| External instance startup passes but paths still resolve to the self-hosted checkout instead of the external root | workflow path, workspace path, report path, archive path | tracker state may still look healthy | treat as a failing regression; coverage should assert instance-rooted paths directly |
+| Observed condition                                                                                                | Local facts available                                                           | Normalized tracker facts available       | Expected decision                                                                    |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------ |
+| External instance opens a PR but review feedback arrives on the current head                                      | external workflow root, issue artifacts, branch/session data                    | actionable review feedback on current PR | rerun on the same branch and keep the issue open until feedback is addressed         |
+| External instance reruns after review follow-up and the PR becomes clean                                          | updated branch commit, resolved review thread, current session/accounting facts | clean review/check state                 | continue through landing/terminal success without reopening a new branch             |
+| Terminal success occurs but no report is generated for the external instance                                      | terminal issue artifact exists, no current report files                         | issue is terminal                        | treat as a failing regression; coverage should require automatic report generation   |
+| Report exists but archive publication does not land in the configured archive root                                | report files exist, missing publication metadata/artifacts                      | issue is terminal                        | treat as a failing regression; coverage should require automatic publication         |
+| Third-party runner path finishes but report/accounting fields are missing from the external-instance artifacts    | session artifact and report files exist                                         | issue/PR lifecycle succeeded             | treat as a failing regression; coverage should assert provider/accounting visibility |
+| External instance startup passes but paths still resolve to the self-hosted checkout instead of the external root | workflow path, workspace path, report path, archive path                        | tracker state may still look healthy     | treat as a failing regression; coverage should assert instance-rooted paths directly |
 
 ## Storage / Persistence Contract
 
