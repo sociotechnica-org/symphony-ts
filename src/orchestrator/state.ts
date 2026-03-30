@@ -29,6 +29,10 @@ import {
   createWatchdogRuntimeState,
   type WatchdogRuntimeState,
 } from "./watchdog-state.js";
+import {
+  createTerminalIssueReportingRuntimeState,
+  type TerminalIssueReportingRuntimeState,
+} from "./terminal-reporting-state.js";
 
 export interface CodexTotals {
   inputTokens: number;
@@ -44,7 +48,7 @@ export interface PollingState {
 
 export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
-  readonly terminalIssueReportingQueue: Set<number>;
+  readonly terminalIssueReporting: TerminalIssueReportingRuntimeState;
   readonly runAbortControllers: Map<number, AbortController>;
   readonly retries: RetryRuntimeState;
   readonly hostDispatch: HostDispatchRuntimeState;
@@ -57,7 +61,6 @@ export interface OrchestratorState {
   readonly runningEntries: Map<number, RunningEntry>;
   readonly codexTotals: CodexTotals;
   rateLimits: RateLimits | null;
-  terminalIssueReportingBacklogScanned: boolean;
   readonly polling: PollingState;
 }
 
@@ -67,7 +70,7 @@ export function createOrchestratorState(
 ): OrchestratorState {
   return {
     runningIssueNumbers: new Set<number>(),
-    terminalIssueReportingQueue: new Set<number>(),
+    terminalIssueReporting: createTerminalIssueReportingRuntimeState(),
     runAbortControllers: new Map<number, AbortController>(),
     retries: createRetryRuntimeState(),
     hostDispatch: createHostDispatchState(hostDispatchWorkerHosts),
@@ -84,7 +87,6 @@ export function createOrchestratorState(
       totalTokens: 0,
     },
     rateLimits: null,
-    terminalIssueReportingBacklogScanned: false,
     polling: {
       checkingNow: false,
       nextPollAtMs: Date.now(),

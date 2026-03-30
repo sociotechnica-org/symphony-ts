@@ -130,7 +130,13 @@ class IdleRunner implements Runner {
   }
 }
 
-function createConfig(root: string): ResolvedConfig {
+function createConfig(
+  root: string,
+  options: {
+    readonly intervalMs?: number;
+    readonly retryBackoffMs?: number;
+  } = {},
+): ResolvedConfig {
   return {
     workflowPath: path.join(root, "WORKFLOW.md"),
     instance: deriveRuntimeInstancePaths({
@@ -148,11 +154,11 @@ function createConfig(root: string): ResolvedConfig {
       reviewBotLogins: ["greptile[bot]"],
     },
     polling: {
-      intervalMs: 10,
+      intervalMs: options.intervalMs ?? 10,
       maxConcurrentRuns: 1,
       retry: {
         maxAttempts: 1,
-        backoffMs: 0,
+        backoffMs: options.retryBackoffMs ?? 0,
       },
     },
     workspace: {
@@ -271,10 +277,74 @@ describe("BootstrapOrchestrator terminal issue reporting reconciliation", () => 
     );
 
     await orchestrator.runOnce();
+    await new Promise((resolve) => setTimeout(resolve, 25));
     await orchestrator.runOnce();
 
     expect(terminalReportingMocks.listTerminalIssues).toHaveBeenCalledTimes(1);
     expect(terminalReportingMocks.readTerminalIssue).toHaveBeenCalledTimes(2);
+    expect(
+      terminalReportingMocks.reconcileTerminalIssueReporting,
+    ).toHaveBeenCalledTimes(2);
+  });
+
+  it("backs off blocked terminal reporting retries between poll cycles", async () => {
+    const root = await fs.mkdtemp(
+      path.join("/tmp", "symphony-terminal-reporting-backoff-"),
+    );
+    tempRoots.push(root);
+    const issue = {
+      issueNumber: 45,
+      issueIdentifier: "sociotechnica-org/symphony-ts#45",
+      title: "Throttle blocked terminal report publication retries",
+      currentOutcome: "failed" as const,
+      lastUpdatedAt: "2026-03-30T00:00:00.000Z",
+    };
+    terminalReportingMocks.listTerminalIssues.mockResolvedValue([issue]);
+    terminalReportingMocks.readTerminalIssue.mockResolvedValue(issue);
+    terminalReportingMocks.reconcileTerminalIssueReporting.mockResolvedValue({
+      changed: true,
+      receipt: {
+        version: 1,
+        issueNumber: 45,
+        issueIdentifier: issue.issueIdentifier,
+        issueTitle: issue.title,
+        terminalOutcome: "failed",
+        issueUpdatedAt: issue.lastUpdatedAt,
+        state: "blocked",
+        summary: "Terminal issue report publication is blocked.",
+        note: "Archive root does not exist.",
+        blockedStage: "publication",
+        archiveRoot: null,
+        reportGeneratedAt: null,
+        reportJsonFile: null,
+        reportMarkdownFile: null,
+        publicationId: null,
+        publicationRoot: null,
+        publicationMetadataFile: null,
+        publishedAt: null,
+        updatedAt: "2026-03-30T00:00:00.000Z",
+      },
+    });
+
+    const orchestrator = new BootstrapOrchestrator(
+      createConfig(root),
+      promptBuilder,
+      new IdleTracker(),
+      new IdleWorkspaceManager(),
+      new IdleRunner(),
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await orchestrator.runOnce();
+
+    expect(
+      terminalReportingMocks.reconcileTerminalIssueReporting,
+    ).toHaveBeenCalledTimes(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await orchestrator.runOnce();
+
     expect(
       terminalReportingMocks.reconcileTerminalIssueReporting,
     ).toHaveBeenCalledTimes(2);

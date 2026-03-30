@@ -116,6 +116,13 @@ import {
   getActiveDispatchPressure,
 } from "./dispatch-pressure-state.js";
 import {
+  clearTerminalIssueReportingState,
+  enqueueTerminalIssueReporting,
+  isTerminalIssueReportingDue,
+  scheduleTerminalIssueReportingRetry,
+  seedTerminalIssueReportingBackoff,
+} from "./terminal-reporting-state.js";
+import {
   bindHostReservationToRunSession,
   claimHostForIssue,
   clearPreferredHost,
@@ -724,7 +731,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const instance = getConfigInstancePaths(this.#config);
     const archiveRoot = this.#config.observability.issueReports.archiveRoot;
 
-    if (!this.#state.terminalIssueReportingBacklogScanned) {
+    if (!this.#state.terminalIssueReporting.backlogScanned) {
       const terminalIssues = await listTerminalIssues(instance);
       for (const issue of terminalIssues) {
         const receipt = await readTerminalIssueReportingReceipt(
@@ -738,7 +745,21 @@ export class BootstrapOrchestrator implements Orchestrator {
             archiveRoot,
           })
         ) {
-          this.#state.terminalIssueReportingQueue.add(issue.issueNumber);
+          if (receipt?.state === "blocked") {
+            seedTerminalIssueReportingBackoff(
+              this.#state.terminalIssueReporting,
+              {
+                issueNumber: issue.issueNumber,
+                updatedAt: receipt.updatedAt,
+                baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+              },
+            );
+          } else {
+            enqueueTerminalIssueReporting(
+              this.#state.terminalIssueReporting,
+              issue.issueNumber,
+            );
+          }
           continue;
         }
 
@@ -766,21 +787,35 @@ export class BootstrapOrchestrator implements Orchestrator {
           },
         );
       }
-      this.#state.terminalIssueReportingBacklogScanned = true;
+      this.#state.terminalIssueReporting.backlogScanned = true;
       if (terminalIssues.length > 0) {
         await this.#persistStatusSnapshot();
       }
     }
 
-    if (this.#state.terminalIssueReportingQueue.size === 0) {
+    if (this.#state.terminalIssueReporting.queuedIssueNumbers.size === 0) {
       return;
     }
 
     let statusChanged = false;
-    for (const issueNumber of [...this.#state.terminalIssueReportingQueue]) {
+    for (const issueNumber of [
+      ...this.#state.terminalIssueReporting.queuedIssueNumbers,
+    ]) {
+      if (
+        !isTerminalIssueReportingDue(
+          this.#state.terminalIssueReporting,
+          issueNumber,
+        )
+      ) {
+        continue;
+      }
+
       const issue = await readTerminalIssue(instance, issueNumber);
       if (issue === null) {
-        this.#state.terminalIssueReportingQueue.delete(issueNumber);
+        clearTerminalIssueReportingState(
+          this.#state.terminalIssueReporting,
+          issueNumber,
+        );
         continue;
       }
 
@@ -819,9 +854,26 @@ export class BootstrapOrchestrator implements Orchestrator {
             archiveRoot,
           })
         ) {
-          this.#state.terminalIssueReportingQueue.add(issue.issueNumber);
+          if (result.receipt.state === "blocked") {
+            scheduleTerminalIssueReportingRetry(
+              this.#state.terminalIssueReporting,
+              {
+                issueNumber: issue.issueNumber,
+                baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+                maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+              },
+            );
+          } else {
+            enqueueTerminalIssueReporting(
+              this.#state.terminalIssueReporting,
+              issue.issueNumber,
+            );
+          }
         } else {
-          this.#state.terminalIssueReportingQueue.delete(issue.issueNumber);
+          clearTerminalIssueReportingState(
+            this.#state.terminalIssueReporting,
+            issue.issueNumber,
+          );
         }
         statusChanged = statusChanged || result.changed;
       } catch (error) {
@@ -854,7 +906,11 @@ export class BootstrapOrchestrator implements Orchestrator {
             fallbackBlockedStage: "report-generation",
           },
         );
-        this.#state.terminalIssueReportingQueue.add(issue.issueNumber);
+        scheduleTerminalIssueReportingRetry(this.#state.terminalIssueReporting, {
+          issueNumber: issue.issueNumber,
+          baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+          maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+        });
         statusChanged = true;
       }
     }
@@ -2825,9 +2881,23 @@ export class BootstrapOrchestrator implements Orchestrator {
           archiveRoot: this.#config.observability.issueReports.archiveRoot,
         })
       ) {
-        this.#state.terminalIssueReportingQueue.add(issue.number);
+        if (receipt.state === "blocked") {
+          scheduleTerminalIssueReportingRetry(this.#state.terminalIssueReporting, {
+            issueNumber: issue.number,
+            baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+            maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+          });
+        } else {
+          enqueueTerminalIssueReporting(
+            this.#state.terminalIssueReporting,
+            issue.number,
+          );
+        }
       } else {
-        this.#state.terminalIssueReportingQueue.delete(issue.number);
+        clearTerminalIssueReportingState(
+          this.#state.terminalIssueReporting,
+          issue.number,
+        );
       }
       await this.#persistStatusSnapshot();
     } catch (error) {
@@ -2846,9 +2916,27 @@ export class BootstrapOrchestrator implements Orchestrator {
         fallbackReportingSummary: normalizedError,
         fallbackBlockedStage: "report-generation",
       });
-      this.#state.terminalIssueReportingQueue.add(issue.number);
+      scheduleTerminalIssueReportingRetry(this.#state.terminalIssueReporting, {
+        issueNumber: issue.number,
+        baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+        maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+      });
       await this.#persistStatusSnapshot();
     }
+  }
+
+  #terminalIssueReportingBaseBackoffMs(): number {
+    return Math.max(
+      this.#config.polling.intervalMs * 2,
+      this.#config.polling.retry.backoffMs,
+    );
+  }
+
+  #terminalIssueReportingMaxBackoffMs(): number {
+    return Math.max(
+      this.#terminalIssueReportingBaseBackoffMs(),
+      this.#config.polling.intervalMs * 16,
+    );
   }
 
   async #applyTerminalWorkspacePolicy(
