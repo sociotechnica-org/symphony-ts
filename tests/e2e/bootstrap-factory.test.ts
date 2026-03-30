@@ -1632,6 +1632,12 @@ describe("Phase 1.2 PR lifecycle factory", () => {
         readonly totalTokens: number | null;
         readonly costUsd: number | null;
         readonly observedTokenSubtotal: number | null;
+        readonly attempts: readonly {
+          readonly attemptNumber: number;
+          readonly sessionIds: readonly string[];
+          readonly totalTokens: number | null;
+          readonly costUsd: number | null;
+        }[];
       };
       readonly artifacts: {
         readonly rawIssueRoot: string;
@@ -1643,6 +1649,18 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     expect(report.tokenUsage.totalTokens).toBe(4);
     expect(report.tokenUsage.costUsd).toBe(0.5);
     expect(report.tokenUsage.observedTokenSubtotal).toBe(4);
+    expect(
+      report.tokenUsage.attempts.map((attempt) => ({
+        attemptNumber: attempt.attemptNumber,
+        sessionCount: attempt.sessionIds.length,
+        totalTokens: attempt.totalTokens,
+        costUsd: attempt.costUsd,
+      })),
+    ).toEqual([
+      { attemptNumber: 1, sessionCount: 1, totalTokens: 2, costUsd: 0.25 },
+      { attemptNumber: 2, sessionCount: 1, totalTokens: 2, costUsd: 0.25 },
+      { attemptNumber: 3, sessionCount: 0, totalTokens: null, costUsd: null },
+    ]);
     expect(report.artifacts.rawIssueRoot).toBe(
       path.join(tempDir, ".var", "factory", "issues", "54"),
     );
