@@ -49,6 +49,9 @@ describe("instance identity helpers", () => {
     expect(paths.legacyScratchpadPath).toBe(
       path.join(paths.operatorStateRoot, "operator-scratchpad.md"),
     );
+    expect(paths.releaseStatePath).toBe(
+      path.join(paths.operatorStateRoot, "release-state.json"),
+    );
     expect(paths.reportReviewStatePath).toBe(
       path.join(paths.operatorStateRoot, "report-review-state.json"),
     );

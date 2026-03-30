@@ -20,7 +20,9 @@ Supported repo-owned entry point:
 The checked-in loop and prompt live next to this skill under
 `skills/symphony-operator/`. `.ralph/` is local/generated-only state for the
 instance-scoped standing context, wake-up log, status snapshots, logs, and
-loop lock files under `.ralph/instances/<instance-key>/`.
+loop lock files under `.ralph/instances/<instance-key>/`. Release dependency
+metadata and the current release advancement posture also live there in
+`release-state.json`.
 
 ## Scope
 
@@ -32,6 +34,7 @@ loop lock files under `.ralph/instances/<instance-key>/`.
 - Maintain the selected instance's persistent local operator notebook as:
   - `.ralph/instances/<instance-key>/standing-context.md` for durable guidance
   - `.ralph/instances/<instance-key>/wake-up-log.md` for append-only wake-up history
+  - `.ralph/instances/<instance-key>/release-state.json` for typed release dependency metadata and blocked/clear advancement posture
 
 ## Wake-Up Workflow
 
@@ -46,24 +49,26 @@ loop lock files under `.ralph/instances/<instance-key>/`.
    - decide whether the report yields no tracked follow-up, a concrete follow-up issue, or a blocked review state
    - persist the decision through `symphony-report review-record` or `symphony-report review-follow-up`
    - and record what the report taught the factory in standing context or in the append-only wake-up log as appropriate
-8. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
-9. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
-10. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
+8. Before any downstream release advancement work after completed-run report review is clear, run `pnpm tsx bin/check-operator-release-state.ts --operator-repo-root <operator-repo-root> --json` for the selected instance.
+9. Treat `.ralph/instances/<instance-key>/release-state.json` as the canonical operator-local release artifact. If it reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure or metadata gap is resolved.
+10. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
+11. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
+12. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
     - any active issue waiting in `plan-ready` / `awaiting-human-handoff`
     - any PR or active issue waiting in `awaiting-landing-command`
-11. If the factory is unhealthy, fix the concrete problem and restart it.
-12. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-13. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
-14. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
+13. If the factory is unhealthy, fix the concrete problem and restart it.
+14. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
+15. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
+16. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
 
 - `Plan review: approved`
 - `Plan review: changes-requested`
 - `Plan review: waived` (record why in the comment)
 
-15. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
-16. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
-17. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
-18. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+17. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
+18. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
+19. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
+20. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
 
@@ -82,6 +87,7 @@ loop lock files under `.ralph/instances/<instance-key>/`.
 - Do not silently replace the worker on an active PR just because the next fix is obvious. Operator PR intervention is for stalled or broken factory behavior, not the normal path.
 - If a PR's required checks remain non-terminal for an unusually long time but the same behavior can be reproduced locally, do not stop at the first fixed assertion failure. Keep the PR in active operator treatment until the full locally reproducible hang is resolved or reduced to clearly external infrastructure.
 - Keep runner assumptions provider-neutral. The current runtime may use `codex`, `claude-code`, or `generic-command`; do not assume every healthy run appears as a direct `codex exec` child process.
+- Keep release dependency truth in the typed `release-state.json` artifact, not only in markdown notes. Standing context may explain release sequencing, but prerequisite failure gating must remain inspectable through the typed artifact.
 - Treat plan review as a required operator checkpoint:
   - if the plan is sound, post `Plan review: approved`,
   - if revisions are needed, post `Plan review: changes-requested` with concrete guidance,
@@ -108,6 +114,7 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
 - Low-severity cleanup comments can be answered instead of fixed only when the tradeoff is explicit and defensible.
 - Plan review and landing are default operator duties, not optional extras:
   - each wake-up should clear completed-run report review work before ordinary queue advancement
+  - each wake-up should clear the release-state prerequisite-failure checkpoint before downstream advancement or `/land` for dependent work
   - each wake-up should check for `plan-ready` issues and decide `approved`, `changes-requested`, or `waived`
   - each wake-up should check for review-clean PRs waiting on `/land` and post it when the guard conditions are satisfied
 - Landing is not complete at merge observation alone:

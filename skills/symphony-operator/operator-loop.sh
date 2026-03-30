@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROMPT_FILE="$SCRIPT_DIR/operator-prompt.md"
 RALPH_DIR="$REPO_ROOT/.ralph"
 INSTANCE_STATE_RESOLVER="$REPO_ROOT/bin/resolve-operator-instance.ts"
+RELEASE_STATE_CHECKER="$REPO_ROOT/bin/check-operator-release-state.ts"
 INSTANCE_KEY=""
 DETACHED_SESSION_NAME=""
 INSTANCE_STATE_ROOT=""
@@ -18,6 +19,7 @@ STATUS_MD=""
 STANDING_CONTEXT=""
 WAKE_UP_LOG=""
 LEGACY_SCRATCHPAD=""
+RELEASE_STATE=""
 REPORT_REVIEW_STATE=""
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
@@ -34,6 +36,12 @@ LAST_CYCLE_STARTED_AT=""
 LAST_CYCLE_FINISHED_AT=""
 LAST_CYCLE_EXIT_CODE=""
 NEXT_WAKE_AT=""
+RELEASE_ADVANCEMENT_STATE="unavailable"
+RELEASE_STATE_SUMMARY="Release state is unavailable."
+RELEASE_STATE_UPDATED_AT=""
+RELEASE_ID=""
+RELEASE_BLOCKING_PREREQUISITE_NUMBER=""
+RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER=""
 
 usage() {
   cat <<'EOF'
@@ -102,6 +110,7 @@ const data = JSON.parse(fs.readFileSync(0, "utf8"));
   standingContextPath: "STANDING_CONTEXT",
   wakeUpLogPath: "WAKE_UP_LOG",
   legacyScratchpadPath: "LEGACY_SCRATCHPAD",
+  releaseStatePath: "RELEASE_STATE",
   reportReviewStatePath: "REPORT_REVIEW_STATE",
 };
 for (const [jsonKey, shellKey] of Object.entries(mappings)) {
@@ -116,6 +125,99 @@ for (const [jsonKey, shellKey] of Object.entries(mappings)) {
   eval "$metadata_exports"
 }
 
+refresh_release_state() {
+  pnpm tsx "$RELEASE_STATE_CHECKER" \
+    --workflow "$WORKFLOW_PATH" \
+    --operator-repo-root "$REPO_ROOT" \
+    --json >/dev/null
+}
+
+load_release_state_snapshot() {
+  local release_state_exports
+  release_state_exports="$(
+    RELEASE_STATE="$RELEASE_STATE" node -e '
+const fs = require("node:fs");
+const filePath = process.env.RELEASE_STATE;
+const defaults = {
+  advancementState: "unavailable",
+  summary: "Release state is unavailable.",
+  updatedAt: "",
+  releaseId: "",
+  blockingPrerequisiteNumber: "",
+  blockingPrerequisiteIdentifier: "",
+};
+
+try {
+  const raw = fs.readFileSync(filePath, "utf8");
+  const parsed = JSON.parse(raw);
+  const evaluation =
+    parsed && typeof parsed === "object" && parsed.evaluation && typeof parsed.evaluation === "object"
+      ? parsed.evaluation
+      : {};
+  const blocking =
+    evaluation && typeof evaluation === "object" && evaluation.blockingPrerequisite && typeof evaluation.blockingPrerequisite === "object"
+      ? evaluation.blockingPrerequisite
+      : {};
+
+  defaults.advancementState =
+    typeof evaluation.advancementState === "string"
+      ? evaluation.advancementState
+      : defaults.advancementState;
+  defaults.summary =
+    typeof evaluation.summary === "string" ? evaluation.summary : defaults.summary;
+  defaults.updatedAt =
+    typeof parsed.updatedAt === "string" ? parsed.updatedAt : defaults.updatedAt;
+  defaults.releaseId =
+    parsed &&
+    typeof parsed === "object" &&
+    parsed.configuration &&
+    typeof parsed.configuration === "object" &&
+    typeof parsed.configuration.releaseId === "string"
+      ? parsed.configuration.releaseId
+      : defaults.releaseId;
+  defaults.blockingPrerequisiteNumber =
+    typeof blocking.issueNumber === "number"
+      ? String(blocking.issueNumber)
+      : defaults.blockingPrerequisiteNumber;
+  defaults.blockingPrerequisiteIdentifier =
+    typeof blocking.issueIdentifier === "string"
+      ? blocking.issueIdentifier
+      : defaults.blockingPrerequisiteIdentifier;
+} catch (error) {
+  if (!error || error.code !== "ENOENT") {
+    defaults.summary = `Release state could not be read: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+for (const [key, value] of Object.entries(defaults)) {
+  console.log(`${key}=${JSON.stringify(value)}`);
+}
+' \
+      | node -e '
+const fs = require("node:fs");
+const lines = fs.readFileSync(0, "utf8").trim().split(/\n/u);
+for (const line of lines) {
+  if (!line) {
+    continue;
+  }
+  const index = line.indexOf("=");
+  const key = line.slice(0, index);
+  const value = JSON.parse(line.slice(index + 1));
+  const mapping = {
+    advancementState: "RELEASE_ADVANCEMENT_STATE",
+    summary: "RELEASE_STATE_SUMMARY",
+    updatedAt: "RELEASE_STATE_UPDATED_AT",
+    releaseId: "RELEASE_ID",
+    blockingPrerequisiteNumber: "RELEASE_BLOCKING_PREREQUISITE_NUMBER",
+    blockingPrerequisiteIdentifier: "RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER",
+  };
+  console.log(`${mapping[key]}=${JSON.stringify(value)}`);
+}
+'
+  )"
+  eval "$release_state_exports"
+}
+
 pid_is_live() {
   local pid="${1:-}"
   [[ "$pid" =~ ^[0-9]+$ ]] || return 1
@@ -127,6 +229,7 @@ write_status() {
   local message="$2"
   local updated_at
   updated_at="$(now_utc)"
+  load_release_state_snapshot
 
   cat >"$STATUS_JSON" <<EOF
 {
@@ -145,6 +248,15 @@ write_status() {
   "promptFile": "$(json_escape "$PROMPT_FILE")",
   "standingContext": "$(json_escape "$STANDING_CONTEXT")",
   "wakeUpLog": "$(json_escape "$WAKE_UP_LOG")",
+  "releaseState": {
+    "path": "$(json_escape "$RELEASE_STATE")",
+    "releaseId": $(if [ -n "$RELEASE_ID" ]; then printf '"%s"' "$(json_escape "$RELEASE_ID")"; else printf 'null'; fi),
+    "advancementState": "$(json_escape "$RELEASE_ADVANCEMENT_STATE")",
+    "summary": "$(json_escape "$RELEASE_STATE_SUMMARY")",
+    "updatedAt": $(if [ -n "$RELEASE_STATE_UPDATED_AT" ]; then printf '"%s"' "$(json_escape "$RELEASE_STATE_UPDATED_AT")"; else printf 'null'; fi),
+    "blockingPrerequisiteNumber": $(if [ -n "$RELEASE_BLOCKING_PREREQUISITE_NUMBER" ]; then printf '%s' "$RELEASE_BLOCKING_PREREQUISITE_NUMBER"; else printf 'null'; fi),
+    "blockingPrerequisiteIdentifier": $(if [ -n "$RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER" ]; then printf '"%s"' "$(json_escape "$RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER")"; else printf 'null'; fi)
+  },
   "reportReviewState": "$(json_escape "$REPORT_REVIEW_STATE")",
   "selectedWorkflowPath": $(if [ -n "$WORKFLOW_PATH" ]; then printf '"%s"' "$(json_escape "$WORKFLOW_PATH")"; else printf 'null'; fi),
   "lastCycle": {
@@ -172,6 +284,10 @@ EOF
 - Selected workflow: ${WORKFLOW_PATH:-n/a}
 - Standing context: $STANDING_CONTEXT
 - Wake-up log: $WAKE_UP_LOG
+- Release state: $RELEASE_STATE
+- Release advancement state: $RELEASE_ADVANCEMENT_STATE
+- Release summary: $RELEASE_STATE_SUMMARY
+- Release blocked by prerequisite: ${RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER:-${RELEASE_BLOCKING_PREREQUISITE_NUMBER:-n/a}}
 - Report review state: $REPORT_REVIEW_STATE
 - Prompt: $PROMPT_FILE
 - Last cycle started: ${LAST_CYCLE_STARTED_AT:-n/a}
@@ -236,6 +352,8 @@ Append a new timestamped entry for each operator wake-up. Keep earlier entries
 intact unless you are running an explicit maintenance or compaction flow.
 EOF
   fi
+
+  refresh_release_state
 }
 
 acquire_lock() {
@@ -303,6 +421,7 @@ run_cycle() {
   LAST_CYCLE_FINISHED_AT=""
   LAST_CYCLE_EXIT_CODE=""
   NEXT_WAKE_AT=""
+  refresh_release_state
   write_status "acting" "Running operator wake-up cycle"
 
   {
@@ -328,6 +447,7 @@ run_cycle() {
     export SYMPHONY_OPERATOR_STANDING_CONTEXT="$STANDING_CONTEXT"
     export SYMPHONY_OPERATOR_WAKE_UP_LOG="$WAKE_UP_LOG"
     export SYMPHONY_OPERATOR_LEGACY_SCRATCHPAD="$LEGACY_SCRATCHPAD"
+    export SYMPHONY_OPERATOR_RELEASE_STATE="$RELEASE_STATE"
     export SYMPHONY_OPERATOR_STATUS_JSON="$STATUS_JSON"
     export SYMPHONY_OPERATOR_STATUS_MD="$STATUS_MD"
     export SYMPHONY_OPERATOR_LOG_DIR="$LOG_DIR"
@@ -343,6 +463,7 @@ run_cycle() {
 
   LAST_CYCLE_FINISHED_AT="$(now_utc)"
   LAST_CYCLE_EXIT_CODE="$exit_code"
+  refresh_release_state
 
   if [ "$exit_code" -eq 0 ]; then
     cycle_message="Operator cycle completed successfully"
@@ -407,6 +528,11 @@ fi
 
 if [ ! -f "$INSTANCE_STATE_RESOLVER" ]; then
   echo "operator-loop: instance-state resolver not found: $INSTANCE_STATE_RESOLVER" >&2
+  exit 1
+fi
+
+if [ ! -f "$RELEASE_STATE_CHECKER" ]; then
+  echo "operator-loop: release-state checker not found: $RELEASE_STATE_CHECKER" >&2
   exit 1
 fi
 

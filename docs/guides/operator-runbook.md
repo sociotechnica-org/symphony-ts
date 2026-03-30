@@ -74,14 +74,22 @@ pnpm tsx bin/symphony-report.ts review-pending --workflow ../target-repo/WORKFLO
    - record a no-follow-up decision with `symphony-report.ts review-record`
    - or create a tracked follow-up issue with `symphony-report.ts review-follow-up`
    - and record durable guidance in standing context plus per-cycle findings in the wake-up log
-4. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
-5. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
-6. Check for operator-gated work the factory cannot clear by itself:
+4. Before downstream release advancement work, inspect release dependency state with:
+
+```bash
+pnpm tsx bin/check-operator-release-state.ts --operator-repo-root <operator-checkout> --json
+pnpm tsx bin/check-operator-release-state.ts --workflow ../target-repo/WORKFLOW.md --operator-repo-root <operator-checkout> --json
+```
+
+5. Treat `.ralph/instances/<instance-key>/release-state.json` as the canonical operator-local release artifact. If it reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure or metadata gap is resolved.
+6. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
+7. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
+8. Check for operator-gated work the factory cannot clear by itself:
    - active issues in `awaiting-human-handoff`
    - active issues or PRs in `awaiting-landing-command`
-7. If the detached runtime is stopped or degraded, repair that first.
-8. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
-9. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
+9. If the detached runtime is stopped or degraded, repair that first.
+10. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. Do not do that for work the release-state artifact says is blocked by a failed prerequisite or unresolved dependency metadata. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
+11. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
 
@@ -201,6 +209,9 @@ Completed-run report review state also lives there in
 `report-review-state.json`; this is the machine-readable ledger for which
 generated reports are pending review, reviewed, or blocked, and which follow-up
 issues were filed from report findings.
+Release dependency state lives there in `release-state.json`; this is the
+machine-readable record of configured prerequisite/downstream relationships plus
+the current blocked or clear release advancement posture.
 
 Workspace retention is config-driven. By default, failures stay inspectable and successes are cleaned up. If you need to inspect a successful workspace, temporarily set `workspace.retention.on_success: retain` before the run.
 

@@ -171,6 +171,9 @@ local/generated-only for per-instance standing context, append-only wake-up
 history, loop status, logs, and lock files under
 `.ralph/instances/<instance-key>/`, including the
 machine-readable completed-run review ledger `report-review-state.json`.
+The same operator state root now also carries `release-state.json`, the typed
+record of configured release dependencies plus the current blocked or clear
+release-advancement posture for that instance.
 Operator wake-ups now inspect that ledger before ordinary queue advancement so
 completed-run report findings are turned into tracked follow-up work promptly.
 The current entry point requires a Unix-like shell environment such as macOS,

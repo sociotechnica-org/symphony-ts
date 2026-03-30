@@ -7,6 +7,7 @@ import {
   deriveOperatorInstanceStatePaths,
   deriveSymphonyInstanceKey,
 } from "../../src/domain/instance-identity.js";
+import { writeOperatorReleaseState } from "../../src/observability/operator-release-state.js";
 import { createTempDir } from "../support/git.js";
 
 const execFileAsync = promisify(execFile);
@@ -50,6 +51,7 @@ async function runOperatorLoop(workflowPath: string): Promise<{
   readonly standingContextPath: string;
   readonly wakeUpLogPath: string;
   readonly legacyScratchpadPath: string;
+  readonly releaseStatePath: string;
   readonly logFile: string | null;
 }> {
   await execFileAsync(
@@ -89,6 +91,7 @@ async function runOperatorLoop(workflowPath: string): Promise<{
     standingContextPath: paths.standingContextPath,
     wakeUpLogPath: paths.wakeUpLogPath,
     legacyScratchpadPath: paths.legacyScratchpadPath,
+    releaseStatePath: paths.releaseStatePath,
     logFile: statusJson.lastCycle.logFile,
   };
 }
@@ -121,6 +124,46 @@ function buildAppendWakeUpLogCommand(entryTitle: string): string {
   return `node -e ${JSON.stringify(program)}`;
 }
 
+async function writeIssueSummary(args: {
+  readonly workflowPath: string;
+  readonly issueNumber: number;
+  readonly currentOutcome: string;
+}): Promise<void> {
+  const issueRoot = path.join(
+    path.dirname(args.workflowPath),
+    ".var",
+    "factory",
+    "issues",
+    args.issueNumber.toString(),
+  );
+  await fs.mkdir(issueRoot, { recursive: true });
+  await fs.writeFile(
+    path.join(issueRoot, "issue.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        issueNumber: args.issueNumber,
+        issueIdentifier: `sociotechnica-org/symphony-ts#${args.issueNumber.toString()}`,
+        repo: "sociotechnica-org/symphony-ts",
+        title: `Issue ${args.issueNumber.toString()}`,
+        issueUrl: `https://github.com/sociotechnica-org/symphony-ts/issues/${args.issueNumber.toString()}`,
+        branch: null,
+        currentOutcome: args.currentOutcome,
+        currentSummary: `Outcome ${args.currentOutcome}`,
+        firstObservedAt: "2026-03-30T00:00:00Z",
+        lastUpdatedAt: "2026-03-30T00:00:00Z",
+        mergedAt: null,
+        closedAt: null,
+        latestAttemptNumber: null,
+        latestSessionId: null,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
 describe("operator loop workflow selection", () => {
   const createdPaths = new Set<string>();
 
@@ -151,6 +194,10 @@ describe("operator loop workflow selection", () => {
         readonly operatorStateRoot: string;
         readonly standingContext: string;
         readonly wakeUpLog: string;
+        readonly releaseState: {
+          readonly path: string;
+          readonly advancementState: string;
+        };
       };
       const statusMd = await fs.readFile(run.statusMdPath, "utf8");
 
@@ -160,12 +207,15 @@ describe("operator loop workflow selection", () => {
       expect(statusJson.operatorStateRoot).toBe(run.stateRoot);
       expect(statusJson.standingContext).toBe(run.standingContextPath);
       expect(statusJson.wakeUpLog).toBe(run.wakeUpLogPath);
+      expect(statusJson.releaseState.path).toBe(run.releaseStatePath);
+      expect(statusJson.releaseState.advancementState).toBe("unconfigured");
       expect(statusMd).toContain(`- Selected workflow: ${workflowPath}`);
       expect(statusMd).toContain(`- Operator state root: ${run.stateRoot}`);
       expect(statusMd).toContain(
         `- Standing context: ${run.standingContextPath}`,
       );
       expect(statusMd).toContain(`- Wake-up log: ${run.wakeUpLogPath}`);
+      expect(statusMd).toContain(`- Release state: ${run.releaseStatePath}`);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -242,6 +292,9 @@ describe("operator loop workflow selection", () => {
       const reportReviewIndex = prompt.indexOf(
         "bin/symphony-report.ts review-pending",
       );
+      const releaseStateIndex = prompt.indexOf(
+        "bin/check-operator-release-state.ts",
+      );
       const queueWorkIndex = prompt.indexOf("review any active `plan-ready`");
       const standingContextIndex = prompt.indexOf(
         "SYMPHONY_OPERATOR_STANDING_CONTEXT",
@@ -253,15 +306,18 @@ describe("operator loop workflow selection", () => {
 
       expect(freshnessIndex).toBeGreaterThanOrEqual(0);
       expect(reportReviewIndex).toBeGreaterThanOrEqual(0);
+      expect(releaseStateIndex).toBeGreaterThanOrEqual(0);
       expect(queueWorkIndex).toBeGreaterThanOrEqual(0);
       expect(standingContextIndex).toBeGreaterThanOrEqual(0);
       expect(wakeUpLogIndex).toBeGreaterThanOrEqual(0);
       expect(appendIndex).toBeGreaterThanOrEqual(0);
       expect(freshnessIndex).toBeLessThan(reportReviewIndex);
-      expect(reportReviewIndex).toBeLessThan(queueWorkIndex);
+      expect(reportReviewIndex).toBeLessThan(releaseStateIndex);
+      expect(releaseStateIndex).toBeLessThan(queueWorkIndex);
       expect(prompt).toContain("bin/check-factory-runtime-freshness.ts");
       expect(standingContextIndex).toBeLessThan(appendIndex);
       expect(prompt).toContain("bin/symphony-report.ts review-pending");
+      expect(prompt).toContain("bin/check-operator-release-state.ts");
       expect(prompt).toContain("Read the instance-scoped standing context");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -348,6 +404,96 @@ describe("operator loop workflow selection", () => {
       expect(standingContext).toContain("Preserve release sequencing notes.");
       expect(wakeUpLog).toContain("## Migration Note");
       expect(legacyScratchpad).toContain("# Operator Scratchpad");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces blocked prerequisite release state in operator status artifacts", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-release-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+
+    try {
+      await fs.mkdir(paths.operatorStateRoot, { recursive: true });
+      await writeOperatorReleaseState(paths.releaseStatePath, {
+        version: 1,
+        updatedAt: "2026-03-30T00:00:00Z",
+        configuration: {
+          releaseId: "context-library-bun-migration",
+          dependencies: [
+            {
+              prerequisite: {
+                issueNumber: 111,
+                issueIdentifier: "sociotechnica-org/symphony-ts#111",
+                title: "Issue 111",
+              },
+              downstream: [
+                {
+                  issueNumber: 112,
+                  issueIdentifier: "sociotechnica-org/symphony-ts#112",
+                  title: "Issue 112",
+                },
+              ],
+            },
+          ],
+        },
+        evaluation: {
+          advancementState: "configured-clear",
+          summary: "Initial value",
+          evaluatedAt: "2026-03-30T00:00:00Z",
+          blockingPrerequisite: null,
+          blockedDownstream: [],
+          unresolvedReferences: [],
+        },
+      });
+      await writeIssueSummary({
+        workflowPath,
+        issueNumber: 111,
+        currentOutcome: "failed",
+      });
+      await writeIssueSummary({
+        workflowPath,
+        issueNumber: 112,
+        currentOutcome: "awaiting-landing-command",
+      });
+
+      const run = await runOperatorLoop(workflowPath);
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      const statusJson = JSON.parse(
+        await fs.readFile(run.statusJsonPath, "utf8"),
+      ) as {
+        readonly releaseState: {
+          readonly path: string;
+          readonly releaseId: string | null;
+          readonly advancementState: string;
+          readonly summary: string;
+          readonly blockingPrerequisiteNumber: number | null;
+        };
+      };
+      const statusMd = await fs.readFile(run.statusMdPath, "utf8");
+
+      expect(statusJson.releaseState.path).toBe(paths.releaseStatePath);
+      expect(statusJson.releaseState.releaseId).toBe(
+        "context-library-bun-migration",
+      );
+      expect(statusJson.releaseState.advancementState).toBe(
+        "blocked-by-prerequisite-failure",
+      );
+      expect(statusJson.releaseState.blockingPrerequisiteNumber).toBe(111);
+      expect(statusJson.releaseState.summary).toContain("#111");
+      expect(statusMd).toContain(
+        "- Release advancement state: blocked-by-prerequisite-failure",
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
