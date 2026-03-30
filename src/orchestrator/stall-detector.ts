@@ -47,6 +47,7 @@ export interface StallCheckResult {
   // activity. On the non-stalled activity-detected path it is only the lag
   // between the current probe wall clock and the credited activity timestamp.
   readonly stalledForMs: number;
+  readonly appliedThresholdMs: number;
   readonly lastObservableActivityAt: number;
   readonly lastObservableActivitySource: LivenessSource | null;
 }
@@ -82,6 +83,7 @@ export function checkStall(
   config: WatchdogConfig,
 ): StallCheckResult {
   const previous = entry.lastLiveness;
+  const appliedThresholdMs = resolveStallThresholdMs(current, config);
 
   const activity = detectObservableActivity(previous, current);
   // Only credit activity that is at-or-after the last known baseline.
@@ -103,6 +105,7 @@ export function checkStall(
       stalled: false,
       reason: null,
       stalledForMs: current.capturedAt - creditedAt,
+      appliedThresholdMs,
       lastObservableActivityAt: entry.lastObservableActivityAt,
       lastObservableActivitySource: entry.lastObservableActivitySource,
     };
@@ -112,12 +115,13 @@ export function checkStall(
   entry.lastLiveness = current;
 
   const stalledForMs = current.capturedAt - entry.lastObservableActivityAt;
-  if (stalledForMs < config.stallThresholdMs) {
+  if (stalledForMs < appliedThresholdMs) {
     return {
       issueNumber: entry.issueNumber,
       stalled: false,
       reason: null,
       stalledForMs,
+      appliedThresholdMs,
       lastObservableActivityAt: entry.lastObservableActivityAt,
       lastObservableActivitySource: entry.lastObservableActivitySource,
     };
@@ -130,6 +134,7 @@ export function checkStall(
     stalled: true,
     reason,
     stalledForMs,
+    appliedThresholdMs,
     lastObservableActivityAt: entry.lastObservableActivityAt,
     lastObservableActivitySource: entry.lastObservableActivitySource,
   };
@@ -166,8 +171,20 @@ export const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
   enabled: false,
   checkIntervalMs: 60_000,
   stallThresholdMs: 300_000,
+  executionStallThresholdMs: 300_000,
+  prFollowThroughStallThresholdMs: 300_000,
   maxRecoveryAttempts: 2,
 };
+
+export function resolveStallThresholdMs(
+  snapshot: LivenessSnapshot,
+  config: WatchdogConfig,
+): number {
+  if (snapshot.prHeadSha !== null) {
+    return config.prFollowThroughStallThresholdMs;
+  }
+  return config.executionStallThresholdMs;
+}
 
 interface ObservableActivity {
   readonly at: number;

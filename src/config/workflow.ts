@@ -63,6 +63,8 @@ const DEFAULT_LINEAR_TERMINAL_STATES = [
 const DEFAULT_DISABLED_WATCHDOG_CONFIG: Omit<WatchdogConfig, "enabled"> = {
   checkIntervalMs: 60_000,
   stallThresholdMs: 300_000,
+  executionStallThresholdMs: 300_000,
+  prFollowThroughStallThresholdMs: 300_000,
   maxRecoveryAttempts: 2,
 };
 const SUPPORTED_TRACKER_KINDS = [
@@ -1238,6 +1240,16 @@ function resolveWatchdogConfig(value: unknown): WatchdogConfig | undefined {
     "polling.watchdog.stall_threshold_ms",
     enabled ? undefined : DEFAULT_DISABLED_WATCHDOG_CONFIG.stallThresholdMs,
   );
+  const executionStallThresholdMs = requireOptionalPositiveInteger(
+    watchdog["execution_stall_threshold_ms"],
+    "polling.watchdog.execution_stall_threshold_ms",
+    stallThresholdMs,
+  );
+  const prFollowThroughStallThresholdMs = requireOptionalPositiveInteger(
+    watchdog["pr_follow_through_stall_threshold_ms"],
+    "polling.watchdog.pr_follow_through_stall_threshold_ms",
+    stallThresholdMs,
+  );
   const maxRecoveryAttempts = requireOptionalRecoveryAttempts(
     watchdog["max_recovery_attempts"],
     "polling.watchdog.max_recovery_attempts",
@@ -1248,6 +1260,8 @@ function resolveWatchdogConfig(value: unknown): WatchdogConfig | undefined {
     enabled,
     checkIntervalMs,
     stallThresholdMs,
+    executionStallThresholdMs,
+    prFollowThroughStallThresholdMs,
     maxRecoveryAttempts,
   };
 }

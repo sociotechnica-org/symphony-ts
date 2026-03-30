@@ -6,6 +6,7 @@ import {
   canRecover,
   createWatchdogEntry,
   DEFAULT_WATCHDOG_CONFIG,
+  resolveStallThresholdMs,
 } from "../../src/orchestrator/stall-detector.js";
 import type { WatchdogConfig } from "../../src/domain/workflow.js";
 
@@ -13,6 +14,8 @@ const config: WatchdogConfig = {
   enabled: true,
   checkIntervalMs: 1_000,
   stallThresholdMs: 5_000,
+  executionStallThresholdMs: 5_000,
+  prFollowThroughStallThresholdMs: 5_000,
   maxRecoveryAttempts: 2,
 };
 
@@ -267,6 +270,7 @@ describe("checkStall", () => {
     expect(result.stalled).toBe(true);
     expect(result.reason).toBe("log-stall");
     expect(result.stalledForMs).toBe(6000);
+    expect(result.appliedThresholdMs).toBe(5000);
     expect(result.lastObservableActivitySource).toBe("run-start");
   });
 
@@ -341,6 +345,7 @@ describe("checkStall", () => {
     expect(result.stalled).toBe(true);
     expect(result.reason).toBe("log-stall");
     expect(result.stalledForMs).toBe(6000);
+    expect(result.appliedThresholdMs).toBe(5000);
   });
 
   it("stalls runner-progress-only runs after timestamps stop changing", () => {
@@ -426,6 +431,28 @@ describe("checkStall", () => {
   });
 });
 
+describe("resolveStallThresholdMs", () => {
+  it("uses the execution threshold before a PR exists", () => {
+    expect(
+      resolveStallThresholdMs(snapshot(), {
+        ...config,
+        executionStallThresholdMs: 9_000,
+        prFollowThroughStallThresholdMs: 18_000,
+      }),
+    ).toBe(9_000);
+  });
+
+  it("uses the PR follow-through threshold when a PR exists", () => {
+    expect(
+      resolveStallThresholdMs(snapshot({ prHeadSha: "sha1" }), {
+        ...config,
+        executionStallThresholdMs: 9_000,
+        prFollowThroughStallThresholdMs: 18_000,
+      }),
+    ).toBe(18_000);
+  });
+});
+
 describe("classifyStallReason", () => {
   it("returns pr-stall for actionable feedback with PR head", () => {
     expect(
@@ -466,6 +493,10 @@ describe("DEFAULT_WATCHDOG_CONFIG", () => {
 
   it("has sensible defaults", () => {
     expect(DEFAULT_WATCHDOG_CONFIG.stallThresholdMs).toBe(300_000);
+    expect(DEFAULT_WATCHDOG_CONFIG.executionStallThresholdMs).toBe(300_000);
+    expect(DEFAULT_WATCHDOG_CONFIG.prFollowThroughStallThresholdMs).toBe(
+      300_000,
+    );
     expect(DEFAULT_WATCHDOG_CONFIG.maxRecoveryAttempts).toBe(2);
   });
 });

@@ -1879,6 +1879,32 @@ export class BootstrapOrchestrator implements Orchestrator {
               this.#config.agent.maxTurns,
             )
           ) {
+            upsertActiveIssue(this.#state.status, issue, {
+              source,
+              runSequence: attempt,
+              branchName: workspace.branchName,
+              status: "running",
+              summary: `Running ${issue.identifier}`,
+              pullRequest:
+                nextLifecycle.pullRequest === null
+                  ? null
+                  : {
+                      number: nextLifecycle.pullRequest.number,
+                      url: nextLifecycle.pullRequest.url,
+                      headSha: nextLifecycle.pullRequest.headSha,
+                      latestCommitAt: nextLifecycle.pullRequest.latestCommitAt,
+                    },
+              checks: {
+                pendingNames: nextLifecycle.pendingCheckNames,
+                failingNames: nextLifecycle.failingCheckNames,
+              },
+              review: {
+                actionableCount: nextLifecycle.actionableReviewFeedback.length,
+                unresolvedThreadCount: nextLifecycle.unresolvedThreadIds.length,
+              },
+              blockedReason: null,
+            });
+            await this.#persistStatusSnapshot();
             this.#logger.info("Continuing agent turn on live session", {
               issueNumber: issue.number,
               branchName: workspace.branchName,
