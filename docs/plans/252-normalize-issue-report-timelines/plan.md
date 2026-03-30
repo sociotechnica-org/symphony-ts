@@ -220,15 +220,15 @@ For each `attemptNumber`, the report derivation should treat start-related evide
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected timeline decision |
-| --- | --- | --- |
-| One `runner-spawned` event for an attempt | canonical event ledger only | Emit one ordinary `Attempt N started` entry |
-| No `runner-spawned`, but attempt snapshot has `startedAt` | attempt/session snapshots | Emit one fallback attempt-start entry derived from the snapshot |
-| Two or more same-attempt `runner-spawned` events with no recovery/shutdown cues | repeated same-attempt start evidence | Collapse to one readable start entry and preserve duplicate evidence in details or summary without asserting recovery |
-| Same-attempt later spawn follows `shutdown-requested` or `shutdown-terminated` | canonical event sequence for one attempt | Keep shutdown event visible and narrate the later start as resumed/recovered activity, not a new conflicting attempt start |
-| Shutdown occurs and the next visible start is for a higher attempt number | shutdown plus retry-scheduled or next attempt snapshot | Keep the original attempt closed, keep retry visible, and emit a new ordinary start for the new attempt |
-| Retry-scheduled exists without any later attempt start yet | retry event only | Keep retry visible; do not invent a new start |
-| Event ledger missing, attempt/session snapshots only | no canonical event ordering | Fall back to one attempt-start entry per attempt snapshot and avoid recovery claims |
+| Observed condition                                                              | Local facts available                                  | Expected timeline decision                                                                                                 |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| One `runner-spawned` event for an attempt                                       | canonical event ledger only                            | Emit one ordinary `Attempt N started` entry                                                                                |
+| No `runner-spawned`, but attempt snapshot has `startedAt`                       | attempt/session snapshots                              | Emit one fallback attempt-start entry derived from the snapshot                                                            |
+| Two or more same-attempt `runner-spawned` events with no recovery/shutdown cues | repeated same-attempt start evidence                   | Collapse to one readable start entry and preserve duplicate evidence in details or summary without asserting recovery      |
+| Same-attempt later spawn follows `shutdown-requested` or `shutdown-terminated`  | canonical event sequence for one attempt               | Keep shutdown event visible and narrate the later start as resumed/recovered activity, not a new conflicting attempt start |
+| Shutdown occurs and the next visible start is for a higher attempt number       | shutdown plus retry-scheduled or next attempt snapshot | Keep the original attempt closed, keep retry visible, and emit a new ordinary start for the new attempt                    |
+| Retry-scheduled exists without any later attempt start yet                      | retry event only                                       | Keep retry visible; do not invent a new start                                                                              |
+| Event ledger missing, attempt/session snapshots only                            | no canonical event ordering                            | Fall back to one attempt-start entry per attempt snapshot and avoid recovery claims                                        |
 
 ## Observability Requirements
 

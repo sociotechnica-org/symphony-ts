@@ -875,7 +875,9 @@ function summarizeCollapsedAttemptStart(summary: string): string {
   return `${summary} Additional same-attempt start evidence was observed and collapsed into this entry.`;
 }
 
-function formatCollapsedAttemptStartEvidence(event: IssueArtifactEvent): string {
+function formatCollapsedAttemptStartEvidence(
+  event: IssueArtifactEvent,
+): string {
   return `Additional same-attempt start evidence observed at ${event.observedAt}${event.sessionId === null ? "" : ` (session ${event.sessionId})`}.`;
 }
 
