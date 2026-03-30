@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { writeFactoryHaltRecord } from "../../src/domain/factory-halt.js";
+import {
+  clearFactoryHaltRecord,
+  writeFactoryHaltRecord,
+} from "../../src/domain/factory-halt.js";
 import {
   RunnerAbortedError,
   RunnerShutdownError,
@@ -5050,15 +5053,19 @@ describe("BootstrapOrchestrator watchdog", () => {
     expect(tracker.readyIssues.has(2)).toBe(true);
   });
 
-  it("blocks new dispatch while the factory is explicitly halted", async () => {
+  it("blocks new ready dispatch while the factory is explicitly halted but still inspects running issues", async () => {
     const tracker = new SequencedTracker({
       ready: [createIssue(11), createIssue(12)],
+      running: [createIssue(13, "symphony:running")],
     });
     tracker.setLifecycleSequence(11, [
       lifecycle("missing-target", "symphony/11"),
     ]);
     tracker.setLifecycleSequence(12, [
       lifecycle("missing-target", "symphony/12"),
+    ]);
+    tracker.setLifecycleSequence(13, [
+      lifecycle("handoff-ready", "symphony/13"),
     ]);
 
     let runnerCalls = 0;
@@ -5098,6 +5105,7 @@ describe("BootstrapOrchestrator watchdog", () => {
     await orchestrator.runOnce();
 
     expect(runnerCalls).toBe(0);
+    expect(tracker.completed).toEqual([13]);
     const snapshot = await readFactoryStatusSnapshot(
       deriveStatusFilePath(config.instance),
     );
@@ -5115,10 +5123,68 @@ describe("BootstrapOrchestrator watchdog", () => {
     ]);
     expect(snapshot.lastAction).toEqual(
       expect.objectContaining({
-        kind: "poll-fetched",
-        summary: expect.stringContaining("Factory halted since"),
+        kind: "issue-completed",
+        issueNumber: 13,
       }),
     );
+  });
+
+  it("preserves due retries while the factory is halted until an explicit resume", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(14)],
+    });
+    tracker.setLifecycleSequence(14, [
+      lifecycle("missing-target", "symphony/14"),
+      lifecycle("missing-target", "symphony/14"),
+      lifecycle("missing-target", "symphony/14"),
+      lifecycle("handoff-ready", "symphony/14"),
+    ]);
+
+    const runnerAttempts: number[] = [];
+    const runner: Runner = {
+      describeSession() {
+        return createRunnerSessionDescription();
+      },
+      async run(session): Promise<RunnerExecutionResult> {
+        runnerAttempts.push(session.attempt.sequence);
+        const timestamp = new Date().toISOString();
+        return {
+          exitCode: session.attempt.sequence === 1 ? 17 : 0,
+          stdout: "",
+          stderr:
+            session.attempt.sequence === 1 ? "temporary sandbox crash" : "",
+          startedAt: timestamp,
+          finishedAt: timestamp,
+        };
+      },
+    };
+
+    const config = withLocalInstanceRoot(baseConfig, tmpDir);
+    const orchestrator = new BootstrapOrchestrator(
+      config,
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+    await writeFactoryHaltRecord(config.instance, {
+      reason: "Stop the line while we inspect the retry cause.",
+      haltedAt: "2026-03-30T12:05:00.000Z",
+      source: "factory-cli",
+      actor: "operator",
+    });
+
+    await orchestrator.runOnce();
+    expect(runnerAttempts).toEqual([1]);
+
+    await clearFactoryHaltRecord(config.instance);
+    await orchestrator.runOnce();
+
+    expect(runnerAttempts).toEqual([1, 2]);
+    expect(tracker.completed).toEqual([14]);
   });
 
   it("keeps unrelated ready work dispatchable after an ordinary transient failure", async () => {

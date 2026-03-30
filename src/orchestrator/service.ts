@@ -659,7 +659,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         await this.#reconcileRunningIssueOwnership(runningCandidates);
       dispatchPressure = this.#releaseExpiredDispatchPressure();
       const dueRetries =
-        dispatchPressure === null
+        dispatchPressure === null && factoryHalt.state === "clear"
           ? collectDueRetries(this.#state.retries)
           : listDueRetries(this.#state.retries);
       const orderedReadyQueue = this.#orderReadyCandidates(
@@ -672,7 +672,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         dispatchPressure === null && factoryHalt.state === "clear"
           ? orderedReadyQueue
           : [],
-        factoryHalt.state === "clear" ? runningCandidates : [],
+        runningCandidates,
         factoryHalt.state === "clear" ? dueRetries : [],
       );
       availableSlots =
@@ -697,7 +697,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         kind: "poll-fetched",
         summary:
           factoryHalt.state === "halted"
-            ? `Factory halted since ${factoryHalt.haltedAt}; ${runningCandidates.length.toString()} running issues still inspected`
+            ? `Factory halted since ${factoryHalt.haltedAt}; ${runningCandidates.length.toString()} running issues still inspected, new dispatch blocked until explicit resume`
             : factoryHalt.state === "degraded"
               ? `Factory halt state degraded: ${factoryHalt.detail ?? "unreadable halt state"}`
               : dispatchPressure === null
