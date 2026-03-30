@@ -290,6 +290,39 @@ observability:
     );
   });
 
+  it("treats a comment-only top-level observability block as omitted", async () => {
+    const dir = await createTempDir("workflow-observability-comments-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}
+observability:
+  # Optional automatic archive publication for terminal issue reports.
+  # issue_reports:
+  #   archive_root: ../factory-runs`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.observability).toEqual({
+      dashboardEnabled: true,
+      refreshMs: 1000,
+      renderIntervalMs: 16,
+      issueReports: {
+        archiveRoot: null,
+      },
+    });
+  });
+
   it("loads optional tracker queue-priority config for github", async () => {
     const dir = await createTempDir("workflow-github-queue-priority-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
