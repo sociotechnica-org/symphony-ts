@@ -37,30 +37,32 @@ instance-scoped scratchpad, status snapshots, logs, and loop lock files under
 1. Read the selected instance's scratchpad first so the latest operator context survives session loss and compaction.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
-4. Before any ordinary queue-advancement work, run `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-repo-root> --json` for the selected instance and treat any `report-ready` or `review-blocked` entry as the first operator checkpoint after the factory-health read.
-5. For each pending completed-run report review:
+4. Immediately after the factory-health read, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root <operator-repo-root> --json` for the selected instance, and append `--workflow <selected-workflow>` when operating on a non-default instance.
+5. If the freshness check reports `stale-idle`, refresh the operator repo checkout plus the selected instance runtime checkout to latest `origin/main`, then restart the detached factory before ordinary queue work. If it reports `stale-busy`, record that fact in the instance scratchpad and defer restart until the next idle or post-merge checkpoint.
+6. Before any ordinary queue-advancement work after the freshness check is clear, run `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-repo-root> --json` for the selected instance and treat any `report-ready` or `review-blocked` entry as the first operator checkpoint after the factory-health read.
+7. For each pending completed-run report review:
    - read the generated report under `.var/reports/issues/<issue-number>/`
    - decide whether the report yields no tracked follow-up, a concrete follow-up issue, or a blocked review state
    - persist the decision through `symphony-report review-record` or `symphony-report review-follow-up`
    - and update the instance scratchpad with what the report taught the factory and what follow-up work was queued
-6. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
-7. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
-8. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
-   - any active issue waiting in `plan-ready` / `awaiting-human-handoff`
-   - any PR or active issue waiting in `awaiting-landing-command`
-9. If the factory is unhealthy, fix the concrete problem and restart it.
-10. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-11. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
-12. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
+8. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
+9. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
+10. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
+    - any active issue waiting in `plan-ready` / `awaiting-human-handoff`
+    - any PR or active issue waiting in `awaiting-landing-command`
+11. If the factory is unhealthy, fix the concrete problem and restart it.
+12. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
+13. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
+14. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
 
 - `Plan review: approved`
 - `Plan review: changes-requested`
 - `Plan review: waived` (record why in the comment)
 
-13. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
-14. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
-15. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
-16. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+15. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
+16. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
+17. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
+18. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
 
