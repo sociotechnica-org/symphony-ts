@@ -22,6 +22,7 @@ export interface OperatorInstanceStatePaths {
   readonly standingContextPath: string;
   readonly wakeUpLogPath: string;
   readonly legacyScratchpadPath: string;
+  readonly releaseStatePath: string;
   readonly reportReviewStatePath: string;
 }
 
@@ -71,6 +72,7 @@ export function deriveOperatorInstanceStatePaths(args: {
       operatorStateRoot,
       "operator-scratchpad.md",
     ),
+    releaseStatePath: path.join(operatorStateRoot, "release-state.json"),
     reportReviewStatePath: path.join(
       operatorStateRoot,
       "report-review-state.json",
