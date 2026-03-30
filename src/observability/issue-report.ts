@@ -27,7 +27,7 @@ import {
 } from "../runner/accounting.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
 
-export const ISSUE_REPORT_SCHEMA_VERSION = 2 as const;
+export const ISSUE_REPORT_SCHEMA_VERSION = 3 as const;
 
 export type IssueReportAvailability = "complete" | "partial" | "unavailable";
 export type IssueReportTokenUsageStatus =

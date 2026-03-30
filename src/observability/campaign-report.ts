@@ -574,8 +574,8 @@ function buildCampaignTokenUsage(
       status: issueTokenUsage.status,
       totalTokens: issueTokenUsage.totalTokens,
       costUsd: issueTokenUsage.costUsd,
-      observedTokenSubtotal: issueTokenUsage.observedTokenSubtotal,
-      observedCostSubtotal: issueTokenUsage.observedCostSubtotal,
+      observedTokenSubtotal: issueTokenUsage.observedTokenSubtotal ?? null,
+      observedCostSubtotal: issueTokenUsage.observedCostSubtotal ?? null,
       sessionCount: issueTokenUsage.sessions.length,
       notes: issueTokenUsage.notes,
     };
@@ -616,10 +616,10 @@ function buildCampaignTokenUsage(
   const notes = dedupeStrings([
     observedTokenIssues.length === issues.length
       ? ""
-      : `${observedTokenIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied token totals.`,
+      : `${observedTokenIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied observed token data.`,
     observedCostIssues.length === issues.length
       ? ""
-      : `${observedCostIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied cost totals.`,
+      : `${observedCostIssues.length.toString()} of ${issues.length.toString()} selected issue reports supplied observed cost data.`,
   ]);
 
   return {
