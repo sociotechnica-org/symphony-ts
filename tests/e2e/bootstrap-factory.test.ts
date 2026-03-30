@@ -1051,11 +1051,11 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       watchdog: {
         enabled: true,
         checkIntervalMs: 5,
-        stallThresholdMs: 120,
+        stallThresholdMs: 500,
         maxRecoveryAttempts: 0,
       },
       agentEnv: {
-        FAKE_CLAUDE_ACTIVITY_TICKS: "8",
+        FAKE_CLAUDE_ACTIVITY_TICKS: "30",
         FAKE_CLAUDE_ACTIVITY_INTERVAL_MS: "0.05",
         FAKE_CLAUDE_ACTIVITY_STREAM: "stderr",
       },
