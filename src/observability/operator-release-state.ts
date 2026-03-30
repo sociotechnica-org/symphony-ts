@@ -152,7 +152,9 @@ export function evaluateOperatorReleaseState(args: {
   );
 
   for (const dependency of dependencies) {
-    const prerequisite = issuesByNumber.get(dependency.prerequisite.issueNumber);
+    const prerequisite = issuesByNumber.get(
+      dependency.prerequisite.issueNumber,
+    );
     if (prerequisite?.currentOutcome === "failed") {
       return {
         advancementState: "blocked-by-prerequisite-failure",
@@ -451,20 +453,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string") {
-    throw new ObservabilityError(`Malformed operator release state in ${field}`);
+    throw new ObservabilityError(
+      `Malformed operator release state in ${field}`,
+    );
   }
   return value;
 }
 
-function normalizeNullableString(
-  value: unknown,
-  field: string,
-): string | null {
+function normalizeNullableString(value: unknown, field: string): string | null {
   if (value === null || value === undefined) {
     return null;
   }
   if (typeof value !== "string") {
-    throw new ObservabilityError(`Malformed operator release state in ${field}`);
+    throw new ObservabilityError(
+      `Malformed operator release state in ${field}`,
+    );
   }
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;

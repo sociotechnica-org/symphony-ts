@@ -255,14 +255,14 @@ One release state document is keyed by selected instance and stores:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| No release dependency metadata configured for this instance | release-state file absent or unconfigured | ordinary issue/PR state only | remain `unconfigured`; do not invent release blocking |
-| Release metadata exists and all prerequisites are non-failed | configured prerequisite/downstream mapping | prerequisite issues are open, merged, or otherwise non-failed | record `configured-clear`; ordinary advancement may continue |
-| A prerequisite issue is terminal failed | configured prerequisite/downstream mapping | prerequisite issue outcome is failed | record `blocked-by-prerequisite-failure`; do not promote downstream tickets or post `/land` for downstream PRs |
-| Multiple prerequisites exist and one fails while another is still running | configured dependency graph | one prerequisite failed, others non-terminal | record `blocked-by-prerequisite-failure`; the first failed prerequisite is sufficient to halt advancement |
-| Metadata references an issue that cannot be resolved from current facts | configured dependency graph with missing reference | current tracker snapshot missing or ambiguous for referenced issue | record `blocked-review-needed`; fail closed until corrected |
-| Previously failed prerequisite is later repaired and no prerequisite remains failed | existing blocked release-state entry | refreshed prerequisite outcomes no longer failed | transition back to `configured-clear`; advancement may resume on a later wake-up |
+| Observed condition                                                                  | Local facts available                              | Normalized tracker facts available                                 | Expected decision                                                                                              |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| No release dependency metadata configured for this instance                         | release-state file absent or unconfigured          | ordinary issue/PR state only                                       | remain `unconfigured`; do not invent release blocking                                                          |
+| Release metadata exists and all prerequisites are non-failed                        | configured prerequisite/downstream mapping         | prerequisite issues are open, merged, or otherwise non-failed      | record `configured-clear`; ordinary advancement may continue                                                   |
+| A prerequisite issue is terminal failed                                             | configured prerequisite/downstream mapping         | prerequisite issue outcome is failed                               | record `blocked-by-prerequisite-failure`; do not promote downstream tickets or post `/land` for downstream PRs |
+| Multiple prerequisites exist and one fails while another is still running           | configured dependency graph                        | one prerequisite failed, others non-terminal                       | record `blocked-by-prerequisite-failure`; the first failed prerequisite is sufficient to halt advancement      |
+| Metadata references an issue that cannot be resolved from current facts             | configured dependency graph with missing reference | current tracker snapshot missing or ambiguous for referenced issue | record `blocked-review-needed`; fail closed until corrected                                                    |
+| Previously failed prerequisite is later repaired and no prerequisite remains failed | existing blocked release-state entry               | refreshed prerequisite outcomes no longer failed                   | transition back to `configured-clear`; advancement may resume on a later wake-up                               |
 
 ## Storage Contract
 

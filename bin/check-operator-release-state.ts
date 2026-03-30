@@ -43,7 +43,10 @@ function readOptionalOptionValue(
   return value;
 }
 
-function renderText(state: OperatorReleaseStateDocument, filePath: string): string {
+function renderText(
+  state: OperatorReleaseStateDocument,
+  filePath: string,
+): string {
   return [
     `Release state: ${state.evaluation.advancementState}`,
     `Release state file: ${filePath}`,

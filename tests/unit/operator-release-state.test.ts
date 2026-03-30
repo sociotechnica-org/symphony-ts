@@ -66,7 +66,8 @@ async function writeIssueSummary(args: {
         version: 1,
         issueNumber: args.issueNumber,
         issueIdentifier:
-          args.issueIdentifier ?? `sociotechnica-org/symphony-ts#${args.issueNumber.toString()}`,
+          args.issueIdentifier ??
+          `sociotechnica-org/symphony-ts#${args.issueNumber.toString()}`,
         repo: "sociotechnica-org/symphony-ts",
         title: args.title ?? `Issue ${args.issueNumber.toString()}`,
         issueUrl: `https://github.com/sociotechnica-org/symphony-ts/issues/${args.issueNumber.toString()}`,
@@ -135,13 +136,11 @@ describe("operator release state", () => {
       evaluatedAt: "2026-03-30T00:00:00Z",
     });
 
-    expect(evaluation.advancementState).toBe(
-      "blocked-by-prerequisite-failure",
-    );
+    expect(evaluation.advancementState).toBe("blocked-by-prerequisite-failure");
     expect(evaluation.blockingPrerequisite?.issueNumber).toBe(111);
-    expect(evaluation.blockedDownstream.map((issue) => issue.issueNumber)).toEqual(
-      [112],
-    );
+    expect(
+      evaluation.blockedDownstream.map((issue) => issue.issueNumber),
+    ).toEqual([112]);
     expect(evaluation.summary).toContain("#111");
   });
 
@@ -178,9 +177,9 @@ describe("operator release state", () => {
     });
 
     expect(evaluation.advancementState).toBe("blocked-review-needed");
-    expect(evaluation.unresolvedReferences.map((issue) => issue.issueNumber)).toEqual(
-      [112],
-    );
+    expect(
+      evaluation.unresolvedReferences.map((issue) => issue.issueNumber),
+    ).toEqual([112]);
   });
 
   it("returns configured-clear when no prerequisite has failed", () => {
@@ -226,8 +225,12 @@ describe("operator release state", () => {
   });
 
   it("syncs a stored release-state document back to clear when the prerequisite is repaired", async () => {
-    const instanceRoot = await createTempDir("symphony-release-state-instance-");
-    const operatorRoot = await createTempDir("symphony-release-state-operator-");
+    const instanceRoot = await createTempDir(
+      "symphony-release-state-instance-",
+    );
+    const operatorRoot = await createTempDir(
+      "symphony-release-state-operator-",
+    );
     tempRoots.push(instanceRoot, operatorRoot);
     const workflowPath = await writeWorkflow(instanceRoot);
     const instance = await loadWorkflowInstancePaths(workflowPath);
