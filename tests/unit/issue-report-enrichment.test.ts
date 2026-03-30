@@ -238,6 +238,53 @@ describe("issue report enrichment", () => {
     );
   });
 
+  it("disambiguates multiple matching Codex logs by canonical backend session identity", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-backend-id-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const sessionsRoot = deriveCodexSessionsRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      backendSessionId: "thread-44-turn-1",
+      backendThreadId: "thread-44",
+    });
+
+    await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-other.jsonl",
+      sessionMetaId: "thread-other",
+      totalTokens: 900,
+    });
+    const matchedLogPath = await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:06:00.000Z",
+      workspacePath: `${workspaceRoot}/issue-44`,
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-06-00-thread-44.jsonl",
+      sessionMetaId: "thread-44",
+      totalTokens: 2750,
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:06:00.000Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+
+    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.totalTokens).toBe(2750);
+    expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
+      matchedLogPath,
+    );
+    expect(
+      generated.report.tokenUsage.sessions[0]?.sourceArtifacts,
+    ).not.toContain(expect.stringContaining("other.jsonl"));
+    expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
+      "Runner log enrichment disambiguated multiple Codex logs by matching the canonical backend session identity.",
+    );
+  });
+
   it("keeps report generation successful when a matching-window Codex log is malformed", async () => {
     const tempDir = await createTempDir("symphony-issue-report-malformed-");
     tempRoots.push(tempDir);
