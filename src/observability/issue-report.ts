@@ -1834,34 +1834,34 @@ function timelineKindOrder(kind: string): number {
     case "approved":
     case "waived":
       return 3;
-    case "landing-command-observed":
-      return 4;
     case "runner-spawned":
     case "attempt-started":
-      return 5;
+      return 4;
     case "shutdown-requested":
-      return 6;
+      return 5;
     case "shutdown-terminated":
-      return 7;
+      return 6;
     case "pr-opened":
-      return 8;
-    case "landing-blocked":
-      return 9;
-    case "landing-failed":
-      return 10;
-    case "landing-requested":
-      return 11;
-    case "report-published":
-    case "report-review-recorded":
-    case "report-follow-up-filed":
-      return 12;
+      return 7;
     case "review-feedback":
-      return 13;
+      return 8;
+    case "landing-command-observed":
+      return 9;
+    case "landing-blocked":
+      return 10;
+    case "landing-failed":
+      return 11;
+    case "landing-requested":
+      return 12;
     case "retry-scheduled":
-      return 14;
+      return 13;
     case "succeeded":
     case "failed":
     case "terminal-outcome":
+      return 14;
+    case "report-published":
+    case "report-review-recorded":
+    case "report-follow-up-filed":
       return 15;
     default:
       return 99;

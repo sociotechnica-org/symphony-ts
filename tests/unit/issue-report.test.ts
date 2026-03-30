@@ -749,6 +749,79 @@ describe("issue report generation", () => {
     ]);
   });
 
+  it("keeps landing observations after pull-request activity and report actions after terminal outcomes when timestamps match", async () => {
+    const tempDir = await createTempDir(
+      "symphony-issue-report-intervention-order-",
+    );
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, 44);
+    await fs.mkdir(artifactPaths.issueRoot, { recursive: true });
+    await fs.writeFile(
+      artifactPaths.eventsFile,
+      [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "pr-opened",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:10:00.000Z",
+          attemptNumber: 1,
+          sessionId: "session-1",
+          details: {
+            summary: "PR opened and awaiting checks",
+          },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "landing-command-observed",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:10:00.000Z",
+          attemptNumber: 1,
+          sessionId: "session-1",
+          details: {
+            summary: "Observed /land on the current PR head.",
+          },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "succeeded",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:20:00.000Z",
+          attemptNumber: 1,
+          sessionId: "session-1",
+          details: {
+            summary: "Issue completed successfully",
+          },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "report-published",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:20:00.000Z",
+          attemptNumber: null,
+          sessionId: null,
+          details: {
+            summary: "Published report artifacts to the run archive.",
+          },
+        },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n"),
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T14:05:00.000Z",
+    });
+
+    expect(generated.report.timeline.map((entry) => entry.kind)).toEqual([
+      "pr-opened",
+      "landing-command-observed",
+      "succeeded",
+      "report-published",
+    ]);
+  });
+
   it("reports merged when the latest landing-blocked event records an already-merged lifecycle", async () => {
     const tempDir = await createTempDir("symphony-issue-report-merged-");
     tempRoots.push(tempDir);
