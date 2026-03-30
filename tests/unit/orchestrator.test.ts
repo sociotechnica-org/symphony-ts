@@ -340,6 +340,7 @@ class SequencedTracker implements Tracker {
   readonly retried: Array<{ issueNumber: number; reason: string }> = [];
   readonly failed: Array<{ issueNumber: number; reason: string }> = [];
   readonly resolvedThreadBatches: string[][] = [];
+  inspectIssueHandoffCalls = 0;
   ensureLabelsCalls = 0;
 
   constructor(options: {
@@ -402,6 +403,7 @@ class SequencedTracker implements Tracker {
   }
 
   async inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle> {
+    this.inspectIssueHandoffCalls += 1;
     const issueNumber = Number(branchName.split("/").at(-1));
     if (Number.isNaN(issueNumber)) {
       throw new Error(`Invalid branch name ${branchName}`);
@@ -461,6 +463,20 @@ class SequencedTracker implements Tracker {
       issueNumber,
       createIssue(issueNumber, "symphony:failed"),
     );
+  }
+}
+
+class ClosedIssueTracker extends SequencedTracker {
+  override async getIssue(issueNumber: number): Promise<RuntimeIssue> {
+    if (this.completed.includes(issueNumber)) {
+      return {
+        ...createIssue(issueNumber, "symphony:running"),
+        labels: [],
+        state: "closed",
+        closedAt: "2026-03-11T12:06:00.000Z",
+      };
+    }
+    return await super.getIssue(issueNumber);
   }
 }
 
@@ -3552,6 +3568,58 @@ describe("BootstrapOrchestrator", () => {
           observation.issue.currentOutcome === "failed",
       ),
     ).toBe(false);
+  });
+
+  it("persists mergedAt from the observed handoff lifecycle while reloading closedAt after completion", async () => {
+    const tracker = new ClosedIssueTracker({
+      ready: [createIssue(86)],
+    });
+    tracker.setLifecycleSequence(86, [
+      {
+        ...lifecycle("handoff-ready", "symphony/86"),
+        pullRequest: {
+          number: 1,
+          url: "https://example.test/pulls/symphony/86",
+          branchName: "symphony/86",
+          headSha: "test-head-sha",
+          latestCommitAt: "2026-03-11T12:05:00.000Z",
+          mergedAt: "2026-03-11T12:05:27.000Z",
+        },
+      },
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.completed).toEqual([86]);
+    expect(tracker.inspectIssueHandoffCalls).toBe(1);
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 86 &&
+          observation.issue.currentOutcome === "succeeded" &&
+          observation.issue.mergedAt === "2026-03-11T12:05:27.000Z" &&
+          observation.issue.closedAt === "2026-03-11T12:06:00.000Z",
+      ),
+    ).toBeDefined();
   });
 
   it("cleans up the issue workspace when merged reconciliation wins after an unexpected failure without a session", async () => {

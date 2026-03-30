@@ -1189,7 +1189,10 @@ export class BootstrapOrchestrator implements Orchestrator {
 
     if (lifecycle.kind === "handoff-ready") {
       clearLandingRuntimeState(this.#state.landing, issue.number);
-      await this.#completeIssue(issue);
+      await this.#completeIssue(issue, {
+        branchName,
+        lifecycle,
+      });
       return false;
     }
 
@@ -1350,6 +1353,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         attemptNumber: attempt,
         branchName,
         finishedAt: new Date().toISOString(),
+        lifecycle: refreshedLifecycle,
       });
       return;
     }
@@ -1811,6 +1815,7 @@ export class BootstrapOrchestrator implements Orchestrator {
               workspace,
               session: sessionState,
               finishedAt: result.finishedAt,
+              lifecycle: nextLifecycle,
             });
             return false;
           }
@@ -2163,6 +2168,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly workspace?: PreparedWorkspace | undefined;
       readonly session?: RunSessionArtifactsState;
       readonly finishedAt?: string;
+      readonly lifecycle?: HandoffLifecycle | null;
     },
   ): Promise<void> {
     const runnerPid = this.#currentRunnerPid(issue.number);
@@ -2176,7 +2182,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           hasRuntimeIssueIdentity(nextIssue) ? nextIssue : issue,
         )
         .catch(() => issue),
-      this.#tracker.inspectIssueHandoff(branchName).catch(() => null),
+      options?.lifecycle === undefined
+        ? this.#tracker.inspectIssueHandoff(branchName).catch(() => null)
+        : Promise.resolve(options.lifecycle),
     ]);
     clearRetryState(this.#state.retries, issue.number);
     clearPreferredHost(this.#state.hostDispatch, issue.number);
@@ -2783,6 +2791,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       attemptNumber: runSequence,
       branchName,
       workspace: options?.session?.runSession.workspace,
+      lifecycle: refreshedLifecycle,
       ...(options?.session === undefined ? {} : { session: options.session }),
       ...(options?.finishedAt === undefined
         ? {}
