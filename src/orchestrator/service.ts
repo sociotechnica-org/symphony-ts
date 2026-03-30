@@ -2167,7 +2167,12 @@ export class BootstrapOrchestrator implements Orchestrator {
   ): Promise<void> {
     const runnerPid = this.#currentRunnerPid(issue.number);
     const observedAt = options?.finishedAt ?? new Date().toISOString();
+    const branchName = options?.branchName ?? this.#branchName(issue.number);
     await this.#tracker.completeIssue(issue.number);
+    const [completedIssue, completedLifecycle] = await Promise.all([
+      this.#tracker.getIssue(issue.number).catch(() => issue),
+      this.#tracker.inspectIssueHandoff(branchName).catch(() => null),
+    ]);
     clearRetryState(this.#state.retries, issue.number);
     clearPreferredHost(this.#state.hostDispatch, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
@@ -2186,8 +2191,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       `Completed issue #${issue.number.toString()}`,
       workspaceRetention,
     );
-    noteTerminalIssue(this.#state.status, issue, {
-      branchName: options?.branchName ?? this.#branchName(issue.number),
+    noteTerminalIssue(this.#state.status, completedIssue, {
+      branchName,
       terminalOutcome: "success",
       summary,
       observedAt,
@@ -2202,15 +2207,17 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
       this.#createTerminalObservation(issue, "succeeded", {
+        terminalIssue: completedIssue,
         observedAt,
         summary: this.#summarizeTerminalOutcome(
           `Completed ${issue.identifier}`,
           workspaceRetention,
         ),
         attemptNumber: options?.attemptNumber,
-        branchName: options?.branchName ?? this.#branchName(issue.number),
+        branchName,
         session: options?.session,
         runnerPid,
+        lifecycle: completedLifecycle,
         workspaceRetention,
       }),
     );
@@ -3137,6 +3144,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly outcome: IssueArtifactOutcome;
       readonly summary: string;
       readonly branchName?: string | null | undefined;
+      readonly mergedAt?: string | null | undefined;
+      readonly closedAt?: string | null | undefined;
       readonly latestAttemptNumber?: number | null | undefined;
       readonly latestSessionId?: string | null | undefined;
     },
@@ -3151,6 +3160,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       currentOutcome: options.outcome,
       currentSummary: options.summary,
       observedAt: options.observedAt,
+      mergedAt: options.mergedAt,
+      closedAt: options.closedAt,
       latestAttemptNumber: options.latestAttemptNumber,
       latestSessionId: options.latestSessionId,
     } as const;
@@ -3465,6 +3476,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     outcome: "succeeded" | "failed",
     options: {
+      readonly terminalIssue?: RuntimeIssue | undefined;
       readonly observedAt: string;
       readonly summary: string;
       readonly attemptNumber?: number | undefined;
@@ -3482,12 +3494,20 @@ export class BootstrapOrchestrator implements Orchestrator {
             options.session,
             options.observedAt,
           );
+    const terminalIssue = options.terminalIssue ?? issue;
+    const mergedAt =
+      options.lifecycle?.pullRequest?.mergedAt === undefined
+        ? null
+        : options.lifecycle.pullRequest.mergedAt;
+    const closedAt = terminalIssue.closedAt ?? null;
     return {
-      issue: this.#createIssueArtifactUpdate(issue, {
+      issue: this.#createIssueArtifactUpdate(terminalIssue, {
         observedAt: options.observedAt,
         outcome,
         summary: options.summary,
         branchName: options.branchName,
+        mergedAt,
+        closedAt,
         latestAttemptNumber: options.attemptNumber,
         latestSessionId: options.session?.runSession.id,
       }),
@@ -3502,6 +3522,8 @@ export class BootstrapOrchestrator implements Orchestrator {
             latestTurnNumber: options.session?.latestTurnNumber ?? null,
             backendSessionId:
               options.session?.description.backendSessionId ?? null,
+            ...(mergedAt === null ? {} : { mergedAt }),
+            ...(closedAt === null ? {} : { closedAt }),
             ...this.#createWorkspaceRetentionDetails(
               options.workspaceRetention,
             ),

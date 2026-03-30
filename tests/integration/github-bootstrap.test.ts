@@ -125,9 +125,11 @@ describe("GitHubTracker", () => {
     );
 
     await tracker.completeIssue(7);
-    const issue = server.getIssue(7);
+    const issue = await tracker.getIssue(7);
+    const serverIssue = server.getIssue(7);
     expect(issue.state).toBe("closed");
-    expect(issue.comments).toContain("done");
+    expect(issue.closedAt).not.toBeNull();
+    expect(serverIssue.comments).toContain("done");
   });
 
   it("reports a missing lifecycle when no PR exists for the branch", async () => {

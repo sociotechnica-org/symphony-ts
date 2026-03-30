@@ -96,6 +96,7 @@ interface MockIssue {
   html_url: string;
   created_at: string;
   updated_at: string;
+  closed_at: string | null;
   labels: Array<{ name: string }>;
   comments: MockIssueComment[];
 }
@@ -219,6 +220,7 @@ export class MockGitHubServer {
       html_url: `${this.#baseUrl}/issues/${input.number}`,
       created_at: now,
       updated_at: now,
+      closed_at: input.state === "closed" ? now : null,
       labels: input.labels.map((name) => ({ name })),
       comments: [],
     });
@@ -741,6 +743,7 @@ export class MockGitHubServer {
         html_url: `${this.#baseUrl}/issues/${number.toString()}`,
         created_at: now,
         updated_at: now,
+        closed_at: null,
         labels: [],
         comments: [],
       };
@@ -917,6 +920,8 @@ export class MockGitHubServer {
         }
         if (body.state) {
           issue.state = body.state;
+          issue.closed_at =
+            body.state === "closed" ? new Date().toISOString() : null;
         }
         issue.updated_at = new Date().toISOString();
         json(response, 200, issue);

@@ -133,6 +133,7 @@ export class GitHubTracker implements Tracker {
           branchName: pullRequest.head.ref,
           headSha: pullRequest.head.sha,
           latestCommitAt: null,
+          mergedAt: pullRequest.mergedAt,
         },
         landingCommand: null,
         checks: [],

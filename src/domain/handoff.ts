@@ -26,6 +26,7 @@ export interface PullRequestHandle {
   readonly branchName: string;
   readonly headSha: string | null;
   readonly latestCommitAt: string | null;
+  readonly mergedAt?: string | null;
 }
 
 export interface PullRequestCheck {

@@ -259,13 +259,13 @@ The required terminal-success fact flow is:
 
 Because this slice depends on tracker-observed terminal facts, the plan should make degraded cases explicit.
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| PR merged and issue closed successfully | terminal success path, branch name, issue number | `mergedAt` and `closedAt` available | persist both facts; reports render concrete merge/close timing |
-| PR merged successfully but closed issue fetch does not yield exact `closedAt` | terminal success path, branch name, issue number | `mergedAt` available, `closedAt` missing | persist `mergedAt`, leave `closedAt` null, keep close note partial |
-| Issue closed successfully but no merged PR is found for the branch | terminal success path, branch name, issue number | `closedAt` available, `mergedAt` missing | persist `closedAt`, leave `mergedAt` null, keep merge note partial |
-| Tracker completion succeeds but follow-up lifecycle fact fetch fails | terminal success path only | no terminal lifecycle facts | preserve terminal success artifact/report flow, store null facts, and surface the persistence gap in logs/tests rather than failing report generation |
-| Older artifact directory predates this schema | summary/events/attempts only | none | load compatibly and keep existing unavailable notes |
+| Observed condition                                                            | Local facts available                            | Normalized tracker facts available       | Expected decision                                                                                                                                     |
+| ----------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR merged and issue closed successfully                                       | terminal success path, branch name, issue number | `mergedAt` and `closedAt` available      | persist both facts; reports render concrete merge/close timing                                                                                        |
+| PR merged successfully but closed issue fetch does not yield exact `closedAt` | terminal success path, branch name, issue number | `mergedAt` available, `closedAt` missing | persist `mergedAt`, leave `closedAt` null, keep close note partial                                                                                    |
+| Issue closed successfully but no merged PR is found for the branch            | terminal success path, branch name, issue number | `closedAt` available, `mergedAt` missing | persist `closedAt`, leave `mergedAt` null, keep merge note partial                                                                                    |
+| Tracker completion succeeds but follow-up lifecycle fact fetch fails          | terminal success path only                       | no terminal lifecycle facts              | preserve terminal success artifact/report flow, store null facts, and surface the persistence gap in logs/tests rather than failing report generation |
+| Older artifact directory predates this schema                                 | summary/events/attempts only                     | none                                     | load compatibly and keep existing unavailable notes                                                                                                   |
 
 ## Observability Requirements
 

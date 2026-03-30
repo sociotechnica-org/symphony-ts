@@ -23,7 +23,10 @@ import type {
   IssueArtifactSessionSnapshot,
   IssueArtifactSummary,
 } from "./issue-artifacts.js";
-import { deriveIssueArtifactPaths } from "./issue-artifacts.js";
+import {
+  deriveIssueArtifactPaths,
+  readIssueArtifactSummary,
+} from "./issue-artifacts.js";
 import {
   createRunnerAccountingSnapshot,
   sumIfAnyPresent,
@@ -453,7 +456,7 @@ export async function loadIssueArtifacts(
 
   const [issue, eventLedger, attempts, sessions, logPointers] =
     await Promise.all([
-      readOptionalJson<IssueArtifactSummary>(paths.issueFile),
+      readOptionalIssueArtifactSummary(instance, issueNumber),
       readOptionalJsonLines(paths.eventsFile),
       readJsonArrayFromDir<IssueArtifactAttemptSnapshot>(
         paths.attemptsDir,
@@ -888,9 +891,23 @@ function buildGitHubActivity(
   const reviewFeedbackRounds = loaded.events.filter(
     (event) => event.kind === "review-feedback",
   ).length;
+  const mergedAt = loaded.issue?.mergedAt ?? null;
+  const closedAt = loaded.issue?.closedAt ?? null;
   const notes = [
     "Issue state and label transitions are not part of the canonical local artifact contract yet.",
-    "Merge timing and exact issue-close timing remain unavailable until richer raw GitHub lifecycle facts are stored locally.",
+    ...(mergedAt === null && closedAt === null
+      ? [
+          "Merge timing and exact issue-close timing remained unavailable in the canonical local artifacts for this issue.",
+        ]
+      : mergedAt === null
+        ? [
+            "Merge timing was not preserved in the canonical local artifacts for this issue.",
+          ]
+        : closedAt === null
+          ? [
+              "Exact issue-close timing was not preserved in the canonical local artifacts for this issue.",
+            ]
+          : []),
   ];
 
   return {
@@ -904,12 +921,16 @@ function buildGitHubActivity(
       pullRequests,
       reviewFeedbackRounds,
     ),
-    mergedAt: null,
+    mergedAt,
     mergeNote:
-      "Canonical local artifacts do not yet record merge timestamps or merge commits.",
-    closedAt: null,
+      mergedAt === null
+        ? "Canonical local artifacts did not preserve a merged pull request timestamp for this issue."
+        : "Canonical local artifacts preserved the merged pull request timestamp for this issue.",
+    closedAt,
     closeNote:
-      "Canonical local artifacts do not yet record exact issue close timing.",
+      closedAt === null
+        ? "Canonical local artifacts did not preserve exact issue close timing for this issue."
+        : "Canonical local artifacts preserved the exact issue close timestamp for this issue.",
     notes,
   };
 }
@@ -2213,6 +2234,20 @@ async function readJsonFile<T>(filePath: string): Promise<T> {
       },
     );
   }
+}
+
+async function readOptionalIssueArtifactSummary(
+  instance: RuntimeInstanceInput,
+  issueNumber: number,
+): Promise<IssueArtifactSummary | null> {
+  return await readIssueArtifactSummary(instance, issueNumber).catch(
+    (error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    },
+  );
 }
 
 function earliestTimestamp(

@@ -23,6 +23,7 @@ export interface GitHubIssueResponse {
   readonly html_url: string;
   readonly created_at: string;
   readonly updated_at: string;
+  readonly closed_at: string | null;
   readonly labels: ReadonlyArray<{ readonly name: string }>;
 }
 
@@ -550,6 +551,7 @@ export function toRuntimeIssue(
     url: issue.html_url,
     createdAt: issue.created_at,
     updatedAt: issue.updated_at,
+    closedAt: issue.closed_at ?? null,
     queuePriority,
   };
 }
