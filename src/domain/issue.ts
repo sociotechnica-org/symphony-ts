@@ -18,5 +18,6 @@ export interface RuntimeIssue {
   readonly url: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly closedAt?: string | null;
   readonly queuePriority: QueuePriority | null;
 }

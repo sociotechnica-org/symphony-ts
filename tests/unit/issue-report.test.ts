@@ -49,6 +49,12 @@ describe("issue report generation", () => {
     expect(generated.report.summary.outcome).toBe("succeeded");
     expect(generated.report.summary.attemptCount).toBe(1);
     expect(generated.report.summary.pullRequestCount).toBe(1);
+    expect(generated.report.githubActivity.mergedAt).toBe(
+      "2026-03-09T10:18:00.000Z",
+    );
+    expect(generated.report.githubActivity.closedAt).toBe(
+      "2026-03-09T10:20:00.000Z",
+    );
     expect(generated.report.learnings.status).toBe("complete");
     expect(generated.report.timeline.map((entry) => entry.kind)).toEqual(
       expect.arrayContaining([
@@ -65,6 +71,8 @@ describe("issue report generation", () => {
     expect(generated.markdown).toContain("## GitHub Activity");
     expect(generated.markdown).toContain("## Token Usage");
     expect(generated.markdown).toContain("## Learnings");
+    expect(generated.markdown).toContain("Merged at: 2026-03-09T10:18:00.000Z");
+    expect(generated.markdown).toContain("Closed at: 2026-03-09T10:20:00.000Z");
     expect(generated.markdown).toContain("pending checks None");
     expect(generated.markdown).toContain("failing checks None");
   });

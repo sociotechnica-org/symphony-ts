@@ -82,8 +82,18 @@ export interface IssueArtifactSummary {
   readonly currentSummary: string;
   readonly firstObservedAt: string;
   readonly lastUpdatedAt: string;
+  readonly mergedAt: string | null;
+  readonly closedAt: string | null;
   readonly latestAttemptNumber: number | null;
   readonly latestSessionId: string | null;
+}
+
+interface LegacyIssueArtifactSummary extends Omit<
+  IssueArtifactSummary,
+  "mergedAt" | "closedAt"
+> {
+  readonly mergedAt?: string | null | undefined;
+  readonly closedAt?: string | null | undefined;
 }
 
 export interface IssueArtifactEvent {
@@ -193,6 +203,8 @@ export interface IssueArtifactIssueUpdate {
   readonly currentOutcome: IssueArtifactOutcome;
   readonly currentSummary: string;
   readonly observedAt: string;
+  readonly mergedAt?: string | null | undefined;
+  readonly closedAt?: string | null | undefined;
   readonly latestAttemptNumber?: number | null | undefined;
   readonly latestSessionId?: string | null | undefined;
 }
@@ -270,7 +282,7 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
     issueFile: string,
     update: IssueArtifactIssueUpdate,
   ): Promise<IssueArtifactSummary> {
-    const existing = await readJsonFile<IssueArtifactSummary>(issueFile).catch(
+    const existing = await readIssueArtifactSummaryFile(issueFile).catch(
       (error) => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
           return null;
@@ -291,6 +303,14 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       currentSummary: update.currentSummary,
       firstObservedAt: existing?.firstObservedAt ?? update.observedAt,
       lastUpdatedAt: update.observedAt,
+      mergedAt:
+        update.mergedAt === undefined
+          ? (existing?.mergedAt ?? null)
+          : update.mergedAt,
+      closedAt:
+        update.closedAt === undefined
+          ? (existing?.closedAt ?? null)
+          : update.closedAt,
       latestAttemptNumber:
         update.latestAttemptNumber === undefined
           ? (existing?.latestAttemptNumber ?? null)
@@ -442,7 +462,7 @@ export async function readIssueArtifactSummary(
   instance: RuntimeInstanceInput,
   issueNumber: number,
 ): Promise<IssueArtifactSummary> {
-  return await readJsonFile<IssueArtifactSummary>(
+  return await readIssueArtifactSummaryFile(
     deriveIssueArtifactPaths(instance, issueNumber).issueFile,
   );
 }
@@ -557,6 +577,17 @@ async function readIssueArtifactSessionFile(
         }),
         appServerPid ?? null,
       ),
+  };
+}
+
+async function readIssueArtifactSummaryFile(
+  filePath: string,
+): Promise<IssueArtifactSummary> {
+  const summary = await readJsonFile<LegacyIssueArtifactSummary>(filePath);
+  return {
+    ...summary,
+    mergedAt: summary.mergedAt ?? null,
+    closedAt: summary.closedAt ?? null,
   };
 }
 

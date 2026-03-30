@@ -112,7 +112,15 @@ describe("campaign report CLI", () => {
     ).resolves.toContain("#43 Generate per-issue reports from local artifacts");
     await expect(
       fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
-    ).resolves.toContain("Pull requests observed");
+    ).resolves.toContain(
+      "Merge timing: Merge timing was recorded for 1 of 3 selected issue reports.",
+    );
+    await expect(
+      fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
+    ).resolves.toContain("First merge observed: 2026-03-09T10:18:00.000Z");
+    await expect(
+      fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
+    ).resolves.toContain("Latest close observed: 2026-03-02T10:00:00.000Z");
     await expect(
       fs.readFile(path.join(campaignDir, "token-usage.md"), "utf8"),
     ).resolves.toContain("Aggregate status: partial");

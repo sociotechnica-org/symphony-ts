@@ -156,6 +156,8 @@ describe("issue artifacts", () => {
     expect(summary.lastUpdatedAt).toBe(secondObservedAt);
     expect(summary.latestAttemptNumber).toBe(1);
     expect(summary.branch).toBe("symphony/43");
+    expect(summary.mergedAt).toBeNull();
+    expect(summary.closedAt).toBeNull();
 
     const events = await readIssueArtifactEvents(instance, 43);
     expect(events).toHaveLength(1);
@@ -168,6 +170,46 @@ describe("issue artifacts", () => {
     await expect(fs.stat(paths.attemptsDir)).resolves.toBeDefined();
     await expect(fs.stat(paths.sessionsDir)).resolves.toBeDefined();
     await expect(fs.stat(paths.logsDir)).resolves.toBeDefined();
+  });
+
+  it("persists additive merge and close lifecycle facts in the canonical issue summary", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const store = new LocalIssueArtifactStore(instance);
+
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Local Issue Reporting Artifact Contract",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "succeeded",
+        currentSummary: "Issue completed successfully",
+        observedAt: "2026-03-09T10:20:00.000Z",
+        mergedAt: "2026-03-09T10:18:00.000Z",
+        closedAt: "2026-03-09T10:20:00.000Z",
+      },
+      events: [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "succeeded",
+          issueNumber: 43,
+          observedAt: "2026-03-09T10:20:00.000Z",
+          attemptNumber: 1,
+          sessionId: null,
+          details: {
+            mergedAt: "2026-03-09T10:18:00.000Z",
+            closedAt: "2026-03-09T10:20:00.000Z",
+          },
+        },
+      ],
+    });
+
+    const summary = await readIssueArtifactSummary(instance, 43);
+    expect(summary.mergedAt).toBe("2026-03-09T10:18:00.000Z");
+    expect(summary.closedAt).toBe("2026-03-09T10:20:00.000Z");
   });
 
   it("deduplicates keyed operator intervention events across non-consecutive writes", async () => {

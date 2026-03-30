@@ -130,7 +130,19 @@ export function renderCampaignGitHubActivityMarkdown(
     `- Failing checks: ${renderPatternList(digest.githubActivity.failingChecks)}`,
   );
   lines.push(`- Merge timing: ${digest.githubActivity.mergeAvailabilityNote}`);
+  lines.push(
+    `- First merge observed: ${renderValue(digest.githubActivity.earliestMergedAt)}`,
+  );
+  lines.push(
+    `- Latest merge observed: ${renderValue(digest.githubActivity.latestMergedAt)}`,
+  );
   lines.push(`- Close timing: ${digest.githubActivity.closeAvailabilityNote}`);
+  lines.push(
+    `- First close observed: ${renderValue(digest.githubActivity.earliestClosedAt)}`,
+  );
+  lines.push(
+    `- Latest close observed: ${renderValue(digest.githubActivity.latestClosedAt)}`,
+  );
   for (const note of digest.githubActivity.notes) {
     lines.push(`- Note: ${note}`);
   }

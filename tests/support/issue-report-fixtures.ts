@@ -104,6 +104,8 @@ export async function seedSuccessfulIssueArtifacts(
     readonly attemptStartedAt?: string | undefined;
     readonly prOpenedAt?: string | undefined;
     readonly latestCommitAt?: string | undefined;
+    readonly mergedAt?: string | undefined;
+    readonly closedAt?: string | undefined;
     readonly succeededAt?: string | undefined;
     readonly finalCommitAt?: string | undefined;
     readonly accounting?: RunnerAccountingSnapshot | undefined;
@@ -136,6 +138,8 @@ export async function seedSuccessfulIssueArtifacts(
   const prOpenedAt = options?.prOpenedAt ?? "2026-03-09T10:10:00.000Z";
   const latestCommitAt = options?.latestCommitAt ?? "2026-03-09T10:09:30.000Z";
   const succeededAt = options?.succeededAt ?? "2026-03-09T10:20:00.000Z";
+  const mergedAt = options?.mergedAt ?? "2026-03-09T10:18:00.000Z";
+  const closedAt = options?.closedAt ?? succeededAt;
   const finalCommitAt = options?.finalCommitAt ?? "2026-03-09T10:19:00.000Z";
   const review = {
     actionableCount: options?.review?.actionableCount ?? 0,
@@ -324,6 +328,8 @@ export async function seedSuccessfulIssueArtifacts(
       currentOutcome: "succeeded",
       currentSummary: "Issue completed successfully",
       observedAt: succeededAt,
+      mergedAt,
+      closedAt,
       latestAttemptNumber: 1,
       latestSessionId: sessionId,
     },
@@ -337,6 +343,8 @@ export async function seedSuccessfulIssueArtifacts(
         sessionId,
         details: {
           summary: "Issue completed successfully",
+          mergedAt,
+          closedAt,
           pullRequest: {
             number: 144,
             url: "https://github.com/sociotechnica-org/symphony-ts/pull/144",
