@@ -295,7 +295,8 @@ export async function reconcileTerminalIssueReporting(args: {
       reportMarkdownFile: currentReport.outputPaths.reportMarkdownFile,
     });
     const equivalent =
-      receiptBefore !== null && areReceiptsEquivalent(receiptBefore, nextReceipt);
+      receiptBefore !== null &&
+      areReceiptsEquivalent(receiptBefore, nextReceipt);
     if (!equivalent) {
       await writeTerminalIssueReportingReceipt(resolvedInstance, nextReceipt);
       changed = true;

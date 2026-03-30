@@ -323,8 +323,7 @@ export function upsertTerminalIssue(
     summary: issue.summary,
     observedAt: issue.observedAt,
     workspaceRetention: {
-      reason:
-        issue.terminalOutcome === "success" ? "success" : "failure",
+      reason: issue.terminalOutcome === "success" ? "success" : "failure",
       state:
         issue.workspaceRetentionState === "unknown"
           ? "terminal-retained"
@@ -335,7 +334,7 @@ export function upsertTerminalIssue(
         issue.workspaceRetentionState === "unknown"
           ? "retain"
           : "cleanup",
-      },
+    },
     reportingState: issue.reportingState,
     reportingSummary: issue.reportingSummary,
     reportingReceiptFile: issue.reportingReceiptFile,

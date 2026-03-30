@@ -774,7 +774,8 @@ export class BootstrapOrchestrator implements Orchestrator {
           },
           {
             branchName:
-              existingTerminal?.branchName ?? this.#branchName(issue.issueNumber),
+              existingTerminal?.branchName ??
+              this.#branchName(issue.issueNumber),
             terminalOutcome:
               issue.currentOutcome === "succeeded" ? "success" : "failure",
             observedAt: issue.lastUpdatedAt,
@@ -835,7 +836,9 @@ export class BootstrapOrchestrator implements Orchestrator {
             title: issue.title,
           },
           {
-            branchName: existingTerminal?.branchName ?? this.#branchName(issue.issueNumber),
+            branchName:
+              existingTerminal?.branchName ??
+              this.#branchName(issue.issueNumber),
             terminalOutcome:
               issue.currentOutcome === "succeeded" ? "success" : "failure",
             observedAt: issue.lastUpdatedAt,
@@ -892,7 +895,9 @@ export class BootstrapOrchestrator implements Orchestrator {
             title: issue.title,
           },
           {
-            branchName: existingTerminal?.branchName ?? this.#branchName(issue.issueNumber),
+            branchName:
+              existingTerminal?.branchName ??
+              this.#branchName(issue.issueNumber),
             terminalOutcome:
               issue.currentOutcome === "succeeded" ? "success" : "failure",
             observedAt: issue.lastUpdatedAt,
@@ -906,11 +911,14 @@ export class BootstrapOrchestrator implements Orchestrator {
             fallbackBlockedStage: "report-generation",
           },
         );
-        scheduleTerminalIssueReportingRetry(this.#state.terminalIssueReporting, {
-          issueNumber: issue.issueNumber,
-          baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
-          maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
-        });
+        scheduleTerminalIssueReportingRetry(
+          this.#state.terminalIssueReporting,
+          {
+            issueNumber: issue.issueNumber,
+            baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+            maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+          },
+        );
         statusChanged = true;
       }
     }
@@ -2882,11 +2890,14 @@ export class BootstrapOrchestrator implements Orchestrator {
         })
       ) {
         if (receipt.state === "blocked") {
-          scheduleTerminalIssueReportingRetry(this.#state.terminalIssueReporting, {
-            issueNumber: issue.number,
-            baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
-            maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
-          });
+          scheduleTerminalIssueReportingRetry(
+            this.#state.terminalIssueReporting,
+            {
+              issueNumber: issue.number,
+              baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
+              maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
+            },
+          );
         } else {
           enqueueTerminalIssueReporting(
             this.#state.terminalIssueReporting,

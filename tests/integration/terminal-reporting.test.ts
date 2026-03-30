@@ -51,9 +51,9 @@ describe("terminal issue reporting", () => {
     expect(result.receipt.reportJsonFile).toBe(
       path.join(rootDir, ".var", "reports", "issues", "44", "report.json"),
     );
-    await expect(fs.readFile(result.receipt.reportJsonFile!, "utf8")).resolves.toContain(
-      '"issueNumber": 44',
-    );
+    await expect(
+      fs.readFile(result.receipt.reportJsonFile!, "utf8"),
+    ).resolves.toContain('"issueNumber": 44');
     await expect(
       fs.readFile(result.receipt.reportMarkdownFile!, "utf8"),
     ).resolves.toContain("## Summary");

@@ -1,11 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PromptBuilder, ResolvedConfig } from "../../src/domain/workflow.js";
+import type {
+  PromptBuilder,
+  ResolvedConfig,
+} from "../../src/domain/workflow.js";
 import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import { BootstrapOrchestrator } from "../../src/orchestrator/service.js";
 import type { Logger } from "../../src/observability/logger.js";
-import { createRunnerTransportMetadata, type Runner } from "../../src/runner/service.js";
+import {
+  createRunnerTransportMetadata,
+  type Runner,
+} from "../../src/runner/service.js";
 import type { Tracker } from "../../src/tracker/service.js";
 import type { WorkspaceManager } from "../../src/workspace/service.js";
 
@@ -199,9 +205,9 @@ const tempRoots: string[] = [];
 afterEach(async () => {
   vi.clearAllMocks();
   await Promise.all(
-    tempRoots.splice(0).map((root) =>
-      fs.rm(root, { recursive: true, force: true }),
-    ),
+    tempRoots
+      .splice(0)
+      .map((root) => fs.rm(root, { recursive: true, force: true })),
   );
 });
 

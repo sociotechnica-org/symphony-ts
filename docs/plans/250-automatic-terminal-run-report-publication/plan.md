@@ -267,16 +267,16 @@ One reporting subject is a terminal issue keyed by:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Issue reaches terminal success/failure, no receipt exists yet | current terminal issue artifacts and session/log pointers | issue is already terminal | create `pending-generation`, generate report immediately, then continue to publish or finalize |
-| Terminal issue has current report and no archive root configured | current report exists, no publish config | issue is terminal | mark/report `report-generated` with explicit “publication not configured” note |
-| Terminal issue has current report and configured archive root | current report exists, publish config resolves | issue is terminal | move to `pending-publication` and publish immediately |
-| Report generation fails (artifact parse error, write failure, stale invariant) | terminal artifacts plus error | issue is terminal | record `blocked` at generation stage; keep issue terminal and surface blocker |
-| Publication fails because archive root is missing/unwritable | current report exists plus publish error | issue is terminal | record `blocked` at publication stage with explicit archive-root error |
-| Publication succeeds with referenced/unavailable logs only | current report plus partial publish metadata | issue is terminal | record `publication-partial`; do not treat as blocked if required files landed |
-| Factory restarts and finds terminal issue with stale/missing receipt | terminal issue artifacts and maybe stale receipt | issue is terminal | reconcile: rerun only the missing step for the current terminal receipt |
-| Factory restarts and finds already-published current receipt | current report receipt and publish metadata | issue is terminal | do nothing; keep published/partial status visible |
+| Observed condition                                                             | Local facts available                                     | Normalized tracker facts available | Expected decision                                                                              |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Issue reaches terminal success/failure, no receipt exists yet                  | current terminal issue artifacts and session/log pointers | issue is already terminal          | create `pending-generation`, generate report immediately, then continue to publish or finalize |
+| Terminal issue has current report and no archive root configured               | current report exists, no publish config                  | issue is terminal                  | mark/report `report-generated` with explicit “publication not configured” note                 |
+| Terminal issue has current report and configured archive root                  | current report exists, publish config resolves            | issue is terminal                  | move to `pending-publication` and publish immediately                                          |
+| Report generation fails (artifact parse error, write failure, stale invariant) | terminal artifacts plus error                             | issue is terminal                  | record `blocked` at generation stage; keep issue terminal and surface blocker                  |
+| Publication fails because archive root is missing/unwritable                   | current report exists plus publish error                  | issue is terminal                  | record `blocked` at publication stage with explicit archive-root error                         |
+| Publication succeeds with referenced/unavailable logs only                     | current report plus partial publish metadata              | issue is terminal                  | record `publication-partial`; do not treat as blocked if required files landed                 |
+| Factory restarts and finds terminal issue with stale/missing receipt           | terminal issue artifacts and maybe stale receipt          | issue is terminal                  | reconcile: rerun only the missing step for the current terminal receipt                        |
+| Factory restarts and finds already-published current receipt                   | current report receipt and publish metadata               | issue is terminal                  | do nothing; keep published/partial status visible                                              |
 
 ## Storage And Persistence Contract
 

@@ -1525,7 +1525,9 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     const publicationEntries = await fs.readdir(publicationIssueRoot, {
       withFileTypes: true,
     });
-    const publicationDir = publicationEntries.find((entry) => entry.isDirectory());
+    const publicationDir = publicationEntries.find((entry) =>
+      entry.isDirectory(),
+    );
     expect(publicationDir?.name).toBeDefined();
     await expect(
       fs.readFile(
@@ -1665,7 +1667,9 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     await orchestrator.runOnce();
 
     const issue = server.getIssue(13);
-    expect(issue.labels.map((label) => label.name)).toContain("symphony:failed");
+    expect(issue.labels.map((label) => label.name)).toContain(
+      "symphony:failed",
+    );
     await expect(
       fs.readFile(
         path.join(tempDir, ".var", "reports", "issues", "13", "report.json"),

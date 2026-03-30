@@ -626,9 +626,7 @@ export function renderFactoryStatusSnapshot(
       lines.push(`    Summary: ${issue.summary}`);
       lines.push(`    Branch: ${issue.branchName}`);
       lines.push(`    Observed: ${issue.observedAt}`);
-      lines.push(
-        `    Workspace retention: ${issue.workspaceRetentionState}`,
-      );
+      lines.push(`    Workspace retention: ${issue.workspaceRetentionState}`);
       lines.push(
         `    Reporting: ${issue.reportingState ?? "unavailable"}${
           issue.reportingSummary === null ? "" : ` - ${issue.reportingSummary}`
@@ -1495,7 +1493,11 @@ function parseTerminalIssue(
 ): FactoryTerminalIssueSnapshot {
   const issue = expectObject(value, filePath, field);
   return {
-    issueNumber: expectInteger(issue.issueNumber, filePath, `${field}.issueNumber`),
+    issueNumber: expectInteger(
+      issue.issueNumber,
+      filePath,
+      `${field}.issueNumber`,
+    ),
     issueIdentifier: expectString(
       issue.issueIdentifier,
       filePath,
