@@ -234,15 +234,15 @@ This issue does not change retries, continuations, reconciliation, leases, or ha
 
 The detached archive-evidence path still needs an explicit failure matrix:
 
-| Observed condition | Local facts available | Expected decision |
-| --- | --- | --- |
-| Canonical session log pointer resolves to a readable local file | issue artifacts plus readable pointed file | copy the log into the archive and record it as `copied` |
-| Canonical pointer exists but local file is unreadable or missing | issue artifacts plus pointer metadata only | write a pointer/reference manifest and record it as `referenced` |
-| Canonical pointers are empty, but report/session evidence identifies a readable Codex JSONL file | canonical session facts plus readable matched Codex JSONL file | copy the raw Codex session log into the archive and record it as `copied` |
-| Canonical pointers are empty, report/session evidence identifies only an unreadable or missing raw log path | canonical session facts plus derived path or artifact reference only | preserve a reference manifest and record it as `referenced` if a meaningful path/reference exists |
-| No canonical pointers exist and no report/session evidence can identify any local raw log | canonical session facts only | record explicit `unavailable` / `absent` evidence notes without claiming success |
-| Multiple raw evidence sources describe the same session/log | pointer plus report-derived evidence or duplicate report-derived evidence | deduplicate deterministically and prefer the strongest local-copy source |
-| A matched raw log copy fails mid-publication | readable source was found but archive copy failed | preserve a reference manifest when possible, mark the publication partial, and keep required report files published |
+| Observed condition                                                                                          | Local facts available                                                     | Expected decision                                                                                                   |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Canonical session log pointer resolves to a readable local file                                             | issue artifacts plus readable pointed file                                | copy the log into the archive and record it as `copied`                                                             |
+| Canonical pointer exists but local file is unreadable or missing                                            | issue artifacts plus pointer metadata only                                | write a pointer/reference manifest and record it as `referenced`                                                    |
+| Canonical pointers are empty, but report/session evidence identifies a readable Codex JSONL file            | canonical session facts plus readable matched Codex JSONL file            | copy the raw Codex session log into the archive and record it as `copied`                                           |
+| Canonical pointers are empty, report/session evidence identifies only an unreadable or missing raw log path | canonical session facts plus derived path or artifact reference only      | preserve a reference manifest and record it as `referenced` if a meaningful path/reference exists                   |
+| No canonical pointers exist and no report/session evidence can identify any local raw log                   | canonical session facts only                                              | record explicit `unavailable` / `absent` evidence notes without claiming success                                    |
+| Multiple raw evidence sources describe the same session/log                                                 | pointer plus report-derived evidence or duplicate report-derived evidence | deduplicate deterministically and prefer the strongest local-copy source                                            |
+| A matched raw log copy fails mid-publication                                                                | readable source was found but archive copy failed                         | preserve a reference manifest when possible, mark the publication partial, and keep required report files published |
 
 ## Storage / Persistence Contract
 
