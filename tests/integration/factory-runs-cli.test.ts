@@ -16,6 +16,7 @@ import {
   ISSUE_REPORT_SCHEMA_VERSION,
   writeIssueReport,
 } from "../../src/observability/issue-report.js";
+import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
 import {
   checkoutGitBranch,
   commitAllFiles,
@@ -23,11 +24,13 @@ import {
   initializeGitRepo,
 } from "../support/git.js";
 import {
+  deriveCodexSessionsRoot,
   deriveReportInstance,
   downgradeIssueReportSchemaVersion,
   deriveWorkspaceRoot,
   seedFailedIssueArtifacts,
   seedSuccessfulIssueArtifacts,
+  writeCodexSessionLog,
   writeReportWorkflow,
 } from "../support/issue-report-fixtures.js";
 
@@ -552,6 +555,82 @@ Prompt body
     );
   });
 
+  it("copies report-derived Codex raw logs when canonical pointers are empty", async () => {
+    const sourceRoot = await createTempDir("symphony-factory-runs-codex-");
+    const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
+    tempRoots.push(sourceRoot, archiveRoot);
+
+    await writeReportWorkflow(sourceRoot);
+    const workspaceRoot = deriveWorkspaceRoot(sourceRoot);
+    const sessionsRoot = deriveCodexSessionsRoot(sourceRoot);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      backendSessionId: "codex-session-44-1",
+    });
+    await clearCanonicalLogPointers(workspaceRoot, 44);
+
+    const rawCodexLogPath = await writeCodexSessionLog({
+      sessionsRoot,
+      startedAt: "2026-03-09T10:05:00.000Z",
+      workspacePath: path.join(workspaceRoot, "issue-44"),
+      branch: "symphony/44",
+      fileName: "rollout-2026-03-09T10-05-00-issue-44.jsonl",
+      sessionMetaId: "codex-session-44-1",
+      totalTokens: 3210,
+      finalSummary:
+        "- Preserved the durable Codex JSONL log alongside the archive report.",
+    });
+
+    await initializeGitRepo(sourceRoot);
+    await checkoutGitBranch(sourceRoot, "symphony/44");
+    await writeIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T10:25:30.123Z",
+      enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
+    });
+    const sourceHeadSha = await commitAllFiles(
+      sourceRoot,
+      "seed codex raw-log publish inputs",
+    );
+
+    await initializeGitRepo(archiveRoot);
+
+    const published = await publishIssueToFactoryRuns({
+      workspaceRoot,
+      sourceRoot,
+      archiveRoot,
+      issueNumber: 44,
+    });
+
+    const publicationRoot = path.join(
+      archiveRoot,
+      "symphony-ts",
+      "issues",
+      "44",
+      deriveFactoryRunsPublicationId("2026-03-09T10:25:30.123Z", sourceHeadSha),
+    );
+    const archivedLogPath = path.join(
+      publicationRoot,
+      "logs",
+      encodeURIComponent(
+        "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
+      ),
+      path.basename(rawCodexLogPath),
+    );
+
+    expect(published.status).toBe("complete");
+    expect(published.metadata.logs.copiedCount).toBe(1);
+    expect(published.metadata.logs.referencedCount).toBe(0);
+    expect(published.metadata.logs.unavailableCount).toBe(0);
+    expect(published.metadata.logs.entries[0]).toMatchObject({
+      sessionId: "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
+      logName: path.basename(rawCodexLogPath),
+      status: "copied",
+      sourceLocation: rawCodexLogPath,
+    });
+    await expect(fs.readFile(archivedLogPath, "utf8")).resolves.toContain(
+      '"type":"session_meta"',
+    );
+  });
+
   it("captures commit-range metadata when the source remote default branch is origin/master", async () => {
     const sourceRoot = await createTempDir("symphony-factory-runs-master-");
     const archiveRoot = await createTempDir("symphony-factory-runs-archive-");
@@ -808,9 +887,72 @@ Prompt body
     expect(published.metadata.logs.status).toBe("unavailable");
     expect(published.metadata.logs.copiedCount).toBe(0);
     expect(published.metadata.logs.referencedCount).toBe(0);
+    expect(published.metadata.logs.unavailableCount).toBe(1);
+    expect(published.metadata.logs.entries).toEqual([
+      expect.objectContaining({
+        sessionId: "sociotechnica-org/symphony-ts#44/attempt-2/session-1",
+        logName: "raw-log",
+        status: "unavailable",
+        note: "No local or archived log reference was available for this session log.",
+      }),
+    ]);
     expect(published.metadata.notes).toContain(
       "No session logs were available for publication.",
     );
     expect(workflowPath).toContain("WORKFLOW.md");
   });
 });
+
+async function clearCanonicalLogPointers(
+  workspaceRoot: string,
+  issueNumber: number,
+): Promise<void> {
+  const artifactPaths = deriveIssueArtifactPaths(workspaceRoot, issueNumber);
+  const sessionId = `sociotechnica-org/symphony-ts#${issueNumber.toString()}/attempt-1/session-1`;
+  const sessionFile = path.join(
+    artifactPaths.sessionsDir,
+    `${encodeURIComponent(sessionId)}.json`,
+  );
+
+  const session = JSON.parse(await fs.readFile(sessionFile, "utf8")) as {
+    readonly logPointers?: unknown;
+  };
+  await fs.writeFile(
+    sessionFile,
+    `${JSON.stringify(
+      {
+        ...session,
+        logPointers: [],
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  const logPointers = JSON.parse(
+    await fs.readFile(artifactPaths.logPointersFile, "utf8"),
+  ) as IssueArtifactLogPointersDocument;
+  const sessionEntry = logPointers.sessions[sessionId];
+  if (sessionEntry === undefined) {
+    throw new Error(`Expected log pointers for ${sessionId}`);
+  }
+  await fs.writeFile(
+    artifactPaths.logPointersFile,
+    `${JSON.stringify(
+      {
+        ...logPointers,
+        sessions: {
+          ...logPointers.sessions,
+          [sessionId]: {
+            ...sessionEntry,
+            pointers: [],
+          },
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
