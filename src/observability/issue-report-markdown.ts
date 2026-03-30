@@ -209,7 +209,7 @@ function renderTimelineEntry(entry: IssueReportTimelineEntry): string {
 function renderPullRequestActivity(
   pullRequest: IssueReportPullRequestActivity,
 ): string {
-  return `- PR #${pullRequest.number.toString()}: ${pullRequest.url}; attempts ${renderNumberList(pullRequest.attemptNumbers)}; first observed ${renderValue(pullRequest.firstObservedAt)}; latest commit ${renderValue(pullRequest.latestCommitAt)}; review rounds ${pullRequest.reviewFeedbackRounds.toString()}; actionable ${renderNumber(pullRequest.actionableReviewCount)}; unresolved threads ${renderNumber(pullRequest.unresolvedThreadCount)}; pending checks ${renderList(pullRequest.pendingChecks)}; failing checks ${renderList(pullRequest.failingChecks)}`;
+  return `- PR #${pullRequest.number.toString()}: ${pullRequest.url}; attempts ${renderNumberList(pullRequest.attemptNumbers)}; first observed ${renderValue(pullRequest.firstObservedAt)}; latest commit ${renderValue(pullRequest.latestCommitAt)}; review rounds ${pullRequest.reviewFeedbackRounds.toString()}; actionable ${renderNumber(pullRequest.actionableReviewCount)}; unresolved threads ${renderNumber(pullRequest.unresolvedThreadCount)}; reviewer verdict ${renderReviewerVerdict(pullRequest)}; required reviewer ${renderValue(pullRequest.requiredReviewerState)}; pending checks ${renderList(pullRequest.pendingChecks)}; failing checks ${renderList(pullRequest.failingChecks)}`;
 }
 
 function renderValue(value: string | null, fallback = "Unavailable"): string {
@@ -232,6 +232,20 @@ function renderNumberList(values: readonly number[]): string {
   return values.length === 0
     ? "Unavailable"
     : values.map((value) => value.toString()).join(", ");
+}
+
+function renderReviewerVerdict(
+  pullRequest: IssueReportPullRequestActivity,
+): string {
+  if (pullRequest.reviewerVerdict === null) {
+    return "Unavailable";
+  }
+  if (pullRequest.reviewerVerdict === "blocking-issues-found") {
+    return pullRequest.blockingReviewerKeys.length === 0
+      ? "blocking-issues-found"
+      : `blocking-issues-found (${pullRequest.blockingReviewerKeys.join(", ")})`;
+  }
+  return pullRequest.reviewerVerdict;
 }
 
 function renderMultilineSummary(value: string): readonly string[] {

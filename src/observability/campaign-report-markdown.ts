@@ -121,6 +121,9 @@ export function renderCampaignGitHubActivityMarkdown(
     `- Unresolved thread count: ${renderNumber(digest.githubActivity.unresolvedThreadCount)}`,
   );
   lines.push(
+    `- Blocking reviewer-app verdicts: ${renderNumber(digest.githubActivity.blockingReviewerVerdictCount)}`,
+  );
+  lines.push(
     `- Pending checks: ${renderPatternList(digest.githubActivity.pendingChecks)}`,
   );
   lines.push(
@@ -158,6 +161,12 @@ export function renderCampaignGitHubActivityMarkdown(
       );
       lines.push(
         `  - Unresolved threads: ${renderNumber(pullRequest.unresolvedThreadCount)}`,
+      );
+      lines.push(
+        `  - Reviewer verdict: ${renderReviewerVerdict(pullRequest.reviewerVerdict, pullRequest.blockingReviewerKeys)}`,
+      );
+      lines.push(
+        `  - Required reviewer state: ${renderValue(pullRequest.requiredReviewerState)}`,
       );
       lines.push(
         `  - Pending checks: ${renderNameList(pullRequest.pendingChecks)}`,
@@ -316,4 +325,19 @@ function renderNumber(value: number | null): string {
 
 function renderCurrency(value: number | null): string {
   return value === null ? "Unavailable" : value.toFixed(2);
+}
+
+function renderReviewerVerdict(
+  reviewerVerdict: string | null,
+  blockingReviewerKeys: readonly string[],
+): string {
+  if (reviewerVerdict === null) {
+    return "Unavailable";
+  }
+  if (reviewerVerdict === "blocking-issues-found") {
+    return blockingReviewerKeys.length === 0
+      ? "blocking-issues-found"
+      : `blocking-issues-found (${blockingReviewerKeys.join(", ")})`;
+  }
+  return reviewerVerdict;
 }

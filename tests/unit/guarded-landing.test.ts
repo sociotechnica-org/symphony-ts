@@ -22,6 +22,7 @@ function createSnapshot(
     draft: false,
     pendingCheckNames: [],
     failingCheckNames: [],
+    reviewerVerdict: "no-blocking-verdict",
     botActionableReviewFeedback: [],
     unresolvedReviewThreadCount: 0,
     requiredReviewerState: "satisfied",
@@ -175,6 +176,21 @@ describe("evaluateGuardedLanding", () => {
       kind: "blocked",
       reason: "actionable-review-feedback",
       lifecycleKind: "rework-required",
+    });
+  });
+
+  it("rejects an explicit reviewer-app blocking verdict even without open threads", () => {
+    const result = evaluateGuardedLanding(
+      createSnapshot({
+        reviewerVerdict: "blocking-issues-found",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "blocked",
+      reason: "actionable-review-feedback",
+      lifecycleKind: "rework-required",
+      summary: expect.stringContaining("explicitly reported issues"),
     });
   });
 

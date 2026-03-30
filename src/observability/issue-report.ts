@@ -1,5 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type {
+  PullRequestRequiredReviewerState,
+  PullRequestReviewerVerdict,
+} from "../domain/handoff.js";
 import { ObservabilityError } from "../domain/errors.js";
 import {
   coerceRuntimeInstancePaths,
@@ -91,6 +95,9 @@ export interface IssueReportPullRequestActivity {
   readonly reviewFeedbackRounds: number;
   readonly actionableReviewCount: number | null;
   readonly unresolvedThreadCount: number | null;
+  readonly reviewerVerdict: PullRequestReviewerVerdict | null;
+  readonly blockingReviewerKeys: readonly string[];
+  readonly requiredReviewerState: PullRequestRequiredReviewerState | null;
   readonly pendingChecks: readonly string[];
   readonly failingChecks: readonly string[];
 }
@@ -1191,6 +1198,9 @@ function collectPullRequests(
       reviewFeedbackRounds: number;
       actionableReviewCount: number | null;
       unresolvedThreadCount: number | null;
+      reviewerVerdict: PullRequestReviewerVerdict | null;
+      blockingReviewerKeys: readonly string[];
+      requiredReviewerState: PullRequestRequiredReviewerState | null;
       pendingChecks: readonly string[];
       failingChecks: readonly string[];
     }
@@ -1225,6 +1235,16 @@ function collectPullRequests(
       unresolvedThreadCount:
         attempt.review?.unresolvedThreadCount ??
         existing?.unresolvedThreadCount ??
+        null,
+      reviewerVerdict:
+        attempt.review?.reviewerVerdict ?? existing?.reviewerVerdict ?? null,
+      blockingReviewerKeys:
+        attempt.review?.blockingReviewerKeys ??
+        existing?.blockingReviewerKeys ??
+        [],
+      requiredReviewerState:
+        attempt.review?.requiredReviewerState ??
+        existing?.requiredReviewerState ??
         null,
       pendingChecks:
         attempt.checks?.pendingNames ?? existing?.pendingChecks ?? [],
@@ -1266,6 +1286,18 @@ function collectPullRequests(
         readReviewFromDetails(event.details)?.unresolvedThreadCount ??
         existing?.unresolvedThreadCount ??
         null,
+      reviewerVerdict:
+        readReviewFromDetails(event.details)?.reviewerVerdict ??
+        existing?.reviewerVerdict ??
+        null,
+      blockingReviewerKeys:
+        readReviewFromDetails(event.details)?.blockingReviewerKeys ??
+        existing?.blockingReviewerKeys ??
+        [],
+      requiredReviewerState:
+        readReviewFromDetails(event.details)?.requiredReviewerState ??
+        existing?.requiredReviewerState ??
+        null,
       pendingChecks:
         readChecksFromDetails(event.details)?.pendingNames ??
         existing?.pendingChecks ??
@@ -1289,6 +1321,9 @@ function collectPullRequests(
       reviewFeedbackRounds: value.reviewFeedbackRounds,
       actionableReviewCount: value.actionableReviewCount,
       unresolvedThreadCount: value.unresolvedThreadCount,
+      reviewerVerdict: value.reviewerVerdict,
+      blockingReviewerKeys: value.blockingReviewerKeys,
+      requiredReviewerState: value.requiredReviewerState,
       pendingChecks: value.pendingChecks,
       failingChecks: value.failingChecks,
     }))
@@ -1319,8 +1354,18 @@ function buildReviewLoopSummary(
   pullRequests: readonly IssueReportPullRequestActivity[],
   reviewFeedbackRounds: number,
 ): string {
+  const blockingReviewerVerdicts = pullRequests.filter(
+    (pullRequest) => pullRequest.reviewerVerdict === "blocking-issues-found",
+  );
   if (pullRequests.length === 0) {
     return "No pull request was observed in canonical local artifacts.";
+  }
+  if (blockingReviewerVerdicts.length > 0) {
+    const blockingSummary = `Observed reviewer-app blocking verdicts on ${blockingReviewerVerdicts.length.toString()} pull request(s) in canonical local artifacts.`;
+    if (reviewFeedbackRounds === 0) {
+      return blockingSummary;
+    }
+    return `${blockingSummary} Recorded ${reviewFeedbackRounds.toString()} review-feedback round(s) across ${pullRequests.length.toString()} pull request(s).`;
   }
   if (reviewFeedbackRounds === 0) {
     return "A pull request was observed with no recorded actionable review-feedback rounds in canonical local artifacts.";
@@ -1449,9 +1494,26 @@ function readReviewFromDetails(
   ) {
     return null;
   }
+  const reviewerVerdict =
+    value["reviewerVerdict"] === "no-blocking-verdict" ||
+    value["reviewerVerdict"] === "blocking-issues-found"
+      ? value["reviewerVerdict"]
+      : undefined;
+  const blockingReviewerKeys = asStringArray(value["blockingReviewerKeys"]);
+  const requiredReviewerState =
+    value["requiredReviewerState"] === "not-required" ||
+    value["requiredReviewerState"] === "running" ||
+    value["requiredReviewerState"] === "missing" ||
+    value["requiredReviewerState"] === "unknown" ||
+    value["requiredReviewerState"] === "satisfied"
+      ? value["requiredReviewerState"]
+      : undefined;
   return {
     actionableCount: value["actionableCount"],
     unresolvedThreadCount: value["unresolvedThreadCount"],
+    reviewerVerdict,
+    blockingReviewerKeys: blockingReviewerKeys ?? undefined,
+    requiredReviewerState,
   };
 }
 
@@ -1519,6 +1581,14 @@ function formatEventDetails(
     rendered.push(
       `Review: ${review.actionableCount.toString()} actionable, ${review.unresolvedThreadCount.toString()} unresolved thread(s)`,
     );
+    if (review.reviewerVerdict !== undefined) {
+      rendered.push(
+        `Reviewer apps: ${renderReviewerVerdict(review.reviewerVerdict, review.blockingReviewerKeys ?? [])}`,
+      );
+    }
+    if (review.requiredReviewerState !== undefined) {
+      rendered.push(`Required reviewer state: ${review.requiredReviewerState}`);
+    }
   }
 
   const checks = readChecksFromDetails(details);
@@ -1542,6 +1612,18 @@ function formatEventDetails(
   }
 
   return rendered;
+}
+
+function renderReviewerVerdict(
+  reviewerVerdict: PullRequestReviewerVerdict,
+  blockingReviewerKeys: readonly string[],
+): string {
+  if (reviewerVerdict === "blocking-issues-found") {
+    return blockingReviewerKeys.length === 0
+      ? "blocking issues found"
+      : `blocking issues found (${blockingReviewerKeys.join(", ")})`;
+  }
+  return "no blocking verdict";
 }
 
 function compareTimelineEntries(

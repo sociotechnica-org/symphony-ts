@@ -1,5 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type {
+  PullRequestRequiredReviewerState,
+  PullRequestReviewerVerdict,
+} from "../domain/handoff.js";
 import { ObservabilityError } from "../domain/errors.js";
 import type { ActiveRunExecutionOwner } from "../domain/execution-owner.js";
 import {
@@ -98,6 +102,9 @@ export interface IssueArtifactPullRequestSnapshot {
 export interface IssueArtifactReviewSnapshot {
   readonly actionableCount: number;
   readonly unresolvedThreadCount: number;
+  readonly reviewerVerdict?: PullRequestReviewerVerdict | undefined;
+  readonly blockingReviewerKeys?: readonly string[] | undefined;
+  readonly requiredReviewerState?: PullRequestRequiredReviewerState | undefined;
 }
 
 export interface IssueArtifactCheckSnapshot {

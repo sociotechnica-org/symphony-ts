@@ -13,6 +13,7 @@ export interface GuardedLandingSnapshot {
   readonly draft: boolean;
   readonly pendingCheckNames: readonly string[];
   readonly failingCheckNames: readonly string[];
+  readonly reviewerVerdict: PullRequestSnapshot["reviewerVerdict"];
   readonly botActionableReviewFeedback: PullRequestSnapshot["botActionableReviewFeedback"];
   readonly unresolvedReviewThreadCount: number;
   readonly requiredReviewerState: PullRequestSnapshot["requiredReviewerState"];
@@ -105,6 +106,15 @@ export function evaluateGuardedLanding(
       reason: "pull-request-not-mergeable",
       lifecycleKind: "awaiting-landing",
       summary: `Landing blocked for ${formatPullRequest(snapshot)} because GitHub reports merge state '${snapshot.mergeStateStatus}'.`,
+    };
+  }
+
+  if (snapshot.reviewerVerdict === "blocking-issues-found") {
+    return {
+      kind: "blocked",
+      reason: "actionable-review-feedback",
+      lifecycleKind: "rework-required",
+      summary: `Landing blocked for ${formatPullRequest(snapshot)} because a reviewer app explicitly reported issues on the current head.`,
     };
   }
 

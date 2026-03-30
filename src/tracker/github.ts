@@ -139,6 +139,9 @@ export class GitHubTracker implements Tracker {
         failingCheckNames: [],
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
+        reviewerVerdict: "no-blocking-verdict",
+        blockingReviewerKeys: [],
+        requiredReviewerState: "not-required",
         summary: `Pull request ${pullRequest.html_url} has merged`,
       };
     }
@@ -217,6 +220,7 @@ export class GitHubTracker implements Tracker {
       draft: latestPullRequest.draft,
       pendingCheckNames: snapshot.pendingCheckNames,
       failingCheckNames: snapshot.failingCheckNames,
+      reviewerVerdict: snapshot.reviewerVerdict,
       botActionableReviewFeedback: snapshot.botActionableReviewFeedback,
       unresolvedReviewThreadCount: snapshot.actionableReviewFeedback.filter(
         (feedback) =>

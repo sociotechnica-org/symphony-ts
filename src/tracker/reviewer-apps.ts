@@ -3,6 +3,10 @@ import type {
   PullRequestCheck,
 } from "../domain/pull-request.js";
 import type {
+  PullRequestRequiredReviewerState,
+  PullRequestReviewerVerdict,
+} from "../domain/handoff.js";
+import type {
   GitHubCompatibleTrackerConfig,
   GitHubReviewerAppConfig,
 } from "../domain/workflow.js";
@@ -47,13 +51,6 @@ const REVIEWER_APP_ADAPTERS = new Map<string, GitHubReviewerAppAdapter>([
   [devinReviewerAppAdapter.key, devinReviewerAppAdapter],
 ]);
 
-export type RequiredReviewerState =
-  | "not-required"
-  | "running"
-  | "missing"
-  | "unknown"
-  | "satisfied";
-
 export function getConfiguredReviewerAppLogins(
   config: Pick<
     GitHubCompatibleTrackerConfig,
@@ -78,7 +75,7 @@ export function getConfiguredReviewerAppLogins(
 
 export function evaluateRequiredReviewerState(
   reviewerApps: readonly ReviewerAppSnapshot[],
-): RequiredReviewerState {
+): PullRequestRequiredReviewerState {
   const requiredReviewerApps = reviewerApps.filter(
     (reviewer) => reviewer.required,
   );
@@ -97,6 +94,27 @@ export function evaluateRequiredReviewerState(
     return "unknown";
   }
   return "satisfied";
+}
+
+export function evaluateReviewerVerdict(input: {
+  reviewerApps: readonly ReviewerAppSnapshot[];
+}): {
+  readonly verdict: PullRequestReviewerVerdict;
+  readonly blockingReviewerKeys: readonly string[];
+} {
+  const blockingReviewerKeys = input.reviewerApps
+    .filter(
+      (reviewer) => reviewer.accepted && reviewer.verdict === "issues-found",
+    )
+    .map((reviewer) => reviewer.reviewerKey);
+
+  return {
+    verdict:
+      blockingReviewerKeys.length > 0
+        ? "blocking-issues-found"
+        : "no-blocking-verdict",
+    blockingReviewerKeys,
+  };
 }
 
 export function createReviewerAppSnapshots(input: {

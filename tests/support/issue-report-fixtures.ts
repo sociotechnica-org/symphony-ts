@@ -1,5 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type {
+  PullRequestRequiredReviewerState,
+  PullRequestReviewerVerdict,
+} from "../../src/domain/handoff.js";
 import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import {
   ISSUE_ARTIFACT_SCHEMA_VERSION,
@@ -88,6 +92,17 @@ export async function seedSuccessfulIssueArtifacts(
     readonly succeededAt?: string | undefined;
     readonly finalCommitAt?: string | undefined;
     readonly accounting?: RunnerAccountingSnapshot | undefined;
+    readonly review?:
+      | {
+          readonly actionableCount?: number | undefined;
+          readonly unresolvedThreadCount?: number | undefined;
+          readonly reviewerVerdict?: PullRequestReviewerVerdict | undefined;
+          readonly blockingReviewerKeys?: readonly string[] | undefined;
+          readonly requiredReviewerState?:
+            | PullRequestRequiredReviewerState
+            | undefined;
+        }
+      | undefined;
     readonly backendSessionId?: string | undefined;
     readonly backendThreadId?: string | undefined;
   },
@@ -107,6 +122,14 @@ export async function seedSuccessfulIssueArtifacts(
   const latestCommitAt = options?.latestCommitAt ?? "2026-03-09T10:09:30.000Z";
   const succeededAt = options?.succeededAt ?? "2026-03-09T10:20:00.000Z";
   const finalCommitAt = options?.finalCommitAt ?? "2026-03-09T10:19:00.000Z";
+  const review = {
+    actionableCount: options?.review?.actionableCount ?? 0,
+    unresolvedThreadCount: options?.review?.unresolvedThreadCount ?? 0,
+    reviewerVerdict: options?.review?.reviewerVerdict ?? "no-blocking-verdict",
+    blockingReviewerKeys: options?.review?.blockingReviewerKeys ?? [],
+    requiredReviewerState:
+      options?.review?.requiredReviewerState ?? "satisfied",
+  };
 
   await store.recordObservation({
     issue: {
@@ -180,8 +203,11 @@ export async function seedSuccessfulIssueArtifacts(
         latestCommitAt,
       },
       review: {
-        actionableCount: 0,
-        unresolvedThreadCount: 0,
+        actionableCount: review.actionableCount,
+        unresolvedThreadCount: review.unresolvedThreadCount,
+        reviewerVerdict: review.reviewerVerdict,
+        blockingReviewerKeys: review.blockingReviewerKeys,
+        requiredReviewerState: review.requiredReviewerState,
       },
       checks: {
         pendingNames: ["CI"],
@@ -257,8 +283,11 @@ export async function seedSuccessfulIssueArtifacts(
             latestCommitAt,
           },
           review: {
-            actionableCount: 0,
-            unresolvedThreadCount: 0,
+            actionableCount: review.actionableCount,
+            unresolvedThreadCount: review.unresolvedThreadCount,
+            reviewerVerdict: review.reviewerVerdict,
+            blockingReviewerKeys: review.blockingReviewerKeys,
+            requiredReviewerState: review.requiredReviewerState,
           },
           checks: {
             pendingNames: ["CI"],
@@ -299,8 +328,11 @@ export async function seedSuccessfulIssueArtifacts(
             latestCommitAt: finalCommitAt,
           },
           review: {
-            actionableCount: 0,
-            unresolvedThreadCount: 0,
+            actionableCount: review.actionableCount,
+            unresolvedThreadCount: review.unresolvedThreadCount,
+            reviewerVerdict: review.reviewerVerdict,
+            blockingReviewerKeys: review.blockingReviewerKeys,
+            requiredReviewerState: review.requiredReviewerState,
           },
           checks: {
             pendingNames: [],

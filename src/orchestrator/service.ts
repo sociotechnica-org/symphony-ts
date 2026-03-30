@@ -2304,6 +2304,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       failingCheckNames: [],
       actionableReviewFeedback: [],
       unresolvedThreadIds: [],
+      reviewerVerdict: "no-blocking-verdict",
+      blockingReviewerKeys: [],
+      requiredReviewerState: "not-required",
       summary: `No open pull request found for ${branchName}`,
     };
   }
@@ -3314,6 +3317,9 @@ export class BootstrapOrchestrator implements Orchestrator {
       review: {
         actionableCount: lifecycle.actionableReviewFeedback.length,
         unresolvedThreadCount: lifecycle.unresolvedThreadIds.length,
+        reviewerVerdict: lifecycle.reviewerVerdict,
+        blockingReviewerKeys: [...lifecycle.blockingReviewerKeys],
+        requiredReviewerState: lifecycle.requiredReviewerState,
       },
     };
   }
@@ -3514,6 +3520,9 @@ export class BootstrapOrchestrator implements Orchestrator {
     return {
       actionableCount: lifecycle.actionableReviewFeedback.length,
       unresolvedThreadCount: lifecycle.unresolvedThreadIds.length,
+      reviewerVerdict: lifecycle.reviewerVerdict,
+      blockingReviewerKeys: [...lifecycle.blockingReviewerKeys],
+      requiredReviewerState: lifecycle.requiredReviewerState,
     };
   }
 

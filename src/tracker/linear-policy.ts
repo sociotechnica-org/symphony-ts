@@ -245,6 +245,9 @@ function linearLifecycle(
     failingCheckNames: [],
     actionableReviewFeedback: [],
     unresolvedThreadIds: [],
+    reviewerVerdict: "no-blocking-verdict",
+    blockingReviewerKeys: [],
+    requiredReviewerState: "not-required",
     summary,
   };
 }
