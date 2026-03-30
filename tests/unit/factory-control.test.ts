@@ -1637,6 +1637,68 @@ describe("startFactory", () => {
     expect(launchScreenSession).not.toHaveBeenCalled();
   });
 
+  it("starts when halt metadata is unreadable but runtime control is otherwise stopped", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    const workerPid = 9101;
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+
+    const result = await startFactory({
+      ...createControlDeps({
+        haltRaw: "{",
+        launchScreenSession: async () => {
+          sessionsState.push({
+            id: "9002.symphony-factory",
+            pid: 9002,
+            name: "symphony-factory",
+            state: "Detached",
+          });
+          processesState.push(
+            { pid: 9002, ppid: 1, command: "screen -dmS symphony-factory" },
+            { pid: workerPid, ppid: 9002, command: "node bin/symphony.ts run" },
+          );
+          currentSnapshot = createStatusSnapshot(workerPid, {
+            factoryState: "running",
+          });
+        },
+      }),
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          return "{";
+        }
+        if (filePath.endsWith("startup.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (currentSnapshot === null) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(result.kind).toBe("started");
+    expect(result.status.controlState).toBe("running");
+    expect(result.status.factoryHalt).toMatchObject({
+      state: "degraded",
+    });
+    expect(result.status.problems).toEqual([]);
+  });
+
   it("times out when the detached runtime never becomes healthy after launch", async () => {
     const launched: Array<{
       runtimeRoot: string;
@@ -2292,19 +2354,18 @@ describe("pauseFactory and resumeFactory", () => {
     expect(resumed.status.factoryHalt).toEqual(createFactoryHaltSnapshot());
   });
 
-  it("treats malformed halt state as degraded control", async () => {
+  it("surfaces malformed halt state without degrading stopped runtime control", async () => {
     const snapshot = await inspectFactoryControl(
       createControlDeps({
         haltRaw: "{",
       }),
     );
-    expect(snapshot.controlState).toBe("degraded");
+    expect(snapshot.controlState).toBe("stopped");
     expect(snapshot.factoryHalt.state).toBe("degraded");
-    expect(snapshot.problems).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("Failed to parse factory halt state"),
-      ]),
+    expect(snapshot.factoryHalt.detail).toEqual(
+      expect.stringContaining("Failed to parse factory halt state"),
     );
+    expect(snapshot.problems).toEqual([]);
   });
 });
 

@@ -599,10 +599,6 @@ async function inspectFactoryControlAtPaths(
   if (startupRead.error !== null) {
     problems.push(startupRead.error.message);
   }
-  if (factoryHalt.state === "degraded" && factoryHalt.detail !== null) {
-    problems.push(factoryHalt.detail);
-  }
-
   const workerAlive =
     snapshotRead.snapshot === null
       ? false
@@ -627,9 +623,7 @@ async function inspectFactoryControlAtPaths(
   }
 
   let controlState: FactoryControlState = "stopped";
-  if (factoryHalt.state === "degraded") {
-    controlState = "degraded";
-  } else if (liveSessions.length === 0 && processIds.length === 0) {
+  if (liveSessions.length === 0 && processIds.length === 0) {
     controlState =
       startup !== null && startup.stale && startup.state !== "ready"
         ? "degraded"
