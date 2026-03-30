@@ -240,6 +240,13 @@ export interface GeneratedIssueReport {
   readonly outputPaths: IssueReportPaths;
 }
 
+interface AttemptStartTimelineState {
+  primaryStartEntryIndex: number | null;
+  latestVisibleStartEntryIndex: number | null;
+  pendingRecoveryCue: IssueArtifactEvent | null;
+  closed: boolean;
+}
+
 export function deriveIssueReportsRoot(instance: RuntimeInstanceInput): string {
   return coerceRuntimeInstancePaths(instance).issueReportsRoot;
 }
@@ -605,7 +612,7 @@ function buildTimeline(
   loaded: LoadedIssueArtifacts,
   summary: IssueReportSummary,
 ): readonly IssueReportTimelineEntry[] {
-  const eventEntries = loaded.events.map((event) => buildTimelineEntry(event));
+  const eventEntries = buildEventTimelineEntries(loaded.events);
   const derivedEntries: IssueReportTimelineEntry[] = [];
   const runnerSpawnedAttempts = new Set(
     loaded.events
@@ -672,6 +679,206 @@ function buildTimeline(
   }
 
   return [...eventEntries, ...derivedEntries].sort(compareTimelineEntries);
+}
+
+function buildEventTimelineEntries(
+  events: readonly IssueArtifactEvent[],
+): readonly IssueReportTimelineEntry[] {
+  const entries: IssueReportTimelineEntry[] = [];
+  const attemptStartStates = new Map<number, AttemptStartTimelineState>();
+
+  for (const event of events) {
+    if (event.kind === "runner-spawned") {
+      appendRunnerSpawnTimelineEntry(entries, attemptStartStates, event);
+      continue;
+    }
+
+    entries.push(buildTimelineEntry(event));
+    updateAttemptStartTimelineState(attemptStartStates, event);
+  }
+
+  return entries;
+}
+
+function appendRunnerSpawnTimelineEntry(
+  entries: IssueReportTimelineEntry[],
+  attemptStartStates: Map<number, AttemptStartTimelineState>,
+  event: IssueArtifactEvent,
+): void {
+  if (event.attemptNumber === null) {
+    entries.push(buildTimelineEntry(event));
+    return;
+  }
+
+  const state = getAttemptStartTimelineState(
+    attemptStartStates,
+    event.attemptNumber,
+  );
+  if (state.primaryStartEntryIndex === null || state.closed) {
+    entries.push(buildTimelineEntry(event));
+    const entryIndex = entries.length - 1;
+    state.primaryStartEntryIndex = entryIndex;
+    state.latestVisibleStartEntryIndex = entryIndex;
+    state.pendingRecoveryCue = null;
+    state.closed = false;
+    return;
+  }
+
+  if (state.pendingRecoveryCue !== null) {
+    entries.push(
+      buildAttemptResumedTimelineEntry(event, state.pendingRecoveryCue),
+    );
+    state.latestVisibleStartEntryIndex = entries.length - 1;
+    state.pendingRecoveryCue = null;
+    return;
+  }
+
+  const visibleEntryIndex =
+    state.latestVisibleStartEntryIndex ?? state.primaryStartEntryIndex;
+
+  const visibleEntry = entries[visibleEntryIndex];
+  if (visibleEntry === undefined) {
+    entries.push(buildTimelineEntry(event));
+    const entryIndex = entries.length - 1;
+    state.latestVisibleStartEntryIndex = entryIndex;
+    return;
+  }
+  entries[visibleEntryIndex] = {
+    ...visibleEntry,
+    summary: summarizeCollapsedAttemptStart(visibleEntry.summary),
+    details: [
+      ...visibleEntry.details,
+      formatCollapsedAttemptStartEvidence(event),
+    ],
+  };
+}
+
+function getAttemptStartTimelineState(
+  attemptStartStates: Map<number, AttemptStartTimelineState>,
+  attemptNumber: number,
+): AttemptStartTimelineState {
+  const existing = attemptStartStates.get(attemptNumber);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const created: AttemptStartTimelineState = {
+    primaryStartEntryIndex: null,
+    latestVisibleStartEntryIndex: null,
+    pendingRecoveryCue: null,
+    closed: false,
+  };
+  attemptStartStates.set(attemptNumber, created);
+  return created;
+}
+
+function updateAttemptStartTimelineState(
+  attemptStartStates: Map<number, AttemptStartTimelineState>,
+  event: IssueArtifactEvent,
+): void {
+  if (event.attemptNumber === null) {
+    return;
+  }
+
+  const state = getAttemptStartTimelineState(
+    attemptStartStates,
+    event.attemptNumber,
+  );
+
+  switch (event.kind) {
+    case "shutdown-requested":
+    case "shutdown-terminated":
+      if (state.primaryStartEntryIndex !== null && !state.closed) {
+        state.pendingRecoveryCue = event;
+      }
+      break;
+    case "retry-scheduled":
+    case "succeeded":
+    case "failed":
+      state.pendingRecoveryCue = null;
+      state.closed = true;
+      break;
+    case "claimed":
+    case "plan-ready":
+    case "approved":
+    case "waived":
+    case "landing-command-observed":
+    case "report-published":
+    case "report-review-recorded":
+    case "report-follow-up-filed":
+    case "runner-spawned":
+    case "pr-opened":
+    case "landing-blocked":
+    case "landing-failed":
+    case "landing-requested":
+    case "review-feedback":
+      break;
+  }
+}
+
+function buildAttemptResumedTimelineEntry(
+  event: IssueArtifactEvent,
+  recoveryCue: IssueArtifactEvent,
+): IssueReportTimelineEntry {
+  const summary =
+    recoveryCue.kind === "shutdown-requested"
+      ? "A local coding-agent session resumed for the same attempt after an intentional shutdown request."
+      : "A local coding-agent session resumed for the same attempt after shutdown interrupted the prior run.";
+
+  return {
+    kind: "attempt-started",
+    at: event.observedAt,
+    title: `Attempt ${renderAttemptNumber(event.attemptNumber)} resumed after shutdown`,
+    summary,
+    attemptNumber: event.attemptNumber,
+    sessionId: event.sessionId,
+    details: [
+      `Recovery cue: ${describeRecoveryCue(recoveryCue)}`,
+      `Recovery cue observed at: ${recoveryCue.observedAt}`,
+      ...formatEventDetails(event.details),
+    ].filter((detail) => detail.length > 0),
+  };
+}
+
+function describeRecoveryCue(recoveryCue: IssueArtifactEvent): string {
+  switch (recoveryCue.kind) {
+    case "shutdown-requested":
+      return "Shutdown requested";
+    case "shutdown-terminated":
+      return recoveryCue.details["forced"] === true
+        ? "Shutdown forced"
+        : "Shutdown completed";
+    case "claimed":
+    case "plan-ready":
+    case "approved":
+    case "waived":
+    case "landing-command-observed":
+    case "report-published":
+    case "report-review-recorded":
+    case "report-follow-up-filed":
+    case "runner-spawned":
+    case "pr-opened":
+    case "landing-blocked":
+    case "landing-failed":
+    case "landing-requested":
+    case "review-feedback":
+    case "retry-scheduled":
+    case "succeeded":
+    case "failed":
+      return recoveryCue.kind;
+  }
+}
+
+function summarizeCollapsedAttemptStart(summary: string): string {
+  if (summary.includes("Additional same-attempt start evidence")) {
+    return summary;
+  }
+  return `${summary} Additional same-attempt start evidence was observed and collapsed into this entry.`;
+}
+
+function formatCollapsedAttemptStartEvidence(
+  event: IssueArtifactEvent,
+): string {
+  return `Additional same-attempt start evidence observed at ${event.observedAt}${event.sessionId === null ? "" : ` (session ${event.sessionId})`}.`;
 }
 
 function buildGitHubActivity(
