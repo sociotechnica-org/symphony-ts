@@ -171,4 +171,69 @@ describe("assessOperatorRuntimeFreshness", () => {
     expect(result.shouldRestart).toBe(false);
     expect(result.activeIssueCount).toBe(1);
   });
+
+  it("reports stopped when factory control is not running", () => {
+    const result = assessOperatorRuntimeFreshness({
+      status: buildStatus({
+        controlState: "stopped",
+      }),
+      engineRuntimeIdentity: {
+        checkoutPath: "/tmp/repo",
+        headSha: "engine-sha",
+        committedAt: "2026-03-30T00:00:00Z",
+        isDirty: false,
+        source: "git",
+        detail: null,
+      },
+    });
+
+    expect(result.kind).toBe("stopped");
+    expect(result.shouldRestart).toBe(false);
+  });
+
+  it("reports engine-head-unavailable when the operator checkout head is unavailable", () => {
+    const result = assessOperatorRuntimeFreshness({
+      status: buildStatus(),
+      engineRuntimeIdentity: {
+        checkoutPath: "/tmp/repo",
+        headSha: null,
+        committedAt: null,
+        isDirty: null,
+        source: "git-error",
+        detail: "git unavailable",
+      },
+    });
+
+    expect(result.kind).toBe("engine-head-unavailable");
+    expect(result.shouldRestart).toBe(false);
+  });
+
+  it("reports runtime-head-unavailable when the running factory head is unavailable", () => {
+    const result = assessOperatorRuntimeFreshness({
+      status: buildStatus({
+        startup: {
+          ...buildStatus().startup!,
+          runtimeIdentity: {
+            checkoutPath: "/tmp/repo",
+            headSha: null,
+            committedAt: null,
+            isDirty: null,
+            source: "git-error",
+            detail: "runtime git unavailable",
+          },
+        },
+      }),
+      engineRuntimeIdentity: {
+        checkoutPath: "/tmp/repo",
+        headSha: "engine-sha",
+        committedAt: "2026-03-30T00:00:00Z",
+        isDirty: false,
+        source: "git",
+        detail: null,
+      },
+    });
+
+    expect(result.kind).toBe("runtime-head-unavailable");
+    expect(result.shouldRestart).toBe(false);
+  });
 });

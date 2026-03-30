@@ -37,7 +37,7 @@ instance-scoped scratchpad, status snapshots, logs, and loop lock files under
 1. Read the selected instance's scratchpad first so the latest operator context survives session loss and compaction.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
-4. Immediately after the factory-health read, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root <operator-repo-root> --json` for the selected instance.
+4. Immediately after the factory-health read, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root <operator-repo-root> --json` for the selected instance, and append `--workflow <selected-workflow>` when operating on a non-default instance.
 5. If the freshness check reports `stale-idle`, refresh the operator repo checkout plus the selected instance runtime checkout to latest `origin/main`, then restart the detached factory before ordinary queue work. If it reports `stale-busy`, record that fact in the instance scratchpad and defer restart until the next idle or post-merge checkpoint.
 6. Before any ordinary queue-advancement work after the freshness check is clear, run `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-repo-root> --json` for the selected instance and treat any `report-ready` or `review-blocked` entry as the first operator checkpoint after the factory-health read.
 7. For each pending completed-run report review:
