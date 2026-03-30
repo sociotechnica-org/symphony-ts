@@ -18,6 +18,7 @@ function createSnapshot(
     mergeable: true,
     mergeStateStatus: "clean",
     hasLandingCommand: false,
+    landingCommand: null,
     checks: [],
     pendingCheckNames: [],
     failingCheckNames: [],

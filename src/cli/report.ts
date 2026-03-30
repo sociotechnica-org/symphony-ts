@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { loadWorkflow, loadWorkflowInstancePaths } from "../config/workflow.js";
+import type { RuntimeInstanceInput } from "../domain/workflow.js";
 import {
   deriveOperatorInstanceStatePaths,
   deriveSymphonyInstanceIdentity,
@@ -14,6 +15,11 @@ import {
 } from "../observability/campaign-report.js";
 import { writeIssueReport } from "../observability/issue-report.js";
 import type { IssueReportEnricher } from "../observability/issue-report-enrichment.js";
+import {
+  ISSUE_ARTIFACT_SCHEMA_VERSION,
+  appendIssueArtifactEvent,
+  type IssueArtifactEvent,
+} from "../observability/issue-artifacts.js";
 import {
   blockOperatorReportFollowUpIssue,
   deriveOperatorReportReviewStateFile,
@@ -219,6 +225,19 @@ export async function runReportCli(
     process.stdout.write(
       `Published issue #${args.issueNumber.toString()} to factory-runs\npublication id: ${published.publicationId}\nstatus: ${published.status}\narchive root: ${args.archiveRoot}\npublication dir: ${published.paths.publicationRoot}\nmetadata.json: ${published.paths.metadataFile}\nlogs copied: ${published.metadata.logs.copiedCount.toString()}\nlogs referenced: ${published.metadata.logs.referencedCount.toString()}\nlogs unavailable: ${published.metadata.logs.unavailableCount.toString()}\n`,
     );
+    await appendIssueArtifactEventWithWarning(
+      instance,
+      args.issueNumber,
+      createOperatorCliEvent(args.issueNumber, "report-published", {
+        observedAt: published.metadata.publishedAt,
+        summary: `Published report artifacts for issue #${args.issueNumber.toString()} to factory-runs.`,
+        command: "publish",
+        publicationId: published.publicationId,
+        publicationStatus: published.status,
+        archiveRoot: args.archiveRoot,
+        publicationRoot: published.paths.publicationRoot,
+      }),
+    );
     return;
   }
 
@@ -276,6 +295,18 @@ export async function runReportCli(
     process.stdout.write(
       `Recorded ${recorded.status} for issue #${recorded.issueNumber.toString()}\nreview state: ${reviewStateFile}\nreport: ${recorded.reportJsonFile}\n`,
     );
+    await appendIssueArtifactEventWithWarning(
+      instance,
+      args.issueNumber,
+      createOperatorCliEvent(args.issueNumber, "report-review-recorded", {
+        observedAt: recorded.recordedAt,
+        summary: recorded.summary,
+        command: "review-record",
+        reviewStatus: recorded.status,
+        blockedStage: recorded.blockedStage,
+        note: recorded.note,
+      }),
+    );
     return;
   }
 
@@ -313,8 +344,9 @@ export async function runReportCli(
     throw error;
   }
 
+  let recorded: Awaited<ReturnType<typeof recordOperatorReportFollowUpIssue>>;
   try {
-    const recorded = await recordOperatorReportFollowUpIssue({
+    recorded = await recordOperatorReportFollowUpIssue({
       instance,
       reviewStateFile,
       issueNumber: args.issueNumber,
@@ -343,6 +375,72 @@ export async function runReportCli(
     });
     throw error;
   }
+
+  const createdFollowUpIssue =
+    recorded.followUpIssues.find(
+      (issue) =>
+        issue.number === createdIssue.number && issue.url === createdIssue.url,
+    ) ?? null;
+  await appendIssueArtifactEventWithWarning(
+    instance,
+    args.issueNumber,
+    createOperatorCliEvent(args.issueNumber, "report-follow-up-filed", {
+      observedAt: recorded.recordedAt,
+      summary: args.summary,
+      command: "review-follow-up",
+      findingKey: args.findingKey,
+      followUpIssueNumber: createdIssue.number,
+      followUpIssueUrl: createdIssue.url,
+      followUpIssueTitle: createdIssue.title,
+      followUpIssueCreatedAt: createdFollowUpIssue?.createdAt ?? null,
+      note: args.note,
+    }),
+  );
+}
+
+function createOperatorCliEvent(
+  issueNumber: number,
+  kind:
+    | "report-published"
+    | "report-review-recorded"
+    | "report-follow-up-filed",
+  details: Readonly<Record<string, unknown>> & {
+    readonly observedAt: string;
+    readonly summary: string;
+    readonly command: "publish" | "review-record" | "review-follow-up";
+  },
+): IssueArtifactEvent {
+  const { observedAt, ...eventDetails } = details;
+  return {
+    version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+    kind,
+    issueNumber,
+    observedAt,
+    attemptNumber: null,
+    sessionId: null,
+    details: {
+      source: "operator-cli",
+      ...eventDetails,
+    },
+  };
+}
+
+async function appendIssueArtifactEventWithWarning(
+  instance: RuntimeInstanceInput,
+  issueNumber: number,
+  event: IssueArtifactEvent,
+): Promise<void> {
+  try {
+    await appendIssueArtifactEvent(instance, issueNumber, event);
+  } catch (error) {
+    process.stderr.write(
+      `Warning: primary report action for issue #${issueNumber.toString()} succeeded, but canonical issue artifact persistence failed: ${formatErrorMessage(error)}\n`,
+    );
+  }
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function readOptionValue(args: readonly string[], flag: string): string | null {

@@ -769,6 +769,12 @@ describe("createPullRequestSnapshot", () => {
     });
 
     expect(snapshot.hasLandingCommand).toBe(true);
+    expect(snapshot.landingCommand).toEqual({
+      commentId: "comment-1",
+      authorLogin: "jessmartin",
+      observedAt: "2026-03-06T01:00:00.000Z",
+      url: "https://example.test/pr/24#comment-1",
+    });
   });
 
   it("ignores stale or bot-authored /land comments", () => {
@@ -814,6 +820,7 @@ describe("createPullRequestSnapshot", () => {
     });
 
     expect(snapshot.hasLandingCommand).toBe(false);
+    expect(snapshot.landingCommand).toBeNull();
   });
 
   it("ignores /land comments from non-member humans", () => {
@@ -851,6 +858,7 @@ describe("createPullRequestSnapshot", () => {
     });
 
     expect(snapshot.hasLandingCommand).toBe(false);
+    expect(snapshot.landingCommand).toBeNull();
   });
 
   it("fails closed when the review snapshot has no latest commit timestamp", () => {
@@ -883,6 +891,7 @@ describe("createPullRequestSnapshot", () => {
 
     expect(snapshot.hasLandingCommand).toBe(false);
     expect(snapshot.pullRequest.latestCommitAt).toBeNull();
+    expect(snapshot.landingCommand).toBeNull();
   });
 
   it("ignores Cursor PR summary comments as actionable bot feedback", () => {

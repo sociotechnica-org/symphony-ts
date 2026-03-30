@@ -908,7 +908,7 @@ function buildNotableConclusions(
     outcomeCounts.partial === 0
       ? ""
       : `${outcomeCounts.partial.toString()} selected issues remained partial or non-terminal in their stored reports.`,
-    `${reports.filter((storedReport) => storedReport.report.operatorInterventions.entries.length > 0).length.toString()} selected issues recorded explicit operator plan-review interventions.`,
+    `${reports.filter((storedReport) => storedReport.report.operatorInterventions.entries.length > 0).length.toString()} selected issues recorded canonical operator interventions.`,
     `${reports.reduce((sum, storedReport) => sum + storedReport.report.githubActivity.reviewFeedbackRounds, 0).toString()} review-feedback rounds were recorded across the selected issue reports.`,
     `${reports.filter((storedReport) => storedReport.report.tokenUsage.status === "complete").length.toString()} of ${reports.length.toString()} selected issue reports provided complete token totals.`,
   ];

@@ -1,4 +1,5 @@
 import { TrackerError } from "../domain/errors.js";
+import type { LandingCommandObservation } from "../domain/handoff.js";
 import type {
   PullRequestCheck,
   PullRequestHandle,
@@ -32,6 +33,7 @@ export interface PullRequestSnapshot {
   readonly mergeable: boolean | null;
   readonly mergeStateStatus: string | null;
   readonly hasLandingCommand: boolean;
+  readonly landingCommand: LandingCommandObservation | null;
   readonly checks: readonly PullRequestCheck[];
   readonly pendingCheckNames: readonly string[];
   readonly failingCheckNames: readonly string[];
@@ -60,6 +62,10 @@ function isAfter(left: string, right: string | null): boolean {
     return true;
   }
   return Date.parse(left) > Date.parse(right);
+}
+
+function compareIsoTimestampsDescending(left: string, right: string): number {
+  return right.localeCompare(left);
 }
 
 function isHumanLandingApprover(
@@ -155,17 +161,30 @@ export function createPullRequestSnapshot(input: {
     unresolvedReviewThreads: unresolvedThreads,
   });
 
-  const hasLandingCommand =
-    latestCommitAt !== null &&
-    currentHeadIssueComments.some((comment) => {
-      return (
-        isHumanLandingApprover(
-          comment.authorLogin,
-          comment.authorAssociation,
-          reviewerAppLogins,
-        ) && parseLandingCommandSignal(comment.body)
-      );
-    });
+  const landingCommand =
+    latestCommitAt === null
+      ? null
+      : (currentHeadIssueComments
+          .filter(
+            (comment) =>
+              isHumanLandingApprover(
+                comment.authorLogin,
+                comment.authorAssociation,
+                reviewerAppLogins,
+              ) && parseLandingCommandSignal(comment.body),
+          )
+          .sort((left, right) =>
+            compareIsoTimestampsDescending(left.createdAt, right.createdAt),
+          )
+          .map(
+            (comment) =>
+              ({
+                commentId: comment.id,
+                authorLogin: comment.authorLogin,
+                observedAt: comment.createdAt,
+                url: comment.url,
+              }) satisfies LandingCommandObservation,
+          )[0] ?? null);
   const botActionableReviewFeedback = reviewerApps
     .filter((reviewer) => reviewer.accepted)
     .flatMap((reviewer) => reviewer.actionableFeedback);
@@ -211,7 +230,8 @@ export function createPullRequestSnapshot(input: {
     mergeStateStatus: hasMergeabilityFields(input.pullRequest)
       ? (input.pullRequest.mergeable_state?.toLowerCase() ?? null)
       : null,
-    hasLandingCommand,
+    hasLandingCommand: landingCommand !== null,
+    landingCommand,
     checks: input.checks,
     pendingCheckNames,
     failingCheckNames,

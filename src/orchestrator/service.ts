@@ -3212,12 +3212,27 @@ export class BootstrapOrchestrator implements Orchestrator {
     latestTurnNumber: number | null,
     backendSessionId: string | null,
   ): IssueArtifactEvent | null {
+    const landingCommand = lifecycle.landingCommand ?? null;
+
     if (lifecycle.kind === "awaiting-human-handoff") {
       return this.#createIssueEvent("plan-ready", issue, {
         observedAt,
         attemptNumber: attempt,
         sessionId,
         details: this.#createLifecycleEventDetails(
+          lifecycle,
+          latestTurnNumber,
+          backendSessionId,
+        ),
+      });
+    }
+
+    if (lifecycle.kind === "awaiting-landing" && landingCommand !== null) {
+      return this.#createIssueEvent("landing-command-observed", issue, {
+        observedAt: landingCommand.observedAt,
+        attemptNumber: attempt,
+        sessionId,
+        details: this.#createLandingCommandEventDetails(
           lifecycle,
           latestTurnNumber,
           backendSessionId,
@@ -3295,6 +3310,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     latestTurnNumber?: number | null,
     backendSessionId?: string | null,
   ): Readonly<Record<string, unknown>> {
+    const landingCommand = lifecycle.landingCommand ?? null;
     return {
       lifecycleKind: lifecycle.kind,
       branch: lifecycle.branchName,
@@ -3321,6 +3337,40 @@ export class BootstrapOrchestrator implements Orchestrator {
         blockingReviewerKeys: [...lifecycle.blockingReviewerKeys],
         requiredReviewerState: lifecycle.requiredReviewerState,
       },
+      landingCommand:
+        landingCommand === null
+          ? null
+          : {
+              commentId: landingCommand.commentId,
+              authorLogin: landingCommand.authorLogin,
+              observedAt: landingCommand.observedAt,
+              url: landingCommand.url,
+            },
+    };
+  }
+
+  #createLandingCommandEventDetails(
+    lifecycle: HandoffLifecycle,
+    latestTurnNumber?: number | null,
+    backendSessionId?: string | null,
+  ): Readonly<Record<string, unknown>> {
+    const landingCommand = lifecycle.landingCommand ?? null;
+    if (landingCommand === null) {
+      return this.#createLifecycleEventDetails(
+        lifecycle,
+        latestTurnNumber,
+        backendSessionId,
+      );
+    }
+
+    return {
+      ...this.#createLifecycleEventDetails(
+        lifecycle,
+        latestTurnNumber,
+        backendSessionId,
+      ),
+      eventKey: `landing-command:${landingCommand.commentId}`,
+      summary: `Observed /land on ${lifecycle.pullRequest?.url ?? lifecycle.branchName}`,
     };
   }
 
@@ -3352,6 +3402,15 @@ export class BootstrapOrchestrator implements Orchestrator {
         latestAttemptNumber: attempt,
       }),
       events: [
+        ...((lifecycle.landingCommand ?? null) === null
+          ? []
+          : [
+              this.#createIssueEvent("landing-command-observed", issue, {
+                observedAt: lifecycle.landingCommand!.observedAt,
+                attemptNumber: attempt,
+                details: this.#createLandingCommandEventDetails(lifecycle),
+              }),
+            ]),
         this.#createIssueEvent(
           isFailed
             ? "landing-failed"

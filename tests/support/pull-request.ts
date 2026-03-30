@@ -47,6 +47,7 @@ export function createLifecycle(
             headSha: "test-head-sha",
             latestCommitAt: new Date().toISOString(),
           },
+    landingCommand: null,
     checks: [],
     pendingCheckNames: options?.pendingCheckNames ?? [],
     failingCheckNames: options?.failingCheckNames ?? [],

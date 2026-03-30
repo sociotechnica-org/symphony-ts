@@ -9,6 +9,7 @@ import { ObservabilityError } from "../../src/domain/errors.js";
 import {
   ISSUE_ARTIFACT_SCHEMA_VERSION,
   LocalIssueArtifactStore,
+  appendIssueArtifactEvent,
   deriveFactoryArtifactsRoot,
   deriveIssueArtifactPaths,
   deriveIssueArtifactsRoot,
@@ -167,6 +168,86 @@ describe("issue artifacts", () => {
     await expect(fs.stat(paths.attemptsDir)).resolves.toBeDefined();
     await expect(fs.stat(paths.sessionsDir)).resolves.toBeDefined();
     await expect(fs.stat(paths.logsDir)).resolves.toBeDefined();
+  });
+
+  it("deduplicates keyed operator intervention events across non-consecutive writes", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const store = new LocalIssueArtifactStore(instance);
+
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Local Issue Reporting Artifact Contract",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "awaiting-landing-command",
+        currentSummary: "Waiting for /land",
+        observedAt: "2026-03-09T10:00:00.000Z",
+        latestAttemptNumber: 1,
+      },
+      events: [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "pr-opened",
+          issueNumber: 43,
+          observedAt: "2026-03-09T10:00:00.000Z",
+          attemptNumber: 1,
+          sessionId: null,
+          details: {
+            summary: "PR opened",
+          },
+        },
+      ],
+    });
+
+    await appendIssueArtifactEvent(instance, 43, {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      kind: "landing-command-observed",
+      issueNumber: 43,
+      observedAt: "2026-03-09T10:05:00.000Z",
+      attemptNumber: 1,
+      sessionId: null,
+      details: {
+        eventKey: "landing-command:comment-1",
+        summary: "Observed /land",
+      },
+    });
+    await appendIssueArtifactEvent(instance, 43, {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      kind: "landing-requested",
+      issueNumber: 43,
+      observedAt: "2026-03-09T10:06:00.000Z",
+      attemptNumber: 1,
+      sessionId: null,
+      details: {
+        summary: "Landing requested",
+      },
+    });
+    await appendIssueArtifactEvent(instance, 43, {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      kind: "landing-command-observed",
+      issueNumber: 43,
+      observedAt: "2026-03-09T10:07:00.000Z",
+      attemptNumber: 1,
+      sessionId: null,
+      details: {
+        eventKey: "landing-command:comment-1",
+        summary: "Observed /land again",
+      },
+    });
+
+    const events = await readIssueArtifactEvents(instance, 43);
+    expect(
+      events.filter((event) => event.kind === "landing-command-observed"),
+    ).toHaveLength(1);
+    expect(events.map((event) => event.kind)).toEqual([
+      "pr-opened",
+      "landing-command-observed",
+      "landing-requested",
+    ]);
   });
 
   it("writes attempt, session, and pointer snapshots with session-id-safe filenames", async () => {
