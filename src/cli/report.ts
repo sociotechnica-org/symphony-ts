@@ -15,6 +15,11 @@ import {
 import { writeIssueReport } from "../observability/issue-report.js";
 import type { IssueReportEnricher } from "../observability/issue-report-enrichment.js";
 import {
+  ISSUE_ARTIFACT_SCHEMA_VERSION,
+  appendIssueArtifactEvent,
+  type IssueArtifactEvent,
+} from "../observability/issue-artifacts.js";
+import {
   blockOperatorReportFollowUpIssue,
   deriveOperatorReportReviewStateFile,
   recordOperatorReportFollowUpIssue,
@@ -216,6 +221,19 @@ export async function runReportCli(
       archiveRoot: args.archiveRoot,
       issueNumber: args.issueNumber,
     });
+    await appendIssueArtifactEvent(
+      instance,
+      args.issueNumber,
+      createOperatorCliEvent(args.issueNumber, "report-published", {
+        observedAt: published.metadata.publishedAt,
+        summary: `Published report artifacts for issue #${args.issueNumber.toString()} to factory-runs.`,
+        command: "publish",
+        publicationId: published.publicationId,
+        publicationStatus: published.status,
+        archiveRoot: args.archiveRoot,
+        publicationRoot: published.paths.publicationRoot,
+      }),
+    );
     process.stdout.write(
       `Published issue #${args.issueNumber.toString()} to factory-runs\npublication id: ${published.publicationId}\nstatus: ${published.status}\narchive root: ${args.archiveRoot}\npublication dir: ${published.paths.publicationRoot}\nmetadata.json: ${published.paths.metadataFile}\nlogs copied: ${published.metadata.logs.copiedCount.toString()}\nlogs referenced: ${published.metadata.logs.referencedCount.toString()}\nlogs unavailable: ${published.metadata.logs.unavailableCount.toString()}\n`,
     );
@@ -273,6 +291,18 @@ export async function runReportCli(
       note: args.note,
       blockedStage: args.blockedStage,
     });
+    await appendIssueArtifactEvent(
+      instance,
+      args.issueNumber,
+      createOperatorCliEvent(args.issueNumber, "report-review-recorded", {
+        observedAt: recorded.recordedAt,
+        summary: recorded.summary,
+        command: "review-record",
+        reviewStatus: recorded.status,
+        blockedStage: recorded.blockedStage,
+        note: recorded.note,
+      }),
+    );
     process.stdout.write(
       `Recorded ${recorded.status} for issue #${recorded.issueNumber.toString()}\nreview state: ${reviewStateFile}\nreport: ${recorded.reportJsonFile}\n`,
     );
@@ -323,6 +353,25 @@ export async function runReportCli(
       summary: args.summary,
       note: args.note,
     });
+    const createdFollowUpIssue =
+      recorded.followUpIssues.find(
+        (issue) => issue.number === createdIssue.number && issue.url === createdIssue.url,
+      ) ?? null;
+    await appendIssueArtifactEvent(
+      instance,
+      args.issueNumber,
+      createOperatorCliEvent(args.issueNumber, "report-follow-up-filed", {
+        observedAt: recorded.recordedAt,
+        summary: args.summary,
+        command: "review-follow-up",
+        findingKey: args.findingKey,
+        followUpIssueNumber: createdIssue.number,
+        followUpIssueUrl: createdIssue.url,
+        followUpIssueTitle: createdIssue.title,
+        followUpIssueCreatedAt: createdFollowUpIssue?.createdAt ?? null,
+        note: args.note,
+      }),
+    );
     process.stdout.write(
       `Created follow-up issue #${createdIssue.number.toString()} for report review on #${args.issueNumber.toString()}\nissue: ${createdIssue.url}\nreview state: ${reviewStateFile}\nrecord status: ${recorded.status}\n`,
     );
@@ -343,6 +392,33 @@ export async function runReportCli(
     });
     throw error;
   }
+}
+
+function createOperatorCliEvent(
+  issueNumber: number,
+  kind:
+    | "report-published"
+    | "report-review-recorded"
+    | "report-follow-up-filed",
+  details: Readonly<Record<string, unknown>> & {
+    readonly observedAt: string;
+    readonly summary: string;
+    readonly command: "publish" | "review-record" | "review-follow-up";
+  },
+): IssueArtifactEvent {
+  const { observedAt, ...eventDetails } = details;
+  return {
+    version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+    kind,
+    issueNumber,
+    observedAt,
+    attemptNumber: null,
+    sessionId: null,
+    details: {
+      source: "operator-cli",
+      ...eventDetails,
+    },
+  };
 }
 
 function readOptionValue(args: readonly string[], flag: string): string | null {

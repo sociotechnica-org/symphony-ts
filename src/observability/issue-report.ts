@@ -31,7 +31,7 @@ import {
 } from "../runner/accounting.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
 
-export const ISSUE_REPORT_SCHEMA_VERSION = 3 as const;
+export const ISSUE_REPORT_SCHEMA_VERSION = 4 as const;
 
 export type IssueReportAvailability = "complete" | "partial" | "unavailable";
 export type IssueReportTokenUsageStatus =
@@ -192,7 +192,13 @@ export interface IssueReportArtifacts {
 }
 
 export interface IssueReportOperatorInterventionEntry {
-  readonly kind: "approved" | "waived";
+  readonly kind:
+    | "approved"
+    | "waived"
+    | "landing-command-observed"
+    | "report-published"
+    | "report-review-recorded"
+    | "report-follow-up-filed";
   readonly at: string | null;
   readonly summary: string;
   readonly details: readonly string[];
@@ -938,35 +944,88 @@ function buildOperatorInterventions(
       summary:
         "Operator interventions could not be assessed because the canonical event ledger was unavailable.",
       entries: [],
-      note: "Only explicit approved or waived handoff events would appear here.",
+      note: "This section only reflects operator interventions preserved in canonical local artifacts.",
     };
   }
 
   const entries = loaded.events
-    .filter(
-      (
-        event,
-      ): event is IssueArtifactEvent & {
-        readonly kind: "approved" | "waived";
-      } => event.kind === "approved" || event.kind === "waived",
-    )
-    .map((event) => ({
-      kind: event.kind,
-      at: event.observedAt,
-      summary:
-        event.kind === "approved" ? "Plan approved" : "Plan review waived",
-      details: formatEventDetails(event.details),
-    }));
+    .flatMap((event) => {
+      const entry = buildOperatorInterventionEntry(event);
+      return entry === null ? [] : [entry];
+    });
 
   return {
     status: "partial",
     summary:
       entries.length > 0
-        ? `Observed ${entries.length.toString()} explicit operator handoff event(s) in canonical local artifacts.`
-        : "No explicit operator handoff events were recorded in canonical local artifacts.",
+        ? `Observed ${entries.length.toString()} operator intervention event(s) in canonical local artifacts.`
+        : "No operator intervention events were recorded in canonical local artifacts.",
     entries,
-    note: "This section only reflects explicit approved or waived handoff events preserved in local artifacts; it does not prove that no manual action occurred elsewhere.",
+    note: "This section reflects operator interventions preserved in canonical local artifacts; it does not prove that no manual action occurred elsewhere.",
   };
+}
+
+function buildOperatorInterventionEntry(
+  event: IssueArtifactEvent,
+): IssueReportOperatorInterventionEntry | null {
+  switch (event.kind) {
+    case "approved":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        summary: "Plan approved",
+        details: formatEventDetails(event.details),
+      };
+    case "waived":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        summary: "Plan review waived",
+        details: formatEventDetails(event.details),
+      };
+    case "landing-command-observed":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        summary: "Landing command observed",
+        details: formatEventDetails(event.details),
+      };
+    case "report-published":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        summary: "Report published",
+        details: formatEventDetails(event.details),
+      };
+    case "report-review-recorded":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        summary: "Report review recorded",
+        details: formatEventDetails(event.details),
+      };
+    case "report-follow-up-filed":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        summary: "Report follow-up filed",
+        details: formatEventDetails(event.details),
+      };
+    case "claimed":
+    case "plan-ready":
+    case "shutdown-requested":
+    case "shutdown-terminated":
+    case "runner-spawned":
+    case "pr-opened":
+    case "landing-blocked":
+    case "landing-failed":
+    case "landing-requested":
+    case "review-feedback":
+    case "retry-scheduled":
+    case "succeeded":
+    case "failed":
+      return null;
+  }
 }
 
 function buildTimelineEntry(
@@ -1015,6 +1074,58 @@ function buildTimelineEntry(
         summary: readEventSummary(
           event.details,
           "Plan review was explicitly waived.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
+    case "landing-command-observed":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Landing command observed",
+        summary: readEventSummary(
+          event.details,
+          "A human /land command was observed for the current pull request head.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
+    case "report-published":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Report published",
+        summary: readEventSummary(
+          event.details,
+          "Issue report artifacts were published to the factory-runs archive.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
+    case "report-review-recorded":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Report review recorded",
+        summary: readEventSummary(
+          event.details,
+          "An operator recorded a completed-run report review decision.",
+        ),
+        attemptNumber: event.attemptNumber,
+        sessionId: event.sessionId,
+        details: formatEventDetails(event.details),
+      };
+    case "report-follow-up-filed":
+      return {
+        kind: event.kind,
+        at: event.observedAt,
+        title: "Report follow-up filed",
+        summary: readEventSummary(
+          event.details,
+          "An operator filed a GitHub follow-up issue from a completed-run report.",
         ),
         attemptNumber: event.attemptNumber,
         sessionId: event.sessionId,
@@ -1576,6 +1687,29 @@ function formatEventDetails(
     rendered.push(`PR #${pullRequest.number.toString()}: ${pullRequest.url}`);
   }
 
+  const landingCommand = details["landingCommand"];
+  if (landingCommand !== null && typeof landingCommand === "object") {
+    const value = landingCommand as Record<string, unknown>;
+    const authorLogin =
+      typeof value["authorLogin"] === "string" ? value["authorLogin"] : null;
+    const url = typeof value["url"] === "string" ? value["url"] : null;
+    const commentId =
+      typeof value["commentId"] === "string" ? value["commentId"] : null;
+    const observedAt =
+      typeof value["observedAt"] === "string" ? value["observedAt"] : null;
+    if (url !== null) {
+      rendered.push(
+        `Landing command: ${authorLogin === null ? "unknown author" : authorLogin} at ${url}`,
+      );
+    }
+    if (commentId !== null) {
+      rendered.push(`Landing command comment id: ${commentId}`);
+    }
+    if (observedAt !== null) {
+      rendered.push(`Landing command observed at: ${observedAt}`);
+    }
+  }
+
   const review = readReviewFromDetails(details);
   if (review !== null) {
     rendered.push(
@@ -1609,6 +1743,60 @@ function formatEventDetails(
   const summary = details["summary"];
   if (typeof summary === "string" && summary.length > 0) {
     rendered.push(`Summary: ${summary}`);
+  }
+
+  const publicationId = details["publicationId"];
+  if (typeof publicationId === "string" && publicationId.length > 0) {
+    rendered.push(`Publication id: ${publicationId}`);
+  }
+
+  const publicationRoot = details["publicationRoot"];
+  if (typeof publicationRoot === "string" && publicationRoot.length > 0) {
+    rendered.push(`Publication root: ${publicationRoot}`);
+  }
+
+  const archiveRoot = details["archiveRoot"];
+  if (typeof archiveRoot === "string" && archiveRoot.length > 0) {
+    rendered.push(`Archive root: ${archiveRoot}`);
+  }
+
+  const reviewStatus = details["reviewStatus"];
+  if (typeof reviewStatus === "string" && reviewStatus.length > 0) {
+    rendered.push(`Review status: ${reviewStatus}`);
+  }
+
+  const blockedStage = details["blockedStage"];
+  if (typeof blockedStage === "string" && blockedStage.length > 0) {
+    rendered.push(`Blocked stage: ${blockedStage}`);
+  }
+
+  const followUpIssueNumber = details["followUpIssueNumber"];
+  const followUpIssueUrl = details["followUpIssueUrl"];
+  if (
+    typeof followUpIssueNumber === "number" &&
+    typeof followUpIssueUrl === "string"
+  ) {
+    rendered.push(
+      `Follow-up issue #${followUpIssueNumber.toString()}: ${followUpIssueUrl}`,
+    );
+  }
+
+  const followUpIssueTitle = details["followUpIssueTitle"];
+  if (typeof followUpIssueTitle === "string" && followUpIssueTitle.length > 0) {
+    rendered.push(`Follow-up issue title: ${followUpIssueTitle}`);
+  }
+
+  const followUpIssueCreatedAt = details["followUpIssueCreatedAt"];
+  if (
+    typeof followUpIssueCreatedAt === "string" &&
+    followUpIssueCreatedAt.length > 0
+  ) {
+    rendered.push(`Follow-up issue created at: ${followUpIssueCreatedAt}`);
+  }
+
+  const note = details["note"];
+  if (typeof note === "string" && note.length > 0) {
+    rendered.push(`Note: ${note}`);
   }
 
   return rendered;
@@ -1647,29 +1835,35 @@ function timelineKindOrder(kind: string): number {
     case "approved":
     case "waived":
       return 3;
+    case "landing-command-observed":
+      return 4;
     case "runner-spawned":
     case "attempt-started":
-      return 4;
-    case "shutdown-requested":
       return 5;
-    case "shutdown-terminated":
+    case "shutdown-requested":
       return 6;
-    case "pr-opened":
+    case "shutdown-terminated":
       return 7;
-    case "landing-blocked":
+    case "pr-opened":
       return 8;
-    case "landing-failed":
+    case "landing-blocked":
       return 9;
-    case "landing-requested":
+    case "landing-failed":
       return 10;
-    case "review-feedback":
+    case "landing-requested":
       return 11;
-    case "retry-scheduled":
+    case "report-published":
+    case "report-review-recorded":
+    case "report-follow-up-filed":
       return 12;
+    case "review-feedback":
+      return 13;
+    case "retry-scheduled":
+      return 14;
     case "succeeded":
     case "failed":
     case "terminal-outcome":
-      return 13;
+      return 15;
     default:
       return 99;
   }
@@ -1711,6 +1905,12 @@ function inferOutcomeFromEvents(
         return "attempt-failed";
       case "landing-requested":
         return "awaiting-landing";
+      case "landing-command-observed":
+        return "awaiting-landing";
+      case "report-published":
+      case "report-review-recorded":
+      case "report-follow-up-filed":
+        continue;
       case "runner-spawned":
         return "running";
       case "approved":

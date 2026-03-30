@@ -134,6 +134,7 @@ export class GitHubTracker implements Tracker {
           headSha: pullRequest.head.sha,
           latestCommitAt: null,
         },
+        landingCommand: null,
         checks: [],
         pendingCheckNames: [],
         failingCheckNames: [],

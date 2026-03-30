@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runReportCli } from "../../src/cli/report.js";
+import { readIssueArtifactEvents } from "../../src/observability/issue-artifacts.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
 import { createTempDir } from "../support/git.js";
 import {
@@ -126,5 +127,22 @@ describe("report review CLI", () => {
     await expect(
       fs.readFile(pendingPayload.reviewStateFile, "utf8"),
     ).resolves.toContain('"findingKey": "missing-merge-close-facts"');
+
+    const events = await readIssueArtifactEvents(
+      path.join(instanceRoot, ".tmp", "workspaces"),
+      44,
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "report-follow-up-filed",
+          details: expect.objectContaining({
+            command: "review-follow-up",
+            source: "operator-cli",
+            followUpIssueNumber: issues.at(-1)?.number,
+          }),
+        }),
+      ]),
+    );
   });
 });

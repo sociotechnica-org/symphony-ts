@@ -111,6 +111,94 @@ describe("issue report generation", () => {
     );
   });
 
+  it("summarizes non-plan operator interventions from canonical events", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-interventions-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    const artifactPaths = deriveIssueArtifactPaths(
+      deriveReportInstance(tempDir),
+      44,
+    );
+    await fs.appendFile(
+      artifactPaths.eventsFile,
+      [
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "landing-command-observed",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:12:00.000Z",
+          attemptNumber: 1,
+          sessionId: null,
+          details: {
+            eventKey: "landing-command:comment-44",
+            summary: "Observed /land on the current PR head.",
+            landingCommand: {
+              commentId: "comment-44",
+              authorLogin: "jessmartin",
+              observedAt: "2026-03-09T10:12:00.000Z",
+              url: "https://example.test/pr/144#comment-44",
+            },
+            pullRequest: {
+              number: 144,
+              url: "https://github.com/sociotechnica-org/symphony-ts/pull/144",
+              headSha: "head-sha-144",
+              latestCommitAt: "2026-03-09T10:11:30.000Z",
+            },
+          },
+        },
+        {
+          version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+          kind: "report-follow-up-filed",
+          issueNumber: 44,
+          observedAt: "2026-03-09T10:40:00.000Z",
+          attemptNumber: null,
+          sessionId: null,
+          details: {
+            source: "operator-cli",
+            command: "review-follow-up",
+            summary: "Filed a follow-up issue for missing merge facts.",
+            followUpIssueNumber: 257,
+            followUpIssueUrl:
+              "https://github.com/sociotechnica-org/symphony-ts/issues/257",
+            followUpIssueTitle: "Capture missing merge facts in issue reports",
+          },
+        },
+      ]
+        .map((event) => JSON.stringify(event))
+        .join("\n")
+        .concat("\n"),
+      "utf8",
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:06:00.000Z",
+    });
+
+    expect(generated.report.operatorInterventions.summary).toBe(
+      "Observed 2 operator intervention event(s) in canonical local artifacts.",
+    );
+    expect(generated.report.operatorInterventions.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "landing-command-observed",
+          summary: "Landing command observed",
+        }),
+        expect.objectContaining({
+          kind: "report-follow-up-filed",
+          summary: "Report follow-up filed",
+        }),
+      ]),
+    );
+    expect(generated.markdown).toContain(
+      "Landing command observed: 2026-03-09T10:12:00.000Z (landing-command-observed)",
+    );
+    expect(generated.markdown).toContain(
+      "Follow-up issue #257: https://github.com/sociotechnica-org/symphony-ts/issues/257",
+    );
+  });
+
   it("surfaces reviewer-app verdict posture in issue and campaign-facing report fields", async () => {
     const tempDir = await createTempDir("symphony-issue-report-reviewer-");
     tempRoots.push(tempDir);

@@ -35,6 +35,13 @@ export interface PullRequestCheck {
   readonly detailsUrl: string | null;
 }
 
+export interface LandingCommandObservation {
+  readonly commentId: string;
+  readonly authorLogin: string | null;
+  readonly observedAt: string;
+  readonly url: string;
+}
+
 export type ReviewFeedbackKind =
   | "review-thread"
   | "issue-comment"
@@ -56,6 +63,7 @@ export interface HandoffLifecycle {
   readonly kind: HandoffLifecycleKind;
   readonly branchName: string;
   readonly pullRequest: PullRequestHandle | null;
+  readonly landingCommand?: LandingCommandObservation | null;
   readonly checks: readonly PullRequestCheck[];
   readonly pendingCheckNames: readonly string[];
   readonly failingCheckNames: readonly string[];

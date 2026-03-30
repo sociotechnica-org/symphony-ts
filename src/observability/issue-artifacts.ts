@@ -26,6 +26,10 @@ export type IssueArtifactEventKind =
   | "plan-ready"
   | "approved"
   | "waived"
+  | "landing-command-observed"
+  | "report-published"
+  | "report-review-recorded"
+  | "report-follow-up-filed"
   | "shutdown-requested"
   | "shutdown-terminated"
   | "runner-spawned"
@@ -220,7 +224,7 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
       observation.issue.issueNumber,
     );
 
-    await this.#ensureLayout(paths, observation.issue.issueNumber);
+    await ensureIssueArtifactLayout(paths, observation.issue.issueNumber);
 
     const summary = await this.#writeIssueSummary(
       paths.issueFile,
@@ -259,36 +263,6 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
 
     for (const event of observation.events ?? []) {
       await appendJsonLineIfChanged(paths.eventsFile, event);
-    }
-  }
-
-  async #ensureLayout(
-    paths: IssueArtifactPaths,
-    issueNumber: number,
-  ): Promise<void> {
-    await Promise.all([
-      fs.mkdir(paths.attemptsDir, { recursive: true }),
-      fs.mkdir(paths.sessionsDir, { recursive: true }),
-      fs.mkdir(paths.logsDir, { recursive: true }),
-    ]);
-
-    await fs.writeFile(paths.eventsFile, "", { flag: "a" });
-
-    const logPointers = await readJsonFile<IssueArtifactLogPointersDocument>(
-      paths.logPointersFile,
-    ).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return null;
-      }
-      throw error;
-    });
-
-    if (logPointers === null) {
-      await writeJsonFile(paths.logPointersFile, {
-        version: ISSUE_ARTIFACT_SCHEMA_VERSION,
-        issueNumber,
-        sessions: {},
-      } satisfies IssueArtifactLogPointersDocument);
     }
   }
 
@@ -531,6 +505,16 @@ export async function readIssueArtifactLogPointers(
   );
 }
 
+export async function appendIssueArtifactEvent(
+  instance: RuntimeInstanceInput,
+  issueNumber: number,
+  event: IssueArtifactEvent,
+): Promise<void> {
+  const paths = deriveIssueArtifactPaths(instance, issueNumber);
+  await ensureIssueArtifactLayout(paths, issueNumber);
+  await appendJsonLineIfChanged(paths.eventsFile, event);
+}
+
 function encodeSessionFileName(sessionId: string): string {
   return encodeURIComponent(sessionId);
 }
@@ -582,10 +566,45 @@ async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
   });
 }
 
+async function ensureIssueArtifactLayout(
+  paths: IssueArtifactPaths,
+  issueNumber: number,
+): Promise<void> {
+  await Promise.all([
+    fs.mkdir(paths.attemptsDir, { recursive: true }),
+    fs.mkdir(paths.sessionsDir, { recursive: true }),
+    fs.mkdir(paths.logsDir, { recursive: true }),
+  ]);
+
+  await fs.writeFile(paths.eventsFile, "", { flag: "a" });
+
+  const logPointers = await readJsonFile<IssueArtifactLogPointersDocument>(
+    paths.logPointersFile,
+  ).catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+
+  if (logPointers === null) {
+    await writeJsonFile(paths.logPointersFile, {
+      version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+      issueNumber,
+      sessions: {},
+    } satisfies IssueArtifactLogPointersDocument);
+  }
+}
+
 async function appendJsonLineIfChanged(
   filePath: string,
   value: IssueArtifactEvent,
 ): Promise<void> {
+  const eventKey = readEventKey(value);
+  if (eventKey !== null && (await hasMatchingEventKey(filePath, value, eventKey))) {
+    return;
+  }
+
   const previous = await readLastJsonLine(filePath);
   if (
     previous !== null &&
@@ -596,6 +615,47 @@ async function appendJsonLineIfChanged(
 
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.appendFile(filePath, `${JSON.stringify(value)}\n`, "utf8");
+}
+
+async function hasMatchingEventKey(
+  filePath: string,
+  value: IssueArtifactEvent,
+  eventKey: string,
+): Promise<boolean> {
+  const raw = await fs.readFile(filePath, "utf8").catch((error) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (raw === null) {
+    return false;
+  }
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed) as IssueArtifactEvent;
+      if (
+        parsed.kind === value.kind &&
+        parsed.issueNumber === value.issueNumber &&
+        readEventKey(parsed) === eventKey
+      ) {
+        return true;
+      }
+    } catch (error) {
+      throw new ObservabilityError(
+        `Failed to parse JSONL artifact at ${filePath}`,
+        { cause: error as Error },
+      );
+    }
+  }
+
+  return false;
 }
 
 async function readLastJsonLine(
@@ -638,6 +698,11 @@ function eventFingerprint(event: IssueArtifactEvent): string {
     sessionId: event.sessionId,
     details: sortJsonValue(event.details),
   });
+}
+
+function readEventKey(event: IssueArtifactEvent): string | null {
+  const eventKey = event.details["eventKey"];
+  return typeof eventKey === "string" && eventKey.length > 0 ? eventKey : null;
 }
 
 function sortJsonValue(value: unknown): unknown {
