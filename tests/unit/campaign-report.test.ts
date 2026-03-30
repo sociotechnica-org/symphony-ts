@@ -102,6 +102,9 @@ describe("campaign report", () => {
                 reviewFeedbackRounds: 1,
                 actionableReviewCount: 1,
                 unresolvedThreadCount: 0,
+                reviewerVerdict: "blocking-issues-found",
+                blockingReviewerKeys: ["devin"],
+                requiredReviewerState: "satisfied",
                 pendingChecks: ["CI"],
                 failingChecks: [],
               },
@@ -155,6 +158,9 @@ describe("campaign report", () => {
                 reviewFeedbackRounds: 0,
                 actionableReviewCount: 0,
                 unresolvedThreadCount: 0,
+                reviewerVerdict: "no-blocking-verdict",
+                blockingReviewerKeys: [],
+                requiredReviewerState: "satisfied",
                 pendingChecks: [],
                 failingChecks: ["lint"],
               },
@@ -185,6 +191,7 @@ describe("campaign report", () => {
     expect(digest.githubActivity.failingChecks).toEqual([
       { name: "lint", count: 1 },
     ]);
+    expect(digest.githubActivity.blockingReviewerVerdictCount).toBe(1);
     expect(digest.tokenUsage.status).toBe("partial");
     expect(digest.tokenUsage.totalTokens).toBeNull();
     expect(digest.tokenUsage.observedTokenSubtotal).toBe(4400);
@@ -223,6 +230,9 @@ describe("campaign report", () => {
     );
     expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
       "- Unresolved thread count: Unavailable",
+    );
+    expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
+      "- Blocking reviewer-app verdicts: Unavailable",
     );
   });
 
@@ -312,6 +322,7 @@ function buildStoredIssueReport(options: {
       | IssueReportDocument["githubActivity"]["pullRequests"]
       | undefined;
     readonly reviewFeedbackRounds?: number | undefined;
+    readonly blockingReviewerVerdictCount?: number | null | undefined;
   };
   readonly tokenUsage?: {
     readonly status?:

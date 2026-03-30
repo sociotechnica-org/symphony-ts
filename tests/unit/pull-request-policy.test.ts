@@ -23,6 +23,8 @@ function createSnapshot(
     botActionableReviewFeedback: [],
     unresolvedThreadIds: [],
     reviewerApps: [],
+    reviewerVerdict: "no-blocking-verdict",
+    blockingReviewerKeys: [],
     requiredReviewerState: "satisfied",
     observedReviewerKeys: [],
     ...overrides,
@@ -228,6 +230,28 @@ describe("pull-request-policy", () => {
     expect(lifecycle.kind).toBe("rework-required");
     expect(lifecycle.failingCheckNames).toEqual(["CI"]);
     expect(lifecycle.unresolvedThreadIds).toEqual(["thread-2"]);
+  });
+
+  it("requires rework for an explicit reviewer-app issues-found verdict", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        checks: [
+          {
+            name: "CI",
+            status: "success",
+            conclusion: "success",
+            detailsUrl: null,
+          },
+        ],
+        reviewerVerdict: "blocking-issues-found",
+        blockingReviewerKeys: ["devin"],
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("rework-required");
+    expect(lifecycle.reviewerVerdict).toBe("blocking-issues-found");
+    expect(lifecycle.summary).toMatch(/reviewer-app verdict: issues found/i);
   });
 
   it("waits while failing checks coexist with pending checks", () => {

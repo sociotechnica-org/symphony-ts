@@ -17,6 +17,8 @@ function summarizeLifecycle(
   failingCheckNames: readonly string[],
   pendingCheckNames: readonly string[],
   actionableReviewFeedback: readonly ReviewFeedback[],
+  reviewerVerdict: PullRequestSnapshot["reviewerVerdict"],
+  blockingReviewerKeys: readonly string[],
 ): string {
   const parts: string[] = [`${intro} ${url}`];
   if (failingCheckNames.length > 0) {
@@ -28,6 +30,11 @@ function summarizeLifecycle(
   if (actionableReviewFeedback.length > 0) {
     parts.push(
       `actionable feedback: ${actionableReviewFeedback.length.toString()}`,
+    );
+  }
+  if (reviewerVerdict === "blocking-issues-found") {
+    parts.push(
+      `reviewer-app verdict: issues found${blockingReviewerKeys.length === 0 ? "" : ` (${blockingReviewerKeys.join(", ")})`}`,
     );
   }
   return parts.join("; ");
@@ -45,6 +52,9 @@ export function missingPullRequestLifecycle(
     failingCheckNames: [],
     actionableReviewFeedback: [],
     unresolvedThreadIds: [],
+    reviewerVerdict: "no-blocking-verdict",
+    blockingReviewerKeys: [],
+    requiredReviewerState: "not-required",
     summary: `No open pull request found for ${branchName}`,
   };
 }
@@ -67,6 +77,9 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: [],
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
+        reviewerVerdict: "no-blocking-verdict",
+        blockingReviewerKeys: [],
+        requiredReviewerState: "not-required",
         summary: `Pull request ${snapshot.pullRequest.url} has merged`,
       },
       nextNoCheckObservation: null,
@@ -74,6 +87,7 @@ export function evaluatePullRequestLifecycle(
   }
 
   if (
+    snapshot.reviewerVerdict === "blocking-issues-found" ||
     snapshot.botActionableReviewFeedback.length > 0 ||
     (snapshot.failingCheckNames.length > 0 &&
       snapshot.pendingCheckNames.length === 0)
@@ -88,12 +102,17 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: snapshot.unresolvedThreadIds,
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
         summary: summarizeLifecycle(
           "Rework required for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
           snapshot.actionableReviewFeedback,
+          snapshot.reviewerVerdict,
+          snapshot.blockingReviewerKeys,
         ),
       },
       nextNoCheckObservation: null,
@@ -111,12 +130,17 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
         summary: summarizeLifecycle(
           "Waiting on checks for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
           snapshot.actionableReviewFeedback,
+          snapshot.reviewerVerdict,
+          snapshot.blockingReviewerKeys,
         ),
       },
       nextNoCheckObservation: null,
@@ -134,12 +158,17 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
         summary: summarizeLifecycle(
           "Waiting on checks for",
           snapshot.pullRequest.url,
           snapshot.failingCheckNames,
           snapshot.pendingCheckNames,
           snapshot.actionableReviewFeedback,
+          snapshot.reviewerVerdict,
+          snapshot.blockingReviewerKeys,
         ),
       },
       nextNoCheckObservation: null,
@@ -157,6 +186,9 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
         summary: `Waiting for reviewer apps to finish on ${snapshot.pullRequest.url}`,
       },
       nextNoCheckObservation: null,
@@ -174,6 +206,9 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: snapshot.actionableReviewFeedback,
         unresolvedThreadIds: [],
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
         summary: `Waiting for human review on ${snapshot.pullRequest.url}`,
       },
       nextNoCheckObservation: null,
@@ -200,6 +235,9 @@ export function evaluatePullRequestLifecycle(
           failingCheckNames: snapshot.failingCheckNames,
           actionableReviewFeedback: [],
           unresolvedThreadIds: [],
+          reviewerVerdict: snapshot.reviewerVerdict,
+          blockingReviewerKeys: snapshot.blockingReviewerKeys,
+          requiredReviewerState: snapshot.requiredReviewerState,
           summary: `Waiting for PR checks to appear on ${snapshot.pullRequest.url}`,
         },
         nextNoCheckObservation: observation,
@@ -218,6 +256,9 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
         summary: `Degraded external review infrastructure for ${snapshot.pullRequest.url}; expected reviewer-app output has not been observed on the current head.`,
       },
       nextNoCheckObservation: previousNoCheckObservation ?? null,
@@ -235,6 +276,9 @@ export function evaluatePullRequestLifecycle(
         failingCheckNames: snapshot.failingCheckNames,
         actionableReviewFeedback: [],
         unresolvedThreadIds: [],
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
         summary: `Degraded external review infrastructure for ${snapshot.pullRequest.url}; required reviewer-app output was observed on the current head but no explicit pass verdict was normalized.`,
       },
       nextNoCheckObservation: previousNoCheckObservation ?? null,
@@ -253,6 +297,9 @@ export function evaluatePullRequestLifecycle(
       failingCheckNames: [],
       actionableReviewFeedback: [],
       unresolvedThreadIds: [],
+      reviewerVerdict: snapshot.reviewerVerdict,
+      blockingReviewerKeys: snapshot.blockingReviewerKeys,
+      requiredReviewerState: snapshot.requiredReviewerState,
       summary: snapshot.hasLandingCommand
         ? `Pull request ${snapshot.pullRequest.url} is awaiting landing / merge observation`
         : `Pull request ${snapshot.pullRequest.url} is awaiting a human /land command`,

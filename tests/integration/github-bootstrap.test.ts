@@ -1087,6 +1087,14 @@ describe("GitHubTracker", () => {
     expect(lifecycle.actionableReviewFeedback[0]?.kind).toBe(
       "pull-request-review",
     );
+
+    const landing = await tracker.executeLanding(lifecycle.pullRequest!);
+
+    expect(landing).toMatchObject({
+      kind: "blocked",
+      reason: "actionable-review-feedback",
+      lifecycleKind: "rework-required",
+    });
   });
 
   it("blocks guarded landing when required approved bot review is missing", async () => {

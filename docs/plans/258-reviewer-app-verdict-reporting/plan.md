@@ -13,6 +13,7 @@ Make the canonical issue-reporting and guarded-landing surfaces reflect normaliz
 - preserve normalized reviewer-app verdict facts from tracker lifecycle evaluation into canonical local issue artifacts
 - update guarded landing to consume explicit reviewer-app verdict state as a first-class blocking input instead of relying only on actionable feedback lists and unresolved-thread counts
 - update generated issue reports and markdown rendering to surface reviewer-app verdict posture alongside the existing actionable/unresolved counts
+- carry the additive reviewer-app verdict posture through campaign GitHub-activity digests because those digests summarize the same canonical per-issue report surface
 - add focused regression coverage for top-level reviewer-app `issues-found` verdicts that do not depend on unresolved-thread objects
 
 ## Non-goals
@@ -70,6 +71,8 @@ Make the canonical issue-reporting and guarded-landing surfaces reflect normaliz
   - extend the canonical review snapshot shape with additive reviewer-app verdict facts
 - `src/observability/issue-report.ts` and `src/observability/issue-report-markdown.ts`
   - carry the new verdict facts into generated report JSON/markdown and summaries
+- `src/observability/campaign-report.ts` and `src/observability/campaign-report-markdown.ts`
+  - preserve the same additive reviewer-app verdict posture when campaign digests summarize selected issue reports
 - tests/docs
   - add regression coverage and minimal documentation where report semantics change
 
@@ -104,12 +107,13 @@ Land one reviewable PR centered on the canonical review snapshot seam:
 
 1. add an additive reviewer-app verdict summary to the tracker snapshot and artifact snapshot contracts
 2. make guarded landing consume that explicit summary
-3. update generated reports/markdown to surface the new facts
-4. add focused unit/integration/e2e coverage for the concrete reviewer-app top-level verdict path
+3. update generated issue reports/markdown to surface the new facts
+4. carry the same additive reviewer-app verdict facts into campaign GitHub-activity digests
+5. add focused unit/integration/e2e coverage for the concrete reviewer-app top-level verdict path
 
 Deferred:
 
-- richer per-app dashboards or campaign-level aggregation changes
+- richer per-app dashboards or campaign-level aggregation changes beyond additive carry-through of the per-issue verdict posture
 - changes to status/TUI if they are not needed to keep the snapshot contract coherent
 - non-GitHub tracker parity
 
@@ -155,14 +159,14 @@ For the current PR head, derive an aggregate reviewer-app decision from normaliz
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Reviewer app leaves a top-level `issues-found` review/comment and no unresolved thread exists | no landing request yet | reviewer verdict aggregate = `blocking-issues-found`; actionable thread count may be `0` | lifecycle/report show rework-required / blocking reviewer verdict, not clean review |
-| Reviewer app leaves unresolved thread feedback | no landing request yet | reviewer verdict aggregate = `blocking-issues-found`; unresolved thread count > 0 | stay blocking and preserve both verdict and thread evidence |
-| Required reviewer app output is observed but verdict is unclassified | no landing request yet | required reviewer state = `unknown` | degrade review infrastructure; do not treat as pass |
-| Required reviewer app is still running on current head | no landing request yet | required reviewer state = `running` | keep waiting on system checks |
-| `/land` is attempted after a reviewer-app `issues-found` verdict with no unresolved thread | landing approval recorded | reviewer verdict aggregate = `blocking-issues-found` | guarded landing blocks with rework-required semantics |
-| Older artifacts predate reviewer verdict fields | existing report generation run | legacy artifact review snapshot has only actionable/unresolved counts | preserve backward-compatible parsing and render reviewer verdict posture as unavailable/absent rather than crashing |
+| Observed condition                                                                            | Local facts available          | Normalized tracker facts available                                                       | Expected decision                                                                                                   |
+| --------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Reviewer app leaves a top-level `issues-found` review/comment and no unresolved thread exists | no landing request yet         | reviewer verdict aggregate = `blocking-issues-found`; actionable thread count may be `0` | lifecycle/report show rework-required / blocking reviewer verdict, not clean review                                 |
+| Reviewer app leaves unresolved thread feedback                                                | no landing request yet         | reviewer verdict aggregate = `blocking-issues-found`; unresolved thread count > 0        | stay blocking and preserve both verdict and thread evidence                                                         |
+| Required reviewer app output is observed but verdict is unclassified                          | no landing request yet         | required reviewer state = `unknown`                                                      | degrade review infrastructure; do not treat as pass                                                                 |
+| Required reviewer app is still running on current head                                        | no landing request yet         | required reviewer state = `running`                                                      | keep waiting on system checks                                                                                       |
+| `/land` is attempted after a reviewer-app `issues-found` verdict with no unresolved thread    | landing approval recorded      | reviewer verdict aggregate = `blocking-issues-found`                                     | guarded landing blocks with rework-required semantics                                                               |
+| Older artifacts predate reviewer verdict fields                                               | existing report generation run | legacy artifact review snapshot has only actionable/unresolved counts                    | preserve backward-compatible parsing and render reviewer verdict posture as unavailable/absent rather than crashing |
 
 ## Storage / Persistence Contract
 
@@ -192,8 +196,9 @@ For the current PR head, derive an aggregate reviewer-app decision from normaliz
 2. Extend the canonical issue-artifact review snapshot and lifecycle-event details to persist additive reviewer verdict facts alongside actionable/unresolved counts.
 3. Update guarded landing to block on the explicit reviewer verdict aggregate in addition to the existing required-reviewer-state checks.
 4. Update issue-report loading/aggregation/markdown rendering to read the additive verdict facts and reflect them in PR activity and review-loop summaries.
-5. Add or update docs where generated report semantics or landing wording change.
-6. Add regression coverage across unit, integration, and e2e layers for top-level reviewer-app `issues-found` verdicts with zero unresolved-thread count.
+5. Update campaign GitHub-activity aggregation/markdown to carry the same additive reviewer-app verdict posture forward from per-issue reports.
+6. Add or update docs where generated report semantics or landing wording change.
+7. Add regression coverage across unit, integration, and e2e layers for top-level reviewer-app `issues-found` verdicts with zero unresolved-thread count.
 
 ## Tests And Acceptance Scenarios
 
@@ -203,7 +208,7 @@ For the current PR head, derive an aggregate reviewer-app decision from normaliz
   - `issue-report` tests proving additive reviewer verdict fields are parsed and rendered, and older artifacts still load
 - Integration
   - GitHub bootstrap tracker test where a current-head reviewer-app top-level verdict produces blocking lifecycle/landing semantics without unresolved review threads
-  - report CLI test or issue-report integration test showing the generated report surfaces reviewer-app blocking posture
+  - report CLI test or issue-report integration test showing the generated report surfaces reviewer-app blocking posture, with campaign digests inheriting the same additive verdict facts from canonical per-issue reports
 - End-to-end
   - bootstrap factory scenario where a reviewer app posts a top-level `issues-found` verdict on the PR and the run/report remain visibly blocked rather than `awaiting-landing-command`
 
@@ -225,7 +230,7 @@ For the current PR head, derive an aggregate reviewer-app decision from normaliz
 
 ## Deferred To Later Issues Or PRs
 
-- per-app reviewer verdict drilldowns in status/TUI/campaign reports
+- per-app reviewer verdict drilldowns in status/TUI/campaign reports beyond the additive carry-through of the canonical per-issue verdict posture
 - reporter-side live GitHub refresh for post-run PR activity not present in canonical artifacts
 - non-GitHub parity for the same verdict snapshot contract
 - reviewer-app quorum or precedence policy beyond the current accepted/required semantics

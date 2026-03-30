@@ -6,17 +6,21 @@ import type {
 } from "../domain/pull-request.js";
 import type { GitHubReviewerAppConfig } from "../domain/workflow.js";
 import type {
+  PullRequestRequiredReviewerState,
+  PullRequestReviewerVerdict,
+} from "../domain/handoff.js";
+import type {
   GitHubPullRequestResponse,
   PullRequestReviewState,
 } from "./github-client.js";
 import { parseLandingCommandSignal } from "./landing-command-signal.js";
 import {
   createReviewerAppSnapshots,
+  evaluateReviewerVerdict,
   evaluateRequiredReviewerState,
   getConfiguredReviewerAppLogins,
   type CurrentHeadIssueComment,
   type CurrentHeadPullRequestReview,
-  type RequiredReviewerState,
 } from "./reviewer-apps.js";
 import type { ReviewerAppSnapshot } from "./reviewer-app-types.js";
 
@@ -32,7 +36,9 @@ export interface PullRequestSnapshot {
   readonly botActionableReviewFeedback: readonly ReviewFeedback[];
   readonly unresolvedThreadIds: readonly string[];
   readonly reviewerApps: readonly ReviewerAppSnapshot[];
-  readonly requiredReviewerState: RequiredReviewerState;
+  readonly reviewerVerdict: PullRequestReviewerVerdict;
+  readonly blockingReviewerKeys: readonly string[];
+  readonly requiredReviewerState: PullRequestRequiredReviewerState;
   readonly observedReviewerKeys: readonly string[];
 }
 
@@ -170,6 +176,7 @@ export function createPullRequestSnapshot(input: {
     .filter((feedback) => feedback.kind === "review-thread")
     .map((feedback) => feedback.threadId)
     .filter((threadId): threadId is string => threadId !== null);
+  const reviewerVerdict = evaluateReviewerVerdict({ reviewerApps });
   const requiredReviewerState = evaluateRequiredReviewerState(reviewerApps);
   const observedReviewerKeys = reviewerApps
     .filter((reviewer) => reviewer.coverage === "observed")
@@ -193,6 +200,8 @@ export function createPullRequestSnapshot(input: {
     botActionableReviewFeedback,
     unresolvedThreadIds,
     reviewerApps,
+    reviewerVerdict: reviewerVerdict.verdict,
+    blockingReviewerKeys: reviewerVerdict.blockingReviewerKeys,
     requiredReviewerState,
     observedReviewerKeys,
   };

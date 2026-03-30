@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
+import type {
+  PullRequestRequiredReviewerState,
+  PullRequestReviewerVerdict,
+} from "../domain/handoff.js";
 import { ObservabilityError } from "../domain/errors.js";
 import {
   coerceRuntimeInstancePaths,
@@ -107,6 +111,9 @@ export interface CampaignPullRequestActivity {
   readonly reviewFeedbackRounds: number;
   readonly actionableReviewCount: number | null;
   readonly unresolvedThreadCount: number | null;
+  readonly reviewerVerdict: PullRequestReviewerVerdict | null;
+  readonly blockingReviewerKeys: readonly string[];
+  readonly requiredReviewerState: PullRequestRequiredReviewerState | null;
   readonly pendingChecks: readonly string[];
   readonly failingChecks: readonly string[];
 }
@@ -118,6 +125,7 @@ export interface CampaignGitHubActivity {
   readonly reviewFeedbackRounds: number;
   readonly actionableReviewCount: number | null;
   readonly unresolvedThreadCount: number | null;
+  readonly blockingReviewerVerdictCount: number | null;
   readonly pendingChecks: readonly CampaignCheckPattern[];
   readonly failingChecks: readonly CampaignCheckPattern[];
   readonly mergeAvailabilityNote: string;
@@ -463,6 +471,9 @@ function buildCampaignGitHubActivity(
       reviewFeedbackRounds: pullRequest.reviewFeedbackRounds,
       actionableReviewCount: pullRequest.actionableReviewCount,
       unresolvedThreadCount: pullRequest.unresolvedThreadCount,
+      reviewerVerdict: pullRequest.reviewerVerdict,
+      blockingReviewerKeys: pullRequest.blockingReviewerKeys,
+      requiredReviewerState: pullRequest.requiredReviewerState,
       pendingChecks: pullRequest.pendingChecks,
       failingChecks: pullRequest.failingChecks,
     })),
@@ -484,6 +495,13 @@ function buildCampaignGitHubActivity(
     actionableReviewValues.length !== pullRequests.length
       ? null
       : actionableReviewValues.reduce((sum, value) => sum + value, 0);
+  const blockingReviewerVerdictCount =
+    pullRequests.length === 0
+      ? null
+      : pullRequests.filter(
+          (pullRequest) =>
+            pullRequest.reviewerVerdict === "blocking-issues-found",
+        ).length;
   const unresolvedThreadCount =
     pullRequests.length === 0 ||
     unresolvedThreadValues.length !== pullRequests.length
@@ -540,6 +558,7 @@ function buildCampaignGitHubActivity(
     reviewFeedbackRounds,
     actionableReviewCount,
     unresolvedThreadCount,
+    blockingReviewerVerdictCount,
     pendingChecks,
     failingChecks,
     mergeAvailabilityNote:

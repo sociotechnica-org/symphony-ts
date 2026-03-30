@@ -55,6 +55,9 @@ function createLifecycle(): HandoffLifecycle {
       },
     ],
     unresolvedThreadIds: [],
+    reviewerVerdict: "no-blocking-verdict",
+    blockingReviewerKeys: [],
+    requiredReviewerState: "not-required",
     summary: "PR is waiting for human review.",
   };
 }

@@ -14,6 +14,7 @@ import {
 import { createTempDir } from "../support/git.js";
 import {
   downgradeIssueReportSchemaVersion,
+  deriveReportInstance,
   deriveWorkspaceRoot,
   seedSessionAnchoredPartialArtifacts,
   seedSuccessfulIssueArtifacts,
@@ -107,6 +108,37 @@ describe("issue report generation", () => {
     );
   });
 
+  it("surfaces reviewer-app verdict posture in issue and campaign-facing report fields", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-reviewer-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      review: {
+        actionableCount: 0,
+        unresolvedThreadCount: 0,
+        reviewerVerdict: "blocking-issues-found",
+        blockingReviewerKeys: ["devin"],
+        requiredReviewerState: "satisfied",
+      },
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:07:00.000Z",
+    });
+
+    expect(generated.report.githubActivity.reviewLoopSummary).toContain(
+      "reviewer-app blocking verdicts",
+    );
+    expect(generated.report.githubActivity.pullRequests[0]).toMatchObject({
+      reviewerVerdict: "blocking-issues-found",
+      blockingReviewerKeys: ["devin"],
+      requiredReviewerState: "satisfied",
+    });
+    expect(generated.markdown).toContain(
+      "reviewer verdict blocking-issues-found (devin)",
+    );
+  });
+
   it("generates a partial report when issue and event artifacts are missing but session artifacts remain", async () => {
     const tempDir = await createTempDir("symphony-issue-report-partial-");
     tempRoots.push(tempDir);
@@ -135,6 +167,57 @@ describe("issue report generation", () => {
     await expect(
       fs.readFile(generated.outputPaths.reportMarkdownFile, "utf8"),
     ).resolves.toContain("## Artifacts");
+  });
+
+  it("keeps older artifacts readable when reviewer verdict fields are absent", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-legacy-review-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44);
+
+    const paths = deriveIssueArtifactPaths(deriveReportInstance(tempDir), 44);
+    const attemptFile = path.join(paths.attemptsDir, "1.json");
+    const succeededEventFile = paths.eventsFile;
+    const attempt = JSON.parse(await fs.readFile(attemptFile, "utf8")) as {
+      review?: Record<string, unknown>;
+    };
+    if (attempt.review) {
+      delete attempt.review["reviewerVerdict"];
+      delete attempt.review["blockingReviewerKeys"];
+      delete attempt.review["requiredReviewerState"];
+    }
+    await fs.writeFile(attemptFile, `${JSON.stringify(attempt, null, 2)}\n`);
+
+    const events = (await fs.readFile(succeededEventFile, "utf8"))
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            details?: { review?: Record<string, unknown> };
+          },
+      );
+    for (const event of events) {
+      if (event.details?.review) {
+        delete event.details.review["reviewerVerdict"];
+        delete event.details.review["blockingReviewerKeys"];
+        delete event.details.review["requiredReviewerState"];
+      }
+    }
+    await fs.writeFile(
+      succeededEventFile,
+      `${events.map((event) => JSON.stringify(event)).join("\n")}\n`,
+    );
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:11:00.000Z",
+    });
+
+    expect(generated.report.githubActivity.pullRequests[0]).toMatchObject({
+      reviewerVerdict: null,
+      requiredReviewerState: null,
+    });
+    expect(generated.markdown).toContain("reviewer verdict Unavailable");
   });
 
   it("ignores nested .json directories when reading attempt and session artifacts", async () => {

@@ -10,6 +10,15 @@ export type HandoffLifecycleKind =
   | "handoff-ready";
 
 export type PullRequestCheckStatus = "pending" | "success" | "failure";
+export type PullRequestReviewerVerdict =
+  | "no-blocking-verdict"
+  | "blocking-issues-found";
+export type PullRequestRequiredReviewerState =
+  | "not-required"
+  | "running"
+  | "missing"
+  | "unknown"
+  | "satisfied";
 
 export interface PullRequestHandle {
   readonly number: number;
@@ -52,5 +61,8 @@ export interface HandoffLifecycle {
   readonly failingCheckNames: readonly string[];
   readonly actionableReviewFeedback: readonly ReviewFeedback[];
   readonly unresolvedThreadIds: readonly string[];
+  readonly reviewerVerdict: PullRequestReviewerVerdict;
+  readonly blockingReviewerKeys: readonly string[];
+  readonly requiredReviewerState: PullRequestRequiredReviewerState;
   readonly summary: string;
 }

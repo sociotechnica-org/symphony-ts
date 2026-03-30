@@ -52,6 +52,9 @@ export function createLifecycle(
     failingCheckNames: options?.failingCheckNames ?? [],
     actionableReviewFeedback: options?.actionableReviewFeedback ?? [],
     unresolvedThreadIds: options?.unresolvedThreadIds ?? [],
+    reviewerVerdict: "no-blocking-verdict",
+    blockingReviewerKeys: [],
+    requiredReviewerState: "not-required",
     summary: `${kind} for ${branchName}`,
   };
 }
