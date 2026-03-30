@@ -354,9 +354,7 @@ export async function pauseFactory(
     {
       ...(deps.writeFile === undefined ? {} : { writeFile: deps.writeFile }),
       ...(deps.rename === undefined ? {} : { rename: deps.rename }),
-      ...(deps.removeFile === undefined
-        ? {}
-        : { removeFile: deps.removeFile }),
+      ...(deps.removeFile === undefined ? {} : { removeFile: deps.removeFile }),
       ...(deps.ensureDirectory === undefined
         ? {}
         : { ensureDirectory: deps.ensureDirectory }),
@@ -570,9 +568,12 @@ async function inspectFactoryControlAtPaths(
     readStatusSnapshot(paths.statusFilePath, deps),
     readStartupSnapshot(paths.startupFilePath, deps),
   ]);
-  const factoryHalt = await inspectFactoryHalt(paths.instance ?? paths.runtimeRoot, {
-    ...(deps.readFile === undefined ? {} : { readFile: deps.readFile }),
-  });
+  const factoryHalt = await inspectFactoryHalt(
+    paths.instance ?? paths.runtimeRoot,
+    {
+      ...(deps.readFile === undefined ? {} : { readFile: deps.readFile }),
+    },
+  );
 
   const matchingSessions = sessions.filter(
     (session) => session.name === paths.sessionName,

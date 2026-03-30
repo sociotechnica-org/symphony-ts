@@ -132,7 +132,10 @@ function createControlDeps(
   const workflowPath = instancePaths.runtimeWorkflowPath;
   const statusFilePath = instancePaths.statusFilePath;
   const startupFilePath = instancePaths.startupFilePath;
-  const haltFilePath = path.join(instancePaths.factoryArtifactsRoot, "halt-state.json");
+  const haltFilePath = path.join(
+    instancePaths.factoryArtifactsRoot,
+    "halt-state.json",
+  );
   const nowValues = [...(options.nowValues ?? [0])];
   let lastNowValue = nowValues[0] ?? 0;
   let haltRaw = options.haltRaw;
@@ -1498,13 +1501,13 @@ describe("startFactory", () => {
         }),
         listProcesses: async () => [],
         listScreenSessions: async () => [],
-      readFile: async (filePath) => {
-        if (filePath.endsWith("halt-state.json")) {
-          const error = new Error("missing") as NodeJS.ErrnoException;
-          error.code = "ENOENT";
-          throw error;
-        }
-        if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
+        readFile: async (filePath) => {
+          if (filePath.endsWith("halt-state.json")) {
+            const error = new Error("missing") as NodeJS.ErrnoException;
+            error.code = "ENOENT";
+            throw error;
+          }
+          if (filePath.endsWith("startup.json") && startupSnapshot !== null) {
             return `${JSON.stringify(startupSnapshot, null, 2)}\n`;
           }
           if (filePath.endsWith("status.json") && currentSnapshot !== null) {
@@ -2418,7 +2421,9 @@ describe("renderFactoryControlStatus", () => {
     });
 
     expect(output).toContain("Factory control: stopped");
-    expect(output).toContain("Factory halt: halted since 2026-03-13T12:00:00.000Z");
+    expect(output).toContain(
+      "Factory halt: halted since 2026-03-13T12:00:00.000Z",
+    );
     expect(output).toContain("Factory halt reason: Stop the line.");
     expect(output).toContain("Runtime root: /repo/.tmp/factory-main");
     expect(output).toContain(

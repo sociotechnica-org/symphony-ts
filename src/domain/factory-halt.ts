@@ -36,7 +36,9 @@ interface FactoryHaltIo {
   readonly ensureDirectory?: (directoryPath: string) => Promise<void>;
 }
 
-export function deriveFactoryHaltFilePath(instance: RuntimeInstanceInput): string {
+export function deriveFactoryHaltFilePath(
+  instance: RuntimeInstanceInput,
+): string {
   return path.join(
     coerceRuntimeInstancePaths(instance).factoryArtifactsRoot,
     "halt-state.json",
@@ -224,7 +226,9 @@ function expectOptionalString(
   return normalizeOptionalString(value);
 }
 
-function normalizeOptionalString(value: string | null | undefined): string | null {
+function normalizeOptionalString(
+  value: string | null | undefined,
+): string | null {
   if (value === undefined || value === null) {
     return null;
   }

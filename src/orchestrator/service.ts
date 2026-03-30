@@ -652,7 +652,9 @@ export class BootstrapOrchestrator implements Orchestrator {
         running: runningCandidates.length,
         failed: failedCandidates.length,
       });
-      factoryHalt = await inspectFactoryHalt(getConfigInstancePaths(this.#config));
+      factoryHalt = await inspectFactoryHalt(
+        getConfigInstancePaths(this.#config),
+      );
       setFactoryHaltState(this.#state.status, factoryHalt);
       this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
       runningCandidates =
@@ -701,8 +703,8 @@ export class BootstrapOrchestrator implements Orchestrator {
             : factoryHalt.state === "degraded"
               ? `Factory halt state degraded: ${factoryHalt.detail ?? "unreadable halt state"}`
               : dispatchPressure === null
-            ? `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`
-            : `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}; ${runningCandidates.length.toString()} running issues still inspected`,
+                ? `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`
+                : `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}; ${runningCandidates.length.toString()} running issues still inspected`,
         issueNumber: null,
       });
     } catch (err) {

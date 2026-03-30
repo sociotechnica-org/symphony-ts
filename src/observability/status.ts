@@ -1029,27 +1029,15 @@ function parseFactoryHalt(
   );
   return {
     state,
-    reason: expectNullableString(
-      halt.reason,
-      filePath,
-      "factoryHalt.reason",
-    ),
+    reason: expectNullableString(halt.reason, filePath, "factoryHalt.reason"),
     haltedAt: expectNullableString(
       halt.haltedAt,
       filePath,
       "factoryHalt.haltedAt",
     ),
-    source: expectNullableString(
-      halt.source,
-      filePath,
-      "factoryHalt.source",
-    ),
+    source: expectNullableString(halt.source, filePath, "factoryHalt.source"),
     actor: expectNullableString(halt.actor, filePath, "factoryHalt.actor"),
-    detail: expectNullableString(
-      halt.detail,
-      filePath,
-      "factoryHalt.detail",
-    ),
+    detail: expectNullableString(halt.detail, filePath, "factoryHalt.detail"),
   };
 }
 

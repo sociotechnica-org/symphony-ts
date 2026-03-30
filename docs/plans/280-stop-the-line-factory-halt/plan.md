@@ -297,16 +297,16 @@ The instance-owned halt record should model:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Operator pauses a healthy detached runtime | halt record can be written; worker alive | ordinary ready/running issues | write halt record, keep runtime alive, block new dispatch, publish halted status with reason |
-| Operator pauses, then stops detached runtime | halt record exists; control becomes stopped | unchanged tracker ready/running facts | stop process normally; on later start keep halted posture until resume |
-| Factory starts while halt record already exists | halt record readable at startup; worker alive | ready/running issues may exist | start runtime, publish halted posture immediately, do not dispatch new work |
-| Halt record exists and one active run is still finishing | halt readable; active local run count > 0 | corresponding running issue still present | allow current run/reconciliation path to finish, but do not dispatch additional work |
-| Halt record missing/corrupt while operator requested pause | write/read helper errors | tracker unchanged | surface degraded control/runtime error clearly; do not pretend halt succeeded |
-| Runtime degraded while halt record exists | halt readable; detached control degraded | tracker may still show running issues | report degraded control plus halted reason; require repair and explicit resume before new dispatch |
-| Resume requested while runtime is stopped | halt record exists; control stopped | tracker may show ready/running issues | clear halt record; report stopped but no longer halted; later start may dispatch normally |
-| Dispatch pressure active and halt record also exists | halt readable; transient dispatch pressure active | retries/ready issues present | treat halt as stronger persistent gate, but surface both halt reason and pressure detail for observability |
+| Observed condition                                         | Local facts available                             | Normalized tracker facts available        | Expected decision                                                                                          |
+| ---------------------------------------------------------- | ------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Operator pauses a healthy detached runtime                 | halt record can be written; worker alive          | ordinary ready/running issues             | write halt record, keep runtime alive, block new dispatch, publish halted status with reason               |
+| Operator pauses, then stops detached runtime               | halt record exists; control becomes stopped       | unchanged tracker ready/running facts     | stop process normally; on later start keep halted posture until resume                                     |
+| Factory starts while halt record already exists            | halt record readable at startup; worker alive     | ready/running issues may exist            | start runtime, publish halted posture immediately, do not dispatch new work                                |
+| Halt record exists and one active run is still finishing   | halt readable; active local run count > 0         | corresponding running issue still present | allow current run/reconciliation path to finish, but do not dispatch additional work                       |
+| Halt record missing/corrupt while operator requested pause | write/read helper errors                          | tracker unchanged                         | surface degraded control/runtime error clearly; do not pretend halt succeeded                              |
+| Runtime degraded while halt record exists                  | halt readable; detached control degraded          | tracker may still show running issues     | report degraded control plus halted reason; require repair and explicit resume before new dispatch         |
+| Resume requested while runtime is stopped                  | halt record exists; control stopped               | tracker may show ready/running issues     | clear halt record; report stopped but no longer halted; later start may dispatch normally                  |
+| Dispatch pressure active and halt record also exists       | halt readable; transient dispatch pressure active | retries/ready issues present              | treat halt as stronger persistent gate, but surface both halt reason and pressure detail for observability |
 
 ## Storage / Persistence Contract
 

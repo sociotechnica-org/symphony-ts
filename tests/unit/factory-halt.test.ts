@@ -92,7 +92,8 @@ describe("factory halt state", () => {
   });
 
   it("rejects invalid parsed content", () => {
-    expect(() => parseFactoryHaltRecord('{"version":1}', "/tmp/halt.json"))
-      .toThrowError("expected a non-empty reason");
+    expect(() =>
+      parseFactoryHaltRecord('{"version":1}', "/tmp/halt.json"),
+    ).toThrowError("expected a non-empty reason");
   });
 });

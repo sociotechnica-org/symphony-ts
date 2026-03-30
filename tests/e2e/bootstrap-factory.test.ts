@@ -935,10 +935,9 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     ]);
     expect(server.getPullRequests()).toHaveLength(0);
 
-    await fs.rm(
-      path.join(tempDir, ".var", "factory", "halt-state.json"),
-      { force: true },
-    );
+    await fs.rm(path.join(tempDir, ".var", "factory", "halt-state.json"), {
+      force: true,
+    });
 
     await orchestrator.runOnce();
 
