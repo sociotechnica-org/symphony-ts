@@ -16,6 +16,7 @@ LOCK_INFO_FILE=""
 STATUS_JSON=""
 STATUS_MD=""
 SCRATCHPAD=""
+REPORT_REVIEW_STATE=""
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
 WORKFLOW_PATH="${SYMPHONY_OPERATOR_WORKFLOW_PATH:-}"
@@ -86,7 +87,7 @@ resolve_instance_state() {
     printf '%s' "$metadata_json" | node -e '
 const fs = require("node:fs");
 const data = JSON.parse(fs.readFileSync(0, "utf8"));
-const mappings = {
+  const mappings = {
   workflowPath: "WORKFLOW_PATH",
   instanceKey: "INSTANCE_KEY",
   detachedSessionName: "DETACHED_SESSION_NAME",
@@ -97,6 +98,7 @@ const mappings = {
   statusJsonPath: "STATUS_JSON",
   statusMdPath: "STATUS_MD",
   scratchpadPath: "SCRATCHPAD",
+  reportReviewStatePath: "REPORT_REVIEW_STATE",
 };
 for (const [jsonKey, shellKey] of Object.entries(mappings)) {
   const value = data[jsonKey];
@@ -138,6 +140,7 @@ write_status() {
   "command": "$(json_escape "$OPERATOR_COMMAND")",
   "promptFile": "$(json_escape "$PROMPT_FILE")",
   "scratchpad": "$(json_escape "$SCRATCHPAD")",
+  "reportReviewState": "$(json_escape "$REPORT_REVIEW_STATE")",
   "selectedWorkflowPath": $(if [ -n "$WORKFLOW_PATH" ]; then printf '"%s"' "$(json_escape "$WORKFLOW_PATH")"; else printf 'null'; fi),
   "lastCycle": {
     "startedAt": $(if [ -n "$LAST_CYCLE_STARTED_AT" ]; then printf '"%s"' "$(json_escape "$LAST_CYCLE_STARTED_AT")"; else printf 'null'; fi),
@@ -163,6 +166,7 @@ EOF
 - Interval seconds: $INTERVAL_SECONDS
 - Selected workflow: ${WORKFLOW_PATH:-n/a}
 - Scratchpad: $SCRATCHPAD
+- Report review state: $REPORT_REVIEW_STATE
 - Prompt: $PROMPT_FILE
 - Last cycle started: ${LAST_CYCLE_STARTED_AT:-n/a}
 - Last cycle finished: ${LAST_CYCLE_FINISHED_AT:-n/a}
@@ -278,6 +282,7 @@ run_cycle() {
     export SYMPHONY_OPERATOR_LOG_DIR="$LOG_DIR"
     export SYMPHONY_OPERATOR_PROMPT_FILE="$PROMPT_FILE"
     export SYMPHONY_OPERATOR_WORKFLOW_PATH="$WORKFLOW_PATH"
+    export SYMPHONY_OPERATOR_REPORT_REVIEW_STATE="$REPORT_REVIEW_STATE"
     # Intentionally use a login shell so PATH-managed runner installs such as
     # codex or claude remain discoverable during unattended operator cycles.
     bash -l -c "$OPERATOR_COMMAND" <"$PROMPT_FILE"

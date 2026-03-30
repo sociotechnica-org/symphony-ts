@@ -43,5 +43,8 @@ describe("instance identity helpers", () => {
     expect(paths.scratchpadPath).toBe(
       path.join(paths.operatorStateRoot, "operator-scratchpad.md"),
     );
+    expect(paths.reportReviewStatePath).toBe(
+      path.join(paths.operatorStateRoot, "report-review-state.json"),
+    );
   });
 });

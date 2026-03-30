@@ -168,7 +168,10 @@ pnpm operator -- --workflow ../target-repo/WORKFLOW.md
 
 The checked-in loop lives under `skills/symphony-operator/`. `.ralph/` remains
 local/generated-only for per-instance scratch notes, loop status, logs, and
-lock files under `.ralph/instances/<instance-key>/`.
+lock files under `.ralph/instances/<instance-key>/`, including the
+machine-readable completed-run review ledger `report-review-state.json`.
+Operator wake-ups now inspect that ledger before ordinary queue advancement so
+completed-run report findings are turned into tracked follow-up work promptly.
 The current entry point requires a Unix-like shell environment such as macOS,
 Linux, or WSL/Git Bash on Windows.
 
@@ -176,6 +179,27 @@ Generate a per-issue report from local artifacts:
 
 ```bash
 pnpm tsx bin/symphony-report.ts issue --issue 44
+```
+
+Inspect pending completed-run report reviews for the selected operator
+instance:
+
+```bash
+pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root . --json
+pnpm tsx bin/symphony-report.ts review-pending --workflow ../target-repo/WORKFLOW.md --operator-repo-root /path/to/operator-checkout --json
+```
+
+Record that a completed report was reviewed with no follow-up issue:
+
+```bash
+pnpm tsx bin/symphony-report.ts review-record --issue 44 --status reviewed-no-follow-up --summary "Reviewed the completed run report; no tracked follow-up was needed."
+```
+
+File a GitHub follow-up issue from a report finding and persist the linkage in
+the operator review ledger:
+
+```bash
+pnpm tsx bin/symphony-report.ts review-follow-up --issue 44 --title "Capture missing merge and close facts in issue reports" --body-file /tmp/finding.md --summary "Filed a follow-up issue for the report finding."
 ```
 
 Generate a campaign digest from existing per-issue reports:
