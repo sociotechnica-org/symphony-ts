@@ -55,7 +55,9 @@ loop lock files under `.ralph/instances/<instance-key>/`.
 12. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
 13. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
 14. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
-   - and record what the report taught the factory in standing context or in the append-only wake-up log as appropriate
+
+- and record what the report taught the factory in standing context or in the append-only wake-up log as appropriate
+
 8. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
 9. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
 10. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
