@@ -277,9 +277,9 @@ describe("issue report enrichment", () => {
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       matchedLogPath,
     );
-    expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).not.toContain(
-      expect.stringContaining("other.jsonl"),
-    );
+    expect(
+      generated.report.tokenUsage.sessions[0]?.sourceArtifacts,
+    ).not.toContain(expect.stringContaining("other.jsonl"));
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "Runner log enrichment disambiguated multiple Codex logs by matching the canonical backend session identity.",
     );

@@ -429,7 +429,10 @@ export function formatSnapshotContent(
       colorize(`${formatTps(tps)} tps`, CYAN) +
       sparklineSuffix,
     colorize("│ Runtime: ", BOLD) +
-      colorize(formatRuntimeSeconds(visibleCodexTotals.secondsRunning), MAGENTA),
+      colorize(
+        formatRuntimeSeconds(visibleCodexTotals.secondsRunning),
+        MAGENTA,
+      ),
     colorize("│ Factory tokens: ", BOLD) +
       formatHeaderTokens(visibleCodexTotals),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
@@ -757,7 +760,13 @@ function formatTicketTokens(entry: TuiSnapshot["tickets"][number]): string {
 }
 
 function resolveDisplayedTokenTotal(
-  accounting: { readonly inputTokens: number | null; readonly outputTokens: number | null; readonly totalTokens: number | null } | undefined,
+  accounting:
+    | {
+        readonly inputTokens: number | null;
+        readonly outputTokens: number | null;
+        readonly totalTokens: number | null;
+      }
+    | undefined,
 ): number | null {
   if (accounting === undefined) {
     return null;

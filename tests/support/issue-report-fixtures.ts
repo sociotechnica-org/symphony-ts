@@ -652,8 +652,7 @@ export async function writeCodexSessionLog(options: {
       ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
       type: "session_meta",
       payload: {
-        id:
-          options.sessionMetaId ?? options.fileName.replace(/\.jsonl$/u, ""),
+        id: options.sessionMetaId ?? options.fileName.replace(/\.jsonl$/u, ""),
         ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
         cwd: options.workspacePath,
         originator: "codex_cli_rs",

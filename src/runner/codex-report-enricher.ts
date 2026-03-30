@@ -390,8 +390,7 @@ function resolveCodexSessionMatch(
   if (backendIdMatches.length === 1) {
     return {
       match: backendIdMatches[0] ?? null,
-      note:
-        "Runner log enrichment disambiguated multiple Codex logs by matching the canonical backend session identity.",
+      note: "Runner log enrichment disambiguated multiple Codex logs by matching the canonical backend session identity.",
     };
   }
 

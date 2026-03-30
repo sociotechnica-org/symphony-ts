@@ -247,7 +247,9 @@ describe("report CLI", () => {
     expect(reportJson).toContain(
       "disambiguated multiple Codex logs by matching the canonical backend session identity",
     );
-    expect(reportJson).not.toContain("Multiple runner log files matched this session");
+    expect(reportJson).not.toContain(
+      "Multiple runner log files matched this session",
+    );
   });
 
   it("generates a partial report when session artifacts still anchor the issue", async () => {
