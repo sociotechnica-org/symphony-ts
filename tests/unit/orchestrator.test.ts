@@ -3194,6 +3194,13 @@ describe("BootstrapOrchestrator", () => {
         totalTokens: 168,
         costUsd: null,
       });
+      expect(orchestrator.snapshot().codexTotals).toEqual(
+        expect.objectContaining({
+          inputTokens: 123,
+          outputTokens: 45,
+          totalTokens: 168,
+        }),
+      );
     } finally {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }

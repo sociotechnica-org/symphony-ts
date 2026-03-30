@@ -396,6 +396,92 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("1 pending");
   });
 
+  it("derives header totals from live normalized accounting when the aggregate counter path is stale", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        running: [
+          {
+            issueNumber: 133,
+            identifier: "#133",
+            issueState: "running",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            retryAttempt: 1,
+            sessionId: "session-133",
+            turnCount: 1,
+            accounting: {
+              status: "partial",
+              inputTokens: 1200,
+              outputTokens: 300,
+              totalTokens: 1500,
+              costUsd: null,
+            },
+            codexTokenState: "observed",
+            codexTotalTokens: 0,
+            codexInputTokens: 0,
+            codexOutputTokens: 0,
+            codexAppServerPid: 12345,
+            lastCodexEvent: "codex/event/token_count",
+            lastCodexMessage: null,
+            lastCodexTimestamp: "2026-03-14T10:00:10.000Z",
+            runnerVisibility: null,
+          },
+        ],
+        codexTotals: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          pendingRunCount: 0,
+          secondsRunning: 30,
+        },
+      }),
+      150,
+    );
+
+    expect(output).toContain("in 1,200");
+    expect(output).toContain("out 300");
+    expect(output).toContain("total 1,500");
+    expect(output).toContain("150"); // tps
+  });
+
+  it("renders ticket token totals from stored runner accounting when totalTokens is derivable from input and output", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        tickets: [
+          {
+            issueNumber: 245,
+            identifier: "sociotechnica-org/symphony-ts#245",
+            title: "Refine the factory TUI around ticket-first monitoring",
+            status: "awaiting-human-review",
+            summary: "Waiting for review",
+            startedAt: new Date("2026-03-14T10:00:00.000Z"),
+            updatedAt: new Date("2026-03-14T10:02:00.000Z"),
+            pullRequest: null,
+            checks: { pendingNames: [], failingNames: [] },
+            review: { actionableCount: 0, unresolvedThreadCount: 0 },
+            blockedReason: "Waiting for review",
+            runnerAccounting: {
+              status: "partial",
+              inputTokens: 1000,
+              outputTokens: 250,
+              totalTokens: null,
+              costUsd: null,
+            },
+            runnerVisibility: null,
+            liveRun: null,
+          },
+        ],
+        liveRunCount: 0,
+        running: [],
+      }),
+      0,
+      220,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    expect(output).toContain("1,250");
+  });
+
   it("renders observed totals numerically without a pending marker", () => {
     const output = formatSnapshotContent(
       makeSnapshot({

@@ -88,6 +88,8 @@ export async function seedSuccessfulIssueArtifacts(
     readonly succeededAt?: string | undefined;
     readonly finalCommitAt?: string | undefined;
     readonly accounting?: RunnerAccountingSnapshot | undefined;
+    readonly backendSessionId?: string | undefined;
+    readonly backendThreadId?: string | undefined;
   },
 ): Promise<void> {
   const store = new LocalIssueArtifactStore(
@@ -196,8 +198,8 @@ export async function seedSuccessfulIssueArtifacts(
       transport: createRunnerTransportMetadata("local-process", {
         canTerminateLocalProcess: true,
       }),
-      backendSessionId: "codex-session-1",
-      backendThreadId: null,
+      backendSessionId: options?.backendSessionId ?? "codex-session-1",
+      backendThreadId: options?.backendThreadId ?? null,
       latestTurnId: null,
       latestTurnNumber: 1,
       startedAt: attemptStartedAt,
@@ -598,6 +600,7 @@ export async function writeCodexSessionLog(options: {
   readonly workspacePath: string;
   readonly branch: string;
   readonly fileName: string;
+  readonly sessionMetaId?: string | undefined;
   readonly metaTimestamp?: string | null | undefined;
   readonly inputTokens?: number | undefined;
   readonly cachedInputTokens?: number | undefined;
@@ -649,7 +652,7 @@ export async function writeCodexSessionLog(options: {
       ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
       type: "session_meta",
       payload: {
-        id: options.fileName.replace(/\.jsonl$/u, ""),
+        id: options.sessionMetaId ?? options.fileName.replace(/\.jsonl$/u, ""),
         ...(metaTimestamp === null ? {} : { timestamp: metaTimestamp }),
         cwd: options.workspacePath,
         originator: "codex_cli_rs",
