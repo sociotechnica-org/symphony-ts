@@ -197,6 +197,45 @@ describe("integrateCodexUpdate", () => {
     });
   });
 
+  it("falls back to derived totals when only some Claude modelUsage entries include explicit totals", () => {
+    const entry = createRunningEntry(99, "issue-99", "open", 1);
+
+    const result = integrateCodexUpdate(entry, {
+      event: "codex/event/result",
+      payload: {
+        type: "result",
+        session_id: "claude-session-1",
+        modelUsage: {
+          "claude-sonnet-4-5": {
+            inputTokens: 100,
+            outputTokens: 50,
+            totalTokens: 160,
+          },
+          "claude-haiku-4-5": {
+            inputTokens: 50,
+            outputTokens: 25,
+          },
+        },
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.tokenDelta).toEqual({
+      inputTokens: 150,
+      outputTokens: 75,
+      totalTokens: 225,
+      costUsd: 0,
+      costObserved: false,
+    });
+    expect(entry.accounting).toEqual({
+      status: "partial",
+      inputTokens: 150,
+      outputTokens: 75,
+      totalTokens: 225,
+      costUsd: null,
+    });
+  });
+
   it("treats flat Claude result cost plus derived totals as complete accounting", () => {
     const entry = createRunningEntry(99, "issue-99", "open", 1);
 

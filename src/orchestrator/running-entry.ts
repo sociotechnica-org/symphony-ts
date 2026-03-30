@@ -3,6 +3,7 @@ import { getMapKey, mapPath } from "../domain/codex-payload.js";
 import {
   createRunnerAccountingSnapshot,
   type RunnerAccountingSnapshot,
+  sumIfAllPresent,
 } from "../runner/accounting.js";
 
 export type CodexTokenState = "pending" | "observed";
@@ -142,7 +143,7 @@ function readClaudeModelUsageTotals(
       ),
     ),
   );
-  const explicitTotalTokens = sumObservedNumbers(
+  const explicitTotalTokens = sumIfAllPresent(
     entries.map((entry) =>
       asObservedNumber(
         getMapKey(entry, ["totalTokens", "total_tokens", "total"]),
