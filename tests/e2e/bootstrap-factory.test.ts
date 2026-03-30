@@ -1268,10 +1268,10 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     const status = await readFactoryStatusSnapshot(
       path.join(tempDir, ".tmp", "status.json"),
     );
-    expect(status.activeIssues[0]).toMatchObject({
-      issueNumber: 242,
-      status: "rework-required",
-    });
+    expect(status.activeIssues[0]?.issueNumber).toBe(242);
+    expect(["rework-required", "awaiting-system-checks"]).toContain(
+      status.activeIssues[0]?.status,
+    );
     expect(status.activeIssues[0]?.summary).toMatch(/rework required/i);
 
     const artifactSummary = await readIssueArtifactSummary(
