@@ -184,7 +184,10 @@ import {
 import {
   deriveTerminalIssueReportingReceiptPaths,
   listTerminalIssues,
+  readTerminalIssue,
+  readTerminalIssueReportingReceipt,
   reconcileTerminalIssueReporting,
+  shouldReconcileTerminalIssue,
   type TerminalIssueReportingReceipt,
 } from "../observability/terminal-reporting.js";
 import {
@@ -718,13 +721,74 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async #reconcileTerminalIssueReporting(): Promise<void> {
-    const terminalIssues = await listTerminalIssues(getConfigInstancePaths(this.#config));
-    for (const issue of terminalIssues) {
+    const instance = getConfigInstancePaths(this.#config);
+    const archiveRoot = this.#config.observability.issueReports.archiveRoot;
+
+    if (!this.#state.terminalIssueReportingBacklogScanned) {
+      const terminalIssues = await listTerminalIssues(instance);
+      for (const issue of terminalIssues) {
+        const receipt = await readTerminalIssueReportingReceipt(
+          instance,
+          issue.issueNumber,
+        );
+        if (
+          shouldReconcileTerminalIssue({
+            issue,
+            receipt,
+            archiveRoot,
+          })
+        ) {
+          this.#state.terminalIssueReportingQueue.add(issue.issueNumber);
+          continue;
+        }
+
+        const existingTerminal = this.#state.status.terminalIssues.find(
+          (entry) => entry.issueNumber === issue.issueNumber,
+        );
+        this.#upsertTerminalReportingStatus(
+          {
+            number: issue.issueNumber,
+            identifier: issue.issueIdentifier,
+            title: issue.title,
+          },
+          {
+            branchName:
+              existingTerminal?.branchName ?? this.#branchName(issue.issueNumber),
+            terminalOutcome:
+              issue.currentOutcome === "succeeded" ? "success" : "failure",
+            observedAt: issue.lastUpdatedAt,
+            workspaceRetentionState:
+              existingTerminal?.workspaceRetention.state ?? "unknown",
+            summary:
+              existingTerminal?.summary ??
+              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
+            receipt,
+          },
+        );
+      }
+      this.#state.terminalIssueReportingBacklogScanned = true;
+      if (terminalIssues.length > 0) {
+        await this.#persistStatusSnapshot();
+      }
+    }
+
+    if (this.#state.terminalIssueReportingQueue.size === 0) {
+      return;
+    }
+
+    let statusChanged = false;
+    for (const issueNumber of [...this.#state.terminalIssueReportingQueue]) {
+      const issue = await readTerminalIssue(instance, issueNumber);
+      if (issue === null) {
+        this.#state.terminalIssueReportingQueue.delete(issueNumber);
+        continue;
+      }
+
       try {
         const result = await reconcileTerminalIssueReporting({
-          instance: getConfigInstancePaths(this.#config),
+          instance,
           issue,
-          archiveRoot: this.#config.observability.issueReports.archiveRoot,
+          archiveRoot,
         });
         const existingTerminal = this.#state.status.terminalIssues.find(
           (entry) => entry.issueNumber === issue.issueNumber,
@@ -748,9 +812,18 @@ export class BootstrapOrchestrator implements Orchestrator {
             receipt: result.receipt,
           },
         );
-        if (result.changed) {
-          await this.#persistStatusSnapshot();
+        if (
+          shouldReconcileTerminalIssue({
+            issue,
+            receipt: result.receipt,
+            archiveRoot,
+          })
+        ) {
+          this.#state.terminalIssueReportingQueue.add(issue.issueNumber);
+        } else {
+          this.#state.terminalIssueReportingQueue.delete(issue.issueNumber);
         }
+        statusChanged = statusChanged || result.changed;
       } catch (error) {
         const normalizedError = this.#normalizeFailure(error as Error);
         this.#logger.error("Terminal issue reporting reconciliation failed", {
@@ -781,8 +854,13 @@ export class BootstrapOrchestrator implements Orchestrator {
             fallbackBlockedStage: "report-generation",
           },
         );
-        await this.#persistStatusSnapshot();
+        this.#state.terminalIssueReportingQueue.add(issue.issueNumber);
+        statusChanged = true;
       }
+    }
+
+    if (statusChanged) {
+      await this.#persistStatusSnapshot();
     }
   }
 
@@ -2733,6 +2811,24 @@ export class BootstrapOrchestrator implements Orchestrator {
         summary: options.summary,
         receipt,
       });
+      if (
+        shouldReconcileTerminalIssue({
+          issue: {
+            issueNumber: issue.number,
+            issueIdentifier: issue.identifier,
+            title: issue.title,
+            currentOutcome:
+              options.terminalOutcome === "success" ? "succeeded" : "failed",
+            lastUpdatedAt: options.observedAt,
+          },
+          receipt,
+          archiveRoot: this.#config.observability.issueReports.archiveRoot,
+        })
+      ) {
+        this.#state.terminalIssueReportingQueue.add(issue.number);
+      } else {
+        this.#state.terminalIssueReportingQueue.delete(issue.number);
+      }
       await this.#persistStatusSnapshot();
     } catch (error) {
       const normalizedError = this.#normalizeFailure(error as Error);
@@ -2750,6 +2846,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         fallbackReportingSummary: normalizedError,
         fallbackBlockedStage: "report-generation",
       });
+      this.#state.terminalIssueReportingQueue.add(issue.number);
       await this.#persistStatusSnapshot();
     }
   }

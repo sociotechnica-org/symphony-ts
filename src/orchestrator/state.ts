@@ -44,6 +44,7 @@ export interface PollingState {
 
 export interface OrchestratorState {
   readonly runningIssueNumbers: Set<number>;
+  readonly terminalIssueReportingQueue: Set<number>;
   readonly runAbortControllers: Map<number, AbortController>;
   readonly retries: RetryRuntimeState;
   readonly hostDispatch: HostDispatchRuntimeState;
@@ -56,6 +57,7 @@ export interface OrchestratorState {
   readonly runningEntries: Map<number, RunningEntry>;
   readonly codexTotals: CodexTotals;
   rateLimits: RateLimits | null;
+  terminalIssueReportingBacklogScanned: boolean;
   readonly polling: PollingState;
 }
 
@@ -65,6 +67,7 @@ export function createOrchestratorState(
 ): OrchestratorState {
   return {
     runningIssueNumbers: new Set<number>(),
+    terminalIssueReportingQueue: new Set<number>(),
     runAbortControllers: new Map<number, AbortController>(),
     retries: createRetryRuntimeState(),
     hostDispatch: createHostDispatchState(hostDispatchWorkerHosts),
@@ -81,6 +84,7 @@ export function createOrchestratorState(
       totalTokens: 0,
     },
     rateLimits: null,
+    terminalIssueReportingBacklogScanned: false,
     polling: {
       checkingNow: false,
       nextPollAtMs: Date.now(),

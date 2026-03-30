@@ -132,50 +132,7 @@ export async function listTerminalIssues(
   const completed = await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
-      .map(async (entry) => {
-        const issueFile = path.join(
-          resolvedInstance.issueArtifactsRoot,
-          entry.name,
-          "issue.json",
-        );
-        let parsed: Record<string, unknown>;
-        try {
-          parsed = JSON.parse(await fs.readFile(issueFile, "utf8")) as Record<
-            string,
-            unknown
-          >;
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            return null;
-          }
-          throw error;
-        }
-        const currentOutcome = parsed["currentOutcome"];
-        if (currentOutcome !== "succeeded" && currentOutcome !== "failed") {
-          return null;
-        }
-        const issueNumber = parsed["issueNumber"];
-        const issueIdentifier = parsed["issueIdentifier"];
-        const title = parsed["title"];
-        const lastUpdatedAt = parsed["lastUpdatedAt"];
-        if (
-          typeof issueNumber !== "number" ||
-          typeof issueIdentifier !== "string" ||
-          typeof title !== "string" ||
-          typeof lastUpdatedAt !== "string"
-        ) {
-          throw new ObservabilityError(
-            `Malformed terminal issue summary at ${issueFile}; expected completed issue fields.`,
-          );
-        }
-        return {
-          issueNumber,
-          issueIdentifier,
-          title,
-          currentOutcome,
-          lastUpdatedAt,
-        } satisfies TerminalIssueSummary;
-      }),
+      .map((entry) => readTerminalIssue(resolvedInstance, Number(entry.name))),
   );
   return completed
     .filter((entry): entry is TerminalIssueSummary => entry !== null)
@@ -185,6 +142,53 @@ export async function listTerminalIssues(
       }
       return right.issueNumber - left.issueNumber;
     });
+}
+
+export async function readTerminalIssue(
+  instance: RuntimeInstanceInput,
+  issueNumber: number,
+): Promise<TerminalIssueSummary | null> {
+  const resolvedInstance = coerceRuntimeInstancePaths(instance);
+  const issueFile = path.join(
+    resolvedInstance.issueArtifactsRoot,
+    issueNumber.toString(),
+    "issue.json",
+  );
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(await fs.readFile(issueFile, "utf8")) as Record<
+      string,
+      unknown
+    >;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  const currentOutcome = parsed["currentOutcome"];
+  if (currentOutcome !== "succeeded" && currentOutcome !== "failed") {
+    return null;
+  }
+  const issueIdentifier = parsed["issueIdentifier"];
+  const title = parsed["title"];
+  const lastUpdatedAt = parsed["lastUpdatedAt"];
+  if (
+    typeof issueIdentifier !== "string" ||
+    typeof title !== "string" ||
+    typeof lastUpdatedAt !== "string"
+  ) {
+    throw new ObservabilityError(
+      `Malformed terminal issue summary at ${issueFile}; expected completed issue fields.`,
+    );
+  }
+  return {
+    issueNumber,
+    issueIdentifier,
+    title,
+    currentOutcome,
+    lastUpdatedAt,
+  } satisfies TerminalIssueSummary;
 }
 
 export async function reconcileTerminalIssueReporting(args: {
@@ -396,6 +400,31 @@ export function isIssueReportStale(
     Number.isFinite(reportTimestamp) &&
     Number.isFinite(issueTimestamp) &&
     reportTimestamp < issueTimestamp
+  );
+}
+
+export function shouldReconcileTerminalIssue(args: {
+  readonly issue: TerminalIssueSummary;
+  readonly receipt: TerminalIssueReportingReceipt | null;
+  readonly archiveRoot: string | null;
+}): boolean {
+  const { archiveRoot, issue, receipt } = args;
+  if (receipt === null) {
+    return true;
+  }
+  if (receipt.issueUpdatedAt !== issue.lastUpdatedAt) {
+    return true;
+  }
+  if (receipt.archiveRoot !== archiveRoot) {
+    return true;
+  }
+
+  if (archiveRoot === null) {
+    return receipt.state !== "report-generated";
+  }
+
+  return (
+    receipt.state !== "published" && receipt.state !== "publication-partial"
   );
 }
 

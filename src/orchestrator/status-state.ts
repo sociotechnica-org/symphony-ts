@@ -331,6 +331,7 @@ export function upsertTerminalIssue(
           : issue.workspaceRetentionState,
       action:
         issue.workspaceRetentionState === "terminal-retained" ||
+        issue.workspaceRetentionState === "retry-retained" ||
         issue.workspaceRetentionState === "unknown"
           ? "retain"
           : "cleanup",
