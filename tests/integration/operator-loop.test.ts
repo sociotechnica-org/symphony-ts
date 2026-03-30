@@ -399,11 +399,81 @@ describe("operator loop workflow selection", () => {
         paths.legacyScratchpadPath,
         "utf8",
       );
+      const releaseState = JSON.parse(
+        await fs.readFile(paths.releaseStatePath, "utf8"),
+      ) as {
+        readonly evaluation: {
+          readonly advancementState: string;
+        };
+      };
 
       expect(standingContext).toContain("## Migrated Legacy Scratchpad");
       expect(standingContext).toContain("Preserve release sequencing notes.");
       expect(wakeUpLog).toContain("## Migration Note");
       expect(legacyScratchpad).toContain("# Operator Scratchpad");
+      expect(releaseState.evaluation.advancementState).toBe("unconfigured");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the operator loop running when release-state refresh fails", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-release-fail-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const markerPath = path.join(tempDir, "operator-ran.txt");
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+
+    try {
+      const malformedIssueRoot = path.join(
+        path.dirname(workflowPath),
+        ".var",
+        "factory",
+        "issues",
+        "111",
+      );
+      await fs.mkdir(malformedIssueRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(malformedIssueRoot, "issue.json"),
+        '{"issueNumber":"bad"}\n',
+        "utf8",
+      );
+
+      await runOperatorLoopWithCommand(
+        workflowPath,
+        `node -e ${JSON.stringify(`require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, "ran\\n")`)}`,
+      );
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly lastCycle: {
+          readonly exitCode: number | null;
+        };
+        readonly releaseState: {
+          readonly advancementState: string;
+          readonly summary: string;
+        };
+      };
+      const statusMd = await fs.readFile(paths.statusMdPath, "utf8");
+
+      expect(await fs.readFile(markerPath, "utf8")).toContain("ran");
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.lastCycle.exitCode).toBe(0);
+      expect(statusJson.releaseState.advancementState).toBe("unavailable");
+      expect(statusJson.releaseState.summary).toContain(
+        "Release state refresh failed:",
+      );
+      expect(statusJson.releaseState.summary).toContain(
+        "Malformed issue summary",
+      );
+      expect(statusMd).toContain("- Release advancement state: unavailable");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

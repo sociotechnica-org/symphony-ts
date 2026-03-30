@@ -42,6 +42,7 @@ RELEASE_STATE_UPDATED_AT=""
 RELEASE_ID=""
 RELEASE_BLOCKING_PREREQUISITE_NUMBER=""
 RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER=""
+RELEASE_STATE_REFRESH_ERROR=""
 
 usage() {
   cat <<'EOF'
@@ -130,6 +131,24 @@ refresh_release_state() {
     --workflow "$WORKFLOW_PATH" \
     --operator-repo-root "$REPO_ROOT" \
     --json >/dev/null
+}
+
+refresh_release_state_nonfatal() {
+  local checker_output
+  if checker_output="$(
+    pnpm tsx "$RELEASE_STATE_CHECKER" \
+      --workflow "$WORKFLOW_PATH" \
+      --operator-repo-root "$REPO_ROOT" \
+      --json 2>&1 >/dev/null
+  )"; then
+    RELEASE_STATE_REFRESH_ERROR=""
+    return 0
+  fi
+
+  checker_output="$(printf '%s' "$checker_output" | tr '\r\n' ' ' | tr -s ' ')"
+  RELEASE_STATE_REFRESH_ERROR="Release state refresh failed: ${checker_output:-unknown error}"
+  echo "operator-loop: $RELEASE_STATE_REFRESH_ERROR" >&2
+  return 1
 }
 
 load_release_state_snapshot() {
@@ -230,6 +249,13 @@ write_status() {
   local updated_at
   updated_at="$(now_utc)"
   load_release_state_snapshot
+  if [ -n "$RELEASE_STATE_REFRESH_ERROR" ]; then
+    RELEASE_ADVANCEMENT_STATE="unavailable"
+    RELEASE_STATE_SUMMARY="$RELEASE_STATE_REFRESH_ERROR"
+    RELEASE_STATE_UPDATED_AT=""
+    RELEASE_BLOCKING_PREREQUISITE_NUMBER=""
+    RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER=""
+  fi
 
   cat >"$STATUS_JSON" <<EOF
 {
@@ -331,6 +357,9 @@ intact unless you are running an explicit maintenance or compaction flow.
 Legacy `operator-scratchpad.md` content was preserved in `standing-context.md`
 when this notebook was initialized.
 EOF
+    if ! refresh_release_state_nonfatal; then
+      :
+    fi
     return
   fi
 
@@ -353,7 +382,9 @@ intact unless you are running an explicit maintenance or compaction flow.
 EOF
   fi
 
-  refresh_release_state
+  if ! refresh_release_state_nonfatal; then
+    :
+  fi
 }
 
 acquire_lock() {
@@ -421,7 +452,9 @@ run_cycle() {
   LAST_CYCLE_FINISHED_AT=""
   LAST_CYCLE_EXIT_CODE=""
   NEXT_WAKE_AT=""
-  refresh_release_state
+  if ! refresh_release_state_nonfatal; then
+    :
+  fi
   write_status "acting" "Running operator wake-up cycle"
 
   {
@@ -463,7 +496,9 @@ run_cycle() {
 
   LAST_CYCLE_FINISHED_AT="$(now_utc)"
   LAST_CYCLE_EXIT_CODE="$exit_code"
-  refresh_release_state
+  if ! refresh_release_state_nonfatal; then
+    :
+  fi
 
   if [ "$exit_code" -eq 0 ]; then
     cycle_message="Operator cycle completed successfully"
