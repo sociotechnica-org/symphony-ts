@@ -67,11 +67,40 @@ SESSION_ID="${RESUME_SESSION_ID:-claude-session-${SYMPHONY_ISSUE_NUMBER}-${SYMPH
 ACTIVITY_TICKS="${FAKE_CLAUDE_ACTIVITY_TICKS:-0}"
 ACTIVITY_INTERVAL_MS="${FAKE_CLAUDE_ACTIVITY_INTERVAL_MS:-0.05}"
 ACTIVITY_STREAM="${FAKE_CLAUDE_ACTIVITY_STREAM:-stderr}"
+ACTIVITY_PID=""
+
+start_activity_ticks() {
+  if [[ "$ACTIVITY_TICKS" == "0" ]]; then
+    return
+  fi
+
+  (
+    for ((tick = 1; tick <= ACTIVITY_TICKS; tick += 1)); do
+      if [[ "$ACTIVITY_STREAM" == "stdout" ]]; then
+        printf 'claude activity tick %s\n' "$tick"
+      else
+        printf 'claude activity tick %s\n' "$tick" >&2
+      fi
+      sleep "$ACTIVITY_INTERVAL_MS"
+    done
+  ) &
+  ACTIVITY_PID="$!"
+}
+
+wait_for_activity_ticks() {
+  if [[ -n "$ACTIVITY_PID" ]]; then
+    wait "$ACTIVITY_PID"
+    ACTIVITY_PID=""
+  fi
+}
+
+trap 'wait_for_activity_ticks' EXIT
 
 if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
   echo "implemented ${SYMPHONY_ISSUE_IDENTIFIER} via claude" > IMPLEMENTED.txt
   git add .agent-prompt.txt IMPLEMENTED.txt
   git commit -m "Implement ${SYMPHONY_ISSUE_IDENTIFIER} via Claude"
+  start_activity_ticks
   git push origin HEAD:${SYMPHONY_BRANCH_NAME}
   curl -sS -X POST "${MOCK_GITHUB_API_URL}/mock/branch-pushes" \
     -H 'content-type: application/json' \
@@ -84,16 +113,7 @@ if [[ "${SYMPHONY_RUN_TURN}" == "1" ]]; then
     --head "${SYMPHONY_BRANCH_NAME}"
 fi
 
-if [[ "$ACTIVITY_TICKS" != "0" ]]; then
-  for ((tick = 1; tick <= ACTIVITY_TICKS; tick += 1)); do
-    if [[ "$ACTIVITY_STREAM" == "stdout" ]]; then
-      printf 'claude activity tick %s\n' "$tick"
-    else
-      printf 'claude activity tick %s\n' "$tick" >&2
-    fi
-    sleep "$ACTIVITY_INTERVAL_MS"
-  done
-fi
+wait_for_activity_ticks
 
 printf '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"%s","cost_usd":0.25,"modelUsage":{"%s":{"inputTokens":1,"outputTokens":1}}}\n' \
   "$SESSION_ID" \
