@@ -320,7 +320,10 @@ export async function executeLocalRunnerCommand(
           }
         }
       }
-      void Promise.allSettled([spawnNotificationPromise, activityLogWriteChain]).finally(() => {
+      void Promise.allSettled([
+        spawnNotificationPromise,
+        activityLogWriteChain,
+      ]).finally(() => {
         finish(() => {
           const finishedAt = new Date().toISOString();
           if (timedOut) {

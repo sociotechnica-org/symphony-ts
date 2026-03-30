@@ -68,7 +68,9 @@ export function describeClaudeCodeSession(
     latestTurnId: null,
     latestTurnNumber: null,
     logPointers:
-      session === undefined ? [] : createLocalProcessWatchdogLogPointers(session),
+      session === undefined
+        ? []
+        : createLocalProcessWatchdogLogPointers(session),
   };
 }
 
