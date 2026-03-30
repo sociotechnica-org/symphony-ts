@@ -371,6 +371,14 @@ export function formatSnapshotContent(
     retrying,
     codexTotals,
     rateLimits,
+    factoryHalt = {
+      state: "clear",
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
+    },
     dispatchPressure,
     recoveryPosture,
     lastAction,
@@ -437,7 +445,7 @@ export function formatSnapshotContent(
       formatHeaderTokens(visibleCodexTotals),
     colorize("│ Rate Limits: ", BOLD) + formatRateLimits(rateLimits),
     colorize("│ Dispatch: ", BOLD) +
-      formatDispatchPressure(dispatchPressure, effectiveNowMs),
+      formatDispatchState(factoryHalt, dispatchPressure, effectiveNowMs),
     ...lastActionLine,
     ...trackerLine,
     ...projectLine,
@@ -498,6 +506,62 @@ function formatRecoveryRows(
     );
   }
   return rows;
+}
+
+function formatDispatchState(
+  factoryHalt: TuiSnapshot["factoryHalt"],
+  dispatchPressure: TuiSnapshot["dispatchPressure"],
+  nowMs: number,
+): string {
+  const halt = factoryHalt ?? {
+    state: "clear",
+    reason: null,
+    haltedAt: null,
+    source: null,
+    actor: null,
+    detail: null,
+  };
+  if (halt.state === "halted") {
+    const detail =
+      halt.reason === null
+        ? "explicit resume required"
+        : truncate(halt.reason, 80);
+    const pressureSuffix =
+      dispatchPressure === null
+        ? ""
+        : colorize(" | ", GRAY) +
+          colorize(
+            `pressure ${dispatchPressure.retryClass} until ${formatDueIn(
+              Date.parse(dispatchPressure.resumeAt) - nowMs,
+            )}`,
+            YELLOW,
+          );
+    return (
+      colorize("halted", RED) +
+      colorize(" | ", GRAY) +
+      colorize(detail, GRAY) +
+      pressureSuffix
+    );
+  }
+  if (halt.state === "degraded") {
+    const pressureSuffix =
+      dispatchPressure === null
+        ? ""
+        : colorize(" | ", GRAY) +
+          colorize(
+            `pressure ${dispatchPressure.retryClass} until ${formatDueIn(
+              Date.parse(dispatchPressure.resumeAt) - nowMs,
+            )}`,
+            YELLOW,
+          );
+    return (
+      colorize("halt degraded", RED) +
+      colorize(" | ", GRAY) +
+      colorize(truncate(halt.detail ?? "unreadable halt state", 80), GRAY) +
+      pressureSuffix
+    );
+  }
+  return formatDispatchPressure(dispatchPressure, nowMs);
 }
 
 // ─── Header helpers ───────────────────────────────────────────────────────
@@ -1133,6 +1197,7 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
       pendingRunCount: snapshot.codexTotals.pendingRunCount,
     },
     rateLimits: snapshot.rateLimits,
+    factoryHalt: snapshot.factoryHalt,
     recoveryPosture: {
       summary: {
         family: snapshot.recoveryPosture.summary.family,

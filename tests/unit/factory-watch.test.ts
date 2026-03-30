@@ -17,6 +17,14 @@ function createSnapshot(): FactoryControlStatusSnapshot {
       startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
     },
     sessionName: "symphony-factory",
+    factoryHalt: {
+      state: "clear",
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
+    },
     sessions: [
       {
         id: "1001.symphony-factory",

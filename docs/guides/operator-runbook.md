@@ -12,6 +12,8 @@ pnpm tsx bin/symphony.ts factory status
 pnpm tsx bin/symphony.ts factory status --json
 pnpm tsx bin/symphony.ts factory watch
 pnpm tsx bin/symphony.ts factory attach
+pnpm tsx bin/symphony.ts factory pause --reason "Prerequisite ticket failed; stop the line."
+pnpm tsx bin/symphony.ts factory resume
 pnpm tsx bin/symphony.ts factory restart
 pnpm tsx bin/symphony.ts factory stop
 ```
@@ -54,8 +56,9 @@ Normal path rules:
 - Treat `factory status --json` as the primary source of truth.
 - Use `factory watch` as the supported live read-only monitor.
 - Use `factory attach` when you need the full-screen TUI for a detached instance.
+- Use `factory pause --reason ...` when continuing dispatch would be harmful and the instance must stay halted until human reconciliation.
 - Do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can stop the detached worker.
-- Prefer `factory start|stop|restart` over ad hoc `screen`, `ps`, or `pkill`.
+- Prefer `factory start|stop|restart|pause|resume` over ad hoc `screen`, `ps`, or `pkill`.
 
 ## Daily Loop
 
@@ -140,12 +143,27 @@ Stop only through the supported command:
 pnpm tsx bin/symphony.ts factory stop
 ```
 
+When a severe failure means further automation would make recovery harder, stop
+the line explicitly first:
+
+```bash
+pnpm tsx bin/symphony.ts factory pause --reason "Prerequisite ticket failed; stop the line until the release is reconciled."
+pnpm tsx bin/symphony.ts factory status --json
+pnpm tsx bin/symphony.ts factory stop
+pnpm tsx bin/symphony.ts factory start
+pnpm tsx bin/symphony.ts factory resume
+```
+
+`factory pause` writes canonical halt state under `.var/factory/`. That halt
+survives `factory stop` / `factory start`; only `factory resume` clears it.
+
 ## Reading Status
 
 Start with these fields in `factory status --json`:
 
 - `control.state`: whether the detached wrapper/runtime is running, stopped, or degraded
 - `status.factoryState`: whether the factory is idle, running, blocked, or degraded
+- `status.factoryHalt`: whether the instance is clear, intentionally halted, or has unreadable halt state
 - `status.recoveryPosture.summary`: the current operator-facing posture family and summary
 - `status.activeIssues`: current issue-level lifecycle state
 - `status.retries`: queued retries with class and due time
@@ -181,6 +199,7 @@ Use this table:
 | `degraded-review-infrastructure`                                                                 | Inspect the missing reviewer-app output path before further automation or manual landing                                    |
 | `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                                                      |
 | Detached runtime stopped or degraded                                                             | Use `factory status`, then `factory start` or `factory restart`                                                             |
+| Severe failure pattern where continuing automation would be harmful                              | Use `factory pause --reason ...`, inspect `factory status`, then optionally `factory stop` until humans reconcile           |
 | `restart-recovery` visible after startup                                                         | Inspect the recovery summary and per-issue decisions before manual reruns                                                   |
 | `retry-backoff` or `watchdog-recovery`                                                           | Prefer waiting for the queue/recovery path unless the factory is degraded or the posture stops progressing                  |
 | Failed issue with retained workspace                                                             | Inspect artifacts and retained workspace, fix the underlying problem, then relabel or rerun through the normal tracker path |

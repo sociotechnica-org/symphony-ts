@@ -8,6 +8,7 @@ import {
   RunnerAbortedError,
   RunnerShutdownError,
 } from "../domain/errors.js";
+import { inspectFactoryHalt } from "../domain/factory-halt.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import { compareRuntimeIssuesByQueuePriority } from "../domain/queue-priority.js";
@@ -167,6 +168,7 @@ import {
   noteStatusAction,
   noteTerminalIssue,
   noteWatchdogIssue,
+  setFactoryHaltState,
   setReadyQueue,
   setRestartRecoveryState,
   setTrackerIssueCounts,
@@ -279,6 +281,7 @@ export interface TuiSnapshot {
   readonly codexTotals: TuiCodexTotals;
   readonly runnerAccounting?: RunnerAccountingSnapshot | undefined;
   readonly rateLimits: RateLimits | null;
+  readonly factoryHalt?: Awaited<ReturnType<typeof inspectFactoryHalt>>;
   readonly dispatchPressure: DispatchPressureStateSnapshot | null;
   readonly recoveryPosture: ReturnType<typeof projectRecoveryPosture>;
   readonly lastAction: FactoryStatusAction | null;
@@ -531,6 +534,7 @@ export class BootstrapOrchestrator implements Orchestrator {
           ),
       ),
       rateLimits: this.#state.rateLimits,
+      factoryHalt: this.#state.status.factoryHalt,
       dispatchPressure: getActiveDispatchPressure(this.#state.dispatchPressure),
       recoveryPosture: projectRecoveryPosture({
         publication: this.#snapshotPublicationState(),
@@ -626,6 +630,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     let queue: readonly QueueEntry[];
     let availableSlots: number;
     let dispatchPressure: DispatchPressureStateSnapshot | null;
+    let factoryHalt: Awaited<ReturnType<typeof inspectFactoryHalt>>;
 
     try {
       noteStatusAction(this.#state.status, {
@@ -647,12 +652,16 @@ export class BootstrapOrchestrator implements Orchestrator {
         running: runningCandidates.length,
         failed: failedCandidates.length,
       });
+      factoryHalt = await inspectFactoryHalt(
+        getConfigInstancePaths(this.#config),
+      );
+      setFactoryHaltState(this.#state.status, factoryHalt);
       this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
       runningCandidates =
         await this.#reconcileRunningIssueOwnership(runningCandidates);
       dispatchPressure = this.#releaseExpiredDispatchPressure();
       const dueRetries =
-        dispatchPressure === null
+        dispatchPressure === null && factoryHalt.state === "clear"
           ? collectDueRetries(this.#state.retries)
           : listDueRetries(this.#state.retries);
       const orderedReadyQueue = this.#orderReadyCandidates(
@@ -662,9 +671,11 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
       setReadyQueue(this.#state.status, orderedReadyQueue);
       queue = this.#mergeQueue(
-        dispatchPressure === null ? orderedReadyQueue : [],
+        dispatchPressure === null && factoryHalt.state === "clear"
+          ? orderedReadyQueue
+          : [],
         runningCandidates,
-        dueRetries,
+        factoryHalt.state === "clear" ? dueRetries : [],
       );
       availableSlots =
         this.#config.polling.maxConcurrentRuns -
@@ -675,6 +686,7 @@ export class BootstrapOrchestrator implements Orchestrator {
         failedCount: failedCandidates.length,
         candidateCount: queue.length,
         availableSlots,
+        factoryHalt,
         dispatchPressure:
           dispatchPressure === null
             ? null
@@ -686,9 +698,13 @@ export class BootstrapOrchestrator implements Orchestrator {
       noteStatusAction(this.#state.status, {
         kind: "poll-fetched",
         summary:
-          dispatchPressure === null
-            ? `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`
-            : `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}; ${runningCandidates.length.toString()} running issues still inspected`,
+          factoryHalt.state === "halted"
+            ? `Factory halted since ${factoryHalt.haltedAt}; ${runningCandidates.length.toString()} running issues still inspected, new dispatch blocked until explicit resume`
+            : factoryHalt.state === "degraded"
+              ? `Factory halt state degraded: ${factoryHalt.detail ?? "unreadable halt state"}`
+              : dispatchPressure === null
+                ? `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`
+                : `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}; ${runningCandidates.length.toString()} running issues still inspected`,
         issueNumber: null,
       });
     } catch (err) {
@@ -1427,6 +1443,36 @@ export class BootstrapOrchestrator implements Orchestrator {
     source: "ready" | "running",
     pullRequest: HandoffLifecycle | null,
   ): Promise<boolean> {
+    const factoryHalt = this.#state.status.factoryHalt;
+    if (factoryHalt.state !== "clear") {
+      const summary =
+        factoryHalt.state === "halted"
+          ? `Factory halted since ${factoryHalt.haltedAt}; explicit resume is required before new dispatch`
+          : `Factory halt state degraded: ${factoryHalt.detail ?? "unreadable halt state"}`;
+      upsertActiveIssue(this.#state.status, issue, {
+        source,
+        runSequence: attempt,
+        branchName: this.#branchName(issue.number),
+        status: "queued",
+        summary,
+        executionOwner: null,
+        ownerPid: process.pid,
+        blockedReason:
+          factoryHalt.state === "halted"
+            ? factoryHalt.reason
+            : factoryHalt.detail,
+      });
+      noteStatusAction(this.#state.status, {
+        kind:
+          factoryHalt.state === "halted"
+            ? "factory-halted"
+            : "factory-halt-degraded",
+        summary,
+        issueNumber: issue.number,
+      });
+      await this.#persistStatusSnapshot();
+      return false;
+    }
     let selectedWorkerHost: SshWorkerHostConfig | null = null;
     const dispatchPressure = getActiveDispatchPressure(
       this.#state.dispatchPressure,

@@ -6,6 +6,7 @@ import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
+import { writeFactoryHaltRecord } from "../../src/domain/factory-halt.js";
 import { getCodexRemoteWorkerHosts } from "../../src/domain/workflow.js";
 import {
   deriveIssueArtifactPaths,
@@ -891,6 +892,60 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
     expect(status.dispatchPressure).toBeNull();
     expect(status.counts.retries).toBe(0);
+  });
+
+  it("keeps ready work blocked until an explicit halt is resumed", async () => {
+    server.seedIssue({
+      number: 85,
+      title: "Stop-the-line pause",
+      body: "No work should dispatch while the factory is halted.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success.sh"),
+    });
+    const workflow = await loadWorkflow(workflowPath);
+    await writeFactoryHaltRecord(workflow.config.instance, {
+      reason: "Prerequisite ticket failed; stop the line.",
+      haltedAt: "2026-03-30T12:00:00.000Z",
+      source: "factory-cli",
+      actor: "operator",
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    let status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.factoryHalt).toEqual({
+      state: "halted",
+      reason: "Prerequisite ticket failed; stop the line.",
+      haltedAt: "2026-03-30T12:00:00.000Z",
+      source: "factory-cli",
+      actor: "operator",
+      detail: null,
+    });
+    expect(status.readyQueue).toEqual([
+      expect.objectContaining({ issueNumber: 85 }),
+    ]);
+    expect(server.getPullRequests()).toHaveLength(0);
+
+    await fs.rm(path.join(tempDir, ".var", "factory", "halt-state.json"), {
+      force: true,
+    });
+
+    await orchestrator.runOnce();
+
+    status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.factoryHalt?.state).toBe("clear");
+    expect(server.getPullRequests()).toHaveLength(1);
   });
 
   it("keeps status coherent when one concurrent issue waits in handoff while another sits in retry backoff", async () => {

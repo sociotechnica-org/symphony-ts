@@ -15,6 +15,14 @@ function buildStatus(
       startupFilePath: "/tmp/repo/.tmp/startup.json",
     },
     sessionName: "test-session",
+    factoryHalt: {
+      state: "clear",
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
+    },
     sessions: [],
     workerAlive: true,
     startup: {
@@ -46,6 +54,14 @@ function buildStatus(
       generatedAt: "2026-03-30T00:00:00Z",
       runtimeIdentity: null,
       publication: { state: "current", detail: null },
+      factoryHalt: {
+        state: "clear",
+        reason: null,
+        haltedAt: null,
+        source: null,
+        actor: null,
+        detail: null,
+      },
       dispatchPressure: null,
       hostDispatch: null,
       restartRecovery: {

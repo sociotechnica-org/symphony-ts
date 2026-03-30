@@ -3,6 +3,7 @@ import path from "node:path";
 import type { RetryClass } from "../domain/retry.js";
 import { ObservabilityError } from "../domain/errors.js";
 import type { ActiveRunExecutionOwner } from "../domain/execution-owner.js";
+import type { FactoryHaltSnapshot } from "../domain/factory-halt.js";
 import type { DispatchPressureStateSnapshot } from "../domain/transient-failure.js";
 import {
   coerceRuntimeInstancePaths,
@@ -267,6 +268,7 @@ export interface FactoryStatusSnapshot {
   readonly generatedAt: string;
   readonly runtimeIdentity?: FactoryRuntimeIdentity | null;
   readonly publication?: FactoryStatusPublication;
+  readonly factoryHalt?: FactoryHaltSnapshot;
   readonly dispatchPressure?: DispatchPressureStateSnapshot | null;
   readonly hostDispatch?: FactoryHostDispatchSnapshot | null;
   readonly restartRecovery?: FactoryRestartRecoverySnapshot;
@@ -399,11 +401,39 @@ export function renderFactoryStatusSnapshot(
   }
   const restartRecovery = getFactoryRestartRecovery(snapshot);
   const recoveryPosture = getFactoryRecoveryPosture(snapshot);
+  const factoryHalt = snapshot.factoryHalt ?? {
+    state: "clear",
+    reason: null,
+    haltedAt: null,
+    source: null,
+    actor: null,
+    detail: null,
+  };
   const dispatchPressure = snapshot.dispatchPressure ?? null;
   const readyQueue = snapshot.readyQueue ?? [];
   lines.push(`Restart recovery: ${restartRecovery.state}`);
   if (restartRecovery.summary !== null) {
     lines.push(`Restart recovery detail: ${restartRecovery.summary}`);
+  }
+  lines.push(
+    `Factory halt: ${
+      factoryHalt.state === "clear"
+        ? "clear"
+        : factoryHalt.state === "halted"
+          ? `halted since ${factoryHalt.haltedAt}`
+          : "degraded"
+    }`,
+  );
+  if (factoryHalt.reason !== null) {
+    lines.push(`Factory halt reason: ${factoryHalt.reason}`);
+  }
+  if (factoryHalt.actor !== null || factoryHalt.source !== null) {
+    lines.push(
+      `Factory halt actor: ${factoryHalt.actor ?? "n/a"} source=${factoryHalt.source ?? "n/a"}`,
+    );
+  }
+  if (factoryHalt.detail !== null) {
+    lines.push(`Factory halt detail: ${factoryHalt.detail}`);
   }
   lines.push(
     `Dispatch pressure: ${
@@ -892,6 +922,7 @@ function parseFactoryStatusSnapshot(
       "runtimeIdentity",
     ),
     publication: parsePublication(snapshot.publication, filePath),
+    factoryHalt: parseFactoryHalt(snapshot.factoryHalt, filePath),
     dispatchPressure: parseDispatchPressure(
       snapshot.dispatchPressure,
       filePath,
@@ -972,6 +1003,41 @@ function parseHostDispatch(
           `hostDispatch.hosts[${index.toString()}]`,
         ),
     ),
+  };
+}
+
+function parseFactoryHalt(
+  value: unknown,
+  filePath: string,
+): FactoryHaltSnapshot {
+  if (value === undefined || value === null) {
+    return {
+      state: "clear",
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
+    };
+  }
+  const halt = expectObject(value, filePath, "factoryHalt");
+  const state = expectEnum(
+    halt.state,
+    ["clear", "halted", "degraded"],
+    filePath,
+    "factoryHalt.state",
+  );
+  return {
+    state,
+    reason: expectNullableString(halt.reason, filePath, "factoryHalt.reason"),
+    haltedAt: expectNullableString(
+      halt.haltedAt,
+      filePath,
+      "factoryHalt.haltedAt",
+    ),
+    source: expectNullableString(halt.source, filePath, "factoryHalt.source"),
+    actor: expectNullableString(halt.actor, filePath, "factoryHalt.actor"),
+    detail: expectNullableString(halt.detail, filePath, "factoryHalt.detail"),
   };
 }
 

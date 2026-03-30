@@ -146,6 +146,14 @@ function createFactoryControlSnapshot(
       startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
     },
     sessionName: "symphony-factory",
+    factoryHalt: {
+      state: "clear" as const,
+      reason: null,
+      haltedAt: null,
+      source: null,
+      actor: null,
+      detail: null,
+    },
     sessions: [],
     workerAlive: false,
     startup: null,
@@ -332,9 +340,39 @@ describe("parseArgs", () => {
       format: "human",
       workflowPath: null,
     });
+    expect(parseArgs(["node", "symphony", "factory", "resume"])).toEqual({
+      command: "factory",
+      action: "resume",
+      format: "human",
+      workflowPath: null,
+    });
   });
 
-  it("parses --json for factory start, stop, and restart", () => {
+  it("parses the factory pause command with a required reason", () => {
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "factory",
+        "pause",
+        "--reason",
+        "Stop the line.",
+      ]),
+    ).toEqual({
+      command: "factory",
+      action: "pause",
+      format: "human",
+      workflowPath: null,
+      reason: "Stop the line.",
+    });
+    expect(() =>
+      parseArgs(["node", "symphony", "factory", "pause"]),
+    ).toThrowError(
+      "Usage: symphony factory pause --reason <text> [--json] [--workflow <path>]",
+    );
+  });
+
+  it("parses --json for factory start, stop, restart, pause, and resume", () => {
     expect(
       parseArgs(["node", "symphony", "factory", "start", "--json"]),
     ).toEqual({
@@ -356,6 +394,31 @@ describe("parseArgs", () => {
     ).toEqual({
       command: "factory",
       action: "restart",
+      format: "json",
+      workflowPath: null,
+    });
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "factory",
+        "pause",
+        "--reason",
+        "Stop the line.",
+        "--json",
+      ]),
+    ).toEqual({
+      command: "factory",
+      action: "pause",
+      format: "json",
+      workflowPath: null,
+      reason: "Stop the line.",
+    });
+    expect(
+      parseArgs(["node", "symphony", "factory", "resume", "--json"]),
+    ).toEqual({
+      command: "factory",
+      action: "resume",
       format: "json",
       workflowPath: null,
     });
@@ -424,16 +487,34 @@ describe("parseArgs", () => {
       format: "human",
       workflowPath,
     });
+    expect(
+      parseArgs([
+        "node",
+        "symphony",
+        "factory",
+        "pause",
+        "--reason",
+        "Stop the line.",
+        "--workflow",
+        "/tmp/project/WORKFLOW.md",
+      ]),
+    ).toEqual({
+      command: "factory",
+      action: "pause",
+      format: "human",
+      workflowPath,
+      reason: "Stop the line.",
+    });
   });
 
   it("shows factory-specific usage for missing or unknown factory actions", () => {
     expect(() => parseArgs(["node", "symphony", "factory"])).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
+      "Usage: symphony factory <start|stop|restart|resume|status> [--json] [--workflow <path>]\n       symphony factory pause --reason <text> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
     );
     expect(() =>
       parseArgs(["node", "symphony", "factory", "deploy"]),
     ).toThrowError(
-      "Usage: symphony factory <start|stop|restart|status> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
+      "Usage: symphony factory <start|stop|restart|resume|status> [--json] [--workflow <path>]\n       symphony factory pause --reason <text> [--json] [--workflow <path>]\n       symphony factory <watch|attach> [--workflow <path>]",
     );
   });
 
@@ -1116,7 +1197,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
+      resumeFactory: vi.fn(),
       startFactory,
       stopFactory,
     }));
@@ -1162,6 +1245,14 @@ describe("runCli factory", () => {
             startupFilePath: "/repo/.tmp/factory-main/.tmp/startup.json",
           },
           sessionName: "symphony-factory",
+          factoryHalt: {
+            state: "clear" as const,
+            reason: null,
+            haltedAt: null,
+            source: null,
+            actor: null,
+            detail: null,
+          },
           sessions: [],
           workerAlive: false,
           startup: null,
@@ -1177,7 +1268,9 @@ describe("runCli factory", () => {
           problems: [],
         },
       })),
+      pauseFactory: vi.fn(),
       stopFactory: vi.fn(),
+      resumeFactory: vi.fn(),
     }));
 
     const { runCli: mockedRunCli } = await import("../../src/cli/index.js");
@@ -1204,7 +1297,9 @@ describe("runCli factory", () => {
       inspectFactoryControl: vi.fn(async () =>
         createFactoryControlSnapshot("stopped"),
       ),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: stopped\n"),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(),
       stopFactory: vi.fn(),
     }));
@@ -1234,7 +1329,9 @@ describe("runCli factory", () => {
       inspectFactoryControl: vi.fn(async () =>
         createFactoryControlSnapshot("degraded"),
       ),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(),
       stopFactory: vi.fn(),
     }));
@@ -1251,7 +1348,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(async () => ({
         kind: "blocked-degraded",
         status: createFactoryControlSnapshot("degraded"),
@@ -1280,7 +1379,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(),
       stopFactory: vi.fn(async () => ({
         kind: "stopped",
@@ -1305,7 +1406,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      resumeFactory: vi.fn(),
       startFactory,
       stopFactory: vi.fn(async () => ({
         kind: "stopped",
@@ -1336,7 +1439,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(async () => ({
         kind: "blocked-degraded",
         status: createFactoryControlSnapshot("degraded"),
@@ -1372,7 +1477,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: degraded\n"),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(async () => ({
         kind: "blocked-degraded",
         status: createFactoryControlSnapshot("degraded"),
@@ -1400,7 +1507,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(),
       stopFactory: vi.fn(),
     }));
@@ -1421,7 +1530,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl: vi.fn(),
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(),
+      resumeFactory: vi.fn(),
       startFactory: vi.fn(),
       stopFactory: vi.fn(),
     }));
@@ -1459,7 +1570,9 @@ describe("runCli factory", () => {
 
     vi.doMock("../../src/cli/factory-control.js", () => ({
       inspectFactoryControl,
+      pauseFactory: vi.fn(),
       renderFactoryControlStatus: vi.fn(() => "Factory control: running\n"),
+      resumeFactory: vi.fn(),
       startFactory,
       stopFactory,
     }));
