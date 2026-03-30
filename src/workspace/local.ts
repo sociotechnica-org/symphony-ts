@@ -66,6 +66,57 @@ async function branchAheadCount(
   return Number(result.stdout.trim() || "0");
 }
 
+async function readWorktreeStatus(
+  cwd: string,
+  options?: {
+    readonly includeUntracked?: boolean;
+  },
+): Promise<readonly string[]> {
+  const includeUntracked = options?.includeUntracked ?? true;
+  const result = await execFileAsync(
+    "git",
+    [
+      "status",
+      "--porcelain",
+      includeUntracked ? "--untracked-files=all" : "--untracked-files=no",
+    ],
+    {
+      cwd,
+    },
+  );
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+}
+
+async function stashDirtyWorkspaceForReuse(cwd: string): Promise<{
+  readonly stashed: boolean;
+  readonly entryName: string | null;
+  readonly changedPaths: readonly string[];
+}> {
+  const statusLines = await readWorktreeStatus(cwd, {
+    includeUntracked: false,
+  });
+  if (statusLines.length === 0) {
+    return {
+      stashed: false,
+      entryName: null,
+      changedPaths: [],
+    };
+  }
+
+  const entryName = `symphony-retained-workspace-${new Date().toISOString()}`;
+  await execFileAsync("git", ["stash", "push", "--message", entryName], {
+    cwd,
+  });
+  return {
+    stashed: true,
+    entryName,
+    changedPaths: statusLines.map((line) => line.slice(3)),
+  };
+}
+
 async function syncOriginHead(cwd: string): Promise<void> {
   try {
     await execFileAsync("git", ["remote", "set-head", "origin", "--auto"], {
@@ -180,6 +231,16 @@ export class LocalWorkspaceManager implements WorkspaceManager {
       }
     } else {
       await configureOriginRemote(workspacePath, source, this.#config.repoUrl);
+      const sanitized = await stashDirtyWorkspaceForReuse(workspacePath);
+      if (sanitized.stashed) {
+        this.#logger.warn("Sanitized dirty retained workspace before reuse", {
+          workspacePath,
+          issueIdentifier: issue.identifier,
+          branchName,
+          stashEntryName: sanitized.entryName,
+          changedPaths: sanitized.changedPaths,
+        });
+      }
     }
 
     await execFileAsync("git", ["fetch", "origin"], { cwd: workspacePath });
