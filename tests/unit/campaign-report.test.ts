@@ -110,6 +110,8 @@ describe("campaign report", () => {
               },
             ],
             reviewFeedbackRounds: 1,
+            mergedAt: "2026-03-03T11:30:00.000Z",
+            closedAt: "2026-03-03T12:00:00.000Z",
           },
           tokenUsage: {
             status: "complete",
@@ -192,6 +194,13 @@ describe("campaign report", () => {
       { name: "lint", count: 1 },
     ]);
     expect(digest.githubActivity.blockingReviewerVerdictCount).toBe(1);
+    expect(digest.githubActivity.mergeObservedCount).toBe(1);
+    expect(digest.githubActivity.earliestMergedAt).toBe(
+      "2026-03-03T11:30:00.000Z",
+    );
+    expect(digest.githubActivity.latestClosedAt).toBe(
+      "2026-03-03T12:00:00.000Z",
+    );
     expect(digest.tokenUsage.status).toBe("partial");
     expect(digest.tokenUsage.totalTokens).toBeNull();
     expect(digest.tokenUsage.observedTokenSubtotal).toBe(4400);
@@ -239,6 +248,12 @@ describe("campaign report", () => {
     );
     expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
       "- Blocking reviewer-app verdicts: Unavailable",
+    );
+    expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
+      "- Merge timing: No selected issue reports recorded merge timing.",
+    );
+    expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
+      "- First merge observed: Unavailable",
     );
   });
 
@@ -392,6 +407,8 @@ function buildStoredIssueReport(options: {
       | undefined;
     readonly reviewFeedbackRounds?: number | undefined;
     readonly blockingReviewerVerdictCount?: number | null | undefined;
+    readonly mergedAt?: string | null | undefined;
+    readonly closedAt?: string | null | undefined;
   };
   readonly tokenUsage?: {
     readonly status?:
@@ -459,10 +476,18 @@ function buildStoredIssueReport(options: {
       pullRequests: options.githubActivity?.pullRequests ?? [],
       reviewFeedbackRounds: options.githubActivity?.reviewFeedbackRounds ?? 0,
       reviewLoopSummary: "No review activity recorded.",
-      mergedAt: null,
-      mergeNote: "Merge timing unavailable.",
-      closedAt: null,
-      closeNote: "Close timing unavailable.",
+      mergedAt: options.githubActivity?.mergedAt ?? null,
+      mergeNote:
+        options.githubActivity?.mergedAt === undefined ||
+        options.githubActivity.mergedAt === null
+          ? "Merge timing unavailable."
+          : "Merge timing recorded in canonical issue artifacts.",
+      closedAt: options.githubActivity?.closedAt ?? null,
+      closeNote:
+        options.githubActivity?.closedAt === undefined ||
+        options.githubActivity.closedAt === null
+          ? "Close timing unavailable."
+          : "Close timing recorded in canonical issue artifacts.",
       notes: [],
     },
     tokenUsage: {

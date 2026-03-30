@@ -128,7 +128,13 @@ export interface CampaignGitHubActivity {
   readonly blockingReviewerVerdictCount: number | null;
   readonly pendingChecks: readonly CampaignCheckPattern[];
   readonly failingChecks: readonly CampaignCheckPattern[];
+  readonly mergeObservedCount: number;
+  readonly earliestMergedAt: string | null;
+  readonly latestMergedAt: string | null;
   readonly mergeAvailabilityNote: string;
+  readonly closeObservedCount: number;
+  readonly earliestClosedAt: string | null;
+  readonly latestClosedAt: string | null;
   readonly closeAvailabilityNote: string;
   readonly notes: readonly string[];
 }
@@ -537,12 +543,12 @@ function buildCampaignGitHubActivity(
       ? ""
       : `Failing checks were observed for ${pullRequests.filter((pullRequest) => pullRequest.failingChecks.length > 0).length.toString()} pull requests.`,
   ]);
-  const mergeAvailabilityCount = reports.filter(
-    (storedReport) => storedReport.report.githubActivity.mergedAt !== null,
-  ).length;
-  const closeAvailabilityCount = reports.filter(
-    (storedReport) => storedReport.report.githubActivity.closedAt !== null,
-  ).length;
+  const mergeCoverage = summarizeObservedLifecycleTimestamps(
+    reports.map((storedReport) => storedReport.report.githubActivity.mergedAt),
+  );
+  const closeCoverage = summarizeObservedLifecycleTimestamps(
+    reports.map((storedReport) => storedReport.report.githubActivity.closedAt),
+  );
 
   return {
     status:
@@ -564,15 +570,43 @@ function buildCampaignGitHubActivity(
     blockingReviewerVerdictCount,
     pendingChecks,
     failingChecks,
+    mergeObservedCount: mergeCoverage.observedCount,
+    earliestMergedAt: mergeCoverage.earliestAt,
+    latestMergedAt: mergeCoverage.latestAt,
     mergeAvailabilityNote:
-      mergeAvailabilityCount === reports.length
-        ? "Merge timing was available for all selected issue reports."
-        : `Merge timing was unavailable for ${(reports.length - mergeAvailabilityCount).toString()} of ${reports.length.toString()} selected issue reports.`,
+      mergeCoverage.observedCount === 0
+        ? "No selected issue reports recorded merge timing."
+        : mergeCoverage.observedCount === reports.length
+          ? `Merge timing was recorded for all ${reports.length.toString()} selected issue reports.`
+          : `Merge timing was recorded for ${mergeCoverage.observedCount.toString()} of ${reports.length.toString()} selected issue reports.`,
+    closeObservedCount: closeCoverage.observedCount,
+    earliestClosedAt: closeCoverage.earliestAt,
+    latestClosedAt: closeCoverage.latestAt,
     closeAvailabilityNote:
-      closeAvailabilityCount === reports.length
-        ? "Issue close timing was available for all selected issue reports."
-        : `Issue close timing was unavailable for ${(reports.length - closeAvailabilityCount).toString()} of ${reports.length.toString()} selected issue reports.`,
+      closeCoverage.observedCount === 0
+        ? "No selected issue reports recorded issue-close timing."
+        : closeCoverage.observedCount === reports.length
+          ? `Issue close timing was recorded for all ${reports.length.toString()} selected issue reports.`
+          : `Issue close timing was recorded for ${closeCoverage.observedCount.toString()} of ${reports.length.toString()} selected issue reports.`,
     notes,
+  };
+}
+
+function summarizeObservedLifecycleTimestamps(
+  timestamps: readonly (string | null)[],
+): {
+  readonly observedCount: number;
+  readonly earliestAt: string | null;
+  readonly latestAt: string | null;
+} {
+  const observed = timestamps
+    .filter((timestamp): timestamp is string => timestamp !== null)
+    .sort((left, right) => left.localeCompare(right));
+
+  return {
+    observedCount: observed.length,
+    earliestAt: observed[0] ?? null,
+    latestAt: observed.at(-1) ?? null,
   };
 }
 
