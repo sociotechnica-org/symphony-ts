@@ -7,6 +7,7 @@ import {
   deriveSymphonyInstanceKey,
 } from "../../src/domain/instance-identity.js";
 import {
+  createEmptyOperatorReadyPromotionResult,
   evaluateOperatorReleaseState,
   readOperatorReleaseState,
   syncOperatorReleaseState,
@@ -280,6 +281,9 @@ describe("operator release state", () => {
         ],
         unresolvedReferences: [],
       },
+      promotion: createEmptyOperatorReadyPromotionResult(
+        "2026-03-30T00:00:00Z",
+      ),
     });
 
     await writeIssueSummary({

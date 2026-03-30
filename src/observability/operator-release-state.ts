@@ -39,14 +39,31 @@ export interface OperatorReleaseEvaluation {
   readonly unresolvedReferences: readonly OperatorReleaseIssueReference[];
 }
 
+export type OperatorReadyPromotionState =
+  | "unconfigured"
+  | "blocked-review-needed"
+  | "labels-synchronized"
+  | "sync-failed";
+
+export interface OperatorReadyPromotionResult {
+  readonly state: OperatorReadyPromotionState;
+  readonly summary: string;
+  readonly promotedAt: string;
+  readonly eligibleIssues: readonly OperatorReleaseIssueReference[];
+  readonly readyLabelsAdded: readonly OperatorReleaseIssueReference[];
+  readonly readyLabelsRemoved: readonly OperatorReleaseIssueReference[];
+  readonly error: string | null;
+}
+
 export interface OperatorReleaseStateDocument {
   readonly version: typeof OPERATOR_RELEASE_STATE_SCHEMA_VERSION;
   readonly updatedAt: string;
   readonly configuration: OperatorReleaseConfiguration;
   readonly evaluation: OperatorReleaseEvaluation;
+  readonly promotion: OperatorReadyPromotionResult;
 }
 
-interface StoredIssueSummary {
+export interface StoredIssueSummary {
   readonly issueNumber: number;
   readonly issueIdentifier: string;
   readonly title: string;
@@ -72,6 +89,21 @@ export function createEmptyOperatorReleaseState(
       blockedDownstream: [],
       unresolvedReferences: [],
     },
+    promotion: createEmptyOperatorReadyPromotionResult(updatedAt),
+  };
+}
+
+export function createEmptyOperatorReadyPromotionResult(
+  promotedAt = new Date().toISOString(),
+): OperatorReadyPromotionResult {
+  return {
+    state: "unconfigured",
+    summary: "Ready promotion has not run for this operator instance.",
+    promotedAt,
+    eligibleIssues: [],
+    readyLabelsAdded: [],
+    readyLabelsRemoved: [],
+    error: null,
   };
 }
 
@@ -118,6 +150,7 @@ export async function syncOperatorReleaseState(args: {
     updatedAt,
     configuration: current.configuration,
     evaluation,
+    promotion: current.promotion,
   };
   await writeOperatorReleaseState(args.releaseStateFile, nextState);
   return nextState;
@@ -235,6 +268,7 @@ function parseOperatorReleaseStateDocument(
       filePath,
     ),
     evaluation: parseOperatorReleaseEvaluation(value.evaluation, filePath),
+    promotion: parseOperatorReadyPromotionResult(value.promotion, filePath),
   };
 }
 
@@ -340,6 +374,69 @@ function parseOperatorReleaseEvaluation(
   };
 }
 
+function parseOperatorReadyPromotionResult(
+  value: unknown,
+  filePath: string,
+): OperatorReadyPromotionResult {
+  if (value === undefined) {
+    return createEmptyOperatorReadyPromotionResult();
+  }
+  if (!isRecord(value)) {
+    throw new ObservabilityError(
+      `Malformed operator release state in ${filePath}; expected promotion.`,
+    );
+  }
+  if (
+    value.state !== "unconfigured" &&
+    value.state !== "blocked-review-needed" &&
+    value.state !== "labels-synchronized" &&
+    value.state !== "sync-failed"
+  ) {
+    throw new ObservabilityError(
+      `Malformed operator release state in ${filePath}; expected a supported promotion.state.`,
+    );
+  }
+  if (
+    typeof value.summary !== "string" ||
+    typeof value.promotedAt !== "string" ||
+    !Array.isArray(value.eligibleIssues) ||
+    !Array.isArray(value.readyLabelsAdded) ||
+    !Array.isArray(value.readyLabelsRemoved)
+  ) {
+    throw new ObservabilityError(
+      `Malformed operator release state in ${filePath}; expected promotion fields.`,
+    );
+  }
+
+  return {
+    state: value.state,
+    summary: value.summary,
+    promotedAt: value.promotedAt,
+    eligibleIssues: value.eligibleIssues.map((reference, index) =>
+      parseOperatorReleaseIssueReference(
+        reference,
+        `${filePath} promotion.eligibleIssues[${index.toString()}]`,
+      ),
+    ),
+    readyLabelsAdded: value.readyLabelsAdded.map((reference, index) =>
+      parseOperatorReleaseIssueReference(
+        reference,
+        `${filePath} promotion.readyLabelsAdded[${index.toString()}]`,
+      ),
+    ),
+    readyLabelsRemoved: value.readyLabelsRemoved.map((reference, index) =>
+      parseOperatorReleaseIssueReference(
+        reference,
+        `${filePath} promotion.readyLabelsRemoved[${index.toString()}]`,
+      ),
+    ),
+    error:
+      value.error === null || value.error === undefined
+        ? null
+        : requireString(value.error, `${filePath} promotion.error`),
+  };
+}
+
 function parseOperatorReleaseIssueReference(
   value: unknown,
   field: string,
@@ -368,7 +465,7 @@ function parseOperatorReleaseIssueReference(
   };
 }
 
-async function listStoredIssueSummaries(
+export async function listStoredIssueSummaries(
   instance: ReturnType<typeof coerceRuntimeInstancePaths>,
 ): Promise<readonly StoredIssueSummary[]> {
   const entries = await fs

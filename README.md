@@ -184,6 +184,11 @@ Operator wake-ups now inspect that ledger before ordinary queue advancement so
 completed-run report findings are turned into tracked follow-up work promptly.
 The current entry point requires a Unix-like shell environment such as macOS,
 Linux, or WSL/Git Bash on Windows.
+The same wake-up path now also runs a dependency-aware ready promoter for
+GitHub-backed release DAGs. It reads the canonical operator-local
+`release-state.json` dependency graph, computes which downstream issues are
+currently eligible, and records the resulting eligible set plus any added or
+removed `symphony:ready` labels back into that same typed artifact.
 
 Generate a per-issue report from local artifacts:
 
