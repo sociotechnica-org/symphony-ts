@@ -450,6 +450,9 @@ class SequencedTracker implements Tracker {
     if (lifecycle === null) {
       const issueNumber = Number(branchName.split("/").at(-1));
       const sequence = this.lifecycleSequences.get(issueNumber);
+      // Ready issues start with a synthetic missing-target lifecycle before the
+      // tracker sequence is consulted, so continuation tests need one queued
+      // missing-target state consumed before the next tracker lifecycle.
       if (sequence?.[0]?.kind === "missing-target") {
         sequence.shift();
       }
@@ -1457,7 +1460,9 @@ describe("BootstrapOrchestrator", () => {
       ready: [createIssue(34)],
     });
     tracker.setLifecycleSequence(34, [
-      lifecycle("missing-target", "symphony/34"),
+      lifecycle("missing-target", "symphony/34", {
+        summary: "No open pull request found for symphony/34",
+      }),
       lifecycle("missing-target", "symphony/34", {
         summary:
           "Plan review approved for symphony/34; resume implementation before opening a pull request.",
