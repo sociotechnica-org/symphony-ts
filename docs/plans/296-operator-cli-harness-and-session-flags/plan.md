@@ -276,17 +276,17 @@ The persisted artifact should record only the facts needed to decide reuse safel
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected decision |
-| --- | --- | --- |
-| Operator runs with no new flags and no `SYMPHONY_OPERATOR_COMMAND` override | loop argv, default settings | keep today’s fresh default command behavior |
-| Operator selects `--provider codex --model gpt-5.4-mini` | parsed loop flags | build the documented Codex operator command with the requested model and publish provider/model in status |
-| Operator selects `--provider claude` without a model | parsed loop flags | build the documented Claude headless command, letting model remain omitted/default unless explicitly set |
-| Operator passes `--operator-command <raw>` | parsed loop flags | use the raw command as the effective command and preserve it as the escape hatch path |
-| Resumable mode is enabled but no stored session file exists | instance-scoped session state path | run fresh, then attempt to capture/store a resumable backend session id if the provider exposes one |
-| Stored session exists but provider/model/base command fingerprint changed | stored record plus current resolved command facts | clear or ignore the stale record and run fresh; do not attempt resume |
-| Stored session exists but selected provider does not support safe resume reconstruction for the effective command | stored record plus provider kind | treat as `reset-required` or `fresh`; do not guess a resume command |
-| Resume attempt fails or returns no reusable session id | process exit/output plus stored record | clear the stored record, surface the reset in status/logs, and fall back to fresh mode on a later cycle |
-| Stored session artifact is unreadable or malformed | persisted session file | clear/replace it and continue with a fresh run instead of wedging the loop |
+| Observed condition                                                                                                | Local facts available                             | Expected decision                                                                                         |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Operator runs with no new flags and no `SYMPHONY_OPERATOR_COMMAND` override                                       | loop argv, default settings                       | keep today’s fresh default command behavior                                                               |
+| Operator selects `--provider codex --model gpt-5.4-mini`                                                          | parsed loop flags                                 | build the documented Codex operator command with the requested model and publish provider/model in status |
+| Operator selects `--provider claude` without a model                                                              | parsed loop flags                                 | build the documented Claude headless command, letting model remain omitted/default unless explicitly set  |
+| Operator passes `--operator-command <raw>`                                                                        | parsed loop flags                                 | use the raw command as the effective command and preserve it as the escape hatch path                     |
+| Resumable mode is enabled but no stored session file exists                                                       | instance-scoped session state path                | run fresh, then attempt to capture/store a resumable backend session id if the provider exposes one       |
+| Stored session exists but provider/model/base command fingerprint changed                                         | stored record plus current resolved command facts | clear or ignore the stale record and run fresh; do not attempt resume                                     |
+| Stored session exists but selected provider does not support safe resume reconstruction for the effective command | stored record plus provider kind                  | treat as `reset-required` or `fresh`; do not guess a resume command                                       |
+| Resume attempt fails or returns no reusable session id                                                            | process exit/output plus stored record            | clear the stored record, surface the reset in status/logs, and fall back to fresh mode on a later cycle   |
+| Stored session artifact is unreadable or malformed                                                                | persisted session file                            | clear/replace it and continue with a fresh run instead of wedging the loop                                |
 
 ## Storage And Persistence Contract
 

@@ -16,13 +16,18 @@ Supported repo-owned entry point:
 
 - `pnpm operator` for the continuous wake-up loop
 - `pnpm operator:once` for one cycle
+- `pnpm operator -- --provider codex --model gpt-5.4-mini` for explicit Codex model selection
+- `pnpm operator -- --provider claude` for the checked-in Claude harness path
+- `pnpm operator -- --provider codex --model gpt-5.4-mini --resume-session` for instance-scoped resumable wake-ups
 
 The checked-in loop and prompt live next to this skill under
 `skills/symphony-operator/`. `.ralph/` is local/generated-only state for the
 instance-scoped standing context, wake-up log, status snapshots, logs, and
 loop lock files under `.ralph/instances/<instance-key>/`. Release dependency
 metadata and the current release advancement posture also live there in
-`release-state.json`.
+`release-state.json`. When resumable mode is enabled, that same root also
+carries `operator-session.json`, the typed record of the compatible reusable
+provider session for that instance.
 
 ## Scope
 
