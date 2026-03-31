@@ -140,7 +140,8 @@ This separate reference should eventually cover:
 
 - Explain what the prompt body should and should not do.
 - Explain the trusted context that Symphony injects.
-- Explain how issue/PR lifecycle data appears in the template.
+- Explain how normalized lifecycle data appears through the `lifecycle`
+  variable and how PR-specific data appears through `pull_request`.
 - Explain why prompts should state durable process expectations explicitly.
 
 Key themes to cover:

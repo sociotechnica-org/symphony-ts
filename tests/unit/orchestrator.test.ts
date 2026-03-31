@@ -1452,6 +1452,78 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("preserves approved pre-PR lifecycle context in the next prompt after plan review", async () => {
+    const tracker = new SequencedTracker({
+      ready: [createIssue(34)],
+    });
+    tracker.setLifecycleSequence(34, [
+      lifecycle("missing-target", "symphony/34"),
+      lifecycle("missing-target", "symphony/34", {
+        summary:
+          "Plan review approved for symphony/34; resume implementation before opening a pull request.",
+      }),
+      lifecycle("handoff-ready", "symphony/34"),
+    ]);
+
+    const runner = new RecordingRunner();
+    const lifecyclePromptBuilder: PromptBuilder = {
+      async build({ issue, attempt, pullRequest }): Promise<string> {
+        return JSON.stringify({
+          issue: issue.identifier,
+          attempt,
+          lifecycleKind: pullRequest?.kind ?? null,
+          lifecycleSummary: pullRequest?.summary ?? null,
+          pullRequestNumber: pullRequest?.pullRequest?.number ?? null,
+        });
+      },
+      async buildContinuation({
+        issue,
+        turnNumber,
+        maxTurns,
+        pullRequest,
+      }): Promise<string> {
+        return JSON.stringify({
+          issue: issue.identifier,
+          turnNumber,
+          maxTurns,
+          lifecycleKind: pullRequest?.kind ?? null,
+          lifecycleSummary: pullRequest?.summary ?? null,
+          mode: "continuation",
+        });
+      },
+    };
+
+    const orchestrator = new BootstrapOrchestrator(
+      baseConfig,
+      lifecyclePromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      runner,
+      new NullLogger(),
+    );
+
+    await orchestrator.runOnce();
+
+    expect(runner.prompts).toEqual([
+      JSON.stringify({
+        issue: "sociotechnica-org/symphony-ts#34",
+        attempt: null,
+        lifecycleKind: "missing-target",
+        lifecycleSummary: "No open pull request found for symphony/34",
+        pullRequestNumber: null,
+      }),
+      JSON.stringify({
+        issue: "sociotechnica-org/symphony-ts#34",
+        turnNumber: 2,
+        maxTurns: 3,
+        lifecycleKind: "missing-target",
+        lifecycleSummary:
+          "Plan review approved for symphony/34; resume implementation before opening a pull request.",
+        mode: "continuation",
+      }),
+    ]);
+  });
+
   it("warns when continuation turns fall back to cold-start subprocesses", async () => {
     const tempRoot = await createTempDir("symphony-cold-start-warning-test-");
     try {
@@ -2797,7 +2869,7 @@ describe("BootstrapOrchestrator", () => {
       JSON.stringify({
         issue: "sociotechnica-org/symphony-ts#13",
         attempt: null,
-        pullRequest: null,
+        pullRequest: "missing-target",
       }),
       JSON.stringify({
         issue: "sociotechnica-org/symphony-ts#13",

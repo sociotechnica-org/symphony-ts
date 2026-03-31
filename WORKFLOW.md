@@ -97,6 +97,15 @@ GitHub Prompt Trust Boundary:
 Issue Summary:
 {{ issue.summary }}
 
+{% if lifecycle %}
+Tracker Handoff State:
+
+- Status: {{ lifecycle.kind }}
+- Branch: {{ lifecycle.branchName }}
+- Summary: {{ lifecycle.summary }}
+
+{% endif %}
+
 {% if pull_request %}
 Pull Request State:
 

@@ -238,9 +238,10 @@ describe("GitHubTracker", () => {
     const second = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(first.kind).toBe("missing-target");
-    expect(first.summary).toMatch(/no open pull request/i);
+    expect(first.summary).toMatch(/plan review approved/i);
+    expect(first.summary).toMatch(/resume implementation/i);
     expect(second.kind).toBe("missing-target");
-    expect(second.summary).toMatch(/no open pull request/i);
+    expect(second.summary).toMatch(/plan review approved/i);
     expect(
       server
         .getIssue(7)
@@ -318,6 +319,8 @@ describe("GitHubTracker", () => {
 
     expect(first.kind).toBe("missing-target");
     expect(second.kind).toBe("missing-target");
+    expect(first.summary).toMatch(/requested changes/i);
+    expect(second.summary).toMatch(/revise the plan/i);
     expect(server.countRequests("GET issues/7")).toBe(2);
     expect(server.countRequests("GET issues/7/comments")).toBe(2);
     expect(
@@ -349,6 +352,8 @@ describe("GitHubTracker", () => {
 
     expect(first.kind).toBe("missing-target");
     expect(second.kind).toBe("missing-target");
+    expect(first.summary).toMatch(/plan review waived/i);
+    expect(second.summary).toMatch(/resume implementation/i);
     expect(
       server
         .getIssue(7)
@@ -356,6 +361,29 @@ describe("GitHubTracker", () => {
           body.startsWith("Plan review acknowledged: waived"),
         ),
     ).toHaveLength(1);
+  });
+
+  it("ignores unanchored plan-review decisions that lack a prior plan-ready handoff", async () => {
+    const tracker = createTracker(server);
+
+    server.addIssueComment({
+      issueNumber: 7,
+      authorLogin: "jessmartin",
+      body: "Plan review: approved\n\nSummary\n- Proceed.",
+      createdAt: "2026-03-07T10:05:00.000Z",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("missing-target");
+    expect(lifecycle.summary).toMatch(/no open pull request/i);
+    expect(
+      server
+        .getIssue(7)
+        .comments.filter((body) =>
+          body.startsWith("Plan review acknowledged: approved"),
+        ),
+    ).toHaveLength(0);
   });
 
   it("reports awaiting-system-checks while checks are pending", async () => {

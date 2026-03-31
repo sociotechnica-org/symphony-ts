@@ -765,6 +765,74 @@ ${buildSharedWorkflowSections()}`,
     expect(rendered).not.toContain("Developer:");
   });
 
+  it("renders lifecycle context separately from PR-only context", async () => {
+    const dir = await createTempDir("workflow-lifecycle-prompt-context-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+        [
+          "{% if lifecycle %}",
+          "Lifecycle kind: {{ lifecycle.kind }}",
+          "Lifecycle branch: {{ lifecycle.branchName }}",
+          "Lifecycle summary: {{ lifecycle.summary }}",
+          "{% endif %}",
+          "{% if pull_request %}",
+          "PR URL: {{ pull_request.pullRequest.url }}",
+          "{% endif %}",
+        ].join("\n"),
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    const promptBuilder = createPromptBuilder(workflow);
+    const rendered = await promptBuilder.build({
+      issue: {
+        id: "1",
+        identifier: "repo#1",
+        number: 1,
+        title: "T",
+        description: "D",
+        labels: ["a"],
+        state: "open",
+        url: "https://example.test/issues/1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        queuePriority: null,
+      },
+      attempt: 2,
+      pullRequest: {
+        kind: "missing-target",
+        branchName: "symphony/1",
+        pullRequest: null,
+        checks: [],
+        pendingCheckNames: [],
+        failingCheckNames: [],
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        reviewerVerdict: "no-blocking-verdict",
+        blockingReviewerKeys: [],
+        requiredReviewerState: "not-required",
+        summary:
+          "Plan review approved for symphony/1; resume implementation before opening a pull request.",
+      },
+    });
+
+    expect(rendered).toContain("Lifecycle kind: missing-target");
+    expect(rendered).toContain("Lifecycle branch: symphony/1");
+    expect(rendered).toContain("Lifecycle summary: Plan review approved");
+    expect(rendered).not.toContain("PR URL:");
+  });
+
   it("rejects workflow templates that still reference raw tracker issue descriptions", async () => {
     const dir = await createTempDir("workflow-legacy-description-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

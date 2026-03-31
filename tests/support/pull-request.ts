@@ -32,6 +32,7 @@ export function createLifecycle(
     pendingCheckNames?: readonly string[];
     actionableReviewFeedback?: readonly ReviewFeedback[];
     unresolvedThreadIds?: readonly string[];
+    summary?: string;
   },
 ): HandoffLifecycle {
   return {
@@ -56,6 +57,6 @@ export function createLifecycle(
     reviewerVerdict: "no-blocking-verdict",
     blockingReviewerKeys: [],
     requiredReviewerState: "not-required",
-    summary: `${kind} for ${branchName}`,
+    summary: options?.summary ?? `${kind} for ${branchName}`,
   };
 }

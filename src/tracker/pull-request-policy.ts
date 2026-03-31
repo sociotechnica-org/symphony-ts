@@ -44,6 +44,7 @@ function summarizeLifecycle(
 
 export function missingPullRequestLifecycle(
   branchName: string,
+  summary = `No open pull request found for ${branchName}`,
 ): HandoffLifecycle {
   return {
     kind: "missing-target",
@@ -58,7 +59,7 @@ export function missingPullRequestLifecycle(
     reviewerVerdict: "no-blocking-verdict",
     blockingReviewerKeys: [],
     requiredReviewerState: "not-required",
-    summary: `No open pull request found for ${branchName}`,
+    summary,
   };
 }
 

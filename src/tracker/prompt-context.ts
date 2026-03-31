@@ -2,6 +2,7 @@ import type { HandoffLifecycle, ReviewFeedback } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type {
   PromptIssueContext,
+  PromptLifecycleContext,
   PromptPullRequestContext,
   PromptReviewFeedbackContext,
 } from "../domain/prompt-context.js";
@@ -28,19 +29,30 @@ export function buildPromptIssueContext(
 }
 
 export function buildPromptPullRequestContext(
-  pullRequest: HandoffLifecycle | null,
+  lifecycle: HandoffLifecycle | null,
 ): PromptPullRequestContext | null {
-  if (pullRequest === null) {
+  if (lifecycle === null || lifecycle.pullRequest === null) {
+    return null;
+  }
+
+  return buildPromptLifecycleContext(lifecycle);
+}
+
+export function buildPromptLifecycleContext(
+  lifecycle: HandoffLifecycle | null,
+): PromptLifecycleContext | null {
+  if (lifecycle === null) {
     return null;
   }
 
   return {
-    kind: pullRequest.kind,
-    summary: pullRequest.summary,
-    pullRequest: pullRequest.pullRequest,
-    pendingCheckNames: pullRequest.pendingCheckNames,
-    failingCheckNames: pullRequest.failingCheckNames,
-    actionableReviewFeedback: pullRequest.actionableReviewFeedback.map(
+    kind: lifecycle.kind,
+    branchName: lifecycle.branchName,
+    summary: lifecycle.summary,
+    pullRequest: lifecycle.pullRequest,
+    pendingCheckNames: lifecycle.pendingCheckNames,
+    failingCheckNames: lifecycle.failingCheckNames,
+    actionableReviewFeedback: lifecycle.actionableReviewFeedback.map(
       buildPromptReviewFeedbackContext,
     ),
   };

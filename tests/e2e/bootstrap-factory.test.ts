@@ -229,6 +229,11 @@ ${agentEnvBlock}${
     }---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}.
 Issue summary: {{ issue.summary }}
+{% if lifecycle %}
+Tracker lifecycle: {{ lifecycle.kind }}
+Tracker branch: {{ lifecycle.branchName }}
+Tracker lifecycle summary: {{ lifecycle.summary }}
+{% endif %}
 {% if pull_request %}
 Pull request lifecycle: {{ pull_request.kind }}
 Pull request URL: {{ pull_request.pullRequest.url }}
@@ -1577,6 +1582,67 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
 
     expect(await countRemoteBranchCommits(remotePath, "symphony/53")).toBe(1);
+  });
+
+  it("resumes implementation after approved plan review with a fresh run budget and prompt-visible lifecycle context", async () => {
+    server.seedIssue({
+      number: 289,
+      title: "Resume implementation after approved plan review",
+      body: "Reset the implementation turn budget after the approved plan handoff.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve(
+        "tests/fixtures/fake-agent-approved-plan-resume.sh",
+      ),
+      maxTurns: 1,
+      maxAttempts: 1,
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    server.addIssueComment({
+      issueNumber: 289,
+      authorLogin: "jessmartin",
+      body: "Plan review: approved\n\nSummary\n- Approved to implement.",
+    });
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(289);
+    expect(
+      issue.comments.some((body) =>
+        body.startsWith("Plan review acknowledged: approved"),
+      ),
+    ).toBe(true);
+
+    const pullRequests = server.getPullRequests();
+    expect(pullRequests).toHaveLength(1);
+    expect(pullRequests[0]?.head).toBe("symphony/289");
+
+    const promptFile = await readRemoteBranchFile(
+      remotePath,
+      "symphony/289",
+      ".agent-prompt.txt",
+    );
+    expect(promptFile).toContain("Tracker lifecycle: missing-target");
+    expect(promptFile).toContain("Tracker branch: symphony/289");
+    expect(promptFile).toContain(
+      "Tracker lifecycle summary: Plan review approved for symphony/289; resume implementation before opening a pull request.",
+    );
+    expect(promptFile).not.toContain("Pull request URL:");
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.lastAction?.kind).toBe("awaiting-system-checks");
+    expect(status.activeIssues[0]?.issueNumber).toBe(289);
+    expect(status.activeIssues[0]?.status).toBe("awaiting-system-checks");
   });
 
   it("runs a complete GitHub factory handoff loop through the Claude Code runner", async () => {
