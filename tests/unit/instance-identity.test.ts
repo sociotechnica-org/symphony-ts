@@ -55,5 +55,8 @@ describe("instance identity helpers", () => {
     expect(paths.reportReviewStatePath).toBe(
       path.join(paths.operatorStateRoot, "report-review-state.json"),
     );
+    expect(paths.sessionStatePath).toBe(
+      path.join(paths.operatorStateRoot, "operator-session.json"),
+    );
   });
 });

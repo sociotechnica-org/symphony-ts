@@ -170,6 +170,9 @@ entry point instead of any local `.ralph/` script:
 pnpm operator        # continuous wake-up loop
 pnpm operator:once   # single operator wake-up cycle
 pnpm operator -- --workflow ../target-repo/WORKFLOW.md
+pnpm operator -- --provider codex --model gpt-5.4-mini
+pnpm operator -- --provider claude
+pnpm operator -- --provider codex --model gpt-5.4-mini --resume-session
 ```
 
 The checked-in loop lives under `skills/symphony-operator/`. `.ralph/` remains
@@ -180,6 +183,10 @@ machine-readable completed-run review ledger `report-review-state.json`.
 The same operator state root now also carries `release-state.json`, the typed
 record of configured release dependencies plus the current blocked or clear
 release-advancement posture for that instance.
+When resumable operator sessions are enabled, the same state root also carries
+`operator-session.json`, the typed instance-local record of the reusable
+backend session id plus the provider/model/command fingerprint it is compatible
+with.
 Operator wake-ups now inspect that ledger before ordinary queue advancement so
 completed-run report findings are turned into tracked follow-up work promptly.
 The current entry point requires a Unix-like shell environment such as macOS,
@@ -189,6 +196,12 @@ GitHub-backed release DAGs. It reads the canonical operator-local
 `release-state.json` dependency graph, computes which downstream issues are
 currently eligible, and records the resulting eligible set plus any added or
 removed `symphony:ready` labels back into that same typed artifact.
+Use `--provider` and `--model` for the normal harness-selection path,
+`--resume-session` or `--infinite-session` to reuse a compatible provider
+session across wake-ups, and `--operator-command` or
+`SYMPHONY_OPERATOR_COMMAND` only as the raw-command escape hatch. Operator
+status artifacts now expose the resolved provider, model, command source,
+effective command, and session mode/reset reason.
 
 Generate a per-issue report from local artifacts:
 

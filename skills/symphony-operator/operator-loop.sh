@@ -7,6 +7,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROMPT_FILE="$SCRIPT_DIR/operator-prompt.md"
 RALPH_DIR="$REPO_ROOT/.ralph"
 INSTANCE_STATE_RESOLVER="$REPO_ROOT/bin/resolve-operator-instance.ts"
+OPERATOR_CONFIG_RESOLVER="$REPO_ROOT/bin/resolve-operator-loop-config.ts"
+PREPARE_OPERATOR_CYCLE="$REPO_ROOT/bin/prepare-operator-loop-cycle.ts"
+RECORD_OPERATOR_CYCLE="$REPO_ROOT/bin/record-operator-loop-cycle.ts"
 RELEASE_STATE_CHECKER="$REPO_ROOT/bin/check-operator-release-state.ts"
 READY_PROMOTER="$REPO_ROOT/bin/promote-operator-ready-issues.ts"
 INSTANCE_KEY=""
@@ -22,11 +25,21 @@ WAKE_UP_LOG=""
 LEGACY_SCRATCHPAD=""
 RELEASE_STATE=""
 REPORT_REVIEW_STATE=""
+SESSION_STATE=""
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
 WORKFLOW_PATH="${SYMPHONY_OPERATOR_WORKFLOW_PATH:-}"
 DEFAULT_OPERATOR_COMMAND="codex exec --dangerously-bypass-approvals-and-sandbox -C . -"
-OPERATOR_COMMAND="${SYMPHONY_OPERATOR_COMMAND:-$DEFAULT_OPERATOR_COMMAND}"
+BASE_OPERATOR_COMMAND="$DEFAULT_OPERATOR_COMMAND"
+EFFECTIVE_OPERATOR_COMMAND="$DEFAULT_OPERATOR_COMMAND"
+OPERATOR_COMMAND_SOURCE="default"
+OPERATOR_PROVIDER="codex"
+OPERATOR_MODEL=""
+RESUME_SESSION=0
+OPERATOR_SESSION_MODE="disabled"
+OPERATOR_SESSION_SUMMARY="Resumable operator sessions are disabled."
+OPERATOR_SESSION_ID=""
+OPERATOR_SESSION_RESET_REASON=""
 RECORDING_SETTLE_SECONDS=1
 
 RUN_ONCE=0
@@ -53,7 +66,7 @@ READY_PROMOTION_REMOVED=""
 
 usage() {
   cat <<'EOF'
-Usage: operator-loop.sh [--once] [--interval-seconds <seconds>] [--workflow <path>] [--help]
+Usage: operator-loop.sh [--once] [--interval-seconds <seconds>] [--workflow <path>] [--provider <codex|claude|custom>] [--model <name>] [--operator-command <raw command>] [--resume-session|--infinite-session] [--help]
 
 Environment:
   SYMPHONY_OPERATOR_COMMAND           Command that reads the operator prompt from stdin.
@@ -65,6 +78,9 @@ Environment:
 Examples:
   pnpm operator
   pnpm operator:once
+  pnpm operator -- --provider codex --model gpt-5.4-mini
+  pnpm operator -- --provider claude
+  pnpm operator -- --provider codex --model gpt-5.4-mini --infinite-session
   pnpm operator -- --workflow ../target-repo/WORKFLOW.md
   SYMPHONY_OPERATOR_INTERVAL_SECONDS=60 pnpm operator
 EOF
@@ -120,6 +136,7 @@ const data = JSON.parse(fs.readFileSync(0, "utf8"));
   legacyScratchpadPath: "LEGACY_SCRATCHPAD",
   releaseStatePath: "RELEASE_STATE",
   reportReviewStatePath: "REPORT_REVIEW_STATE",
+  sessionStatePath: "SESSION_STATE",
 };
 for (const [jsonKey, shellKey] of Object.entries(mappings)) {
   const value = data[jsonKey];
@@ -131,6 +148,124 @@ for (const [jsonKey, shellKey] of Object.entries(mappings)) {
 '
   )"
   eval "$metadata_exports"
+}
+
+resolve_operator_config() {
+  local config_json config_exports
+  config_json="$(pnpm tsx "$OPERATOR_CONFIG_RESOLVER" "$@")"
+  config_exports="$(
+    printf '%s' "$config_json" | node -e '
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(0, "utf8"));
+const mappings = {
+  runOnce: "RUN_ONCE",
+  intervalSeconds: "INTERVAL_SECONDS",
+  workflowPath: "WORKFLOW_PATH",
+  provider: "OPERATOR_PROVIDER",
+  model: "OPERATOR_MODEL",
+  baseCommand: "BASE_OPERATOR_COMMAND",
+  commandSource: "OPERATOR_COMMAND_SOURCE",
+  resumeSession: "RESUME_SESSION",
+};
+for (const [jsonKey, shellKey] of Object.entries(mappings)) {
+  const value = data[jsonKey];
+  if (jsonKey === "runOnce" || jsonKey === "resumeSession") {
+    if (typeof value !== "boolean") {
+      throw new Error(`Expected boolean for ${jsonKey}`);
+    }
+    console.log(`${shellKey}=${value ? "1" : "0"}`);
+    continue;
+  }
+  if (jsonKey === "intervalSeconds") {
+    if (typeof value !== "number") {
+      throw new Error(`Expected number for ${jsonKey}`);
+    }
+    console.log(`${shellKey}=${JSON.stringify(String(value))}`);
+    continue;
+  }
+  if (value !== null && typeof value !== "string") {
+    throw new Error(`Expected string|null for ${jsonKey}`);
+  }
+  console.log(`${shellKey}=${JSON.stringify(value ?? "")}`);
+}
+'
+  )"
+  eval "$config_exports"
+  EFFECTIVE_OPERATOR_COMMAND="$BASE_OPERATOR_COMMAND"
+}
+
+prepare_operator_cycle() {
+  local prepared_json prepared_exports
+  local args=(
+    --provider "$OPERATOR_PROVIDER"
+    --base-command "$BASE_OPERATOR_COMMAND"
+    --resume-session "$(if [ "$RESUME_SESSION" -eq 1 ]; then printf 'true'; else printf 'false'; fi)"
+    --session-state-path "$SESSION_STATE"
+  )
+  if [ -n "$OPERATOR_MODEL" ]; then
+    args+=(--model "$OPERATOR_MODEL")
+  fi
+  prepared_json="$(pnpm tsx "$PREPARE_OPERATOR_CYCLE" "${args[@]}")"
+  prepared_exports="$(
+    printf '%s' "$prepared_json" | node -e '
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(0, "utf8"));
+const mappings = {
+  effectiveCommand: "EFFECTIVE_OPERATOR_COMMAND",
+  sessionMode: "OPERATOR_SESSION_MODE",
+  sessionSummary: "OPERATOR_SESSION_SUMMARY",
+  backendSessionId: "OPERATOR_SESSION_ID",
+  resetReason: "OPERATOR_SESSION_RESET_REASON",
+};
+for (const [jsonKey, shellKey] of Object.entries(mappings)) {
+  const value = data[jsonKey];
+  if (value !== null && typeof value !== "string") {
+    throw new Error(`Expected string|null for ${jsonKey}`);
+  }
+  console.log(`${shellKey}=${JSON.stringify(value ?? "")}`);
+}
+'
+  )"
+  eval "$prepared_exports"
+}
+
+record_operator_cycle() {
+  local recorded_json recorded_exports
+  local args=(
+    --provider "$OPERATOR_PROVIDER"
+    --base-command "$BASE_OPERATOR_COMMAND"
+    --resume-session "$(if [ "$RESUME_SESSION" -eq 1 ]; then printf 'true'; else printf 'false'; fi)"
+    --session-mode "$OPERATOR_SESSION_MODE"
+    --session-state-path "$SESSION_STATE"
+    --repo-root "$REPO_ROOT"
+    --started-at "$LAST_CYCLE_STARTED_AT"
+    --finished-at "$LAST_CYCLE_FINISHED_AT"
+    --exit-code "$LAST_CYCLE_EXIT_CODE"
+    --log-file "$LAST_LOG_FILE"
+    --reset-reason "$OPERATOR_SESSION_RESET_REASON"
+  )
+  if [ -n "$OPERATOR_MODEL" ]; then
+    args+=(--model "$OPERATOR_MODEL")
+  fi
+  recorded_json="$(pnpm tsx "$RECORD_OPERATOR_CYCLE" "${args[@]}")"
+  recorded_exports="$(
+    printf '%s' "$recorded_json" | node -e '
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(0, "utf8"));
+const mappings = {
+  sessionSummary: "OPERATOR_SESSION_SUMMARY",
+  backendSessionId: "OPERATOR_SESSION_ID",
+};
+for (const [jsonKey, shellKey] of Object.entries(mappings)) {
+  const value = data[jsonKey];
+  if (value !== null && typeof value !== "string") {
+    throw new Error(`Expected string|null for ${jsonKey}`);
+  }
+  console.log(`${shellKey}=${JSON.stringify(value ?? "")}`);
+}
+'
+  )"
+  eval "$recorded_exports"
 }
 
 refresh_release_state() {
@@ -356,10 +491,22 @@ write_status() {
   "pid": $$,
   "runOnce": $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'true'; else printf 'false'; fi),
   "intervalSeconds": $INTERVAL_SECONDS,
-  "command": "$(json_escape "$OPERATOR_COMMAND")",
+  "provider": "$(json_escape "$OPERATOR_PROVIDER")",
+  "model": $(if [ -n "$OPERATOR_MODEL" ]; then printf '"%s"' "$(json_escape "$OPERATOR_MODEL")"; else printf 'null'; fi),
+  "commandSource": "$(json_escape "$OPERATOR_COMMAND_SOURCE")",
+  "command": "$(json_escape "$BASE_OPERATOR_COMMAND")",
+  "effectiveCommand": "$(json_escape "$EFFECTIVE_OPERATOR_COMMAND")",
   "promptFile": "$(json_escape "$PROMPT_FILE")",
   "standingContext": "$(json_escape "$STANDING_CONTEXT")",
   "wakeUpLog": "$(json_escape "$WAKE_UP_LOG")",
+  "operatorSession": {
+    "enabled": $(if [ "$RESUME_SESSION" -eq 1 ]; then printf 'true'; else printf 'false'; fi),
+    "path": "$(json_escape "$SESSION_STATE")",
+    "mode": "$(json_escape "$OPERATOR_SESSION_MODE")",
+    "summary": "$(json_escape "$OPERATOR_SESSION_SUMMARY")",
+    "backendSessionId": $(if [ -n "$OPERATOR_SESSION_ID" ]; then printf '"%s"' "$(json_escape "$OPERATOR_SESSION_ID")"; else printf 'null'; fi),
+    "resetReason": $(if [ -n "$OPERATOR_SESSION_RESET_REASON" ]; then printf '"%s"' "$(json_escape "$OPERATOR_SESSION_RESET_REASON")"; else printf 'null'; fi)
+  },
   "releaseState": {
     "path": "$(json_escape "$RELEASE_STATE")",
     "releaseId": $(if [ -n "$RELEASE_ID" ]; then printf '"%s"' "$(json_escape "$RELEASE_ID")"; else printf 'null'; fi),
@@ -402,6 +549,17 @@ EOF
 - Mode: $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'once'; else printf 'continuous'; fi)
 - Interval seconds: $INTERVAL_SECONDS
 - Selected workflow: ${WORKFLOW_PATH:-n/a}
+- Provider: $OPERATOR_PROVIDER
+- Model: ${OPERATOR_MODEL:-default}
+- Command source: $OPERATOR_COMMAND_SOURCE
+- Base command: $BASE_OPERATOR_COMMAND
+- Effective command: $EFFECTIVE_OPERATOR_COMMAND
+- Resumable session enabled: $(if [ "$RESUME_SESSION" -eq 1 ]; then printf 'true'; else printf 'false'; fi)
+- Session state: $SESSION_STATE
+- Session mode: $OPERATOR_SESSION_MODE
+- Session summary: $OPERATOR_SESSION_SUMMARY
+- Session backend id: ${OPERATOR_SESSION_ID:-n/a}
+- Session reset reason: ${OPERATOR_SESSION_RESET_REASON:-n/a}
 - Standing context: $STANDING_CONTEXT
 - Wake-up log: $WAKE_UP_LOG
 - Release state: $RELEASE_STATE
@@ -536,7 +694,7 @@ sleep_until_next_cycle() {
 }
 
 warn_default_command() {
-  if [ "$OPERATOR_COMMAND" = "$DEFAULT_OPERATOR_COMMAND" ]; then
+  if [ "$OPERATOR_COMMAND_SOURCE" = "default" ]; then
     echo "operator-loop: using the default Codex command with approvals and sandbox bypass enabled" >&2
   fi
 }
@@ -557,6 +715,7 @@ run_cycle() {
   if ! run_ready_promotion_nonfatal; then
     :
   fi
+  prepare_operator_cycle
   write_status "acting" "Running operator wake-up cycle"
 
   {
@@ -567,7 +726,15 @@ run_cycle() {
     printf 'detached_session=%s\n' "$DETACHED_SESSION_NAME"
     printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
     printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
-    printf 'command=%s\n' "$OPERATOR_COMMAND"
+    printf 'provider=%s\n' "$OPERATOR_PROVIDER"
+    printf 'model=%s\n' "${OPERATOR_MODEL:-}"
+    printf 'command_source=%s\n' "$OPERATOR_COMMAND_SOURCE"
+    printf 'base_command=%s\n' "$BASE_OPERATOR_COMMAND"
+    printf 'effective_command=%s\n' "$EFFECTIVE_OPERATOR_COMMAND"
+    printf 'session_state=%s\n' "$SESSION_STATE"
+    printf 'session_mode=%s\n' "$OPERATOR_SESSION_MODE"
+    printf 'session_summary=%s\n' "$OPERATOR_SESSION_SUMMARY"
+    printf 'session_backend_id=%s\n' "${OPERATOR_SESSION_ID:-}"
     printf 'prompt=%s\n' "$PROMPT_FILE"
     printf '\n'
   } >>"$log_file"
@@ -589,15 +756,23 @@ run_cycle() {
     export SYMPHONY_OPERATOR_PROMPT_FILE="$PROMPT_FILE"
     export SYMPHONY_OPERATOR_WORKFLOW_PATH="$WORKFLOW_PATH"
     export SYMPHONY_OPERATOR_REPORT_REVIEW_STATE="$REPORT_REVIEW_STATE"
+    export SYMPHONY_OPERATOR_SESSION_STATE="$SESSION_STATE"
+    export SYMPHONY_OPERATOR_PROVIDER="$OPERATOR_PROVIDER"
+    export SYMPHONY_OPERATOR_MODEL="$OPERATOR_MODEL"
+    export SYMPHONY_OPERATOR_COMMAND_SOURCE="$OPERATOR_COMMAND_SOURCE"
+    export SYMPHONY_OPERATOR_BASE_COMMAND="$BASE_OPERATOR_COMMAND"
+    export SYMPHONY_OPERATOR_EFFECTIVE_COMMAND="$EFFECTIVE_OPERATOR_COMMAND"
+    export SYMPHONY_OPERATOR_SESSION_MODE="$OPERATOR_SESSION_MODE"
     # Intentionally use a login shell so PATH-managed runner installs such as
     # codex or claude remain discoverable during unattended operator cycles.
-    bash -l -c "$OPERATOR_COMMAND" <"$PROMPT_FILE"
+    bash -l -c "$EFFECTIVE_OPERATOR_COMMAND" <"$PROMPT_FILE"
   ) >>"$log_file" 2>&1
   exit_code=$?
   set -e
 
   LAST_CYCLE_FINISHED_AT="$(now_utc)"
   LAST_CYCLE_EXIT_CODE="$exit_code"
+  record_operator_cycle
   if ! refresh_release_state_nonfatal; then
     :
   fi
@@ -619,47 +794,12 @@ run_cycle() {
   return "$exit_code"
 }
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --)
-      shift
-      ;;
-    --once)
-      RUN_ONCE=1
-      shift
-      ;;
-    --interval-seconds)
-      if [ $# -lt 2 ]; then
-        echo "operator-loop: --interval-seconds requires a value" >&2
-        exit 1
-      fi
-      INTERVAL_SECONDS="$2"
-      shift 2
-      ;;
-    --workflow)
-      if [ $# -lt 2 ]; then
-        echo "operator-loop: --workflow requires a value" >&2
-        exit 1
-      fi
-      WORKFLOW_PATH="$2"
-      shift 2
-      ;;
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "operator-loop: unknown argument: $1" >&2
-      usage >&2
-      exit 1
-      ;;
-  esac
+for arg in "$@"; do
+  if [ "$arg" = "--help" ] || [ "$arg" = "-h" ]; then
+    usage
+    exit 0
+  fi
 done
-
-if ! [[ "$INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [ "$INTERVAL_SECONDS" -le 0 ]; then
-  echo "operator-loop: interval must be a positive integer" >&2
-  exit 1
-fi
 
 if [ ! -f "$PROMPT_FILE" ]; then
   echo "operator-loop: prompt file not found: $PROMPT_FILE" >&2
@@ -668,6 +808,21 @@ fi
 
 if [ ! -f "$INSTANCE_STATE_RESOLVER" ]; then
   echo "operator-loop: instance-state resolver not found: $INSTANCE_STATE_RESOLVER" >&2
+  exit 1
+fi
+
+if [ ! -f "$OPERATOR_CONFIG_RESOLVER" ]; then
+  echo "operator-loop: operator config resolver not found: $OPERATOR_CONFIG_RESOLVER" >&2
+  exit 1
+fi
+
+if [ ! -f "$PREPARE_OPERATOR_CYCLE" ]; then
+  echo "operator-loop: operator cycle preparer not found: $PREPARE_OPERATOR_CYCLE" >&2
+  exit 1
+fi
+
+if [ ! -f "$RECORD_OPERATOR_CYCLE" ]; then
+  echo "operator-loop: operator cycle recorder not found: $RECORD_OPERATOR_CYCLE" >&2
   exit 1
 fi
 
@@ -680,6 +835,8 @@ if ! command -v node >/dev/null 2>&1; then
   echo "operator-loop: node not found in PATH; required for timestamp calculation" >&2
   exit 1
 fi
+
+resolve_operator_config "$@"
 
 if [ -n "$WORKFLOW_PATH" ]; then
   WORKFLOW_PATH="$(resolve_path "$WORKFLOW_PATH")"

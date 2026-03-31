@@ -24,6 +24,7 @@ export interface OperatorInstanceStatePaths {
   readonly legacyScratchpadPath: string;
   readonly releaseStatePath: string;
   readonly reportReviewStatePath: string;
+  readonly sessionStatePath: string;
 }
 
 export function deriveSymphonyInstanceIdentity(
@@ -77,6 +78,7 @@ export function deriveOperatorInstanceStatePaths(args: {
       operatorStateRoot,
       "report-review-state.json",
     ),
+    sessionStatePath: path.join(operatorStateRoot, "operator-session.json"),
   };
 }
 

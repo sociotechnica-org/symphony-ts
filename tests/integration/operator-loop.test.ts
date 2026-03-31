@@ -69,6 +69,27 @@ async function runOperatorLoop(workflowPath: string): Promise<{
   readonly wakeUpLogPath: string;
   readonly legacyScratchpadPath: string;
   readonly releaseStatePath: string;
+  readonly sessionStatePath: string;
+  readonly logFile: string | null;
+}> {
+  return await runOperatorLoopWithOptions(workflowPath);
+}
+
+async function runOperatorLoopWithOptions(
+  workflowPath: string,
+  options?: {
+    readonly args?: readonly string[] | undefined;
+    readonly env?: NodeJS.ProcessEnv | undefined;
+  },
+): Promise<{
+  readonly stateRoot: string;
+  readonly statusJsonPath: string;
+  readonly statusMdPath: string;
+  readonly standingContextPath: string;
+  readonly wakeUpLogPath: string;
+  readonly legacyScratchpadPath: string;
+  readonly releaseStatePath: string;
+  readonly sessionStatePath: string;
   readonly logFile: string | null;
 }> {
   await execFileAsync(
@@ -78,6 +99,7 @@ async function runOperatorLoop(workflowPath: string): Promise<{
       "--once",
       "--workflow",
       workflowPath,
+      ...(options?.args ?? []),
     ],
     {
       cwd: repoRoot,
@@ -85,6 +107,7 @@ async function runOperatorLoop(workflowPath: string): Promise<{
         ...process.env,
         SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
         GH_TOKEN: "test-token",
+        ...options?.env,
       },
     },
   );
@@ -110,6 +133,7 @@ async function runOperatorLoop(workflowPath: string): Promise<{
     wakeUpLogPath: paths.wakeUpLogPath,
     legacyScratchpadPath: paths.legacyScratchpadPath,
     releaseStatePath: paths.releaseStatePath,
+    sessionStatePath: paths.sessionStatePath,
     logFile: statusJson.lastCycle.logFile,
   };
 }
@@ -118,6 +142,18 @@ async function runOperatorLoopWithCommand(
   workflowPath: string,
   command: string,
 ): Promise<void> {
+  await runOperatorLoopWithOptions(workflowPath, {
+    env: {
+      SYMPHONY_OPERATOR_COMMAND: command,
+    },
+  });
+}
+
+async function runOperatorLoopWithArgs(
+  workflowPath: string,
+  args: readonly string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<void> {
   await execFileAsync(
     "bash",
     [
@@ -125,13 +161,14 @@ async function runOperatorLoopWithCommand(
       "--once",
       "--workflow",
       workflowPath,
+      ...args,
     ],
     {
       cwd: repoRoot,
       env: {
         ...process.env,
-        SYMPHONY_OPERATOR_COMMAND: command,
         GH_TOKEN: "test-token",
+        ...env,
       },
     },
   );
@@ -141,6 +178,62 @@ function buildAppendWakeUpLogCommand(entryTitle: string): string {
   const entry = `\n## ${entryTitle}\n- Appended by integration test.\n`;
   const program = `const fs = require("node:fs"); fs.appendFileSync(process.env.SYMPHONY_OPERATOR_WAKE_UP_LOG, ${JSON.stringify(entry)});`;
   return `node -e ${JSON.stringify(program)}`;
+}
+
+async function createFakeOperatorExecutable(args: {
+  readonly directory: string;
+  readonly name: "codex" | "claude";
+  readonly logPath: string;
+}): Promise<string> {
+  const executablePath = path.join(args.directory, args.name);
+  const script =
+    args.name === "codex"
+      ? `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" >> ${JSON.stringify(args.logPath)}
+cat >/dev/null
+`
+      : `#!/usr/bin/env bash
+set -euo pipefail
+ORIGINAL_ARGS="$*"
+MODEL=""
+RESUME_SESSION=""
+while (($# > 0)); do
+  case "$1" in
+    --model)
+      MODEL="\${2:-}"
+      shift 2
+      ;;
+    --model=*)
+      MODEL="\${1#--model=}"
+      shift
+      ;;
+    --resume|-r)
+      RESUME_SESSION="\${2:-}"
+      shift 2
+      ;;
+    --output-format|--permission-mode)
+      shift 2
+      ;;
+    -p|--print|--dangerously-skip-permissions)
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+printf '%s\\n' "$ORIGINAL_ARGS" >> ${JSON.stringify(args.logPath)}
+cat >/dev/null
+if [[ -n "$RESUME_SESSION" ]]; then
+  SESSION_ID="$RESUME_SESSION"
+else
+  SESSION_ID="claude-session-\${MODEL:-default}"
+fi
+printf '{"type":"result","session_id":"%s","modelUsage":{"%s":{"inputTokens":1,"outputTokens":1}}}\\n' "$SESSION_ID" "\${MODEL:-claude-default}"
+`;
+  await fs.writeFile(executablePath, script, { encoding: "utf8", mode: 0o755 });
+  return executablePath;
 }
 
 async function writeIssueSummary(args: {
@@ -590,6 +683,266 @@ describe("operator loop workflow selection", () => {
       expect(statusJson.releaseState.summary).toContain("#111");
       expect(statusMd).toContain(
         "- Release advancement state: blocked-by-prerequisite-failure",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes codex provider and model selection in operator status artifacts", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-codex-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const fakeBinDir = path.join(tempDir, "bin");
+    const commandLog = path.join(tempDir, "codex-invocations.log");
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await createFakeOperatorExecutable({
+      directory: fakeBinDir,
+      name: "codex",
+      logPath: commandLog,
+    });
+
+    try {
+      const run = await runOperatorLoopWithOptions(workflowPath, {
+        args: ["--provider", "codex", "--model", "gpt-5.4-mini"],
+        env: {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+        },
+      });
+      createdPaths.add(tempDir);
+      createdPaths.add(run.stateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      const statusJson = JSON.parse(
+        await fs.readFile(run.statusJsonPath, "utf8"),
+      ) as {
+        readonly provider: string;
+        readonly model: string | null;
+        readonly commandSource: string;
+        readonly command: string;
+        readonly effectiveCommand: string;
+        readonly operatorSession: {
+          readonly enabled: boolean;
+          readonly path: string;
+        };
+      };
+      const statusMd = await fs.readFile(run.statusMdPath, "utf8");
+
+      expect(statusJson.provider).toBe("codex");
+      expect(statusJson.model).toBe("gpt-5.4-mini");
+      expect(statusJson.commandSource).toBe("provider-template");
+      expect(statusJson.command).toContain("--model gpt-5.4-mini");
+      expect(statusJson.effectiveCommand).toContain("--model gpt-5.4-mini");
+      expect(statusJson.operatorSession.enabled).toBe(false);
+      expect(statusJson.operatorSession.path).toBe(run.sessionStatePath);
+      expect(statusMd).toContain("- Provider: codex");
+      expect(statusMd).toContain("- Model: gpt-5.4-mini");
+      expect(statusMd).toContain("- Command source: provider-template");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes claude provider selection in operator status artifacts", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-claude-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const fakeBinDir = path.join(tempDir, "bin");
+    const commandLog = path.join(tempDir, "claude-invocations.log");
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await createFakeOperatorExecutable({
+      directory: fakeBinDir,
+      name: "claude",
+      logPath: commandLog,
+    });
+
+    try {
+      const run = await runOperatorLoopWithOptions(workflowPath, {
+        args: ["--provider", "claude"],
+        env: {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+        },
+      });
+      createdPaths.add(tempDir);
+      createdPaths.add(run.stateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      const statusJson = JSON.parse(
+        await fs.readFile(run.statusJsonPath, "utf8"),
+      ) as {
+        readonly provider: string;
+        readonly model: string | null;
+        readonly command: string;
+        readonly commandSource: string;
+      };
+
+      expect(statusJson.provider).toBe("claude");
+      expect(statusJson.model).toBeNull();
+      expect(statusJson.command).toContain("claude -p");
+      expect(statusJson.commandSource).toBe("provider-template");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reuses a stored claude session on later wake-up cycles when resumable mode is enabled", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-resume-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const fakeBinDir = path.join(tempDir, "bin");
+    const commandLog = path.join(tempDir, "claude-resume.log");
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await createFakeOperatorExecutable({
+      directory: fakeBinDir,
+      name: "claude",
+      logPath: commandLog,
+    });
+
+    try {
+      await runOperatorLoopWithArgs(
+        workflowPath,
+        [
+          "--provider",
+          "claude",
+          "--model",
+          "claude-sonnet-4-5",
+          "--resume-session",
+        ],
+        {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+        },
+      );
+      const firstState = deriveOperatorInstanceStatePaths({
+        operatorRepoRoot: repoRoot,
+        instanceKey: deriveSymphonyInstanceKey(path.dirname(workflowPath)),
+      });
+      const firstStatus = JSON.parse(
+        await fs.readFile(firstState.statusJsonPath, "utf8"),
+      ) as {
+        readonly operatorSession: {
+          readonly mode: string;
+          readonly backendSessionId: string | null;
+        };
+      };
+
+      await runOperatorLoopWithArgs(
+        workflowPath,
+        [
+          "--provider",
+          "claude",
+          "--model",
+          "claude-sonnet-4-5",
+          "--resume-session",
+        ],
+        {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+        },
+      );
+      createdPaths.add(tempDir);
+      createdPaths.add(firstState.operatorStateRoot);
+
+      const secondStatus = JSON.parse(
+        await fs.readFile(firstState.statusJsonPath, "utf8"),
+      ) as {
+        readonly operatorSession: {
+          readonly mode: string;
+          readonly backendSessionId: string | null;
+          readonly summary: string;
+        };
+      };
+      const commandInvocations = await fs.readFile(commandLog, "utf8");
+
+      expect(firstStatus.operatorSession.mode).toBe("fresh");
+      expect(firstStatus.operatorSession.backendSessionId).toBe(
+        "claude-session-claude-sonnet-4-5",
+      );
+      expect(secondStatus.operatorSession.mode).toBe("resuming");
+      expect(secondStatus.operatorSession.backendSessionId).toBe(
+        "claude-session-claude-sonnet-4-5",
+      );
+      expect(secondStatus.operatorSession.summary).toContain(
+        "refreshed the stored record",
+      );
+      expect(commandInvocations).toContain(
+        "--resume claude-session-claude-sonnet-4-5",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("clears a stored claude session when the selected model changes", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-model-reset-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const fakeBinDir = path.join(tempDir, "bin");
+    const commandLog = path.join(tempDir, "claude-model-reset.log");
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await createFakeOperatorExecutable({
+      directory: fakeBinDir,
+      name: "claude",
+      logPath: commandLog,
+    });
+
+    try {
+      await runOperatorLoopWithArgs(
+        workflowPath,
+        [
+          "--provider",
+          "claude",
+          "--model",
+          "claude-sonnet-4-5",
+          "--resume-session",
+        ],
+        {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+        },
+      );
+
+      await runOperatorLoopWithArgs(
+        workflowPath,
+        [
+          "--provider",
+          "claude",
+          "--model",
+          "claude-haiku-4-5",
+          "--resume-session",
+        ],
+        {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+        },
+      );
+      createdPaths.add(tempDir);
+      const paths = deriveOperatorInstanceStatePaths({
+        operatorRepoRoot: repoRoot,
+        instanceKey: deriveSymphonyInstanceKey(path.dirname(workflowPath)),
+      });
+      createdPaths.add(paths.operatorStateRoot);
+
+      const status = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly operatorSession: {
+          readonly mode: string;
+          readonly summary: string;
+          readonly backendSessionId: string | null;
+          readonly resetReason: string | null;
+        };
+      };
+      const invocations = await fs.readFile(commandLog, "utf8");
+
+      expect(status.operatorSession.mode).toBe("fresh");
+      expect(status.operatorSession.resetReason).toContain(
+        "stored model claude-sonnet-4-5 does not match selected model claude-haiku-4-5",
+      );
+      expect(status.operatorSession.summary).toContain(
+        "Captured reusable operator session",
+      );
+      expect(status.operatorSession.backendSessionId).toBe(
+        "claude-session-claude-haiku-4-5",
+      );
+      expect(invocations).not.toContain(
+        "--resume claude-session-claude-sonnet-4-5",
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });

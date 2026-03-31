@@ -34,7 +34,19 @@ Use the repo-owned operator loop when you want repeated wake-up cycles:
 pnpm operator
 pnpm operator:once
 pnpm operator -- --workflow ../target-repo/WORKFLOW.md
+pnpm operator -- --provider codex --model gpt-5.4-mini
+pnpm operator -- --provider claude
+pnpm operator -- --provider codex --model gpt-5.4-mini --resume-session
 ```
+
+Use `--provider` and `--model` for the normal checked-in harness-selection
+path. `--resume-session` and `--infinite-session` are aliases for the same
+instance-scoped resumable-session mode. `--operator-command` and
+`SYMPHONY_OPERATOR_COMMAND` remain available as the raw-command escape hatch.
+When resumable mode is enabled, the operator state root also carries
+`operator-session.json`, and `status.json` / `status.md` expose the resolved
+provider, model, command source, effective command, session mode, and any
+automatic reset reason.
 
 ## Third-Party Onboarding
 
