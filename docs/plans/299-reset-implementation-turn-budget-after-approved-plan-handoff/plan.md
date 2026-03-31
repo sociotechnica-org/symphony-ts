@@ -201,14 +201,14 @@ Explicit non-transition:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts | Normalized tracker facts | Expected decision |
-| --- | --- | --- | --- |
-| Worker stopped at `plan-ready` and no human reply yet | prior attempt exists; no PR | latest signal is `plan-ready` | wait in `awaiting-human-handoff`; do not retry or rerun |
-| Human approved after `plan-ready`; no PR exists yet | new run attempt scheduled or issue requeued | latest signal is `approved`; no PR | rerun on same branch with turn 1 of a fresh run and prompt-visible "approved plan, continue implementation" context |
-| Human waived after `plan-ready`; no PR exists yet | same as above | latest signal is `waived`; no PR | same as approved: rerun implementation with fresh run budget and explicit resume context |
-| Human requested changes after `plan-ready`; no PR exists yet | new run attempt scheduled | latest signal is `changes-requested`; no PR | rerun to revise the plan, not generic implementation, with prompt-visible revision context |
-| No PR exists and no valid plan-review handoff exists | ordinary fresh issue or malformed comments | no relevant plan-review signal | use existing generic `missing-target` behavior |
-| Resumed implementation run still finishes with no PR after its new run budget | attempt turns exhausted again | latest lifecycle still actionable pre-PR state | preserve existing failure/retry path, but with the new run actually having had the correct prompt context |
+| Observed condition                                                            | Local facts                                 | Normalized tracker facts                       | Expected decision                                                                                                   |
+| ----------------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Worker stopped at `plan-ready` and no human reply yet                         | prior attempt exists; no PR                 | latest signal is `plan-ready`                  | wait in `awaiting-human-handoff`; do not retry or rerun                                                             |
+| Human approved after `plan-ready`; no PR exists yet                           | new run attempt scheduled or issue requeued | latest signal is `approved`; no PR             | rerun on same branch with turn 1 of a fresh run and prompt-visible "approved plan, continue implementation" context |
+| Human waived after `plan-ready`; no PR exists yet                             | same as above                               | latest signal is `waived`; no PR               | same as approved: rerun implementation with fresh run budget and explicit resume context                            |
+| Human requested changes after `plan-ready`; no PR exists yet                  | new run attempt scheduled                   | latest signal is `changes-requested`; no PR    | rerun to revise the plan, not generic implementation, with prompt-visible revision context                          |
+| No PR exists and no valid plan-review handoff exists                          | ordinary fresh issue or malformed comments  | no relevant plan-review signal                 | use existing generic `missing-target` behavior                                                                      |
+| Resumed implementation run still finishes with no PR after its new run budget | attempt turns exhausted again               | latest lifecycle still actionable pre-PR state | preserve existing failure/retry path, but with the new run actually having had the correct prompt context           |
 
 ## Storage / Persistence Contract
 
