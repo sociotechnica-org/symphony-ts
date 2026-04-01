@@ -548,6 +548,18 @@ class FailedIssueTracker extends SequencedTracker {
   }
 }
 
+class UnrefreshableFailedIssueTracker extends FailedIssueTracker {
+  override async getIssue(_issueNumber: number): Promise<RuntimeIssue> {
+    throw new Error("tracker unavailable");
+  }
+}
+
+class UnrefreshableClosedIssueTracker extends ClosedIssueTracker {
+  override async getIssue(_issueNumber: number): Promise<RuntimeIssue> {
+    throw new Error("tracker unavailable");
+  }
+}
+
 class FlakyTracker extends SequencedTracker {
   override async ensureLabels(): Promise<void> {
     await super.ensureLabels();
@@ -4026,6 +4038,61 @@ describe("BootstrapOrchestrator", () => {
     ).toBeDefined();
   });
 
+  it("warns when post-success tracker refresh fails and falls back to the pre-completion snapshot", async () => {
+    const tracker = new UnrefreshableClosedIssueTracker({
+      ready: [createIssue(86)],
+    });
+    tracker.setLifecycleSequence(86, [
+      {
+        ...lifecycle("handoff-ready", "symphony/86"),
+        pullRequest: {
+          number: 1,
+          url: "https://example.test/pulls/symphony/86",
+          branchName: "symphony/86",
+          headSha: "test-head-sha",
+          latestCommitAt: "2026-03-11T12:05:00.000Z",
+          mergedAt: "2026-03-11T12:05:27.000Z",
+        },
+      },
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          throw new Error("runner should not be called");
+        },
+      },
+      logger,
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(
+      logger.warnings.find(
+        (entry) => entry.message === "Failed to refresh issue after completion",
+      ),
+    ).toBeDefined();
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 86 &&
+          observation.issue.currentOutcome === "succeeded" &&
+          observation.issue.closedAt === null,
+      ),
+    ).toBeDefined();
+  });
+
   it("persists the post-failure tracker labels in the terminal failure observation", async () => {
     const tracker = new FailedIssueTracker({
       ready: [createIssue(87)],
@@ -4081,6 +4148,66 @@ describe("BootstrapOrchestrator", () => {
           observation.issue.issueNumber === 87 &&
           observation.issue.currentOutcome === "failed" &&
           observation.issue.trackerLabels?.includes("symphony:failed") === true,
+      ),
+    ).toBeDefined();
+  });
+
+  it("warns when post-failure tracker refresh fails and falls back to the pre-failure snapshot", async () => {
+    const tracker = new UnrefreshableFailedIssueTracker({
+      ready: [createIssue(88)],
+    });
+    tracker.setLifecycleSequence(88, [
+      lifecycle("missing-target", "symphony/88"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const logger = new NullLogger();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          const timestamp = "2026-03-11T12:05:27.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      logger,
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(
+      logger.warnings.find(
+        (entry) =>
+          entry.message === "Failed to refresh issue after marking failed",
+      ),
+    ).toBeDefined();
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 88 &&
+          observation.issue.currentOutcome === "failed" &&
+          observation.issue.trackerLabels?.includes("symphony:failed") !== true,
       ),
     ).toBeDefined();
   });
