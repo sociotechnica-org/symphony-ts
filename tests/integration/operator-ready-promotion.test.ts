@@ -17,6 +17,23 @@ import { createTempDir } from "../support/git.js";
 
 const execFileAsync = promisify(execFile);
 
+async function withEnvVarUnset<T>(
+  name: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const previousValue = process.env[name];
+  delete process.env[name];
+  try {
+    return await run();
+  } finally {
+    if (previousValue === undefined) {
+      delete process.env[name];
+    } else {
+      process.env[name] = previousValue;
+    }
+  }
+}
+
 async function writeWorkflow(args: {
   readonly rootDir: string;
   readonly apiUrl: string;
@@ -225,6 +242,69 @@ describe("operator ready promotion", () => {
     expect(
       state.promotion.readyLabelsAdded.map((issue) => issue.issueNumber),
     ).toEqual([112]);
+  });
+
+  it("loads the checked-in self-hosting workflow for ready promotion without SYMPHONY_REPO", async () => {
+    const instanceRoot = await createTempDir("symphony-ready-promotion-root-");
+    const operatorRoot = await createTempDir(
+      "symphony-ready-promotion-operator-",
+    );
+    tempRoots.push(instanceRoot, operatorRoot);
+
+    const workflowPath = path.join(instanceRoot, "WORKFLOW.md");
+    await fs.copyFile(path.resolve(process.cwd(), "WORKFLOW.md"), workflowPath);
+
+    const releaseStatePath = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: operatorRoot,
+      instanceKey: deriveSymphonyInstanceIdentity(workflowPath).instanceKey,
+    }).releaseStatePath;
+    await writeOperatorReleaseState(releaseStatePath, {
+      version: 1,
+      updatedAt: "2026-03-30T00:00:00Z",
+      configuration: {
+        releaseId: null,
+        dependencies: [],
+      },
+      evaluation: {
+        advancementState: "unconfigured",
+        summary: "No release dependency metadata is configured.",
+        evaluatedAt: "2026-03-30T00:00:00Z",
+        blockingPrerequisite: null,
+        blockedDownstream: [],
+        unresolvedReferences: [],
+      },
+      promotion: createEmptyOperatorReadyPromotionResult(
+        "2026-03-30T00:00:00Z",
+      ),
+    });
+
+    const { stdout } = await withEnvVarUnset("SYMPHONY_REPO", () =>
+      execFileAsync(
+        "pnpm",
+        [
+          "tsx",
+          "bin/promote-operator-ready-issues.ts",
+          "--workflow",
+          workflowPath,
+          "--operator-repo-root",
+          operatorRoot,
+        ],
+        {
+          cwd: process.cwd(),
+          env: { ...process.env },
+        },
+      ),
+    );
+
+    expect(stdout).toContain("Ready promotion: unconfigured");
+    expect(stdout).toContain(
+      "No release dependency metadata is configured for this operator instance.",
+    );
+
+    const state = await readOperatorReleaseState(releaseStatePath);
+    expect(state.configuration.dependencies).toEqual([]);
+    expect(state.promotion.state).toBe("unconfigured");
+    expect(state.promotion.error).toBeNull();
   });
 
   it("removes ready when a prerequisite has failed", async () => {

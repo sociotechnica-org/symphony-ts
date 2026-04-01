@@ -1,7 +1,7 @@
 ---
 tracker:
   kind: github
-  repo: # REQUIRED: set to your-org/your-repo
+  repo: sociotechnica-org/symphony-ts
   api_url: https://api.github.com
   ready_label: symphony:ready
   running_label: symphony:running
