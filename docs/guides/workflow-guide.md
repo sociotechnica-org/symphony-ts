@@ -417,26 +417,26 @@ The prompt body is rendered as a Liquid template with these variables:
 
 **`issue`** — the current work item:
 
-| Field | Content |
-|---|---|
-| `issue.identifier` | Issue identifier (e.g. `#42`) |
-| `issue.number` | Numeric issue number |
-| `issue.title` | Issue title |
-| `issue.url` | Direct URL to the issue |
-| `issue.labels` | Array of label strings |
-| `issue.summary` | Sanitized plain-text summary of the issue body |
-| `issue.state` | Normalized issue state |
+| Field              | Content                                        |
+| ------------------ | ---------------------------------------------- |
+| `issue.identifier` | Issue identifier (e.g. `#42`)                  |
+| `issue.number`     | Numeric issue number                           |
+| `issue.title`      | Issue title                                    |
+| `issue.url`        | Direct URL to the issue                        |
+| `issue.labels`     | Array of label strings                         |
+| `issue.summary`    | Sanitized plain-text summary of the issue body |
+| `issue.state`      | Normalized issue state                         |
 
 **`pull_request`** — present only when a PR exists for this issue:
 
-| Field | Content |
-|---|---|
-| `pull_request.kind` | Lifecycle state (e.g. `awaiting-system-checks`) |
-| `pull_request.pullRequest.url` | Direct URL to the PR |
-| `pull_request.pendingCheckNames` | Array of check names still running |
-| `pull_request.failingCheckNames` | Array of check names that failed |
-| `pull_request.actionableReviewFeedback` | Array of unresolved review comments |
-| `pull_request.summary` | Lifecycle summary text |
+| Field                                   | Content                                         |
+| --------------------------------------- | ----------------------------------------------- |
+| `pull_request.kind`                     | Lifecycle state (e.g. `awaiting-system-checks`) |
+| `pull_request.pullRequest.url`          | Direct URL to the PR                            |
+| `pull_request.pendingCheckNames`        | Array of check names still running              |
+| `pull_request.failingCheckNames`        | Array of check names that failed                |
+| `pull_request.actionableReviewFeedback` | Array of unresolved review comments             |
+| `pull_request.summary`                  | Lifecycle summary text                          |
 
 Each feedback entry in `actionableReviewFeedback` includes `authorLogin`,
 `summary`, `path`, `line`, and `url`.
@@ -758,12 +758,12 @@ state) are also runtime-owned and not configurable through frontmatter.
 
 ### What Is First-Class vs Prompt-Level
 
-| Station | Enforcement | Configurable | Waivable |
-|---|---|---|---|
-| Plan approval | Prompt-level | Remove from prompt to skip | Yes, via review marker |
-| PR review monitoring | Runtime-level | Review bot lists | Partially (bot coverage) |
-| Landing command | Runtime-level | Not configurable | No |
-| Guarded merge checks | Runtime-level | Not configurable | No |
+| Station              | Enforcement   | Configurable               | Waivable                 |
+| -------------------- | ------------- | -------------------------- | ------------------------ |
+| Plan approval        | Prompt-level  | Remove from prompt to skip | Yes, via review marker   |
+| PR review monitoring | Runtime-level | Review bot lists           | Partially (bot coverage) |
+| Landing command      | Runtime-level | Not configurable           | No                       |
+| Guarded merge checks | Runtime-level | Not configurable           | No                       |
 
 ## 10. Common Workflow Shapes That Work Well Today
 
@@ -1080,6 +1080,7 @@ The orchestrator stays local; only the workspace and runner process execute
 remotely.
 
 **Requirements:**
+
 - `agent.command` must invoke the `codex` CLI
 - Remote execution requires `workspace.repo_url` to be a remote URL (not a
   local path) and `agent.prompt_transport: stdin`
@@ -1332,11 +1333,12 @@ Issue Summary: {{ issue.summary }}
 
 {% if pull_request %}
 Pull Request State:
+
 - Status: {{ pull_request.kind }}
 - URL: {{ pull_request.pullRequest.url }}
 - Failing checks: {{ pull_request.failingCheckNames | join: ", " }}
 - Actionable feedback: {{ pull_request.actionableReviewFeedback | size }}
-{% endif %}
+  {% endif %}
 
 Work through three phases in order:
 
