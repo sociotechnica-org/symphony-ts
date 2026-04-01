@@ -45,6 +45,7 @@ export function renderIssueReportMarkdown(report: IssueReportDocument): string {
   lines.push("");
 
   lines.push("## GitHub Activity");
+  lines.push(`- Status: ${report.githubActivity.status}`);
   lines.push(
     `- Issue state transitions: ${report.githubActivity.issueStateTransitionsStatus}`,
   );

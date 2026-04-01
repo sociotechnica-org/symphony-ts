@@ -104,8 +104,8 @@ export async function seedSuccessfulIssueArtifacts(
     readonly attemptStartedAt?: string | undefined;
     readonly prOpenedAt?: string | undefined;
     readonly latestCommitAt?: string | undefined;
-    readonly mergedAt?: string | undefined;
-    readonly closedAt?: string | undefined;
+    readonly mergedAt?: string | null | undefined;
+    readonly closedAt?: string | null | undefined;
     readonly succeededAt?: string | undefined;
     readonly finalCommitAt?: string | undefined;
     readonly accounting?: RunnerAccountingSnapshot | undefined;
@@ -138,8 +138,12 @@ export async function seedSuccessfulIssueArtifacts(
   const prOpenedAt = options?.prOpenedAt ?? "2026-03-09T10:10:00.000Z";
   const latestCommitAt = options?.latestCommitAt ?? "2026-03-09T10:09:30.000Z";
   const succeededAt = options?.succeededAt ?? "2026-03-09T10:20:00.000Z";
-  const mergedAt = options?.mergedAt ?? "2026-03-09T10:18:00.000Z";
-  const closedAt = options?.closedAt ?? succeededAt;
+  const mergedAt =
+    options?.mergedAt === undefined
+      ? "2026-03-09T10:18:00.000Z"
+      : options.mergedAt;
+  const closedAt =
+    options?.closedAt === undefined ? succeededAt : options.closedAt;
   const finalCommitAt = options?.finalCommitAt ?? "2026-03-09T10:19:00.000Z";
   const review = {
     actionableCount: options?.review?.actionableCount ?? 0,
@@ -383,6 +387,8 @@ export async function seedEventOnlyIssueArtifacts(
     readonly events: readonly IssueArtifactEvent[];
     readonly title?: string | undefined;
     readonly branch?: string | null | undefined;
+    readonly trackerState?: "open" | "closed" | null | undefined;
+    readonly trackerLabels?: readonly string[] | undefined;
   },
 ): Promise<void> {
   const artifactPaths = deriveIssueArtifactPaths(
@@ -409,6 +415,8 @@ export async function seedEventOnlyIssueArtifacts(
         currentSummary: options.currentSummary,
         firstObservedAt: options.events[0]?.observedAt ?? options.observedAt,
         lastUpdatedAt: options.observedAt,
+        trackerState: options.trackerState ?? null,
+        trackerLabels: [...(options.trackerLabels ?? [])],
         latestAttemptNumber: options.events.at(-1)?.attemptNumber ?? null,
         latestSessionId: options.events.at(-1)?.sessionId ?? null,
       },
