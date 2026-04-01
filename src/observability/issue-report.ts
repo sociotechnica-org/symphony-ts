@@ -22,6 +22,7 @@ import type {
   IssueArtifactReviewSnapshot,
   IssueArtifactSessionSnapshot,
   IssueArtifactSummary,
+  IssueArtifactTransition,
 } from "./issue-artifacts.js";
 import {
   deriveIssueArtifactPaths,
@@ -32,7 +33,7 @@ import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
 import { applyIssueReportProviderPricing } from "./issue-report-pricing.js";
 import { rollupIssueReportTokenUsageSessions } from "./issue-report-token-usage.js";
 
-export const ISSUE_REPORT_SCHEMA_VERSION = 4 as const;
+export const ISSUE_REPORT_SCHEMA_VERSION = 5 as const;
 
 export type IssueReportAvailability = "complete" | "partial" | "unavailable";
 export type IssueReportTokenUsageStatus =
@@ -105,8 +106,9 @@ export interface IssueReportPullRequestActivity {
 
 export interface IssueReportGitHubActivity {
   readonly status: IssueReportAvailability;
-  readonly issueStateTransitionsStatus: "unavailable";
+  readonly issueStateTransitionsStatus: IssueReportAvailability;
   readonly issueStateTransitionsNote: string;
+  readonly issueTransitions: readonly IssueReportTrackerTransition[];
   readonly pullRequests: readonly IssueReportPullRequestActivity[];
   readonly reviewFeedbackRounds: number;
   readonly reviewLoopSummary: string;
@@ -115,6 +117,13 @@ export interface IssueReportGitHubActivity {
   readonly closedAt: string | null;
   readonly closeNote: string;
   readonly notes: readonly string[];
+}
+
+export interface IssueReportTrackerTransition {
+  readonly at: string;
+  readonly kind: "state-changed" | "labels-changed";
+  readonly summary: string;
+  readonly details: readonly string[];
 }
 
 export interface IssueReportTokenUsageSession {
@@ -892,8 +901,33 @@ function buildGitHubActivity(
   ).length;
   const mergedAt = loaded.issue?.mergedAt ?? null;
   const closedAt = loaded.issue?.closedAt ?? null;
+  const issueTransitions = buildIssueTrackerTransitions(
+    loaded.issue?.issueTransitions ?? [],
+  );
+  const issueStateTransitionsStatus =
+    issueTransitions.length > 0
+      ? "complete"
+      : loaded.issue !== null &&
+          (loaded.issue.trackerState !== null ||
+            loaded.issue.trackerLabels.length > 0)
+        ? "complete"
+        : "unavailable";
+  const issueStateTransitionsNote =
+    issueTransitions.length > 0
+      ? `Canonical local artifacts preserved ${issueTransitions.length.toString()} observed issue state/label transition${issueTransitions.length === 1 ? "" : "s"}.`
+      : issueStateTransitionsStatus === "complete"
+        ? "Canonical local artifacts preserved tracker-side issue snapshots, but no state or label change was observed after the initial snapshot."
+        : "Canonical local artifacts do not record issue state or label transition history.";
   const notes = [
-    "Issue state and label transitions are not part of the canonical local artifact contract yet.",
+    ...(issueStateTransitionsStatus === "unavailable"
+      ? [
+          "Issue state and label transitions were unavailable because this issue artifact predates the canonical transition ledger.",
+        ]
+      : issueTransitions.length === 0
+        ? [
+            "No issue-side state or label changes were observed after the initial tracker snapshot for this run.",
+          ]
+        : []),
     ...(mergedAt === null && closedAt === null
       ? [
           "Merge timing and exact issue-close timing remained unavailable in the canonical local artifacts for this issue.",
@@ -911,9 +945,9 @@ function buildGitHubActivity(
 
   return {
     status: "partial",
-    issueStateTransitionsStatus: "unavailable",
-    issueStateTransitionsNote:
-      "Canonical local artifacts do not record issue state or label transition history.",
+    issueStateTransitionsStatus,
+    issueStateTransitionsNote,
+    issueTransitions,
     pullRequests,
     reviewFeedbackRounds,
     reviewLoopSummary: buildReviewLoopSummary(
@@ -932,6 +966,41 @@ function buildGitHubActivity(
         : "Canonical local artifacts preserved the exact issue close timestamp for this issue.",
     notes,
   };
+}
+
+function buildIssueTrackerTransitions(
+  transitions: readonly IssueArtifactTransition[],
+): readonly IssueReportTrackerTransition[] {
+  return transitions.map((transition) => {
+    if (transition.kind === "state-changed") {
+      return {
+        at: transition.observedAt,
+        kind: transition.kind,
+        summary: `Issue state changed from ${renderTransitionValue(transition.fromState)} to ${renderTransitionValue(transition.toState)}.`,
+        details: [],
+      };
+    }
+
+    return {
+      at: transition.observedAt,
+      kind: transition.kind,
+      summary: `Issue labels changed (${transition.addedLabels.length.toString()} added, ${transition.removedLabels.length.toString()} removed).`,
+      details: [
+        `From: ${renderTransitionLabels(transition.fromLabels)}`,
+        `To: ${renderTransitionLabels(transition.toLabels)}`,
+        `Added: ${renderTransitionLabels(transition.addedLabels)}`,
+        `Removed: ${renderTransitionLabels(transition.removedLabels)}`,
+      ],
+    };
+  });
+}
+
+function renderTransitionValue(value: string | null): string {
+  return value ?? "(none)";
+}
+
+function renderTransitionLabels(labels: readonly string[]): string {
+  return labels.length === 0 ? "None" : labels.join(", ");
 }
 
 function buildTokenUsage(

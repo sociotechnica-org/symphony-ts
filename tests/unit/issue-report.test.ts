@@ -55,6 +55,18 @@ describe("issue report generation", () => {
     expect(generated.report.githubActivity.closedAt).toBe(
       "2026-03-09T10:20:00.000Z",
     );
+    expect(generated.report.githubActivity.issueStateTransitionsStatus).toBe(
+      "complete",
+    );
+    expect(generated.report.githubActivity.issueTransitions).toEqual([
+      expect.objectContaining({
+        kind: "state-changed",
+        summary: "Issue state changed from open to closed.",
+      }),
+      expect.objectContaining({
+        kind: "labels-changed",
+      }),
+    ]);
     expect(generated.report.learnings.status).toBe("complete");
     expect(generated.report.timeline.map((entry) => entry.kind)).toEqual(
       expect.arrayContaining([
@@ -73,6 +85,9 @@ describe("issue report generation", () => {
     expect(generated.markdown).toContain("## Learnings");
     expect(generated.markdown).toContain("Merged at: 2026-03-09T10:18:00.000Z");
     expect(generated.markdown).toContain("Closed at: 2026-03-09T10:20:00.000Z");
+    expect(generated.markdown).toContain(
+      "Issue transition: 2026-03-09T10:20:00.000Z | Issue state changed from open to closed.",
+    );
     expect(generated.markdown).toContain("pending checks None");
     expect(generated.markdown).toContain("failing checks None");
   });

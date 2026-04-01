@@ -51,6 +51,18 @@ export function renderIssueReportMarkdown(report: IssueReportDocument): string {
   lines.push(
     `- Issue transition note: ${report.githubActivity.issueStateTransitionsNote}`,
   );
+  if (report.githubActivity.issueTransitions.length === 0) {
+    lines.push("- Issue transitions: None observed");
+  } else {
+    for (const transition of report.githubActivity.issueTransitions) {
+      lines.push(
+        `- Issue transition: ${renderValue(transition.at)} | ${transition.summary}`,
+      );
+      for (const detail of transition.details) {
+        lines.push(`  - ${detail}`);
+      }
+    }
+  }
   lines.push(
     `- Pull request count: ${report.githubActivity.pullRequests.length.toString()}`,
   );

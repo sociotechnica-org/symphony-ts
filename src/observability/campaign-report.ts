@@ -121,6 +121,15 @@ export interface CampaignPullRequestActivity {
 export interface CampaignGitHubActivity {
   readonly status: IssueReportAvailability;
   readonly summary: string;
+  readonly issueTransitionStatus: IssueReportAvailability;
+  readonly issueTransitionSummary: string;
+  readonly issuesWithTransitions: readonly {
+    issueNumber: number;
+    issueTitle: string | null;
+    transitionCount: number;
+  }[];
+  readonly stateTransitionCount: number;
+  readonly labelTransitionCount: number;
   readonly pullRequests: readonly CampaignPullRequestActivity[];
   readonly reviewFeedbackRounds: number;
   readonly actionableReviewCount: number | null;
@@ -533,6 +542,7 @@ function buildCampaignGitHubActivity(
     partialReportCount === 0
       ? ""
       : `${partialReportCount.toString()} selected issue reports contained partial GitHub activity facts.`,
+    ...buildIssueTransitionNotes(reports),
     pullRequests.length === 0
       ? "No pull requests were observed in the selected issue reports."
       : "",
@@ -549,6 +559,40 @@ function buildCampaignGitHubActivity(
   const closeCoverage = summarizeObservedLifecycleTimestamps(
     reports.map((storedReport) => storedReport.report.githubActivity.closedAt),
   );
+  const issuesWithTransitions = reports
+    .map((storedReport) => ({
+      issueNumber: storedReport.report.summary.issueNumber,
+      issueTitle: storedReport.report.summary.title,
+      transitionCount:
+        storedReport.report.githubActivity.issueTransitions.length,
+    }))
+    .filter((issue) => issue.transitionCount > 0);
+  const stateTransitionCount = reports.reduce(
+    (sum, storedReport) =>
+      sum +
+      storedReport.report.githubActivity.issueTransitions.filter(
+        (transition) => transition.kind === "state-changed",
+      ).length,
+    0,
+  );
+  const labelTransitionCount = reports.reduce(
+    (sum, storedReport) =>
+      sum +
+      storedReport.report.githubActivity.issueTransitions.filter(
+        (transition) => transition.kind === "labels-changed",
+      ).length,
+    0,
+  );
+  const unavailableIssueTransitionCount = reports.filter(
+    (storedReport) =>
+      storedReport.report.githubActivity.issueStateTransitionsStatus ===
+      "unavailable",
+  ).length;
+  const partialIssueTransitionCount = reports.filter(
+    (storedReport) =>
+      storedReport.report.githubActivity.issueStateTransitionsStatus !==
+      "complete",
+  ).length;
 
   return {
     status:
@@ -563,6 +607,21 @@ function buildCampaignGitHubActivity(
       pendingChecks,
       failingChecks,
     ),
+    issueTransitionStatus:
+      reports.length === 0 || unavailableIssueTransitionCount === reports.length
+        ? "unavailable"
+        : partialIssueTransitionCount === 0
+          ? "complete"
+          : "partial",
+    issueTransitionSummary:
+      issuesWithTransitions.length === 0
+        ? unavailableIssueTransitionCount === reports.length
+          ? "No selected issue reports preserved issue state/label transition history."
+          : "Selected issue reports preserved tracker snapshots, but no issue-side state or label changes were observed."
+        : `Observed ${stateTransitionCount.toString()} state transition${stateTransitionCount === 1 ? "" : "s"} and ${labelTransitionCount.toString()} label transition${labelTransitionCount === 1 ? "" : "s"} across ${issuesWithTransitions.length.toString()} issue${issuesWithTransitions.length === 1 ? "" : "s"}.`,
+    issuesWithTransitions,
+    stateTransitionCount,
+    labelTransitionCount,
     pullRequests,
     reviewFeedbackRounds,
     actionableReviewCount,
@@ -590,6 +649,29 @@ function buildCampaignGitHubActivity(
           : `Issue close timing was recorded for ${closeCoverage.observedCount.toString()} of ${reports.length.toString()} selected issue reports.`,
     notes,
   };
+}
+
+function buildIssueTransitionNotes(
+  reports: readonly StoredIssueReportDocument[],
+): readonly string[] {
+  const unavailableCount = reports.filter(
+    (storedReport) =>
+      storedReport.report.githubActivity.issueStateTransitionsStatus ===
+      "unavailable",
+  ).length;
+  const completeCount = reports.filter(
+    (storedReport) =>
+      storedReport.report.githubActivity.issueStateTransitionsStatus ===
+      "complete",
+  ).length;
+  return dedupeStrings([
+    unavailableCount === 0
+      ? ""
+      : `Issue transition history was unavailable for ${unavailableCount.toString()} selected issue report${unavailableCount === 1 ? "" : "s"}.`,
+    completeCount === 0
+      ? ""
+      : `Issue transition history was preserved for ${completeCount.toString()} selected issue report${completeCount === 1 ? "" : "s"}.`,
+  ]);
 }
 
 function summarizeObservedLifecycleTimestamps(

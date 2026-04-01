@@ -92,6 +92,23 @@ describe("campaign report", () => {
             overallConclusion: "Completed cleanly.",
           },
           githubActivity: {
+            issueStateTransitionsStatus: "complete",
+            issueStateTransitionsNote:
+              "Canonical local artifacts preserved 2 observed issue state/label transitions.",
+            issueTransitions: [
+              {
+                at: "2026-03-03T10:05:00.000Z",
+                kind: "labels-changed",
+                summary: "Issue labels changed (1 added, 1 removed).",
+                details: [],
+              },
+              {
+                at: "2026-03-03T12:00:00.000Z",
+                kind: "state-changed",
+                summary: "Issue state changed from open to closed.",
+                details: [],
+              },
+            ],
             pullRequests: [
               {
                 number: 132,
@@ -197,6 +214,12 @@ describe("campaign report", () => {
       { name: "lint", count: 1 },
     ]);
     expect(digest.githubActivity.blockingReviewerVerdictCount).toBe(1);
+    expect(digest.githubActivity.issueTransitionStatus).toBe("partial");
+    expect(digest.githubActivity.stateTransitionCount).toBe(1);
+    expect(digest.githubActivity.labelTransitionCount).toBe(1);
+    expect(digest.githubActivity.issuesWithTransitions).toEqual([
+      { issueNumber: 32, issueTitle: "Issue 32", transitionCount: 2 },
+    ]);
     expect(digest.githubActivity.mergeObservedCount).toBe(1);
     expect(digest.githubActivity.earliestMergedAt).toBe(
       "2026-03-03T11:30:00.000Z",
@@ -444,6 +467,13 @@ function buildStoredIssueReport(options: {
   };
   readonly timeline?: IssueReportDocument["timeline"] | undefined;
   readonly githubActivity?: {
+    readonly issueStateTransitionsStatus?:
+      | IssueReportDocument["githubActivity"]["issueStateTransitionsStatus"]
+      | undefined;
+    readonly issueStateTransitionsNote?: string | undefined;
+    readonly issueTransitions?:
+      | IssueReportDocument["githubActivity"]["issueTransitions"]
+      | undefined;
     readonly pullRequests?:
       | IssueReportDocument["githubActivity"]["pullRequests"]
       | undefined;
@@ -512,9 +542,12 @@ function buildStoredIssueReport(options: {
     timeline,
     githubActivity: {
       status: "partial",
-      issueStateTransitionsStatus: "unavailable",
+      issueStateTransitionsStatus:
+        options.githubActivity?.issueStateTransitionsStatus ?? "unavailable",
       issueStateTransitionsNote:
+        options.githubActivity?.issueStateTransitionsNote ??
         "Canonical local artifacts do not record issue state transitions.",
+      issueTransitions: options.githubActivity?.issueTransitions ?? [],
       pullRequests: options.githubActivity?.pullRequests ?? [],
       reviewFeedbackRounds: options.githubActivity?.reviewFeedbackRounds ?? 0,
       reviewLoopSummary: "No review activity recorded.",

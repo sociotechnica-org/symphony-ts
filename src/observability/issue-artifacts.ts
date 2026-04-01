@@ -84,16 +84,46 @@ export interface IssueArtifactSummary {
   readonly lastUpdatedAt: string;
   readonly mergedAt: string | null;
   readonly closedAt: string | null;
+  readonly trackerState: string | null;
+  readonly trackerLabels: readonly string[];
+  readonly issueTransitions: readonly IssueArtifactTransition[];
   readonly latestAttemptNumber: number | null;
   readonly latestSessionId: string | null;
 }
 
 interface LegacyIssueArtifactSummary extends Omit<
   IssueArtifactSummary,
-  "mergedAt" | "closedAt"
+  | "mergedAt"
+  | "closedAt"
+  | "trackerState"
+  | "trackerLabels"
+  | "issueTransitions"
 > {
   readonly mergedAt?: string | null | undefined;
   readonly closedAt?: string | null | undefined;
+  readonly trackerState?: string | null | undefined;
+  readonly trackerLabels?: readonly string[] | undefined;
+  readonly issueTransitions?: readonly IssueArtifactTransition[] | undefined;
+}
+
+export type IssueArtifactTransition =
+  | IssueArtifactStateTransition
+  | IssueArtifactLabelTransition;
+
+export interface IssueArtifactStateTransition {
+  readonly observedAt: string;
+  readonly kind: "state-changed";
+  readonly fromState: string | null;
+  readonly toState: string | null;
+}
+
+export interface IssueArtifactLabelTransition {
+  readonly observedAt: string;
+  readonly kind: "labels-changed";
+  readonly fromLabels: readonly string[];
+  readonly toLabels: readonly string[];
+  readonly addedLabels: readonly string[];
+  readonly removedLabels: readonly string[];
 }
 
 export interface IssueArtifactEvent {
@@ -205,6 +235,8 @@ export interface IssueArtifactIssueUpdate {
   readonly observedAt: string;
   readonly mergedAt?: string | null | undefined;
   readonly closedAt?: string | null | undefined;
+  readonly trackerState?: string | null | undefined;
+  readonly trackerLabels?: readonly string[] | undefined;
   readonly latestAttemptNumber?: number | null | undefined;
   readonly latestSessionId?: string | null | undefined;
 }
@@ -311,6 +343,15 @@ export class LocalIssueArtifactStore implements IssueArtifactStore {
         update.closedAt === undefined
           ? (existing?.closedAt ?? null)
           : update.closedAt,
+      trackerState:
+        update.trackerState === undefined
+          ? (existing?.trackerState ?? null)
+          : update.trackerState,
+      trackerLabels:
+        update.trackerLabels === undefined
+          ? (existing?.trackerLabels ?? [])
+          : normalizeTrackerLabels(update.trackerLabels),
+      issueTransitions: deriveIssueTransitions(existing, update),
       latestAttemptNumber:
         update.latestAttemptNumber === undefined
           ? (existing?.latestAttemptNumber ?? null)
@@ -588,7 +629,67 @@ async function readIssueArtifactSummaryFile(
     ...summary,
     mergedAt: summary.mergedAt ?? null,
     closedAt: summary.closedAt ?? null,
+    trackerState: summary.trackerState ?? null,
+    trackerLabels: normalizeTrackerLabels(summary.trackerLabels ?? []),
+    issueTransitions: summary.issueTransitions ?? [],
   };
+}
+
+function deriveIssueTransitions(
+  existing: IssueArtifactSummary | null,
+  update: IssueArtifactIssueUpdate,
+): readonly IssueArtifactTransition[] {
+  if (existing === null) {
+    return [];
+  }
+
+  const nextState =
+    update.trackerState === undefined
+      ? existing.trackerState
+      : update.trackerState;
+  const nextLabels =
+    update.trackerLabels === undefined
+      ? existing.trackerLabels
+      : normalizeTrackerLabels(update.trackerLabels);
+
+  const transitions: IssueArtifactTransition[] = [...existing.issueTransitions];
+  if (existing.trackerState !== nextState) {
+    transitions.push({
+      observedAt: update.observedAt,
+      kind: "state-changed",
+      fromState: existing.trackerState,
+      toState: nextState,
+    });
+  }
+
+  if (!areLabelSetsEqual(existing.trackerLabels, nextLabels)) {
+    const fromLabels = normalizeTrackerLabels(existing.trackerLabels);
+    const toLabels = normalizeTrackerLabels(nextLabels);
+    transitions.push({
+      observedAt: update.observedAt,
+      kind: "labels-changed",
+      fromLabels,
+      toLabels,
+      addedLabels: toLabels.filter((label) => !fromLabels.includes(label)),
+      removedLabels: fromLabels.filter((label) => !toLabels.includes(label)),
+    });
+  }
+
+  return transitions;
+}
+
+function normalizeTrackerLabels(labels: readonly string[]): readonly string[] {
+  return [...new Set(labels)].sort((left, right) => left.localeCompare(right));
+}
+
+function areLabelSetsEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((label, index) => label === right[index]);
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
