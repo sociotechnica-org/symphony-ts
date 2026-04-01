@@ -1,419 +1,924 @@
 # Workflow Guide
 
-This guide explains how `WORKFLOW.md` is meant to be used in `symphony-ts`.
+`WORKFLOW.md` is the repository-owned runtime contract for one Symphony factory
+instance. It tells Symphony where work comes from, how to prepare a workspace,
+which runner to use, and what the worker is expected to do once it starts.
 
-It is deliberately broader than the quick-start material in the README. The
-README should stay focused on getting a factory running. This guide should
-be the longer-form reference for:
+This guide is broader than the README quick start and narrower than the full
+parser reference. Use it when you want to design a workflow well, not just make
+the YAML parse.
 
-- how `WORKFLOW.md` fits into the architecture
-- what the YAML frontmatter actually controls
-- how the prompt body should be written
-- common workflow shapes that work well today
-- where the current model stops and future workflow-topology work begins
-
-This is a first-pass structure for the guide. The sections below are intended
-to give us a stable table of contents and an initial statement of intent for
-each section before we fill the whole guide in.
-
-## 1. Purpose
-
-- Define what `WORKFLOW.md` is: the repository-owned runtime contract for one
-  Symphony factory instance.
-- Explain why it exists as a checked-in file instead of hidden prompt state.
-- Clarify that `WORKFLOW.md` is how a repository tells Symphony:
-  - where work comes from
-  - how to prepare workspaces
-  - what runner to use
-  - what the worker is expected to do
-  - what completion means for that repository
-
-## 2. Boundaries
-
-- Explain what belongs in `WORKFLOW.md`.
-- Explain what belongs in `AGENTS.md`.
-- Explain what belongs in repo-local skills.
-- Explain what must live in code/tests rather than only in prompts.
-
-Suggested framing:
-
-- `WORKFLOW.md` = runtime contract
-- `AGENTS.md` = engineering policy
-- skills = reusable specialized method
-- code/tests = hard correctness guarantees
-
-## 3. File Structure
-
-- Show the basic `WORKFLOW.md` shape:
-  - YAML frontmatter
-  - markdown prompt body
-- Explain how Symphony parses and uses each part.
-- Clarify that the body is not “just notes”; it becomes the worker prompt
-  template.
-
-## 4. Instance Model
-
-- Explain that one `WORKFLOW.md` defines one local Symphony instance.
-- Explain instance-rooted paths:
-  - `.tmp/`
-  - `.var/`
-  - detached runtime checkout
-  - workspace roots
-- Explain project-local `WORKFLOW.md` vs engine checkout usage.
-- Show how `--workflow <path>` selects an instance from a shared engine
-  checkout.
-- Clarify that the simplest mental model is one running factory per
-  `WORKFLOW.md`, but one Symphony engine checkout can operate many workflows
-  at once.
-- Explain that teams may keep those workflows:
-  - in each target repository
-  - in a shared workflow-library directory
-  - or in another instance-rooted layout, as long as each workflow has its
-    own runtime state
-- Explain the tradeoff:
-  - per-repo `WORKFLOW.md` is the clearest default
-  - multiple workflows from one engine checkout are supported and useful, but
-    need explicit instance separation
-
-## 5. Frontmatter and Configuration Model
-
-- Explain the role of YAML frontmatter at a narrative level:
-  - what it configures
-  - what it cannot change
-  - which options most directly affect workflow behavior
-- Keep this section focused on workflow design and operator understanding,
-  not exhaustive field-by-field reference.
-- Link to a separate full frontmatter reference file that should eventually be
-  the complete parser-aligned source of truth.
-
-Primary link:
+Use the companion reference for field-by-field detail:
 
 - [WORKFLOW Frontmatter Reference](./workflow-frontmatter-reference.md)
 
-This section should point to, and lightly summarize, a separate full reference
-document, such as:
+## 1. Purpose
 
-### 5.1 Full Frontmatter Reference
+`WORKFLOW.md` exists so workflow behavior is checked in, reviewable, and owned
+by the repository instead of being hidden in one operator's prompt history.
 
-- full YAML contract
-- defaults where relevant
-- parser-aligned option detail
-- examples of valid values
+In practice, `WORKFLOW.md` answers five questions:
 
-This separate reference should eventually cover:
+1. Where does work come from?
+2. How does Symphony prepare a workspace for that work?
+3. Which runner executes the work?
+4. What instructions does the worker receive?
+5. What counts as done for this repository?
 
-### 5.2 `tracker`
+That makes `WORKFLOW.md` the join point between repository policy and runtime
+behavior:
 
-- GitHub and Linear modes
-- review bot configuration
-- approved review bot configuration
-- queue priority configuration
+- frontmatter configures the runtime surface
+- the Markdown body becomes the initial worker prompt
+- the combination defines one repeatable factory loop
 
-### 5.3 `polling`
+If a behavior is required on every worker run for this repository, it should be
+visible in `WORKFLOW.md`, `AGENTS.md`, code, or tests, not only in operator
+memory.
 
-- interval
-- concurrency
-- retry
-- watchdog
+## 2. Boundaries
 
-### 5.4 `workspace`
+`WORKFLOW.md` is important, but it is not the whole system. The cleanest
+Symphony setups keep the following boundaries explicit.
 
-- root
-- repo source
-- retention
-- worker host settings
+| Surface           | Primary role                              | Put here                                                                                           | Keep out                                                                                         |
+| ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `WORKFLOW.md`     | Runtime contract for one factory instance | tracker selection, workspace/runner settings, prompt contract, repo-specific completion behavior   | deep engineering policy, hidden one-off operator habits, invariants that only code can guarantee |
+| `AGENTS.md`       | Enduring engineering policy               | design rules, testing bar, review expectations, architectural seams, implementation standards      | transport details, per-instance paths, tracker credentials, temporary operator notes             |
+| repo-local skills | Specialized reusable method               | recurring task guides such as planning or operator workflows                                       | rules that must apply to every run, correctness guarantees that should live in code              |
+| code and tests    | Hard correctness guarantees               | parsing, state machines, retries, leases, guarded landing, failure handling, tracker normalization | repo policy that should stay repository-owned and editable without code changes                  |
+
+A useful rule of thumb:
+
+- `WORKFLOW.md` says how this repository wants Symphony to run
+- `AGENTS.md` says how this repository expects engineering work to be done
+- skills say how to perform a recurring specialized task
+- code and tests decide what the runtime actually guarantees
+
+In `symphony-ts` itself, some behaviors intentionally appear in more than one
+place:
+
+- the prompt requires the technical-plan review station
+- `AGENTS.md` explains why that station exists
+- tracker code understands the plan-review signals once they appear
+
+That overlap is intentional. Prompts carry repository intent; code carries
+runtime semantics.
+
+## 3. File Structure
+
+Every `WORKFLOW.md` has two parts:
+
+1. YAML frontmatter
+2. a Markdown prompt body
+
+The basic shape looks like this:
+
+```md
+---
+tracker:
+  kind: github
+  repo: your-org/your-repo
+polling:
+  interval_ms: 30000
+  max_concurrent_runs: 1
+workspace:
+  root: ./.tmp/workspaces
+  branch_prefix: symphony/
+hooks:
+  after_create: []
+agent:
+  runner:
+    kind: codex
+  command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -
+  prompt_transport: stdin
+  timeout_ms: 5400000
+  max_turns: 20
+  env: {}
+observability:
+  dashboard_enabled: true
+  refresh_ms: 1000
+  render_interval_ms: 16
+---
+
+You are working on issue {{ issue.identifier }}: {{ issue.title }}.
+```
+
+The YAML is parsed and validated before the runtime starts. The body is not just
+documentation; it is the prompt template used for turn 1 of each run.
+
+### 3.1 Template Rendering
+
+Symphony renders the body with Liquid in strict mode. Unknown variables and
+unknown filters fail prompt rendering instead of silently producing broken
+prompts.
+
+The main template inputs are:
+
+| Variable       | Meaning                                                       |
+| -------------- | ------------------------------------------------------------- |
+| `issue`        | normalized issue/work-item context                            |
+| `pull_request` | current handoff lifecycle context, if any                     |
+| `attempt`      | retry attempt number for retries; `null` on the first attempt |
+| `config`       | resolved workflow config with secrets redacted where needed   |
+
+Today, the injected issue and PR context is intentionally narrow:
+
+- issue identifiers, title, URL, labels, state, and a sanitized summary
+- PR URL and branch metadata
+- lifecycle kind and summary
+- pending and failing check names
+- sanitized actionable review-feedback summaries
+
+Raw tracker-authored bodies and comments are intentionally not injected into the
+prompt body.
+
+## 4. Instance Model
+
+One `WORKFLOW.md` defines one local Symphony instance.
+
+That instance owns runtime state derived from the workflow path, including:
+
+| Path                   | Purpose                                      |
+| ---------------------- | -------------------------------------------- |
+| `.tmp/`                | transient runtime state                      |
+| `.tmp/status.json`     | current status snapshot                      |
+| `.tmp/startup.json`    | startup-preparation snapshot                 |
+| `.tmp/factory-main/`   | detached runtime checkout root               |
+| `.tmp/github/upstream` | GitHub bootstrap mirror for local workspaces |
+| `.var/factory/`        | per-issue artifact snapshots                 |
+| `.var/reports/`        | generated issue and campaign reports         |
+| `workspace.root`       | prepared issue workspaces                    |
+
+The important distinction is:
+
+- `workflowRoot` is the directory containing `WORKFLOW.md`
+- `instanceRoot` is the owning runtime root for that workflow
+
+In the common case, those are the same directory. Symphony also special-cases
+detached runtime checkouts under `.tmp/factory-main/WORKFLOW.md` so they still
+resolve back to the owning instance root instead of becoming a second instance
+by accident.
+
+### 4.1 One Engine Checkout, Many Workflows
+
+The simplest mental model is still:
+
+- one repository
+- one `WORKFLOW.md`
+- one running factory
+
+But the current runtime also supports one shared Symphony engine checkout
+operating many different workflows by passing `--workflow`.
+
+For example:
+
+```bash
+pnpm symphony factory start --workflow /path/to/repo-a/WORKFLOW.md
+pnpm symphony factory start --workflow /path/to/repo-b/WORKFLOW.md
+pnpm symphony factory status --workflow /path/to/repo-a/WORKFLOW.md
+```
+
+That works because the instance-scoped runtime paths are derived from the
+selected workflow, not from the engine checkout that launched the command.
+
+### 4.2 Recommended Layouts
+
+Three layouts work well today:
+
+1. `WORKFLOW.md` checked into each target repository
+2. a shared workflow-library directory, with one workflow per target repo
+3. one engine checkout supervising several external repositories via explicit
+   `--workflow` paths
+
+The clearest default is still per-repository `WORKFLOW.md`. Shared engine usage
+is useful, but only if each workflow has clearly separated instance roots,
+workspace roots, and operator commands.
+
+## 5. Frontmatter and Configuration Model
+
+Think of the frontmatter as the runtime-facing half of the contract. It selects
+the tracker, workspace model, runner, retry posture, and observability settings.
+It does not define arbitrary workflow topology.
+
+This guide summarizes the design intent of each section. For the full parser
+contract, examples, and defaults, use the
+[WORKFLOW Frontmatter Reference](./workflow-frontmatter-reference.md).
+
+### 5.1 `tracker`
+
+`tracker` selects one work source and one tracker adapter for the instance.
+
+Supported tracker kinds today:
+
+- `github`
+- `github-bootstrap`
+- `linear`
+
+`github` and `github-bootstrap` share the same GitHub issue / PR lifecycle
+semantics. The distinction mainly matters during bootstrap and startup
+preparation, not in the steady-state handoff model.
+
+Design implications:
+
+- one workflow selects one tracker backend
+- a single workflow does not combine GitHub and Linear
+- tracker-specific lifecycle policy stays at the edge and is normalized into
+  runtime handoff states
+
+Important GitHub-specific fields:
+
+- issue labels for ready/running/failed
+- `review_bot_logins`
+- `approved_review_bot_logins`
+- optional GitHub Projects queue-priority mapping
+
+Important Linear-specific fields:
+
+- project slug and API credentials
+- assignee filter
+- active states
+- terminal states
+- optional priority normalization from Linear issue priority
+
+### 5.2 `polling`
+
+`polling` controls how aggressively the orchestrator looks for work and how it
+responds to failures.
+
+It includes:
+
+- poll interval
+- maximum concurrent runs
+- retry budget and backoff
+- optional watchdog stall detection
+
+Important constraint: older follow-up budgeting fields are gone. Continuation
+behavior is now tracker-driven. The runtime decides whether to continue based on
+the observed handoff lifecycle, not on a second YAML counter.
+
+### 5.3 `workspace`
+
+`workspace` defines the execution surface for each issue:
+
+- where workspaces live
+- what branch prefix to use
+- where clones come from
+- whether to retain or delete workspaces on success and failure
+- which remote worker hosts exist for Codex SSH execution
+
+Important details:
+
+- `workspace.root` is instance-owned and should not overlap between unrelated
+  factories unless that is deliberate
+- `workspace.repo_url` is resolved relative to the owning `WORKFLOW.md` when it
+  is a local path
+- for GitHub-backed trackers, Symphony can derive the clone source from
+  `tracker.repo`; `SYMPHONY_REPO` can override both the tracker repo and the
+  derived clone URL
+- non-GitHub trackers must set `workspace.repo_url`
+- remote Codex execution requires `workspace.repo_url` to resolve to a remote
+  clone URL reachable from the worker host
+
+Local workspace preparation today is opinionated:
+
+- clone if absent
+- run `hooks.after_create` only on first clone
+- fetch `origin`
+- resolve the default branch
+- reset to `origin/<issue-branch>` if it already exists
+- otherwise reset to the default branch and create or reset the issue branch
+
+### 5.4 `hooks`
+
+`hooks.after_create` runs after the first successful clone of a workspace. It is
+best used for one-time bootstrap steps that are expensive or awkward to repeat
+inside every prompt.
+
+Good uses:
+
+- one-time dependency bootstrapping for a workspace clone
+- writing local helper files that should exist in every workspace
+
+Poor uses:
+
+- correctness-critical logic the runtime depends on
+- behavior that must run on every attempt, not just the first clone
 
 ### 5.5 `agent`
+
+`agent` configures the execution adapter.
+
+It includes:
 
 - runner kind
 - command
 - prompt transport
 - timeout
 - max turns
-- env
+- extra environment variables
+
+Supported runner kinds today:
+
+- `codex`
+- `claude-code`
+- `generic-command`
+
+Important constraint: one workflow selects one runner configuration at a time.
+The runtime does not switch runners per stage or per inner role.
+
+`agent.prompt_transport` matters mostly for local command runners:
+
+- `stdin` pipes the prompt to the command
+- `file` writes `.symphony-prompt.turn-N.md` and passes that file path to the
+  command
+
+Remote Codex app-server execution requires `stdin`.
 
 ### 5.6 `observability`
 
-- dashboard / refresh settings
+`observability` controls the terminal dashboard refresh behavior. It does not
+disable core runtime status publication.
+
+In other words:
+
+- the TUI is configurable
+- status snapshots, startup snapshots, issue artifacts, and reports are still
+  runtime-owned outputs
 
 ## 6. Prompt Body Contract
 
-- Explain what the prompt body should and should not do.
-- Explain the trusted context that Symphony injects.
-- Explain how issue/PR lifecycle data appears in the template.
-- Explain why prompts should state durable process expectations explicitly.
+The prompt body is the repository-owned worker contract for the initial turn of
+each run.
 
-Key themes to cover:
+That sentence matters. The body is not a general "workflow graph" language, and
+it is not rerendered for every continuation turn.
 
-- the prompt should be repo-owned and explicit
-- the prompt should not compensate for missing runtime guarantees when code
-  should own them
-- the prompt should be specific about completion criteria and QA expectations
-- the prompt should assume real issue and PR context will be present
+### 6.1 Initial Turn vs Continuation Turns
+
+Turn 1 uses the rendered body of `WORKFLOW.md`.
+
+Later turns do not rerender the body. They use runtime-generated continuation
+guidance that tells the worker:
+
+- this is continuation turn `N` of `maxTurns`
+- resume from the existing workspace state
+- use any preserved thread history if the runner supports it
+- keep working until the remaining issue state is resolved or a real block is
+  reached
+
+This has two direct consequences:
+
+1. Put durable repository expectations in the initial body, not only in
+   turn-local prose.
+2. Prefer runners with real continuation semantics when your repository depends
+   on multi-turn work.
+
+Codex app-server and Claude Code both support live or resumable session
+behavior. Generic command runners do not.
+
+### 6.2 Trust Boundary
+
+Tracker-authored text is intentionally summarized and sanitized before it enters
+the prompt.
+
+Today, the injected issue and review summaries:
+
+- strip markup and control characters
+- collapse formatting
+- trim to bounded lengths
+- remove raw issue and comment bodies from direct prompt injection
+
+Treat that summarized text as useful context, not as authority. The prompt
+should tell the worker to trust checked-in repository instructions, local code,
+and test evidence ahead of tracker narration.
+
+### 6.3 What a Good Prompt Body Includes
+
+A strong `WORKFLOW.md` body usually includes:
+
+- which checked-in files to read first
+- repository-specific completion criteria
+- validation commands that must pass
+- branch / PR / plan / review expectations for this repository
+- how to respond when blocked
+- whether to continue an existing branch/PR or open a new one
+
+For example, the self-hosting `symphony-ts` workflow requires the worker to:
+
+- read `AGENTS.md`, `README.md`, and relevant docs
+- create or update a technical plan before substantial implementation
+- wait for explicit plan approval or waiver
+- run the required local checks
+- open or update the PR
+- continue through CI and review feedback
+
+That is repository policy expressed through the prompt contract.
+
+### 6.4 What a Prompt Body Should Not Try To Do
+
+Avoid using the prompt body to:
+
+- define hidden engineering policy that belongs in `AGENTS.md`
+- replace code-level invariants such as guarded landing or retry semantics
+- model a true multi-station graph as if the runtime already supports one
+- paper over missing runtime features with vague prose
+- restate raw issue bodies instead of relying on normalized context plus local
+  repository docs
 
 ## 7. How Symphony Uses `WORKFLOW.md` at Runtime
 
-- Walk through the lifecycle:
-  - load workflow
-  - prepare startup/runtime
-  - poll tracker
-  - create workspace
-  - render prompt
-  - run worker
-  - inspect PR/review/check state
-  - continue until handoff
-- Clarify where prompt rendering fits into the runtime.
-- Clarify what is fixed by the runtime today vs what is prompt-controlled.
+The runtime path is fixed enough that it is worth understanding explicitly.
+
+1. Symphony loads `WORKFLOW.md`, parses the frontmatter, and derives the
+   instance-rooted runtime paths.
+2. Startup preparation runs before the main loop. For GitHub-backed workflows,
+   that currently means preparing or refreshing a local bare mirror under
+   `.tmp/github/upstream`; Linear uses a no-op preparer. That mirror is a local
+   optimization, not a general remote source contract: SSH remote workspaces
+   still clone from the configured remote `workspace.repo_url`.
+3. Symphony creates the tracker adapter, workspace manager, runner, prompt
+   builder, and optional watchdog liveness probe from the resolved config.
+4. The orchestrator publishes startup status, then begins polling the tracker
+   for ready, running, and failed issues.
+5. Running issues go through restart recovery first. Symphony uses local issue
+   leases plus tracker state to decide whether to adopt, requeue, or suppress an
+   inherited run.
+6. Ready issues are ordered by normalized queue priority when enabled. Running
+   issues and due retries still take precedence over fresh ready work.
+7. Symphony claims a ready issue through the tracker edge.
+8. The workspace manager prepares the issue workspace and issue branch.
+9. Symphony renders the initial prompt body with `issue`, `pull_request`,
+   `attempt`, and redacted `config`.
+10. The runner starts the session, telemetry begins, and the watchdog starts if
+    enabled.
+11. After each successful turn, the tracker reconciles the current handoff
+    state.
+12. If the lifecycle is still `missing-target` or `rework-required` and the
+    turn budget remains, Symphony starts another continuation turn.
+13. If the lifecycle is `awaiting-system-checks`, `awaiting-human-review`,
+    `awaiting-human-handoff`, `degraded-review-infrastructure`,
+    `awaiting-landing-command`, or `awaiting-landing`, the run stops and the
+    issue remains under tracker supervision until the next poll.
+14. On GitHub, if the issue reaches `awaiting-landing` and the current head has
+    not already been attempted, Symphony executes guarded landing.
+15. On success, Symphony completes the issue, clears retry state, and applies
+    the workspace-retention policy. On failure, it schedules a retry or marks
+    the issue failed.
+
+The important design split is:
+
+- `WORKFLOW.md` controls configuration and the initial prompt contract
+- the runtime owns claims, retries, restart recovery, watchdog behavior,
+  lifecycle reconciliation, and landing
 
 ## 8. Built-In Symphony Constraints
 
-This section should make the current runtime assumptions explicit so readers
-can tell what kinds of work do and do not fit Symphony well today.
-
-It should answer:
-
-- what Symphony assumes even if the prompt body says nothing about it
-- what is configurable in frontmatter
-- what is currently hard-coded enough that users should design around it
-
-Suggested sub-sections:
+The current runtime model is deliberately narrower than a generic workflow
+engine. Designing good workflows means designing for those constraints instead
+of pretending they do not exist.
 
 ### 8.1 Work Source Constraints
 
-- work items come from supported tracker backends only
-- today that means GitHub issues or Linear work items
-- there is no generic “arbitrary task inbox” backend yet
-- one `WORKFLOW.md` selects one tracker backend at a time
-- a single workflow does not currently combine GitHub and Linear or pull work
-  from multiple tracker sources in one runtime loop
+Today, work must come from a supported tracker backend.
+
+That means:
+
+- GitHub issues
+- Linear project issues
+
+There is no generic arbitrary task inbox backend yet. One `WORKFLOW.md`
+selects one tracker backend at a time.
 
 ### 8.2 Repository and Delivery Constraints
 
-- Symphony expects a repository-backed workflow
-- the current software-factory path assumes one branch and one PR per work
-  item
-- checks, reviews, and landing are first-class runtime concepts today
-- one work item still maps to one outer delivery loop:
-  - one issue
-  - one workspace
-  - one branch
-  - one PR
-  - one landing outcome
-- the current lifecycle model is PR-centric and uses a fixed set of runtime
-  handoff states rather than user-defined station names
+The current runtime is still repository-backed and outer-loop oriented.
+
+The common shape is:
+
+- one issue
+- one prepared workspace
+- one issue branch
+- one PR or tracker handoff path
+- one terminal completion outcome
+
+GitHub is explicitly PR-centric. Linear is less PR-centric at the tracker edge,
+but the execution model is still one workspace-backed delivery loop.
 
 ### 8.3 Runtime Gate Constraints
 
-- required checks must reach acceptable terminal states
-- review and landing gates are runtime-owned, not just prompt conventions
-- some parts are configurable through frontmatter, but others are currently
-  built into the orchestration model
-- landing is an explicit runtime operation with built-in blocked reasons
-  rather than a free-form prompt decision
-- prompt text can influence worker behavior, but it does not replace the
-  runtime’s check, review, and landing policy engine
+Some gates are runtime-owned, not prompt-owned.
+
+Examples:
+
+- retries and backoff
+- lease-based run ownership
+- restart recovery
+- watchdog-based stall recovery
+- GitHub landing guards
+- GitHub review-bot and approved-review-bot policy
+
+The prompt can tell the worker what the repository expects, but it cannot
+replace those policy engines.
 
 ### 8.4 Coordination Model Constraints
 
-- the queue is currently a queue of work items, not a queue of workflow
-  stations or subtasks
-- one workflow has one runner configuration at a time; the runtime does not
-  switch runners per internal stage
-- one prepared workspace is still the main execution unit for a work item
-- queue priority changes ordering among ready items, but it does not create
-  new topology or alternative workflow paths
+Current coordination is issue-oriented, not station-oriented.
+
+That means:
+
+- queue priority only reorders ready issues
+- one workflow still has one runner configuration
+- one issue still executes in one prepared workspace target
+- remote host continuity is a dispatch optimization, not a user-defined stage
+  graph
 
 ### 8.5 Fit Assessment
 
-- explain what kinds of workflows are a strong fit
-- explain what kinds of workflows are possible only as prompt-level
-  approximations
-- explain what kinds of workflows do not fit well without deeper runtime
-  changes
+Strong fit today:
+
+- standard issue -> branch -> PR delivery loops
+- repositories with explicit validation commands and a clear completion bar
+- self-hosting factories where review and landing semantics matter
+
+Possible today, but only as prompt-level approximation:
+
+- planner -> implementer -> editor inner sequences
+- research -> draft -> revise loops
+- command-heavy maintenance work in one repository
+
+Poor fit without deeper runtime changes:
+
+- branching multi-station workflows with durable named transitions
+- workflows that switch runners mid-flight
+- one workflow that combines multiple tracker backends
+- work that is not naturally repository- and branch-backed
 
 ## 9. Human Handoff Stations
 
-- Explain the current human handoff stations Symphony already enforces:
-  - plan approval
-  - PR review
-  - `/land`
-- Explain whether each station is:
-  - required by default
-  - waivable
-  - skippable by configuration
-  - only partially configurable today
-- Explain how review bots fit into this.
-- Explain what kinds of human interaction are first-class today vs only
-  prompt-level conventions.
-- Explicitly discuss:
-  - whether plan approval can be skipped and how
-  - whether PR review can be relaxed and how far
-  - whether auto-land exists today or would require code changes
-  - how these choices interact with Symphony’s current runtime assumptions
+Symphony already has several human interaction points. They are not all enforced
+in the same way.
+
+| Station               | Current support                              | Who enforces it                      | Notes                                                               |
+| --------------------- | -------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| technical-plan review | supported today, but repository-driven       | prompt and tracker lifecycle support | `symphony-ts` self-hosting makes this mandatory unless waived       |
+| PR / human review     | first-class on GitHub, state-based on Linear | tracker policy                       | GitHub inspects review comments, unresolved threads, and bot output |
+| landing command       | GitHub-only today                            | tracker policy and guarded landing   | `/land` must be explicitly observed before GitHub merge execution   |
+
+### 9.1 Plan Review
+
+GitHub and Linear both understand the plan-review signal family when a
+repository chooses to use it.
+
+Current canonical first lines are:
+
+- `Plan status: plan-ready`
+- `Plan review: approved`
+- `Plan review: changes-requested`
+- `Plan review: waived`
+
+The important nuance is that this station is supported by the runtime but not
+automatically required for every repository. In `symphony-ts` itself, the prompt
+and `AGENTS.md` make it a required workflow handoff before substantial
+implementation.
+
+### 9.2 Review
+
+On GitHub, Symphony treats review as a first-class lifecycle:
+
+- actionable human feedback produces `awaiting-human-review`
+- actionable bot feedback can produce `rework-required`
+- unresolved non-outdated review threads can block landing
+- missing required approved review-bot output produces
+  `degraded-review-infrastructure`
+
+On Linear, review is modeled through workflow states such as `Human Review` and
+`Rework`, plus plan-review comment signals.
+
+### 9.3 Landing
+
+Landing is currently strongest on GitHub.
+
+GitHub landing requires:
+
+- an explicit `/land` first line
+- a mergeable non-draft PR
+- a clean merge-state status
+- no failing or pending required checks
+- no actionable bot feedback
+- no unresolved non-outdated human review threads
+- no missing required approved bot-review coverage
+- no stale approved head SHA
+
+Linear does not implement merge execution. Teams using Linear must treat landing
+as an external process or model it through workflow states.
 
 ## 10. Common Workflow Shapes That Work Well Today
 
-This section should explicitly distinguish:
-
-- what works **today** with the current Symphony runtime
-- what requires future graph/station support
-
-Suggested sub-sections:
-
 ### 10.1 Standard Software Factory
 
-- single issue
-- single workspace
-- one branch / one PR
-- plan -> implement -> review -> land inside the current runtime
+This is the best fit for the current runtime:
+
+- one issue
+- one branch
+- one PR
+- optional plan review before coding
+- implementation
+- review
+- explicit landing
+
+If your repository follows this shape, Symphony is operating in its intended
+lane.
 
 ### 10.2 Command-Heavy Maintenance Loop
 
-- repos where the worker mostly runs commands, verifies, and patches
+Symphony also works well for repositories where the worker mostly:
 
-### 10.3 Claude-Specific or Runner-Specific Repositories
+- runs commands
+- inspects outputs
+- patches code or config
+- reruns validation
 
-- repositories whose prompt/body should assume `claude-code`
-- when repo-specific runner guidance belongs in the prompt
+The main requirement is still a clear completion bar. "Run commands until things
+look better" is not enough; the prompt should still name the validation end
+state.
+
+### 10.3 Runner-Specific Repositories
+
+Some repositories genuinely want prompt text that assumes a specific runner.
+
+That is reasonable when the repository depends on:
+
+- Codex continuation behavior
+- Claude-specific CLI or session behavior
+- a custom generic command backend
+
+Keep that runner specificity in the prompt only when it reflects a real
+repository dependency. If the instructions are actually runner-neutral, write
+them runner-neutrally.
 
 ### 10.4 Multi-Role Inner Sequence in One Run
 
-- planner -> implementer -> reviewer
-- planner -> writer -> editor
-- research -> draft -> revise
+This is the most useful advanced pattern available today.
 
-This is the most important near-term section for current product usage.
-
-## 11. Multi-Role Prompt Patterns
-
-- Describe the intermediate pattern where Symphony still runs one outer
-  issue/branch/PR loop, but the worker prompt encodes internal role phases.
-- Explain how to phrase that sequence clearly in one `WORKFLOW.md`.
-- Explain how repo-local skills can support those roles.
-- Explain where subagents can help.
-
-Suggested patterns:
+A single run can still ask the worker to perform internal roles such as:
 
 - planner -> implementer -> editor
 - planner -> writer -> editor
 - spec -> implement -> simplify -> verify
 
-This section should explicitly recommend `planner -> implementer -> editor`
-as the default “advanced but current” pattern because it is the closest fit to
-Symphony’s current software-delivery runtime and gives the most immediate
-benefit.
+That works because the runtime still sees one outer issue/branch/PR loop while
+the prompt encodes an internal sequence inside one workspace.
 
-This section should also explain the limits of this approach:
+What this is good for:
 
-- good for one PR / one artifact flow
-- not true runtime-enforced workflow topology
-- not sufficient for branching, durable gates, or complex orchestration
+- one artifact flow
+- one branch and PR
+- one final delivery bar
+
+What this is not:
+
+- a runtime-enforced workflow graph
+- durable branching or parallel subflows
+- reusable station topology with named transitions
+
+## 11. Multi-Role Prompt Patterns
+
+If you want richer behavior without changing the runtime, use one explicit inner
+sequence in the prompt body.
+
+The best current default is:
+
+1. planner
+2. implementer
+3. editor
+
+That pattern maps well to the current runtime because it still converges on one
+branch, one PR, and one completion decision.
+
+A simple shape looks like this:
+
+```md
+Working mode for this run:
+
+1. Plan briefly before editing. Identify the narrowest safe slice.
+2. Implement the slice completely.
+3. Edit for clarity and simplicity after the code works.
+4. Verify with the required local checks before stopping.
+```
+
+Guidance for writing multi-role prompts:
+
+- keep the roles sequential
+- keep them inside one workspace and one delivery path
+- end with one explicit completion bar
+- use skills for specialized repeated roles when needed
+- assume the runtime still supervises only the outer issue lifecycle
+
+Subagents can still be useful inside a run, but the runtime does not supervise
+those subagents as first-class workflow stations.
 
 ## 12. Tracker-Specific Guidance
 
 ### 12.1 GitHub
 
-- issue labels
-- PR lifecycle
-- check/review/landing semantics
-- project priority ordering
+GitHub is the most complete tracker backend today.
+
+What GitHub workflows get:
+
+- ready/running/failed issue labels
+- issue claim semantics
+- PR discovery by branch name
+- normalized checks
+- normalized review feedback
+- explicit `/land` signaling
+- guarded merge execution
+- optional GitHub Projects queue priority
+
+GitHub is the right fit when you want the runtime to understand checks, reviews,
+and merges as first-class workflow events.
+
+Two especially important GitHub settings are:
+
+- `review_bot_logins`
+- `approved_review_bot_logins`
+
+The first tells Symphony which review authors are bots. The second tells it
+which bot outputs count as required approved external review coverage on the
+current head.
 
 ### 12.2 Linear
 
-- active/terminal state expectations
-- how Linear differs from GitHub’s PR-centric loop
+Linear uses a different edge model.
+
+Instead of PR-native lifecycle policy, Linear currently relies on:
+
+- project states
+- issue assignment
+- a workpad stored in the issue description
+- review comments carrying plan-review signals
+
+Successful runs update the workpad and usually move the issue into `Human
+Review` when that state exists. Rework and terminal completion are then driven
+by Linear workflow states and comments.
+
+Linear is a good fit when your team already uses Linear as the system of record
+for work state and does not need Symphony itself to execute PR merges.
 
 ## 13. Runner-Specific Guidance
 
 ### 13.1 Codex
 
-- app-server assumptions
-- continuation behavior
-- token / accounting implications
+Codex is the primary runner model in the current runtime.
+
+Important characteristics:
+
+- Symphony derives a long-lived `codex app-server` session from the configured
+  exec-style command
+- one Codex thread is reused across continuation turns for a run
+- token accounting and rich runner visibility are first-class
+- dynamic tools can be exposed, including current tracker context
+- local and SSH remote execution are supported
+
+Use Codex when you want the strongest built-in continuation semantics and the
+richest runtime telemetry.
+
+For SSH remote Codex execution, the current required shape is:
+
+- `agent.runner.remote_execution.kind: ssh`
+- `agent.prompt_transport: stdin`
+- configured worker hosts under `workspace.worker_hosts`
+- `workspace.repo_url` set to a remote clone URL reachable from the worker host
 
 ### 13.2 Claude Code
 
-- command shape
-- prompt transport assumptions
-- repo cases where Claude-specific behavior belongs in the prompt
+Claude Code is also a first-class runner, but with a different continuation
+story.
+
+Current behavior:
+
+- the first turn runs the configured Claude command
+- later turns resume using the backend session id returned by the previous turn
+- the outer Symphony loop stays the same
+
+Claude Code is local-only in the current runtime. It is a good choice when the
+repository genuinely wants Claude-specific execution behavior but still wants
+Symphony to supervise issue claims, retries, and handoffs.
 
 ### 13.3 Generic Command
 
-- when to use it
-- limits compared with first-class runners
+`generic-command` is the fallback runner adapter.
+
+It is useful when you have a backend that can be modeled as:
+
+- one local command
+- a prompt over stdin or file
+- optional provider and model metadata for observability
+
+What it does not currently provide:
+
+- first-class session semantics
+- remote transport
+- rich continuation support
+
+If you set `agent.max_turns > 1` with a generic command runner, assume
+continuation turns will cold-start subprocesses.
 
 ## 14. Multi-Instance and Multi-Workflow Usage
 
-- Explain how one engine checkout can operate many repositories.
-- Show commands using `--workflow`.
-- Clarify that each target project owns its own `WORKFLOW.md`.
-- Clarify that detached watch/control is instance-scoped.
-- Explain that one engine checkout can also operate many workflows at once,
-  even if those workflows are not all checked into the engine repository.
-- Show patterns such as:
-  - one workflow per target repository
-  - one shared workflow-library directory
-  - several concurrent local factories from the same engine checkout
-- Explain when this is a good idea and when it may become operationally
-  confusing.
+The runtime is now instance-scoped enough that one Symphony engine checkout can
+operate several workflows safely, but only if the operator stays explicit.
+
+Good operating practice:
+
+- always pass `--workflow` when working outside the current repository
+- treat `factory start`, `factory stop`, `factory status`, and `factory watch`
+  as instance-scoped commands
+- keep each workflow's `workspace.root` and instance-owned runtime paths
+  separate
+
+Examples:
+
+```bash
+pnpm symphony run --once --workflow /path/to/repo-a/WORKFLOW.md --i-understand-that-this-will-be-running-without-the-usual-guardrails
+pnpm symphony factory start --workflow /path/to/repo-a/WORKFLOW.md
+pnpm symphony factory watch --workflow /path/to/repo-a/WORKFLOW.md
+pnpm symphony factory status --workflow /path/to/repo-b/WORKFLOW.md
+```
+
+This is powerful, but it is easier to operate poorly than the simple per-repo
+default. If multiple factories start to feel ambiguous, move back toward one
+workflow per repository and one explicit operator loop per instance.
 
 ## 15. Examples
 
-This section should eventually contain excerpts from checked-in example files,
-with direct links to the full examples for copy-paste and adaptation.
+The best live examples in the current repository are:
 
-Examples should live in separate checked-in files so they can be copied
-directly, validated over time, and referenced from README and this guide.
+- the self-hosting workflow at [../../WORKFLOW.md](../../WORKFLOW.md)
+- the minimal GitHub example in
+  [workflow-frontmatter-reference.md#minimal-github-example](./workflow-frontmatter-reference.md#minimal-github-example)
+- the GitHub review-bot and queue-priority example in
+  [workflow-frontmatter-reference.md#github-with-review-bots-and-queue-priority](./workflow-frontmatter-reference.md#github-with-review-bots-and-queue-priority)
+- the Linear example in
+  [workflow-frontmatter-reference.md#linear-example](./workflow-frontmatter-reference.md#linear-example)
+- the remote Codex example in
+  [workflow-frontmatter-reference.md#codex-ssh-remote-execution-example](./workflow-frontmatter-reference.md#codex-ssh-remote-execution-example)
 
-This section should eventually contain example excerpts such as:
+Use the repository root `WORKFLOW.md` as a self-hosting example, not as a
+generic starter template. It is intentionally strict because it encodes this
+repository's own engineering process.
 
-- minimal self-hosting `symphony-ts`
-- GitHub third-party repo
-- Claude-only project
-- planner -> implementer -> reviewer inner-loop prompt
-- planner -> writer -> editor inner-loop prompt
-
-Possible example-file layout:
-
-- `docs/examples/workflows/self-hosting-symphony.md`
-- `docs/examples/workflows/github-third-party.md`
-- `docs/examples/workflows/claude-only-project.md`
-- `docs/examples/workflows/planner-implementer-editor.md`
-- `docs/examples/workflows/planner-writer-editor.md`
+If you want a fresh third-party starter, use `symphony init` instead of copying
+the self-hosting workflow verbatim.
 
 ## 16. Anti-Patterns
 
-- giant vague prompts with no explicit completion bar
-- repo policy hidden only in prompt text when it belongs in `AGENTS.md`
-- using prompt prose to paper over missing runtime invariants
-- pretending prompt-level role sequencing is the same thing as true workflow
-  topology
-- copying the root `symphony-ts` workflow blindly into unrelated repos
+Common ways to make a workflow harder to operate:
+
+- treating `WORKFLOW.md` as free-form notes instead of a runtime contract
+- copying the `symphony-ts` self-hosting prompt into an unrelated repository
+  without trimming its repo-specific process
+- hiding enduring engineering rules only in prompt prose when they belong in
+  `AGENTS.md`
+- asking the prompt to enforce invariants the runtime should own
+- pretending an inner prompt sequence is already a true workflow graph
+- writing a giant vague prompt with no explicit completion bar
+- assuming continuation turns will repeat the full body automatically
+- enabling remote Codex execution without a worker-reachable remote clone URL
+- assuming queue priority changes workflow topology instead of only ready-queue
+  ordering
 
 ## 17. Migration Path
 
-- ad hoc interactive agent
-- repeated manual interaction
-- extract a skill
-- schedule the skill
-- adopt a factory around the repeatable workflow
-- later: move to richer station-defined workflows when the runtime supports it
+The cleanest way to adopt Symphony is incrementally.
 
-This section should connect directly to the broader “Why Factory” conceptual
-material.
+1. Start with an ad hoc manual agent loop.
+2. Move durable repository policy into `AGENTS.md`.
+3. Extract specialized repeated task instructions into skills.
+4. Write a narrow `WORKFLOW.md` around the stable outer loop.
+5. Keep the first workflow boring: one issue, one branch, one completion path.
+6. Add queue priority, review-bot policy, or remote workers only when the
+   repository actually needs them.
+7. Reach for richer workflow topology only when the current outer loop is
+   clearly the limiting factor.
+
+That progression keeps `WORKFLOW.md` honest. It becomes the encoded version of a
+workflow you already understand, not a speculative graph of behavior the runtime
+does not yet provide.
 
 ## 18. Future Direction
 
-- Acknowledge that Symphony may later support richer workflow/station
-  definitions beyond today’s single-prompt contract.
-- Link that future direction to the workflow-generalization issue rather than
-  pretending `WORKFLOW.md` already supports graph topology.
+The current runtime does not yet support configurable multi-station workflow
+graphs. `WORKFLOW.md` selects one tracker, one workspace model, one runner
+configuration, and one prompt contract for an issue-oriented outer loop.
 
-## Questions To Resolve While Expanding This Guide
+The planned generalization work tracked in issue `#234` is aimed at moving
+beyond the fixed issue -> branch -> PR -> review -> landing model and toward
+configurable multi-station workflows. That direction is real, but it is future
+work, not today's contract.
 
-- Should we open a follow-up issue to generate the full YAML/frontmatter
-  reference from code/tests so it stays parser-aligned automatically?
-- What is the right permanent location and naming scheme for checked-in
-  workflow example files?
-- Which constraints belong directly in this guide versus a separate “current
-  runtime limits” concept document?
+Until that lands, the right mental model is:
+
+- use the runtime for the outer delivery loop
+- use the prompt for a small inner role sequence when needed
+- do not confuse the latter for true workflow topology
