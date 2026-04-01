@@ -57,12 +57,17 @@ describe("report CLI", () => {
     );
 
     const reportDir = path.join(tempDir, ".var", "reports", "issues", "44");
-    await expect(
-      fs.readFile(path.join(reportDir, "report.json"), "utf8"),
-    ).resolves.toContain('"githubActivity"');
+    const reportJson = JSON.parse(
+      await fs.readFile(path.join(reportDir, "report.json"), "utf8"),
+    ) as {
+      githubActivity: {
+        status: string;
+      };
+    };
+    expect(reportJson.githubActivity.status).toBe("complete");
     await expect(
       fs.readFile(path.join(reportDir, "report.md"), "utf8"),
-    ).resolves.toContain("## Learnings");
+    ).resolves.toContain("Status: complete");
     expect(stdout.join("")).toContain("Generated issue report for #44");
   });
 

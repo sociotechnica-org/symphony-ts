@@ -18,6 +18,7 @@ import {
   deriveReportInstance,
   deriveWorkspaceRoot,
   seedEventOnlyIssueArtifacts,
+  seedFailedIssueArtifacts,
   seedSessionAnchoredPartialArtifacts,
   seedSuccessfulIssueArtifacts,
 } from "../support/issue-report-fixtures.js";
@@ -55,6 +56,7 @@ describe("issue report generation", () => {
     expect(generated.report.githubActivity.closedAt).toBe(
       "2026-03-09T10:20:00.000Z",
     );
+    expect(generated.report.githubActivity.status).toBe("complete");
     expect(generated.report.githubActivity.issueStateTransitionsStatus).toBe(
       "complete",
     );
@@ -81,6 +83,7 @@ describe("issue report generation", () => {
     expect(generated.markdown).toContain("## Summary");
     expect(generated.markdown).toContain("## Timeline");
     expect(generated.markdown).toContain("## GitHub Activity");
+    expect(generated.markdown).toContain("Status: complete");
     expect(generated.markdown).toContain("## Token Usage");
     expect(generated.markdown).toContain("## Learnings");
     expect(generated.markdown).toContain("Merged at: 2026-03-09T10:18:00.000Z");
@@ -90,6 +93,49 @@ describe("issue report generation", () => {
     );
     expect(generated.markdown).toContain("pending checks None");
     expect(generated.markdown).toContain("failing checks None");
+  });
+
+  it("keeps github activity partial when relevant close timing is missing", async () => {
+    const tempDir = await createTempDir("symphony-issue-report-github-partial-");
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {
+      closedAt: null,
+    });
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:02:00.000Z",
+    });
+
+    expect(generated.report.githubActivity.status).toBe("partial");
+    expect(generated.report.githubActivity.closedAt).toBeNull();
+    expect(generated.report.githubActivity.closeNote).toContain(
+      "did not preserve exact issue close timing",
+    );
+    expect(generated.report.githubActivity.notes).toContain(
+      "Exact issue close timing was relevant for this issue activity, but the canonical local artifacts did not preserve it.",
+    );
+    expect(generated.markdown).toContain("Status: partial");
+  });
+
+  it("keeps github activity unavailable when canonical github coverage is absent", async () => {
+    const tempDir = await createTempDir(
+      "symphony-issue-report-github-unavailable-",
+    );
+    tempRoots.push(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+    await seedFailedIssueArtifacts(workspaceRoot, 44);
+
+    const generated = await generateIssueReport(workspaceRoot, 44, {
+      generatedAt: "2026-03-09T13:03:00.000Z",
+    });
+
+    expect(generated.report.githubActivity.status).toBe("unavailable");
+    expect(generated.report.githubActivity.pullRequests).toHaveLength(0);
+    expect(generated.report.githubActivity.notes).toContain(
+      "Issue state and label transitions were unavailable because this issue artifact predates the canonical transition ledger.",
+    );
+    expect(generated.markdown).toContain("Status: unavailable");
   });
 
   it("projects canonical runner-event accounting into report token usage", async () => {

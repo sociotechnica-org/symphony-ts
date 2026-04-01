@@ -32,6 +32,7 @@ import {
   renderCampaignIssueLabel,
   renderCampaignNameList,
 } from "./campaign-report-format.js";
+import { rollupGitHubActivityAvailability } from "./github-activity-completeness.js";
 
 export type CampaignSelection =
   | {
@@ -531,17 +532,22 @@ function buildCampaignGitHubActivity(
   const failingChecks = countNamedPatterns(
     pullRequests.flatMap((pullRequest) => pullRequest.failingChecks),
   );
-  const unavailableReportCount = reports.filter(
-    (storedReport) =>
-      storedReport.report.githubActivity.status === "unavailable",
+  const githubActivityStatuses = reports.map(
+    (storedReport) => storedReport.report.githubActivity.status,
+  );
+  const partialReportCount = githubActivityStatuses.filter(
+    (status) => status === "partial",
   ).length;
-  const partialReportCount = reports.filter(
-    (storedReport) => storedReport.report.githubActivity.status !== "complete",
+  const unavailableReportCount = githubActivityStatuses.filter(
+    (status) => status === "unavailable",
   ).length;
   const notes = dedupeStrings([
     partialReportCount === 0
       ? ""
       : `${partialReportCount.toString()} selected issue reports contained partial GitHub activity facts.`,
+    unavailableReportCount === 0
+      ? ""
+      : `${unavailableReportCount.toString()} selected issue reports lacked usable GitHub activity coverage.`,
     ...buildIssueTransitionNotes(reports),
     pullRequests.length === 0
       ? "No pull requests were observed in the selected issue reports."
@@ -553,11 +559,21 @@ function buildCampaignGitHubActivity(
       ? ""
       : `Failing checks were observed for ${pullRequests.filter((pullRequest) => pullRequest.failingChecks.length > 0).length.toString()} pull requests.`,
   ]);
+  const mergeRelevantReports = reports.filter((storedReport) =>
+    isMergeTimingRelevantForReport(storedReport.report),
+  );
   const mergeCoverage = summarizeObservedLifecycleTimestamps(
-    reports.map((storedReport) => storedReport.report.githubActivity.mergedAt),
+    mergeRelevantReports.map(
+      (storedReport) => storedReport.report.githubActivity.mergedAt,
+    ),
+  );
+  const closeRelevantReports = reports.filter((storedReport) =>
+    isCloseTimingRelevantForReport(storedReport.report),
   );
   const closeCoverage = summarizeObservedLifecycleTimestamps(
-    reports.map((storedReport) => storedReport.report.githubActivity.closedAt),
+    closeRelevantReports.map(
+      (storedReport) => storedReport.report.githubActivity.closedAt,
+    ),
   );
   const issuesWithTransitions = reports
     .map((storedReport) => ({
@@ -588,31 +604,21 @@ function buildCampaignGitHubActivity(
       storedReport.report.githubActivity.issueStateTransitionsStatus ===
       "unavailable",
   ).length;
-  const nonCompleteIssueTransitionCount = reports.filter(
-    (storedReport) =>
-      storedReport.report.githubActivity.issueStateTransitionsStatus !==
-      "complete",
-  ).length;
 
   return {
-    status:
-      reports.length === 0 || unavailableReportCount === reports.length
-        ? "unavailable"
-        : partialReportCount === 0
-          ? "complete"
-          : "partial",
+    status: rollupGitHubActivityAvailability(githubActivityStatuses),
     summary: buildGitHubSummary(
       pullRequests.length,
       reviewFeedbackRounds,
       pendingChecks,
       failingChecks,
     ),
-    issueTransitionStatus:
-      reports.length === 0 || unavailableIssueTransitionCount === reports.length
-        ? "unavailable"
-        : nonCompleteIssueTransitionCount === 0
-          ? "complete"
-          : "partial",
+    issueTransitionStatus: rollupGitHubActivityAvailability(
+      reports.map(
+        (storedReport) =>
+          storedReport.report.githubActivity.issueStateTransitionsStatus,
+      ),
+    ),
     issueTransitionSummary:
       issuesWithTransitions.length === 0
         ? unavailableIssueTransitionCount === reports.length
@@ -633,20 +639,20 @@ function buildCampaignGitHubActivity(
     earliestMergedAt: mergeCoverage.earliestAt,
     latestMergedAt: mergeCoverage.latestAt,
     mergeAvailabilityNote:
-      mergeCoverage.observedCount === 0
-        ? "No selected issue reports recorded merge timing."
-        : mergeCoverage.observedCount === reports.length
-          ? `Merge timing was recorded for all ${reports.length.toString()} selected issue reports.`
-          : `Merge timing was recorded for ${mergeCoverage.observedCount.toString()} of ${reports.length.toString()} selected issue reports.`,
+      mergeRelevantReports.length === 0
+        ? "Merge timing was not applicable for the selected issue reports."
+        : mergeCoverage.observedCount === mergeRelevantReports.length
+          ? `Merge timing was recorded for all ${mergeRelevantReports.length.toString()} selected issue reports where it was applicable.`
+          : `Merge timing was recorded for ${mergeCoverage.observedCount.toString()} of ${mergeRelevantReports.length.toString()} selected issue reports where it was applicable.`,
     closeObservedCount: closeCoverage.observedCount,
     earliestClosedAt: closeCoverage.earliestAt,
     latestClosedAt: closeCoverage.latestAt,
     closeAvailabilityNote:
-      closeCoverage.observedCount === 0
-        ? "No selected issue reports recorded issue-close timing."
-        : closeCoverage.observedCount === reports.length
-          ? `Issue close timing was recorded for all ${reports.length.toString()} selected issue reports.`
-          : `Issue close timing was recorded for ${closeCoverage.observedCount.toString()} of ${reports.length.toString()} selected issue reports.`,
+      closeRelevantReports.length === 0
+        ? "Issue close timing was not applicable for the selected issue reports."
+        : closeCoverage.observedCount === closeRelevantReports.length
+          ? `Issue close timing was recorded for all ${closeRelevantReports.length.toString()} selected issue reports where it was applicable.`
+          : `Issue close timing was recorded for ${closeCoverage.observedCount.toString()} of ${closeRelevantReports.length.toString()} selected issue reports where it was applicable.`,
     notes,
   };
 }
@@ -691,6 +697,26 @@ function summarizeObservedLifecycleTimestamps(
     earliestAt: observed[0] ?? null,
     latestAt: observed.at(-1) ?? null,
   };
+}
+
+function isMergeTimingRelevantForReport(report: IssueReportDocument): boolean {
+  return (
+    report.githubActivity.mergedAt !== null ||
+    report.summary.outcome === "merged" ||
+    report.summary.outcome === "succeeded"
+  );
+}
+
+function isCloseTimingRelevantForReport(report: IssueReportDocument): boolean {
+  return (
+    report.githubActivity.closedAt !== null ||
+    report.summary.outcome === "succeeded" ||
+    report.githubActivity.issueTransitions.some(
+      (transition) =>
+        transition.kind === "state-changed" &&
+        transition.summary.includes(" to closed."),
+    )
+  );
 }
 
 function buildCampaignTokenUsage(
@@ -794,13 +820,19 @@ function buildCampaignLearnings(
     tokenUsage.status === "complete"
       ? ""
       : `Expand token-usage capture or enrichment; campaign token coverage was ${tokenUsage.status} across ${summary.issueCount.toString()} issue reports.`,
+    reports.some((storedReport) => isMergeTimingRelevantForReport(storedReport.report)) &&
     reports.every(
-      (storedReport) => storedReport.report.githubActivity.mergedAt === null,
+      (storedReport) =>
+        !isMergeTimingRelevantForReport(storedReport.report) ||
+        storedReport.report.githubActivity.mergedAt === null,
     )
       ? "Record merge timing in canonical local artifacts so campaign digests can distinguish shipped work from PR-open state."
       : "",
+    reports.some((storedReport) => isCloseTimingRelevantForReport(storedReport.report)) &&
     reports.every(
-      (storedReport) => storedReport.report.githubActivity.closedAt === null,
+      (storedReport) =>
+        !isCloseTimingRelevantForReport(storedReport.report) ||
+        storedReport.report.githubActivity.closedAt === null,
     )
       ? "Record exact issue-close timing in canonical local artifacts so campaign windows can compare tracker closure against report completion."
       : "",

@@ -30,12 +30,16 @@ import {
 } from "./issue-artifacts.js";
 import { createRunnerAccountingSnapshot } from "../runner/accounting.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
+import {
+  deriveGitHubActivityAvailability,
+  type GitHubActivityAvailability,
+} from "./github-activity-completeness.js";
 import { applyIssueReportProviderPricing } from "./issue-report-pricing.js";
 import { rollupIssueReportTokenUsageSessions } from "./issue-report-token-usage.js";
 
 export const ISSUE_REPORT_SCHEMA_VERSION = 5 as const;
 
-export type IssueReportAvailability = "complete" | "partial" | "unavailable";
+export type IssueReportAvailability = GitHubActivityAvailability;
 export type IssueReportTokenUsageStatus =
   | "unavailable"
   | "partial"
@@ -918,6 +922,12 @@ function buildGitHubActivity(
       : issueStateTransitionsStatus === "complete"
         ? "Canonical local artifacts preserved tracker-side issue snapshots, but no state or label change was observed after the initial snapshot."
         : "Canonical local artifacts do not record issue state or label transition history.";
+  const pullRequestActivity = derivePullRequestActivityCompleteness(
+    loaded,
+    pullRequests,
+  );
+  const mergeTiming = deriveMergeTimingCompleteness(loaded, mergedAt);
+  const closeTiming = deriveCloseTimingCompleteness(loaded, closedAt);
   const notes = [
     ...(issueStateTransitionsStatus === "unavailable"
       ? [
@@ -928,23 +938,18 @@ function buildGitHubActivity(
             "No issue-side state or label changes were observed after the initial tracker snapshot for this run.",
           ]
         : []),
-    ...(mergedAt === null && closedAt === null
-      ? [
-          "Merge timing and exact issue-close timing remained unavailable in the canonical local artifacts for this issue.",
-        ]
-      : mergedAt === null
-        ? [
-            "Merge timing was not preserved in the canonical local artifacts for this issue.",
-          ]
-        : closedAt === null
-          ? [
-              "Exact issue-close timing was not preserved in the canonical local artifacts for this issue.",
-            ]
-          : []),
+    ...(pullRequestActivity.note === null ? [] : [pullRequestActivity.note]),
+    ...(mergeTiming.note === null ? [] : [mergeTiming.note]),
+    ...(closeTiming.note === null ? [] : [closeTiming.note]),
   ];
 
   return {
-    status: "partial",
+    status: deriveGitHubActivityAvailability([
+      issueStateTransitionsStatus,
+      pullRequestActivity.status,
+      mergeTiming.status,
+      closeTiming.status,
+    ]),
     issueStateTransitionsStatus,
     issueStateTransitionsNote,
     issueTransitions,
@@ -956,16 +961,197 @@ function buildGitHubActivity(
     ),
     mergedAt,
     mergeNote:
-      mergedAt === null
+      mergeTiming.status === null
+        ? "No merged pull request was observed, so merge timing was not applicable for this issue."
+        : mergedAt === null
         ? "Canonical local artifacts did not preserve a merged pull request timestamp for this issue."
         : "Canonical local artifacts preserved the merged pull request timestamp for this issue.",
     closedAt,
     closeNote:
-      closedAt === null
+      closeTiming.status === null
+        ? "The issue was not observed in a closed tracker state, so exact issue close timing was not applicable for this issue."
+        : closedAt === null
         ? "Canonical local artifacts did not preserve exact issue close timing for this issue."
         : "Canonical local artifacts preserved the exact issue close timestamp for this issue.",
     notes,
   };
+}
+
+function derivePullRequestActivityCompleteness(
+  loaded: LoadedIssueArtifacts,
+  pullRequests: readonly IssueReportPullRequestActivity[],
+): {
+  readonly status: IssueReportAvailability | null;
+  readonly note: string | null;
+} {
+  if (pullRequests.length === 0) {
+    return {
+      status: null,
+      note: null,
+    };
+  }
+
+  const coverage = collectPullRequestCoverage(loaded);
+  const statuses = pullRequests.map((pullRequest) =>
+    classifyPullRequestActivity(
+      pullRequest,
+      coverage.get(pullRequest.number) ?? {
+        hasReview: false,
+        hasChecks: false,
+      },
+    ),
+  );
+  const status = deriveGitHubActivityAvailability(statuses);
+  const nonCompleteCount = statuses.filter(
+    (entryStatus) => entryStatus !== "complete",
+  ).length;
+
+  return {
+    status,
+    note:
+      status === "complete"
+        ? null
+        : status === "unavailable"
+          ? "Observed pull requests lacked canonical review/check coverage, so pull request activity completeness was unavailable."
+          : `Canonical local artifacts preserved incomplete review/check coverage for ${nonCompleteCount.toString()} of ${pullRequests.length.toString()} observed pull request(s).`,
+  };
+}
+
+function collectPullRequestCoverage(
+  loaded: LoadedIssueArtifacts,
+): ReadonlyMap<number, { hasReview: boolean; hasChecks: boolean }> {
+  const coverage = new Map<number, { hasReview: boolean; hasChecks: boolean }>();
+
+  for (const attempt of loaded.attempts) {
+    if (attempt.pullRequest === null) {
+      continue;
+    }
+
+    const existing = coverage.get(attempt.pullRequest.number) ?? {
+      hasReview: false,
+      hasChecks: false,
+    };
+    coverage.set(attempt.pullRequest.number, {
+      hasReview: existing.hasReview || attempt.review !== null,
+      hasChecks: existing.hasChecks || attempt.checks !== null,
+    });
+  }
+
+  for (const event of loaded.events) {
+    const pullRequest = readPullRequestFromDetails(event.details);
+    if (pullRequest === null) {
+      continue;
+    }
+
+    const existing = coverage.get(pullRequest.number) ?? {
+      hasReview: false,
+      hasChecks: false,
+    };
+    coverage.set(pullRequest.number, {
+      hasReview: existing.hasReview || readReviewFromDetails(event.details) !== null,
+      hasChecks: existing.hasChecks || readChecksFromDetails(event.details) !== null,
+    });
+  }
+
+  return coverage;
+}
+
+function classifyPullRequestActivity(
+  pullRequest: IssueReportPullRequestActivity,
+  coverage: {
+    readonly hasReview: boolean;
+    readonly hasChecks: boolean;
+  },
+): IssueReportAvailability {
+  const reviewComplete =
+    coverage.hasReview &&
+    pullRequest.actionableReviewCount !== null &&
+    pullRequest.unresolvedThreadCount !== null &&
+    pullRequest.reviewerVerdict !== null &&
+    pullRequest.requiredReviewerState !== null;
+  const checksComplete = coverage.hasChecks;
+  if (reviewComplete && checksComplete) {
+    return "complete";
+  }
+
+  const hasAnyReviewFacts =
+    coverage.hasReview ||
+    pullRequest.actionableReviewCount !== null ||
+    pullRequest.unresolvedThreadCount !== null ||
+    pullRequest.reviewerVerdict !== null ||
+    pullRequest.requiredReviewerState !== null;
+
+  return hasAnyReviewFacts || coverage.hasChecks ? "partial" : "unavailable";
+}
+
+function deriveMergeTimingCompleteness(
+  loaded: LoadedIssueArtifacts,
+  mergedAt: string | null,
+): {
+  readonly status: IssueReportAvailability | null;
+  readonly note: string | null;
+} {
+  if (!isMergeTimingRelevant(loaded)) {
+    return {
+      status: null,
+      note: null,
+    };
+  }
+
+  return {
+    status: mergedAt === null ? "partial" : "complete",
+    note:
+      mergedAt === null
+        ? "Merge timing was relevant for this issue outcome, but the canonical local artifacts did not preserve it."
+        : null,
+  };
+}
+
+function isMergeTimingRelevant(loaded: LoadedIssueArtifacts): boolean {
+  return (
+    loaded.issue?.mergedAt !== null &&
+    loaded.issue?.mergedAt !== undefined
+  ) ||
+    loaded.issue?.currentOutcome === "merged" ||
+    loaded.issue?.currentOutcome === "succeeded";
+}
+
+function deriveCloseTimingCompleteness(
+  loaded: LoadedIssueArtifacts,
+  closedAt: string | null,
+): {
+  readonly status: IssueReportAvailability | null;
+  readonly note: string | null;
+} {
+  if (!isCloseTimingRelevant(loaded)) {
+    return {
+      status: null,
+      note: null,
+    };
+  }
+
+  return {
+    status: closedAt === null ? "partial" : "complete",
+    note:
+      closedAt === null
+        ? "Exact issue close timing was relevant for this issue activity, but the canonical local artifacts did not preserve it."
+        : null,
+  };
+}
+
+function isCloseTimingRelevant(loaded: LoadedIssueArtifacts): boolean {
+  if (
+    (loaded.issue?.closedAt !== null && loaded.issue?.closedAt !== undefined) ||
+    loaded.issue?.trackerState === "closed" ||
+    loaded.issue?.currentOutcome === "succeeded"
+  ) {
+    return true;
+  }
+
+  return (loaded.issue?.issueTransitions ?? []).some(
+    (transition) =>
+      transition.kind === "state-changed" && transition.toState === "closed",
+  );
 }
 
 function buildIssueTrackerTransitions(

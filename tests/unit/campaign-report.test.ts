@@ -206,6 +206,7 @@ describe("campaign report", () => {
     expect(digest.summary.overallOutcome).toBe(
       "Completed 1 of 3 selected issues. 1 failed, 1 remained partial.",
     );
+    expect(digest.githubActivity.status).toBe("partial");
     expect(digest.githubActivity.pullRequests).toHaveLength(2);
     expect(digest.githubActivity.pendingChecks).toEqual([
       { name: "CI", count: 1 },
@@ -224,8 +225,14 @@ describe("campaign report", () => {
     expect(digest.githubActivity.earliestMergedAt).toBe(
       "2026-03-03T11:30:00.000Z",
     );
+    expect(digest.githubActivity.mergeAvailabilityNote).toBe(
+      "Merge timing was recorded for all 1 selected issue reports where it was applicable.",
+    );
     expect(digest.githubActivity.latestClosedAt).toBe(
       "2026-03-03T12:00:00.000Z",
+    );
+    expect(digest.githubActivity.closeAvailabilityNote).toBe(
+      "Issue close timing was recorded for all 1 selected issue reports where it was applicable.",
     );
     expect(digest.tokenUsage.status).toBe("partial");
     expect(digest.tokenUsage.totalTokens).toBeNull();
@@ -240,6 +247,86 @@ describe("campaign report", () => {
     );
     expect(digest.learnings.changesToMake).toContain(
       "Expand token-usage capture or enrichment; campaign token coverage was partial across 3 issue reports.",
+    );
+  });
+
+  it("marks campaign github activity complete when every selected issue report is complete or not-applicable", () => {
+    const digest = buildCampaignDigest(
+      {
+        kind: "issues",
+        issueNumbers: [32, 43],
+      },
+      [
+        buildStoredIssueReport({
+          issueNumber: 32,
+          summary: {
+            outcome: "succeeded",
+            pullRequestCount: 1,
+          },
+          githubActivity: {
+            status: "complete",
+            issueStateTransitionsStatus: "complete",
+            issueStateTransitionsNote:
+              "Canonical local artifacts preserved 1 observed issue state/label transition.",
+            issueTransitions: [
+              {
+                at: "2026-03-03T12:00:00.000Z",
+                kind: "state-changed",
+                summary: "Issue state changed from open to closed.",
+                details: [],
+              },
+            ],
+            pullRequests: [
+              {
+                number: 132,
+                url: "https://example.test/pr/132",
+                attemptNumbers: [1],
+                firstObservedAt: "2026-03-03T10:10:00.000Z",
+                latestCommitAt: "2026-03-03T11:00:00.000Z",
+                reviewFeedbackRounds: 0,
+                actionableReviewCount: 0,
+                unresolvedThreadCount: 0,
+                reviewerVerdict: "no-blocking-verdict",
+                blockingReviewerKeys: [],
+                requiredReviewerState: "satisfied",
+                pendingChecks: [],
+                failingChecks: [],
+              },
+            ],
+            reviewFeedbackRounds: 0,
+            mergedAt: "2026-03-03T11:30:00.000Z",
+            closedAt: "2026-03-03T12:00:00.000Z",
+          },
+        }),
+        buildStoredIssueReport({
+          issueNumber: 43,
+          summary: {
+            outcome: "failed",
+            overallConclusion: "Failed before a pull request was opened.",
+          },
+          githubActivity: {
+            status: "complete",
+            issueStateTransitionsStatus: "complete",
+            issueStateTransitionsNote:
+              "Canonical local artifacts preserved tracker-side issue snapshots, but no state or label change was observed after the initial snapshot.",
+          },
+        }),
+      ],
+      "2026-03-11T12:00:00.000Z",
+    );
+
+    expect(digest.githubActivity.status).toBe("complete");
+    expect(digest.githubActivity.mergeAvailabilityNote).toBe(
+      "Merge timing was recorded for all 1 selected issue reports where it was applicable.",
+    );
+    expect(digest.githubActivity.closeAvailabilityNote).toBe(
+      "Issue close timing was recorded for all 1 selected issue reports where it was applicable.",
+    );
+    expect(digest.learnings.changesToMake).not.toContain(
+      "Record merge timing in canonical local artifacts so campaign digests can distinguish shipped work from PR-open state.",
+    );
+    expect(digest.learnings.changesToMake).not.toContain(
+      "Record exact issue-close timing in canonical local artifacts so campaign windows can compare tracker closure against report completion.",
     );
   });
 
@@ -315,10 +402,13 @@ describe("campaign report", () => {
       "- Blocking reviewer-app verdicts: Unavailable",
     );
     expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
-      "- Merge timing: No selected issue reports recorded merge timing.",
+      "- Merge timing: Merge timing was not applicable for the selected issue reports.",
     );
     expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
       "- First merge observed: Unavailable",
+    );
+    expect(renderCampaignGitHubActivityMarkdown(digest)).toContain(
+      "- Close timing: Issue close timing was not applicable for the selected issue reports.",
     );
   });
 
@@ -467,6 +557,7 @@ function buildStoredIssueReport(options: {
   };
   readonly timeline?: IssueReportDocument["timeline"] | undefined;
   readonly githubActivity?: {
+    readonly status?: IssueReportDocument["githubActivity"]["status"] | undefined;
     readonly issueStateTransitionsStatus?:
       | IssueReportDocument["githubActivity"]["issueStateTransitionsStatus"]
       | undefined;
@@ -541,7 +632,7 @@ function buildStoredIssueReport(options: {
     },
     timeline,
     githubActivity: {
-      status: "partial",
+      status: options.githubActivity?.status ?? "partial",
       issueStateTransitionsStatus:
         options.githubActivity?.issueStateTransitionsStatus ?? "unavailable",
       issueStateTransitionsNote:

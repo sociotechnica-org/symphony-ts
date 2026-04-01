@@ -113,7 +113,12 @@ describe("campaign report CLI", () => {
     await expect(
       fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
     ).resolves.toContain(
-      "Merge timing: Merge timing was recorded for 1 of 3 selected issue reports.",
+      "Status: partial",
+    );
+    await expect(
+      fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
+    ).resolves.toContain(
+      "Merge timing: Merge timing was recorded for all 1 selected issue reports where it was applicable.",
     );
     await expect(
       fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
@@ -130,6 +135,60 @@ describe("campaign report CLI", () => {
     expect(stdout.join("")).toContain(
       "Generated campaign digest issues-32-43-44",
     );
+  });
+
+  it("can render a complete campaign github activity digest when all selected reports are complete", async () => {
+    const tempDir = await createTempDir("symphony-campaign-cli-complete-");
+    tempRoots.push(tempDir);
+    const workflowPath = await writeReportWorkflow(tempDir);
+    const workspaceRoot = deriveWorkspaceRoot(tempDir);
+
+    await seedSuccessfulIssueArtifacts(workspaceRoot, 32, {
+      claimedAt: "2026-03-02T09:00:00.000Z",
+      planReadyAt: "2026-03-02T09:05:00.000Z",
+      attemptStartedAt: "2026-03-02T09:10:00.000Z",
+      prOpenedAt: "2026-03-02T09:25:00.000Z",
+      latestCommitAt: "2026-03-02T09:24:00.000Z",
+      succeededAt: "2026-03-02T10:00:00.000Z",
+      finalCommitAt: "2026-03-02T09:58:00.000Z",
+    });
+
+    await runReportCli(
+      [
+        "node",
+        "symphony-report",
+        "issue",
+        "--issue",
+        "32",
+        "--workflow",
+        workflowPath,
+      ],
+      { issueEnrichers: [] },
+    );
+
+    await runReportCli([
+      "node",
+      "symphony-report",
+      "campaign",
+      "--issues",
+      "32",
+      "--workflow",
+      workflowPath,
+    ]);
+
+    await expect(
+      fs.readFile(
+        path.join(
+          tempDir,
+          ".var",
+          "reports",
+          "campaigns",
+          "issues-32",
+          "github-activity.md",
+        ),
+        "utf8",
+      ),
+    ).resolves.toContain("Status: complete");
   });
 
   it("selects generated issue reports by date window", async () => {
