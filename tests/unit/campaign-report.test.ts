@@ -116,6 +116,7 @@ describe("campaign report", () => {
           tokenUsage: {
             status: "complete",
             totalTokens: 3200,
+            costUsd: 1.5,
           },
           learnings: {
             observations: [
@@ -171,6 +172,8 @@ describe("campaign report", () => {
           tokenUsage: {
             status: "estimated",
             totalTokens: 1200,
+            costUsd: 2.25,
+            observedCostSubtotal: null,
           },
         }),
       ],
@@ -203,15 +206,54 @@ describe("campaign report", () => {
     );
     expect(digest.tokenUsage.status).toBe("partial");
     expect(digest.tokenUsage.totalTokens).toBeNull();
+    expect(digest.tokenUsage.costUsd).toBeNull();
     expect(digest.tokenUsage.observedTokenSubtotal).toBe(4400);
+    expect(digest.tokenUsage.observedCostSubtotal).toBe(1.5);
     expect(digest.tokenUsage.notes).toContain(
       "2 of 3 selected issue reports supplied observed token data.",
     );
     expect(digest.tokenUsage.notes).toContain(
-      "0 of 3 selected issue reports supplied observed cost data.",
+      "1 of 3 selected issue reports supplied observed cost data.",
     );
     expect(digest.learnings.changesToMake).toContain(
       "Expand token-usage capture or enrichment; campaign token coverage was partial across 3 issue reports.",
+    );
+  });
+
+  it("sums aggregate campaign cost when complete and estimated issue reports are both priceable", () => {
+    const digest = buildCampaignDigest(
+      {
+        kind: "issues",
+        issueNumbers: [32, 44],
+      },
+      [
+        buildStoredIssueReport({
+          issueNumber: 32,
+          tokenUsage: {
+            status: "complete",
+            totalTokens: 3200,
+            costUsd: 1.5,
+          },
+        }),
+        buildStoredIssueReport({
+          issueNumber: 44,
+          tokenUsage: {
+            status: "estimated",
+            totalTokens: 1200,
+            costUsd: 2.25,
+            observedCostSubtotal: null,
+          },
+        }),
+      ],
+      "2026-03-11T12:00:00.000Z",
+    );
+
+    expect(digest.tokenUsage.status).toBe("estimated");
+    expect(digest.tokenUsage.totalTokens).toBe(4400);
+    expect(digest.tokenUsage.costUsd).toBe(3.75);
+    expect(digest.tokenUsage.observedCostSubtotal).toBe(1.5);
+    expect(digest.tokenUsage.explanation).toContain(
+      "at least one total remained estimated",
     );
   });
 
@@ -496,13 +538,13 @@ function buildStoredIssueReport(options: {
       totalTokens: options.tokenUsage?.totalTokens ?? null,
       costUsd: options.tokenUsage?.costUsd ?? null,
       observedTokenSubtotal:
-        options.tokenUsage?.observedTokenSubtotal ??
-        options.tokenUsage?.totalTokens ??
-        null,
+        options.tokenUsage?.observedTokenSubtotal === undefined
+          ? (options.tokenUsage?.totalTokens ?? null)
+          : options.tokenUsage.observedTokenSubtotal,
       observedCostSubtotal:
-        options.tokenUsage?.observedCostSubtotal ??
-        options.tokenUsage?.costUsd ??
-        null,
+        options.tokenUsage?.observedCostSubtotal === undefined
+          ? (options.tokenUsage?.costUsd ?? null)
+          : options.tokenUsage.observedCostSubtotal,
       sessions: [],
       attempts: [],
       agents: [],

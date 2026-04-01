@@ -64,20 +64,22 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.explanation).toContain(
-      "token totals for all 1 session(s)",
+      "used checked-in provider pricing estimates",
     );
+    expect(generated.report.tokenUsage.costUsd).toBeCloseTo(0.007625, 6);
     expect(generated.report.tokenUsage.sessions).toEqual([
       expect.objectContaining({
         sessionId: "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
-        status: "partial",
+        status: "estimated",
         inputTokens: 2000,
         cachedInputTokens: 500,
         outputTokens: 250,
         reasoningOutputTokens: 100,
         totalTokens: 2750,
+        costUsd: 0.007625,
         originator: "codex_cli_rs",
         sessionSource: "cli",
         cliVersion: "0.71.0",
@@ -90,6 +92,9 @@ describe("issue report enrichment", () => {
         ].join("\n"),
       }),
     ]);
+    expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
+      "Cost estimated from checked-in openai pricing for gpt-5.4.",
+    );
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,
     );
@@ -139,8 +144,9 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
+    expect(generated.report.tokenUsage.costUsd).toBeCloseTo(0.007625, 6);
     expect(generated.report.tokenUsage.sessions[0]).toEqual(
       expect.objectContaining({
         inputTokens: 2000,
@@ -272,7 +278,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       matchedLogPath,
@@ -342,7 +348,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
@@ -503,7 +509,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(1440);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,
@@ -540,7 +546,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(900);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,

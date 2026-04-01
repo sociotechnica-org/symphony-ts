@@ -5,6 +5,7 @@ import type {
   IssueReportTokenUsageSession,
   LoadedIssueArtifacts,
 } from "./issue-report.js";
+import { rollupIssueReportTokenUsageSessions } from "./issue-report-token-usage.js";
 
 const CANONICAL_SESSION_SOURCE_ARTIFACT_COUNT = 1;
 
@@ -158,9 +159,11 @@ function rebuildTokenUsage(
   const enrichedSessionCount = sessions.filter(
     (session) => session.status !== "unavailable",
   ).length;
-  const completeSessionCount = sessions.filter(
-    (session) => session.status === "complete",
-  ).length;
+  const rollup = rollupIssueReportTokenUsageSessions(
+    sessions,
+    base.attempts.map((attempt) => attempt.attemptNumber),
+  );
+  const completeSessionCount = rollup.counts.complete;
   const tokenTotalSessionCount = sessions.filter(
     (session) => session.totalTokens !== null,
   ).length;
@@ -207,90 +210,15 @@ function rebuildTokenUsage(
             ? "Runner log enrichment supplied optional session detail, but token totals remained partial or unavailable."
             : base.explanation;
 
-  const attempts = base.attempts.map((attempt) => {
-    const attemptSessions = sessions.filter((session) =>
-      attempt.sessionIds.includes(session.sessionId),
-    );
-    const totalTokens =
-      attemptSessions.length > 0 &&
-      attemptSessions.every((session) => session.totalTokens !== null)
-        ? attemptSessions.reduce(
-            (total, session) => total + (session.totalTokens ?? 0),
-            0,
-          )
-        : null;
-    return {
-      ...attempt,
-      totalTokens,
-      costUsd:
-        attemptSessions.length > 0 &&
-        attemptSessions.every((session) => session.costUsd !== null)
-          ? attemptSessions.reduce(
-              (total, session) => total + (session.costUsd ?? 0),
-              0,
-            )
-          : null,
-    };
-  });
-
-  const agentsByName = new Map<
-    string,
-    {
-      sessionCount: number;
-      totalTokens: number;
-      hasMissingTokens: boolean;
-    }
-  >();
-  for (const session of sessions) {
-    const label =
-      session.model === null
-        ? session.provider
-        : `${session.provider} (${session.model})`;
-    const existing = agentsByName.get(label) ?? {
-      sessionCount: 0,
-      totalTokens: 0,
-      hasMissingTokens: false,
-    };
-    agentsByName.set(label, {
-      sessionCount: existing.sessionCount + 1,
-      totalTokens:
-        session.totalTokens === null
-          ? existing.totalTokens
-          : existing.totalTokens + session.totalTokens,
-      hasMissingTokens:
-        existing.hasMissingTokens || session.totalTokens === null,
-    });
-  }
-
-  const agents = [...agentsByName.entries()]
-    .map(([agent, value]) => ({
-      agent,
-      sessionCount: value.sessionCount,
-      totalTokens: value.hasMissingTokens ? null : value.totalTokens,
-      costUsd:
-        base.agents.find((candidate) => candidate.agent === agent)?.costUsd ??
-        null,
-    }))
-    .sort((left, right) => left.agent.localeCompare(right.agent));
-
-  const totalTokens =
-    sessions.length > 0 &&
-    sessions.every((session) => session.totalTokens !== null)
-      ? sessions.reduce(
-          (total, session) => total + (session.totalTokens ?? 0),
-          0,
-        )
-      : null;
-
   return {
     ...base,
     status,
     explanation,
-    totalTokens,
+    totalTokens: rollup.totalTokens,
     costUsd: base.costUsd,
     sessions,
-    attempts,
-    agents,
+    attempts: rollup.attempts,
+    agents: rollup.agents,
     rawArtifacts: uniqueStrings([
       ...base.rawArtifacts,
       ...sessions.flatMap((session) => session.sourceArtifacts),
