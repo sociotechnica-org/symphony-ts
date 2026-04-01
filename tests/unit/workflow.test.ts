@@ -130,6 +130,30 @@ ${buildSharedWorkflowSections()}`,
     expect(rendered).toContain("sociotechnica-org/symphony-ts");
   });
 
+  it("loads the checked-in self-hosting workflow without SYMPHONY_REPO", async () => {
+    const workflowPath = path.resolve(process.cwd(), "WORKFLOW.md");
+    const workflowBody = await fs.readFile(workflowPath, "utf8");
+
+    expect(workflowBody).toContain("repo: sociotechnica-org/symphony-ts");
+
+    const workflow = await loadWorkflow(workflowPath);
+    expect(workflow.config.tracker.kind).toBe("github");
+    if (
+      workflow.config.tracker.kind === "github" ||
+      workflow.config.tracker.kind === "github-bootstrap"
+    ) {
+      expect(workflow.config.tracker.repo).toBe(
+        "sociotechnica-org/symphony-ts",
+      );
+    }
+    expect(workflow.config.workspace.repoUrl).toBe(
+      "git@github.com:sociotechnica-org/symphony-ts.git",
+    );
+    expect(workflow.config.agent.env["GITHUB_REPO"]).toBe(
+      "sociotechnica-org/symphony-ts",
+    );
+  });
+
   it("loads explicit reviewer app policy for GitHub trackers", async () => {
     const dir = await createTempDir("workflow-reviewer-apps-");
     const workflowPath = path.join(dir, "WORKFLOW.md");

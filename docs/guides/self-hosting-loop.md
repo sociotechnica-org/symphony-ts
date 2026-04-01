@@ -38,6 +38,10 @@ The checked-in `WORKFLOW.md` should point at:
 - `tracker.repo: sociotechnica-org/symphony-ts`
 - `agent.command: codex exec --dangerously-bypass-approvals-and-sandbox -m gpt-5.4 -C . -`
 
+No shell-level `SYMPHONY_REPO` export is required for this checked-in
+self-hosting path; the workflow file is the source of truth for the tracker
+target.
+
 If you want to self-host with Claude Code instead of Codex, change the checked-in
 worker settings before starting the factory:
 

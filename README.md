@@ -50,6 +50,9 @@ The checked-in root [`WORKFLOW.md`](WORKFLOW.md) is the self-hosting contract
 for `symphony-ts`; do not copy it blindly into unrelated repositories. Review
 and customize the scaffolded target-repo workflow for that repository's prompt,
 checks, and policy before running agents.
+That checked-in self-hosting workflow already sets
+`tracker.repo: sociotechnica-org/symphony-ts`, so the repo-owned operator path
+does not require a shell-level `SYMPHONY_REPO` export.
 
 Your target repo needs three labels: `symphony:ready`, `symphony:running`, `symphony:failed`.
 
