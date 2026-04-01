@@ -102,6 +102,29 @@ now_utc() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+emit_terminal_trace() {
+  local message="$1"
+  printf '[%s] operator-loop: %s\n' "$(now_utc)" "$message" >&2
+}
+
+describe_cycle_terminal_mode() {
+  case "$OPERATOR_SESSION_MODE" in
+    resuming)
+      if [ -n "$OPERATOR_SESSION_ID" ]; then
+        printf 'resuming from %s' "$OPERATOR_SESSION_ID"
+      else
+        printf 'resuming'
+      fi
+      ;;
+    fresh)
+      printf 'starting fresh'
+      ;;
+    *)
+      printf '%s' "$OPERATOR_SESSION_MODE"
+      ;;
+  esac
+}
+
 future_utc() {
   node -e 'const interval = Number(process.argv[1]); if (!Number.isInteger(interval) || interval <= 0) process.exit(1); console.log(new Date(Date.now() + interval * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"));' "$1"
 }
@@ -716,6 +739,7 @@ run_cycle() {
     :
   fi
   prepare_operator_cycle
+  emit_terminal_trace "waking up (${OPERATOR_PROVIDER}${OPERATOR_MODEL:+/$OPERATOR_MODEL}; $(describe_cycle_terminal_mode))"
   write_status "acting" "Running operator wake-up cycle"
 
   {
@@ -864,6 +888,7 @@ if [ "$RUN_ONCE" -eq 1 ]; then
 fi
 
 write_status "sleeping" "Operator loop started"
+emit_terminal_trace "going to sleep until the first wake-up cycle"
 
 while [ "$STOPPING" -eq 0 ]; do
   if run_cycle; then
@@ -872,12 +897,14 @@ while [ "$STOPPING" -eq 0 ]; do
     fi
     NEXT_WAKE_AT="$(future_utc "$INTERVAL_SECONDS")"
     write_status "sleeping" "Sleeping until next operator wake-up cycle"
+    emit_terminal_trace "going to sleep until $NEXT_WAKE_AT"
   else
     if [ "$STOPPING" -eq 1 ]; then
       break
     fi
     NEXT_WAKE_AT="$(future_utc "$INTERVAL_SECONDS")"
     write_status "retrying" "Cycle failed; sleeping before retrying operator loop"
+    emit_terminal_trace "cycle failed; sleeping until $NEXT_WAKE_AT"
   fi
 
   sleep_until_next_cycle
