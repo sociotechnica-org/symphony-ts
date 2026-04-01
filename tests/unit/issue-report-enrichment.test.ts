@@ -13,6 +13,7 @@ import type {
   LoadedIssueArtifacts,
 } from "../../src/observability/issue-report.js";
 import { generateIssueReport } from "../../src/observability/issue-report.js";
+import { mergeIssueReportEnrichment } from "../../src/observability/issue-report-enrichment.js";
 import { asFiniteNumber } from "../../src/domain/number-coerce.js";
 import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
 import { createTempDir } from "../support/git.js";
@@ -64,20 +65,22 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.explanation).toContain(
-      "token totals for all 1 session(s)",
+      "used checked-in provider pricing estimates",
     );
+    expect(generated.report.tokenUsage.costUsd).toBeCloseTo(0.007625, 6);
     expect(generated.report.tokenUsage.sessions).toEqual([
       expect.objectContaining({
         sessionId: "sociotechnica-org/symphony-ts#44/attempt-1/session-1",
-        status: "partial",
+        status: "estimated",
         inputTokens: 2000,
         cachedInputTokens: 500,
         outputTokens: 250,
         reasoningOutputTokens: 100,
         totalTokens: 2750,
+        costUsd: 0.007625,
         originator: "codex_cli_rs",
         sessionSource: "cli",
         cliVersion: "0.71.0",
@@ -90,6 +93,9 @@ describe("issue report enrichment", () => {
         ].join("\n"),
       }),
     ]);
+    expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
+      "Cost estimated from checked-in openai pricing for gpt-5.4.",
+    );
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,
     );
@@ -139,8 +145,9 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
+    expect(generated.report.tokenUsage.costUsd).toBeCloseTo(0.007625, 6);
     expect(generated.report.tokenUsage.sessions[0]).toEqual(
       expect.objectContaining({
         inputTokens: 2000,
@@ -149,6 +156,139 @@ describe("issue report enrichment", () => {
         reasoningOutputTokens: 100,
         totalTokens: 2750,
       }),
+    );
+  });
+
+  it("recomputes observed token subtotals and uses pricing-safe wording when enrichment cannot price a provider", () => {
+    const sessionId = "sociotechnica-org/symphony-ts#44/attempt-1/session-1";
+    const report: IssueReportDocument = {
+      version: 4,
+      generatedAt: "2026-03-09T13:00:00.000Z",
+      summary: {
+        status: "complete",
+        issueNumber: 44,
+        issueIdentifier: "sociotechnica-org/symphony-ts#44",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Generate per-issue reports from local artifacts",
+        issueUrl: "https://github.com/sociotechnica-org/symphony-ts/issues/44",
+        branch: "symphony/44",
+        outcome: "succeeded",
+        startedAt: "2026-03-09T10:00:00.000Z",
+        endedAt: "2026-03-09T10:20:00.000Z",
+        attemptCount: 1,
+        pullRequestCount: 1,
+        overallConclusion: "Completed successfully.",
+        notes: [],
+      },
+      timeline: [],
+      githubActivity: {
+        status: "partial",
+        issueStateTransitionsStatus: "unavailable",
+        issueStateTransitionsNote: "Unavailable.",
+        pullRequests: [],
+        reviewFeedbackRounds: 0,
+        reviewLoopSummary: "Unavailable.",
+        mergedAt: null,
+        mergeNote: "Unavailable.",
+        closedAt: null,
+        closeNote: "Unavailable.",
+        notes: [],
+      },
+      tokenUsage: {
+        status: "unavailable",
+        explanation:
+          "Canonical runner-event accounting was unavailable for all recorded sessions.",
+        totalTokens: null,
+        costUsd: null,
+        observedTokenSubtotal: null,
+        observedCostSubtotal: null,
+        sessions: [
+          {
+            sessionId,
+            attemptNumber: 1,
+            provider: "claude-code",
+            model: "claude-sonnet-4-5",
+            status: "unavailable",
+            inputTokens: null,
+            cachedInputTokens: null,
+            outputTokens: null,
+            reasoningOutputTokens: null,
+            totalTokens: null,
+            costUsd: null,
+            originator: null,
+            sessionSource: null,
+            cliVersion: null,
+            modelProvider: null,
+            gitBranch: null,
+            gitCommit: null,
+            finalSummary: null,
+            notes: [],
+            sourceArtifacts: ["/tmp/session.json"],
+          },
+        ],
+        attempts: [
+          {
+            attemptNumber: 1,
+            sessionIds: [sessionId],
+            totalTokens: null,
+            costUsd: null,
+          },
+        ],
+        agents: [
+          {
+            agent: "claude-code (claude-sonnet-4-5)",
+            sessionCount: 1,
+            totalTokens: null,
+            costUsd: null,
+          },
+        ],
+        rawArtifacts: ["/tmp/session.json"],
+        notes: [],
+      },
+      learnings: {
+        status: "complete",
+        observations: [],
+        gaps: [],
+      },
+      artifacts: {
+        rawIssueRoot: "/tmp/issues/44",
+        issueFile: "/tmp/issues/44/issue.json",
+        eventsFile: "/tmp/issues/44/events.jsonl",
+        attemptFiles: [],
+        sessionFiles: [],
+        logPointersFile: null,
+        missingArtifacts: [],
+        generatedReportJson: "/tmp/report.json",
+        generatedReportMarkdown: "/tmp/report.md",
+      },
+      operatorInterventions: {
+        status: "complete",
+        summary: "None.",
+        entries: [],
+        note: "None.",
+      },
+    };
+
+    const enriched = mergeIssueReportEnrichment(report, {
+      sessions: [
+        {
+          sessionId,
+          tokenUsage: {
+            inputTokens: 1200,
+            outputTokens: 300,
+            totalTokens: 1500,
+          },
+        },
+      ],
+    });
+
+    expect(enriched.tokenUsage.observedTokenSubtotal).toBe(1500);
+    expect(enriched.tokenUsage.observedCostSubtotal).toBeNull();
+    expect(enriched.tokenUsage.explanation).toContain(
+      "Final report generation estimates cost only for supported providers/models",
+    );
+    expect(enriched.tokenUsage.explanation).not.toContain(
+      "does not apply provider pricing",
     );
   });
 
@@ -272,7 +412,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       matchedLogPath,
@@ -342,7 +482,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
     expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
       "At least one runner log file in the matching time window could not be parsed; enrichment used the only readable match.",
@@ -503,7 +643,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(1440);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,
@@ -540,7 +680,7 @@ describe("issue report enrichment", () => {
       enrichers: [new CodexIssueReportEnricher({ sessionsRoot })],
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(900);
     expect(generated.report.tokenUsage.sessions[0]?.sourceArtifacts).toContain(
       logPath,
