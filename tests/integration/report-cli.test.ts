@@ -105,9 +105,9 @@ describe("report CLI", () => {
     expect(reportJson).toContain('"observedTokenSubtotal": 2750');
     expect(reportJson).toContain('"observedCostSubtotal": null');
     expect(reportJson).toContain("checked-in provider pricing estimates");
-    expect(await fs.readFile(path.join(reportDir, "report.md"), "utf8")).toContain(
-      "Estimated cost (USD): 0.02",
-    );
+    expect(
+      await fs.readFile(path.join(reportDir, "report.md"), "utf8"),
+    ).toContain("Estimated cost (USD): 0.02");
   });
 
   it("renders a failed issue report with explicit token unavailability", async () => {
