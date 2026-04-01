@@ -897,8 +897,16 @@ describe("operator loop workflow selection", () => {
   it("emits sleep trace lines in continuous mode", async () => {
     const tempDir = await createTempDir("symphony-operator-loop-sleep-");
     const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
 
     try {
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
       const stderr = await new Promise<string>((resolve, reject) => {
         const child = spawn(
           "bash",
@@ -919,17 +927,35 @@ describe("operator loop workflow selection", () => {
           },
         );
         let collectedStderr = "";
+        let shutdownRequested = false;
+        const timeout = setTimeout(() => {
+          shutdownRequested = true;
+          child.kill("SIGTERM");
+        }, 10000);
+        const maybeRequestShutdown = () => {
+          if (
+            shutdownRequested ||
+            !collectedStderr.includes(
+              "operator-loop: going to sleep until the first wake-up cycle",
+            ) ||
+            !collectedStderr.includes("operator-loop: waking up")
+          ) {
+            return;
+          }
+
+          shutdownRequested = true;
+          child.kill("SIGTERM");
+        };
         child.stderr.setEncoding("utf8");
         child.stderr.on("data", (chunk: string) => {
           collectedStderr += chunk;
+          maybeRequestShutdown();
         });
         child.on("error", reject);
         child.on("close", () => {
+          clearTimeout(timeout);
           resolve(collectedStderr);
         });
-        setTimeout(() => {
-          child.kill("SIGTERM");
-        }, 2000);
       });
 
       expect(stderr).toContain(
