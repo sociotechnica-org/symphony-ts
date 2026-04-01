@@ -24,11 +24,14 @@ export interface PromptReviewFeedbackContext {
   readonly summary: string;
 }
 
-export interface PromptPullRequestContext {
+export interface PromptLifecycleContext {
   readonly kind: HandoffLifecycleKind;
+  readonly branchName: string;
   readonly summary: string;
   readonly pullRequest: PullRequestHandle | null;
   readonly pendingCheckNames: readonly string[];
   readonly failingCheckNames: readonly string[];
   readonly actionableReviewFeedback: readonly PromptReviewFeedbackContext[];
 }
+
+export type PromptPullRequestContext = PromptLifecycleContext;

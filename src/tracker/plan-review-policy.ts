@@ -3,6 +3,7 @@ import {
   parsePlanReviewSignal,
   type PlanReviewSignal,
 } from "./plan-review-signal.js";
+import { missingPullRequestLifecycle } from "./pull-request-policy.js";
 
 export interface IssueCommentSnapshot {
   readonly id: number;
@@ -123,22 +124,39 @@ function buildPlanReviewAcknowledgement(
   ].join("\n");
 }
 
+function sortPlanReviewComments(
+  left: ParsedPlanReviewComment,
+  right: ParsedPlanReviewComment,
+): number {
+  const timeDiff =
+    Date.parse(left.comment.createdAt) - Date.parse(right.comment.createdAt);
+  return timeDiff !== 0 ? timeDiff : left.comment.id - right.comment.id;
+}
+
+function buildPlanReviewResumeLifecycle(
+  branchName: string,
+  signal: PlanReviewDecisionSignal,
+): HandoffLifecycle {
+  const summary =
+    signal === "changes-requested"
+      ? `Plan review requested changes for ${branchName}; revise the plan and post a fresh plan-ready handoff before implementation.`
+      : signal === "approved"
+        ? `Plan review approved for ${branchName}; resume implementation before opening a pull request.`
+        : `Plan review waived for ${branchName}; resume implementation before opening a pull request.`;
+
+  return missingPullRequestLifecycle(branchName, summary);
+}
+
 export function evaluatePlanReviewProtocol(
   branchName: string,
   issueUrl: string,
   comments: readonly IssueCommentSnapshot[],
 ): PlanReviewProtocolEvaluation {
-  const latestSignal =
-    comments
-      .map(parsePlanReviewComment)
-      .filter((entry): entry is ParsedPlanReviewComment => entry !== null)
-      .sort((left, right) => {
-        const timeDiff =
-          Date.parse(left.comment.createdAt) -
-          Date.parse(right.comment.createdAt);
-        return timeDiff !== 0 ? timeDiff : left.comment.id - right.comment.id;
-      })
-      .at(-1) ?? null;
+  const parsedSignals = comments
+    .map(parsePlanReviewComment)
+    .filter((entry): entry is ParsedPlanReviewComment => entry !== null)
+    .sort(sortPlanReviewComments);
+  const latestSignal = parsedSignals.at(-1) ?? null;
 
   if (latestSignal === null) {
     return {
@@ -149,6 +167,22 @@ export function evaluatePlanReviewProtocol(
   }
 
   if (latestSignal.signal !== "plan-ready") {
+    const anchoredPlanReady = [...parsedSignals]
+      .reverse()
+      .find(
+        (entry) =>
+          entry.signal === "plan-ready" &&
+          sortPlanReviewComments(entry, latestSignal) < 0,
+      );
+
+    if (anchoredPlanReady === undefined) {
+      return {
+        latestSignal,
+        lifecycle: null,
+        acknowledgement: null,
+      };
+    }
+
     const acknowledgement = hasAcknowledgedLatestSignal(
       latestSignal.signal,
       latestSignal.comment.id,
@@ -166,7 +200,10 @@ export function evaluatePlanReviewProtocol(
 
     return {
       latestSignal,
-      lifecycle: null,
+      lifecycle: buildPlanReviewResumeLifecycle(
+        branchName,
+        latestSignal.signal,
+      ),
       acknowledgement,
     };
   }

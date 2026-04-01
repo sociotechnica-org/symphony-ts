@@ -545,7 +545,12 @@ agent:
 Use them when the command launches another backend such as Pi so status,
 artifacts, and reports show a stable identity instead of the generic default.
 
-The prompt template below the YAML front matter uses Liquid syntax with access to `issue`, `config`, and `pull_request` variables. See the checked-in [`WORKFLOW.md`](WORKFLOW.md) for the full template.
+The prompt template below the YAML front matter uses Liquid syntax with access
+to `issue`, `config`, `lifecycle`, and `pull_request` variables. `lifecycle`
+is available for any normalized tracker handoff state, including pre-PR states
+such as approved plan-review resumes. `pull_request` stays PR-only so existing
+templates can safely dereference PR fields. See the checked-in
+[`WORKFLOW.md`](WORKFLOW.md) for the full template.
 
 ### Linear Tracker
 

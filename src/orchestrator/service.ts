@@ -1266,7 +1266,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       attempt,
       lockDir,
       issueSource,
-      lifecycle.kind === "missing-target" ? null : lifecycle,
+      lifecycle,
     );
   }
 
@@ -1734,7 +1734,8 @@ export class BootstrapOrchestrator implements Orchestrator {
           session,
           liveRunnerSession,
         );
-        let currentLifecycle = pullRequest;
+        let currentLifecycle =
+          pullRequest?.kind === "missing-target" ? null : pullRequest;
         let turnNumber = 1;
 
         while (true) {

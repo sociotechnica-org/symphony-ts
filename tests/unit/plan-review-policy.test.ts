@@ -88,7 +88,9 @@ describe("plan-review-policy", () => {
       ],
     );
 
-    expect(lifecycle).toBeNull();
+    expect(lifecycle?.kind).toBe("missing-target");
+    expect(lifecycle?.summary).toMatch(/plan review approved/i);
+    expect(lifecycle?.summary).toMatch(/resume implementation/i);
   });
 
   it("does not wait when the latest signal is waived", () => {
@@ -109,7 +111,9 @@ describe("plan-review-policy", () => {
       ],
     );
 
-    expect(lifecycle).toBeNull();
+    expect(lifecycle?.kind).toBe("missing-target");
+    expect(lifecycle?.summary).toMatch(/plan review waived/i);
+    expect(lifecycle?.summary).toMatch(/resume implementation/i);
   });
 
   it("does not wait when the latest signal is changes-requested", () => {
@@ -130,7 +134,9 @@ describe("plan-review-policy", () => {
       ],
     );
 
-    expect(lifecycle).toBeNull();
+    expect(lifecycle?.kind).toBe("missing-target");
+    expect(lifecycle?.summary).toMatch(/requested changes/i);
+    expect(lifecycle?.summary).toMatch(/revise the plan/i);
   });
 
   it("returns to waiting when a revised plan-ready comment is newer than prior feedback", () => {
@@ -177,7 +183,7 @@ describe("plan-review-policy", () => {
       ],
     );
 
-    expect(protocol.lifecycle).toBeNull();
+    expect(protocol.lifecycle?.kind).toBe("missing-target");
     expect(protocol.acknowledgement?.signal).toBe("approved");
     expect(protocol.acknowledgement?.reviewCommentId).toBe(3);
     expect(protocol.acknowledgement?.body).toContain(
@@ -191,6 +197,11 @@ describe("plan-review-policy", () => {
       "symphony/32",
       "https://example.test/issues/32",
       [
+        comment(
+          "Plan status: plan-ready\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
         comment(
           "Plan review: changes-requested\n\nRequired changes\n- Split the issue.",
           "2026-03-07T10:06:00.000Z",
@@ -208,6 +219,23 @@ describe("plan-review-policy", () => {
           ].join("\n"),
           "2026-03-07T10:07:00.000Z",
           4,
+        ),
+      ],
+    );
+
+    expect(protocol.lifecycle?.kind).toBe("missing-target");
+    expect(protocol.acknowledgement).toBeNull();
+  });
+
+  it("ignores review decisions that are not anchored to a prior plan-ready handoff", () => {
+    const protocol = evaluatePlanReviewProtocol(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Plan review: approved\n\nSummary\n- Proceed.",
+          "2026-03-07T10:06:00.000Z",
+          3,
         ),
       ],
     );

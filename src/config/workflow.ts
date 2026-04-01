@@ -8,6 +8,7 @@ import type { PromptIssueContext } from "../domain/prompt-context.js";
 import { parseLocalRunnerCommand } from "../runner/local-command.js";
 import {
   buildPromptIssueContext,
+  buildPromptLifecycleContext,
   buildPromptPullRequestContext,
 } from "../tracker/prompt-context.js";
 import {
@@ -86,6 +87,7 @@ type SupportedGitHubReviewerAppKey =
 interface PromptRenderInput {
   readonly issue: PromptIssueContext;
   readonly attempt: number | null;
+  readonly lifecycle: ReturnType<typeof buildPromptLifecycleContext>;
   readonly pullRequest: ReturnType<typeof buildPromptPullRequestContext>;
   readonly config: ResolvedConfig;
 }
@@ -1382,6 +1384,7 @@ async function renderPromptTemplate(
     return await liquid.parseAndRender(definition.promptTemplate, {
       issue: input.issue,
       attempt: input.attempt,
+      lifecycle: input.lifecycle,
       pull_request: input.pullRequest,
       config: redactPromptConfig(input.config),
     });
@@ -1426,6 +1429,7 @@ export function createPromptBuilder(
       return await renderPromptTemplate(definition, {
         issue: buildPromptIssueContext(input.issue, definition.config.tracker),
         attempt: input.attempt,
+        lifecycle: buildPromptLifecycleContext(input.pullRequest),
         pullRequest: buildPromptPullRequestContext(input.pullRequest),
         config: definition.config,
       });
