@@ -187,7 +187,7 @@ function rebuildTokenUsage(
     ? `Canonical runner-event accounting already supplied cost totals for all ${sessions.length.toString()} session(s).`
     : someSessionCostsAvailable
       ? `Canonical runner-event accounting supplied cost totals for ${costAvailableSessionCount.toString()} of ${sessions.length.toString()} session(s); aggregate cost remained partial or unavailable.`
-      : "Estimated cost remains unavailable because report generation does not apply provider pricing.";
+      : "Explicit backend cost totals remained unavailable after enrichment. Final report generation estimates cost only for supported providers/models, so unsupported sessions can still remain partial or unavailable.";
 
   const status =
     newlyFilledTokenTotals === 0 && base.status !== "unavailable"
@@ -216,6 +216,8 @@ function rebuildTokenUsage(
     explanation,
     totalTokens: rollup.totalTokens,
     costUsd: base.costUsd,
+    observedTokenSubtotal: rollup.observedTokenSubtotal,
+    observedCostSubtotal: rollup.observedCostSubtotal,
     sessions,
     attempts: rollup.attempts,
     agents: rollup.agents,

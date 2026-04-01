@@ -6,7 +6,7 @@ import type {
 import { rollupIssueReportTokenUsageSessions } from "./issue-report-token-usage.js";
 
 interface ProviderModelPricing {
-  readonly provider: "openai";
+  readonly provider: string;
   readonly modelIds: readonly string[];
   readonly inputUsdPerMillion: number;
   readonly cachedInputUsdPerMillion: number;
@@ -206,15 +206,17 @@ function resolveProviderModelPricing(
   }
 
   return (
-    PROVIDER_MODEL_PRICING.find((candidate) =>
-      candidate.modelIds.some((value) => normalizeModelId(value) === modelId),
+    PROVIDER_MODEL_PRICING.find(
+      (candidate) =>
+        candidate.provider === provider &&
+        candidate.modelIds.some((value) => normalizeModelId(value) === modelId),
     ) ?? null
   );
 }
 
 function normalizePricingProvider(
   session: IssueReportTokenUsageSession,
-): ProviderModelPricing["provider"] | null {
+): string | null {
   if (session.modelProvider !== null) {
     const normalized = session.modelProvider.trim().toLowerCase();
     return normalized === "openai" ? "openai" : null;
