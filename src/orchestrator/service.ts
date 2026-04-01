@@ -2977,6 +2977,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     const runnerPid = this.#currentRunnerPid(issue.number);
     const observedAt = options?.finishedAt ?? new Date().toISOString();
     await this.#tracker.markIssueFailed(issue.number, message);
+    const failedIssue = await this.#tracker
+      .getIssue(issue.number)
+      .then((nextIssue) =>
+        hasRuntimeIssueIdentity(nextIssue) ? nextIssue : issue,
+      )
+      .catch(() => issue);
     clearRetryState(this.#state.retries, issue.number);
     clearPreferredHost(this.#state.hostDispatch, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);
@@ -2993,7 +2999,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       workspace: options?.workspace ?? options?.session?.runSession.workspace,
     });
     const summary = this.#summarizeTerminalOutcome(message, workspaceRetention);
-    noteTerminalIssue(this.#state.status, issue, {
+    noteTerminalIssue(this.#state.status, failedIssue, {
       branchName: options?.branchName ?? this.#branchName(issue.number),
       terminalOutcome: "failure",
       summary,
@@ -3008,6 +3014,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#persistStatusSnapshot();
     await this.#recordIssueArtifact(
       this.#createTerminalObservation(issue, "failed", {
+        terminalIssue: failedIssue,
         observedAt,
         summary,
         attemptNumber: options?.attemptNumber,
@@ -3338,6 +3345,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       observedAt: options.observedAt,
       mergedAt: options.mergedAt,
       closedAt: options.closedAt,
+      trackerState: issue.state,
+      trackerLabels: issue.labels,
       latestAttemptNumber: options.latestAttemptNumber,
       latestSessionId: options.latestSessionId,
     } as const;
