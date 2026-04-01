@@ -96,7 +96,9 @@ describe("issue report generation", () => {
   });
 
   it("keeps github activity partial when relevant close timing is missing", async () => {
-    const tempDir = await createTempDir("symphony-issue-report-github-partial-");
+    const tempDir = await createTempDir(
+      "symphony-issue-report-github-partial-",
+    );
     tempRoots.push(tempDir);
     const workspaceRoot = deriveWorkspaceRoot(tempDir);
     await seedSuccessfulIssueArtifacts(workspaceRoot, 44, {

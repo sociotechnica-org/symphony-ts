@@ -112,9 +112,7 @@ describe("campaign report CLI", () => {
     ).resolves.toContain("#43 Generate per-issue reports from local artifacts");
     await expect(
       fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
-    ).resolves.toContain(
-      "Status: partial",
-    );
+    ).resolves.toContain("Status: partial");
     await expect(
       fs.readFile(path.join(campaignDir, "github-activity.md"), "utf8"),
     ).resolves.toContain(

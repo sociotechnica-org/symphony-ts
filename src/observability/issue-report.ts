@@ -964,15 +964,15 @@ function buildGitHubActivity(
       mergeTiming.status === null
         ? "No merged pull request was observed, so merge timing was not applicable for this issue."
         : mergedAt === null
-        ? "Canonical local artifacts did not preserve a merged pull request timestamp for this issue."
-        : "Canonical local artifacts preserved the merged pull request timestamp for this issue.",
+          ? "Canonical local artifacts did not preserve a merged pull request timestamp for this issue."
+          : "Canonical local artifacts preserved the merged pull request timestamp for this issue.",
     closedAt,
     closeNote:
       closeTiming.status === null
         ? "The issue was not observed in a closed tracker state, so exact issue close timing was not applicable for this issue."
         : closedAt === null
-        ? "Canonical local artifacts did not preserve exact issue close timing for this issue."
-        : "Canonical local artifacts preserved the exact issue close timestamp for this issue.",
+          ? "Canonical local artifacts did not preserve exact issue close timing for this issue."
+          : "Canonical local artifacts preserved the exact issue close timestamp for this issue.",
     notes,
   };
 }
@@ -1020,7 +1020,10 @@ function derivePullRequestActivityCompleteness(
 function collectPullRequestCoverage(
   loaded: LoadedIssueArtifacts,
 ): ReadonlyMap<number, { hasReview: boolean; hasChecks: boolean }> {
-  const coverage = new Map<number, { hasReview: boolean; hasChecks: boolean }>();
+  const coverage = new Map<
+    number,
+    { hasReview: boolean; hasChecks: boolean }
+  >();
 
   for (const attempt of loaded.attempts) {
     if (attempt.pullRequest === null) {
@@ -1048,8 +1051,10 @@ function collectPullRequestCoverage(
       hasChecks: false,
     };
     coverage.set(pullRequest.number, {
-      hasReview: existing.hasReview || readReviewFromDetails(event.details) !== null,
-      hasChecks: existing.hasChecks || readChecksFromDetails(event.details) !== null,
+      hasReview:
+        existing.hasReview || readReviewFromDetails(event.details) !== null,
+      hasChecks:
+        existing.hasChecks || readChecksFromDetails(event.details) !== null,
     });
   }
 
@@ -1109,11 +1114,10 @@ function deriveMergeTimingCompleteness(
 
 function isMergeTimingRelevant(loaded: LoadedIssueArtifacts): boolean {
   return (
-    loaded.issue?.mergedAt !== null &&
-    loaded.issue?.mergedAt !== undefined
-  ) ||
+    (loaded.issue?.mergedAt !== null && loaded.issue?.mergedAt !== undefined) ||
     loaded.issue?.currentOutcome === "merged" ||
-    loaded.issue?.currentOutcome === "succeeded";
+    loaded.issue?.currentOutcome === "succeeded"
+  );
 }
 
 function deriveCloseTimingCompleteness(

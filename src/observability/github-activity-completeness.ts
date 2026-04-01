@@ -1,12 +1,12 @@
-export type GitHubActivityAvailability =
-  | "complete"
-  | "partial"
-  | "unavailable";
+export type GitHubActivityAvailability = "complete" | "partial" | "unavailable";
 
 export function rollupGitHubActivityAvailability(
   statuses: readonly GitHubActivityAvailability[],
 ): GitHubActivityAvailability {
-  if (statuses.length === 0 || statuses.every((status) => status === "unavailable")) {
+  if (
+    statuses.length === 0 ||
+    statuses.every((status) => status === "unavailable")
+  ) {
     return "unavailable";
   }
 

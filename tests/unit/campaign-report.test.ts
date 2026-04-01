@@ -557,7 +557,9 @@ function buildStoredIssueReport(options: {
   };
   readonly timeline?: IssueReportDocument["timeline"] | undefined;
   readonly githubActivity?: {
-    readonly status?: IssueReportDocument["githubActivity"]["status"] | undefined;
+    readonly status?:
+      | IssueReportDocument["githubActivity"]["status"]
+      | undefined;
     readonly issueStateTransitionsStatus?:
       | IssueReportDocument["githubActivity"]["issueStateTransitionsStatus"]
       | undefined;

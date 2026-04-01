@@ -183,13 +183,13 @@ This slice does not change recovery or orchestration failure handling, so no run
 
 The only required decision matrix is the report-time completeness matrix:
 
-| Observed condition | Stored local facts available | Expected GitHub activity status |
-| --- | --- | --- |
-| Legacy artifact predates transition ledger and other GitHub facts are also absent | transition status unavailable, no PR/review coverage, no merge/close evidence | `unavailable` |
-| Transition history is complete and PR/review/check facts are complete, but expected merge or close timing is missing | complete sub-facts plus at least one relevant timing gap | `partial` |
-| Transition history is complete, PR/review/check facts are complete, and all relevant timing facts are present | all relevant sub-surfaces complete | `complete` |
-| No PR was observed, merge timing is not applicable, and the remaining relevant sub-surfaces are complete | transition/history and other relevant facts complete | `complete` |
-| Some PR review/check fields remain unavailable for an observed PR, even though transitions are complete | mixed complete and incomplete relevant sub-surfaces | `partial` |
+| Observed condition                                                                                                   | Stored local facts available                                                  | Expected GitHub activity status |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------- |
+| Legacy artifact predates transition ledger and other GitHub facts are also absent                                    | transition status unavailable, no PR/review coverage, no merge/close evidence | `unavailable`                   |
+| Transition history is complete and PR/review/check facts are complete, but expected merge or close timing is missing | complete sub-facts plus at least one relevant timing gap                      | `partial`                       |
+| Transition history is complete, PR/review/check facts are complete, and all relevant timing facts are present        | all relevant sub-surfaces complete                                            | `complete`                      |
+| No PR was observed, merge timing is not applicable, and the remaining relevant sub-surfaces are complete             | transition/history and other relevant facts complete                          | `complete`                      |
+| Some PR review/check fields remain unavailable for an observed PR, even though transitions are complete              | mixed complete and incomplete relevant sub-surfaces                           | `partial`                       |
 
 ## Storage / Persistence Contract
 

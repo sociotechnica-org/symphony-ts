@@ -820,7 +820,9 @@ function buildCampaignLearnings(
     tokenUsage.status === "complete"
       ? ""
       : `Expand token-usage capture or enrichment; campaign token coverage was ${tokenUsage.status} across ${summary.issueCount.toString()} issue reports.`,
-    reports.some((storedReport) => isMergeTimingRelevantForReport(storedReport.report)) &&
+    reports.some((storedReport) =>
+      isMergeTimingRelevantForReport(storedReport.report),
+    ) &&
     reports.every(
       (storedReport) =>
         !isMergeTimingRelevantForReport(storedReport.report) ||
@@ -828,7 +830,9 @@ function buildCampaignLearnings(
     )
       ? "Record merge timing in canonical local artifacts so campaign digests can distinguish shipped work from PR-open state."
       : "",
-    reports.some((storedReport) => isCloseTimingRelevantForReport(storedReport.report)) &&
+    reports.some((storedReport) =>
+      isCloseTimingRelevantForReport(storedReport.report),
+    ) &&
     reports.every(
       (storedReport) =>
         !isCloseTimingRelevantForReport(storedReport.report) ||
