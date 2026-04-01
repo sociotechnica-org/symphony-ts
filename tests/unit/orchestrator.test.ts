@@ -1127,6 +1127,54 @@ describe("BootstrapOrchestrator", () => {
     }
   });
 
+  it("surfaces background dispatch errors to runOnce callers", async () => {
+    const tempRoot = await createTempDir("symphony-run-once-dispatch-error-");
+    try {
+      const workspaceRootFile = path.join(tempRoot, "workspace-root-file");
+      await fs.writeFile(workspaceRootFile, "not-a-directory", "utf8");
+      const tracker = new SequencedTracker({
+        ready: [createIssue(1)],
+      });
+      let runnerStarted = false;
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...withLocalInstanceRoot(baseConfig, tempRoot),
+          workspace: {
+            ...baseConfig.workspace,
+            root: workspaceRootFile,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(): Promise<RunnerExecutionResult> {
+            runnerStarted = true;
+            const startedAt = new Date().toISOString();
+            return {
+              startedAt,
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+              finishedAt: new Date().toISOString(),
+            };
+          },
+        },
+        new NullLogger(),
+      );
+
+      await expect(orchestrator.runOnce()).rejects.toMatchObject({
+        code: "ENOTDIR",
+      });
+      expect(runnerStarted).toBe(false);
+    } finally {
+      await removeTempRoot(tempRoot);
+    }
+  });
+
   it("keeps polling and fills a later-ready slot while another run stays active", async () => {
     const tempRoot = await createTempDir("symphony-active-slot-fill-test-");
     try {
@@ -1175,6 +1223,79 @@ describe("BootstrapOrchestrator", () => {
       runner.release();
       controller.abort();
       await loop;
+    } finally {
+      await removeTempRoot(tempRoot);
+    }
+  });
+
+  it("keeps the shutdown signal visible until a claim-blocked dispatch starts", async () => {
+    const tempRoot = await createTempDir(
+      "symphony-claim-blocked-shutdown-test-",
+    );
+    try {
+      const tracker = new BlockingClaimTracker(1, {
+        ready: [createIssue(1)],
+      });
+      tracker.setLifecycleSequence(1, [
+        lifecycle("missing-target", "symphony/1"),
+      ]);
+      const runStartedWithAbort = createDeferred<boolean>();
+      const orchestrator = new BootstrapOrchestrator(
+        withLocalInstanceRoot(
+          {
+            ...baseConfig,
+            polling: { ...baseConfig.polling, intervalMs: 1 },
+          },
+          tempRoot,
+        ),
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(_session, options): Promise<RunnerExecutionResult> {
+            const startedAborted = options?.signal?.aborted ?? false;
+            runStartedWithAbort.resolve(startedAborted);
+            if (startedAborted) {
+              return await new Promise<RunnerExecutionResult>(
+                (_resolve, reject) => {
+                  rejectOnShutdownAbort(options?.signal, reject);
+                },
+              );
+            }
+            const startedAt = new Date().toISOString();
+            return {
+              startedAt,
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+              finishedAt: new Date().toISOString(),
+            };
+          },
+        },
+        new NullLogger(),
+      );
+
+      const controller = new AbortController();
+      const loop = orchestrator.runLoop(controller.signal);
+
+      await tracker.claimStarted.promise;
+      controller.abort();
+      tracker.releaseClaim();
+
+      await expect(runStartedWithAbort.promise).resolves.toBe(true);
+      await loop;
+
+      const leaseManager = new LocalIssueLeaseManager(
+        tempRoot,
+        new NullLogger(),
+      );
+      const snapshot = await leaseManager.inspect(1);
+
+      expect(tracker.completed).toEqual([]);
+      expect(snapshot.kind).toBe("shutdown-terminated");
     } finally {
       await removeTempRoot(tempRoot);
     }

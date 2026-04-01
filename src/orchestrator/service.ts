@@ -617,8 +617,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       signal.addEventListener("abort", handleAbort!, { once: true });
     }
     try {
-      await this.#runOnceInner();
-      await this.#waitForBackgroundDispatches();
+      const startedDispatchTasks = await this.#runOnceInner();
+      await this.#waitForDispatchTasks(startedDispatchTasks, {
+        propagateErrors: true,
+      });
     } finally {
       if (signal !== undefined) {
         signal.removeEventListener("abort", handleAbort!);
@@ -629,7 +631,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
   }
 
-  async #runOnceInner(): Promise<void> {
+  async #runOnceInner(): Promise<readonly Promise<void>[]> {
     this.#state.polling.checkingNow = true;
     this.#recoveredRunningLifecycles.clear();
     this.#notifyDashboard();
@@ -732,9 +734,10 @@ export class BootstrapOrchestrator implements Orchestrator {
     await this.#reconcileTerminalIssueReporting();
 
     if (availableSlots <= 0) {
-      return;
+      return [];
     }
 
+    const startedDispatchTasks: Promise<void>[] = [];
     let startedDispatches = 0;
     for (const entry of queue) {
       if (startedDispatches >= availableSlots) {
@@ -745,8 +748,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       ) {
         continue;
       }
-      if (this.#startDispatchTask(entry)) {
+      const task = this.#startDispatchTask(entry);
+      if (task !== null) {
         startedDispatches += 1;
+        startedDispatchTasks.push(task);
       }
     }
 
@@ -754,11 +759,13 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#notifyDashboard();
       await this.#persistStatusSnapshot();
     }
+
+    return startedDispatchTasks;
   }
 
-  #startDispatchTask(entry: QueueEntry): boolean {
+  #startDispatchTask(entry: QueueEntry): Promise<void> | null {
     if (!reserveLocalDispatch(this.#state.localDispatch, entry.issue.number)) {
-      return false;
+      return null;
     }
 
     const task = (async (): Promise<void> => {
@@ -774,19 +781,21 @@ export class BootstrapOrchestrator implements Orchestrator {
           source: entry.source,
           error: this.#normalizeFailure(error as Error),
         });
+        throw error;
       } finally {
         releaseLocalDispatch(this.#state.localDispatch, entry.issue.number);
         this.#notifyDashboard();
         await this.#persistStatusSnapshot();
       }
     })();
+    void task.catch(() => {});
 
     noteBackgroundDispatchTask(
       this.#state.localDispatch,
       entry.issue.number,
       task,
     );
-    return true;
+    return task;
   }
 
   async #waitForBackgroundDispatches(): Promise<void> {
@@ -794,7 +803,26 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (tasks.length === 0) {
       return;
     }
-    await Promise.allSettled(tasks);
+    await this.#waitForDispatchTasks(tasks, { propagateErrors: false });
+  }
+
+  async #waitForDispatchTasks(
+    tasks: readonly Promise<void>[],
+    options: { readonly propagateErrors: boolean },
+  ): Promise<void> {
+    if (tasks.length === 0) {
+      return;
+    }
+    const results = await Promise.allSettled(tasks);
+    if (!options.propagateErrors) {
+      return;
+    }
+    const rejected = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (rejected !== undefined) {
+      throw rejected.reason;
+    }
   }
 
   async #reconcileTerminalIssueReporting(): Promise<void> {
@@ -1008,7 +1036,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     try {
       while (!signal?.aborted) {
         try {
-          await this.#runOnceInner();
+          void (await this.#runOnceInner());
         } catch (error) {
           this.#logger.error("Poll cycle failed", {
             error: this.#normalizeFailure(error as Error),
@@ -1026,10 +1054,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       // signal is optional — keep ?. for safety even though TypeScript narrows
       // it to non-null after the while loop (the loop runs forever if undefined).
       signal?.removeEventListener("abort", handleAbort);
+      await this.#waitForBackgroundDispatches();
       if (this.#shutdownSignal === signal) {
         this.#shutdownSignal = undefined;
       }
-      await this.#waitForBackgroundDispatches();
     }
   }
 
