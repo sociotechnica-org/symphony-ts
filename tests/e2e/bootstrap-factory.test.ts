@@ -34,6 +34,7 @@ import {
   initializeGitRepo,
   readRemoteBranchFile,
 } from "../support/git.js";
+import { removeTempRoot } from "../support/fs.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
 import { waitForExit } from "../support/process.js";
 import { StatusDashboard } from "../../src/observability/tui.js";
@@ -369,7 +370,7 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     // Restores full original env including SYMPHONY_REPO if it was set
     process.env = { ...originalEnv };
     await server.stop();
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempRoot(tempDir);
   });
 
   it("keeps the issue running after PR open until the pull request is merged with tracker.kind github", async () => {
@@ -2563,7 +2564,7 @@ describe("TUI dashboard integration", () => {
   afterEach(async () => {
     process.env = { ...originalEnv };
     await server.stop();
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempRoot(tempDir);
   });
 
   it("renders SYMPHONY STATUS frames during a factory run and terminates with an offline frame", async () => {

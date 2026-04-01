@@ -24,6 +24,7 @@ import {
   createTempDir,
   readRemoteBranchFile,
 } from "../support/git.js";
+import { removeTempRoot } from "../support/fs.js";
 import { MockLinearServer } from "../support/mock-linear-server.js";
 
 async function writeWorkflow(options: {
@@ -159,7 +160,7 @@ describe("Linear factory e2e", () => {
 
   afterEach(async () => {
     await server.stop();
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempRoot(tempDir);
   });
 
   it("runs a complete Linear handoff loop against mocked Linear", async () => {
