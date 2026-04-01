@@ -588,7 +588,7 @@ function buildCampaignGitHubActivity(
       storedReport.report.githubActivity.issueStateTransitionsStatus ===
       "unavailable",
   ).length;
-  const partialIssueTransitionCount = reports.filter(
+  const nonCompleteIssueTransitionCount = reports.filter(
     (storedReport) =>
       storedReport.report.githubActivity.issueStateTransitionsStatus !==
       "complete",
@@ -610,7 +610,7 @@ function buildCampaignGitHubActivity(
     issueTransitionStatus:
       reports.length === 0 || unavailableIssueTransitionCount === reports.length
         ? "unavailable"
-        : partialIssueTransitionCount === 0
+        : nonCompleteIssueTransitionCount === 0
           ? "complete"
           : "partial",
     issueTransitionSummary:
@@ -654,23 +654,24 @@ function buildCampaignGitHubActivity(
 function buildIssueTransitionNotes(
   reports: readonly StoredIssueReportDocument[],
 ): readonly string[] {
-  const unavailableCount = reports.filter(
-    (storedReport) =>
-      storedReport.report.githubActivity.issueStateTransitionsStatus ===
-      "unavailable",
-  ).length;
-  const completeCount = reports.filter(
-    (storedReport) =>
-      storedReport.report.githubActivity.issueStateTransitionsStatus ===
-      "complete",
-  ).length;
+  const counts = reports.reduce(
+    (summary, storedReport) => {
+      const status =
+        storedReport.report.githubActivity.issueStateTransitionsStatus;
+      return {
+        unavailable: summary.unavailable + (status === "unavailable" ? 1 : 0),
+        complete: summary.complete + (status === "complete" ? 1 : 0),
+      };
+    },
+    { unavailable: 0, complete: 0 },
+  );
   return dedupeStrings([
-    unavailableCount === 0
+    counts.unavailable === 0
       ? ""
-      : `Issue transition history was unavailable for ${unavailableCount.toString()} selected issue report${unavailableCount === 1 ? "" : "s"}.`,
-    completeCount === 0
+      : `Issue transition history was unavailable for ${counts.unavailable.toString()} selected issue report${counts.unavailable === 1 ? "" : "s"}.`,
+    counts.complete === 0
       ? ""
-      : `Issue transition history was preserved for ${completeCount.toString()} selected issue report${completeCount === 1 ? "" : "s"}.`,
+      : `Issue transition history was preserved for ${counts.complete.toString()} selected issue report${counts.complete === 1 ? "" : "s"}.`,
   ]);
 }
 

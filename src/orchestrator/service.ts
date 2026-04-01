@@ -2343,7 +2343,13 @@ export class BootstrapOrchestrator implements Orchestrator {
         .then((nextIssue) =>
           hasRuntimeIssueIdentity(nextIssue) ? nextIssue : issue,
         )
-        .catch(() => issue),
+        .catch((error) => {
+          this.#logger.warn("Failed to refresh issue after completion", {
+            issueNumber: issue.number,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return issue;
+        }),
       options?.lifecycle === undefined
         ? this.#tracker.inspectIssueHandoff(branchName).catch(() => null)
         : Promise.resolve(options.lifecycle),
@@ -2982,7 +2988,13 @@ export class BootstrapOrchestrator implements Orchestrator {
       .then((nextIssue) =>
         hasRuntimeIssueIdentity(nextIssue) ? nextIssue : issue,
       )
-      .catch(() => issue);
+      .catch((error) => {
+        this.#logger.warn("Failed to refresh issue after marking failed", {
+          issueNumber: issue.number,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return issue;
+      });
     clearRetryState(this.#state.retries, issue.number);
     clearPreferredHost(this.#state.hostDispatch, issue.number);
     clearWatchdogIssueState(this.#state.watchdog, issue.number);

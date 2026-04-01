@@ -652,6 +652,10 @@ function deriveIssueTransitions(
       ? existing.trackerLabels
       : normalizeTrackerLabels(update.trackerLabels);
 
+  if (!hasEstablishedTrackerTransitionBaseline(existing)) {
+    return [];
+  }
+
   const transitions: IssueArtifactTransition[] = [...existing.issueTransitions];
   if (existing.trackerState !== nextState) {
     transitions.push({
@@ -663,8 +667,8 @@ function deriveIssueTransitions(
   }
 
   if (!areLabelSetsEqual(existing.trackerLabels, nextLabels)) {
-    const fromLabels = normalizeTrackerLabels(existing.trackerLabels);
-    const toLabels = normalizeTrackerLabels(nextLabels);
+    const fromLabels = existing.trackerLabels;
+    const toLabels = nextLabels;
     transitions.push({
       observedAt: update.observedAt,
       kind: "labels-changed",
@@ -682,14 +686,28 @@ function normalizeTrackerLabels(labels: readonly string[]): readonly string[] {
   return [...new Set(labels)].sort((left, right) => left.localeCompare(right));
 }
 
+function hasEstablishedTrackerTransitionBaseline(
+  summary: IssueArtifactSummary,
+): boolean {
+  return !(
+    summary.issueTransitions.length === 0 &&
+    summary.trackerState === null &&
+    summary.trackerLabels.length === 0
+  );
+}
+
 function areLabelSetsEqual(
   left: readonly string[],
   right: readonly string[],
 ): boolean {
-  if (left.length !== right.length) {
+  const normalizedLeft = normalizeTrackerLabels(left);
+  const normalizedRight = normalizeTrackerLabels(right);
+  if (normalizedLeft.length !== normalizedRight.length) {
     return false;
   }
-  return left.every((label, index) => label === right[index]);
+  return normalizedLeft.every(
+    (label, index) => label === normalizedRight[index],
+  );
 }
 
 async function writeJsonFile(filePath: string, value: unknown): Promise<void> {

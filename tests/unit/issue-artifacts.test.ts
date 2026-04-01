@@ -303,6 +303,56 @@ describe("issue artifacts", () => {
     ]);
   });
 
+  it("treats the first tracker snapshot on a legacy summary as baseline instead of a transition", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const paths = deriveIssueArtifactPaths(instance, 43);
+    await fs.mkdir(paths.issueRoot, { recursive: true });
+    await fs.writeFile(
+      paths.issueFile,
+      JSON.stringify({
+        version: ISSUE_ARTIFACT_SCHEMA_VERSION,
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Local Issue Reporting Artifact Contract",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "claimed",
+        currentSummary: "Claimed issue",
+        firstObservedAt: "2026-03-09T10:00:00.000Z",
+        lastUpdatedAt: "2026-03-09T10:00:00.000Z",
+        mergedAt: null,
+        closedAt: null,
+        latestAttemptNumber: null,
+        latestSessionId: null,
+      }),
+      "utf8",
+    );
+
+    const store = new LocalIssueArtifactStore(instance);
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Local Issue Reporting Artifact Contract",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "running",
+        currentSummary: "Runner active",
+        observedAt: "2026-03-09T10:05:00.000Z",
+        trackerState: "open",
+        trackerLabels: ["symphony:running"],
+      },
+    });
+
+    const summary = await readIssueArtifactSummary(instance, 43);
+    expect(summary.trackerState).toBe("open");
+    expect(summary.trackerLabels).toEqual(["symphony:running"]);
+    expect(summary.issueTransitions).toEqual([]);
+  });
+
   it("deduplicates keyed operator intervention events across non-consecutive writes", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
