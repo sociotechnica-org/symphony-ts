@@ -119,7 +119,7 @@ mapping. It configures six top-level areas of factory behavior:
 - `observability`
 
 Symphony parses the frontmatter at startup through
-[src/config/workflow.ts](/Users/jessmartin/conductor/workspaces/symphony-ts/salvador/src/config/workflow.ts).
+[src/config/workflow.ts](../../src/config/workflow.ts).
 If parsing or validation fails, the factory does not start.
 
 ### 3.2 Template Rendering
