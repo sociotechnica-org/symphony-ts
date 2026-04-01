@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -71,6 +71,8 @@ async function runOperatorLoop(workflowPath: string): Promise<{
   readonly releaseStatePath: string;
   readonly sessionStatePath: string;
   readonly logFile: string | null;
+  readonly stdout: string;
+  readonly stderr: string;
 }> {
   return await runOperatorLoopWithOptions(workflowPath);
 }
@@ -91,8 +93,10 @@ async function runOperatorLoopWithOptions(
   readonly releaseStatePath: string;
   readonly sessionStatePath: string;
   readonly logFile: string | null;
+  readonly stdout: string;
+  readonly stderr: string;
 }> {
-  await execFileAsync(
+  const result = await execFileAsync(
     "bash",
     [
       path.join("skills", "symphony-operator", "operator-loop.sh"),
@@ -135,6 +139,8 @@ async function runOperatorLoopWithOptions(
     releaseStatePath: paths.releaseStatePath,
     sessionStatePath: paths.sessionStatePath,
     logFile: statusJson.lastCycle.logFile,
+    stdout: result.stdout,
+    stderr: result.stderr,
   };
 }
 
@@ -153,8 +159,11 @@ async function runOperatorLoopWithArgs(
   workflowPath: string,
   args: readonly string[],
   env?: NodeJS.ProcessEnv,
-): Promise<void> {
-  await execFileAsync(
+): Promise<{
+  readonly stdout: string;
+  readonly stderr: string;
+}> {
+  const result = await execFileAsync(
     "bash",
     [
       path.join("skills", "symphony-operator", "operator-loop.sh"),
@@ -172,6 +181,11 @@ async function runOperatorLoopWithArgs(
       },
     },
   );
+
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+  };
 }
 
 function buildAppendWakeUpLogCommand(entryTitle: string): string {
@@ -739,6 +753,8 @@ describe("operator loop workflow selection", () => {
       expect(statusMd).toContain("- Provider: codex");
       expect(statusMd).toContain("- Model: gpt-5.4-mini");
       expect(statusMd).toContain("- Command source: provider-template");
+      expect(run.stderr).toContain("operator-loop: waking up");
+      expect(run.stderr).toContain("codex/gpt-5.4-mini; disabled");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -800,7 +816,7 @@ describe("operator loop workflow selection", () => {
     });
 
     try {
-      await runOperatorLoopWithArgs(
+      const firstRun = await runOperatorLoopWithArgs(
         workflowPath,
         [
           "--provider",
@@ -826,7 +842,7 @@ describe("operator loop workflow selection", () => {
         };
       };
 
-      await runOperatorLoopWithArgs(
+      const secondRun = await runOperatorLoopWithArgs(
         workflowPath,
         [
           "--provider",
@@ -867,6 +883,59 @@ describe("operator loop workflow selection", () => {
       expect(commandInvocations).toContain(
         "--resume claude-session-claude-sonnet-4-5",
       );
+      expect(firstRun.stderr).toContain(
+        "claude/claude-sonnet-4-5; starting fresh",
+      );
+      expect(secondRun.stderr).toContain(
+        "claude/claude-sonnet-4-5; resuming from claude-session-claude-sonnet-4-5",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits sleep trace lines in continuous mode", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-sleep-");
+    const workflowPath = await writeWorkflow(tempDir);
+
+    try {
+      const stderr = await new Promise<string>((resolve, reject) => {
+        const child = spawn(
+          "bash",
+          [
+            path.join("skills", "symphony-operator", "operator-loop.sh"),
+            "--interval-seconds",
+            "60",
+            "--workflow",
+            workflowPath,
+          ],
+          {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              GH_TOKEN: "test-token",
+              SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
+            },
+          },
+        );
+        let collectedStderr = "";
+        child.stderr.setEncoding("utf8");
+        child.stderr.on("data", (chunk: string) => {
+          collectedStderr += chunk;
+        });
+        child.on("error", reject);
+        child.on("close", () => {
+          resolve(collectedStderr);
+        });
+        setTimeout(() => {
+          child.kill("SIGTERM");
+        }, 2000);
+      });
+
+      expect(stderr).toContain(
+        "operator-loop: going to sleep until the first wake-up cycle",
+      );
+      expect(stderr).toContain("operator-loop: waking up");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
