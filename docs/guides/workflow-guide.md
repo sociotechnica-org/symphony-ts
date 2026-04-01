@@ -538,14 +538,17 @@ The runtime path is fixed enough that it is worth understanding explicitly.
     state.
 12. If the lifecycle is `missing-target` or `rework-required` and the turn
     budget remains, Symphony starts another continuation turn.
-13. If the lifecycle is `awaiting-system-checks`,
+13. If the lifecycle is `handoff-ready`, Symphony treats that as terminal
+    success, completes the issue, clears runtime state, and applies the
+    configured workspace-retention policy.
+14. If the lifecycle is `awaiting-system-checks`,
     `awaiting-human-review`, `awaiting-human-handoff`,
     `degraded-review-infrastructure`, `awaiting-landing-command`, or
     `awaiting-landing`, the run stops and the issue remains under tracker
     supervision until the next poll.
-14. On GitHub, if the issue reaches `awaiting-landing` and the current head has
+15. On GitHub, if the issue reaches `awaiting-landing` and the current head has
     not already been attempted, Symphony executes guarded landing.
-15. On success, Symphony completes the issue, clears retry state, and applies
+16. On success, Symphony completes the issue, clears retry state, and applies
     the workspace-retention policy. On failure, it schedules a retry or marks
     the issue failed.
 
