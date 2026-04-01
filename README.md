@@ -255,6 +255,9 @@ Canonical session artifacts now persist any backend-provided runner-event token
 and cost facts that Symphony observed live. Reports and status surfaces project
 those canonical facts first and stay explicit about partial or unavailable
 accounting when a backend does not emit them.
+When explicit backend cost is missing, issue-report generation now applies
+checked-in provider pricing for supported models once stored session token
+detail is sufficient; explicit backend cost facts still remain authoritative.
 
 Publish one generated issue report into a checked-out `factory-runs` archive
 worktree:

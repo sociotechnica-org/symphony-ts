@@ -22,19 +22,18 @@ import type {
   IssueArtifactReviewSnapshot,
   IssueArtifactSessionSnapshot,
   IssueArtifactSummary,
+  IssueArtifactTransition,
 } from "./issue-artifacts.js";
 import {
   deriveIssueArtifactPaths,
   readIssueArtifactSummary,
 } from "./issue-artifacts.js";
-import {
-  createRunnerAccountingSnapshot,
-  sumIfAnyPresent,
-  sumIfAllPresent,
-} from "../runner/accounting.js";
+import { createRunnerAccountingSnapshot } from "../runner/accounting.js";
 import { renderIssueReportMarkdown } from "./issue-report-markdown.js";
+import { applyIssueReportProviderPricing } from "./issue-report-pricing.js";
+import { rollupIssueReportTokenUsageSessions } from "./issue-report-token-usage.js";
 
-export const ISSUE_REPORT_SCHEMA_VERSION = 4 as const;
+export const ISSUE_REPORT_SCHEMA_VERSION = 5 as const;
 
 export type IssueReportAvailability = "complete" | "partial" | "unavailable";
 export type IssueReportTokenUsageStatus =
@@ -107,8 +106,9 @@ export interface IssueReportPullRequestActivity {
 
 export interface IssueReportGitHubActivity {
   readonly status: IssueReportAvailability;
-  readonly issueStateTransitionsStatus: "unavailable";
+  readonly issueStateTransitionsStatus: IssueReportAvailability;
   readonly issueStateTransitionsNote: string;
+  readonly issueTransitions: readonly IssueReportTrackerTransition[];
   readonly pullRequests: readonly IssueReportPullRequestActivity[];
   readonly reviewFeedbackRounds: number;
   readonly reviewLoopSummary: string;
@@ -117,6 +117,13 @@ export interface IssueReportGitHubActivity {
   readonly closedAt: string | null;
   readonly closeNote: string;
   readonly notes: readonly string[];
+}
+
+export interface IssueReportTrackerTransition {
+  readonly at: string;
+  readonly kind: "state-changed" | "labels-changed";
+  readonly summary: string;
+  readonly details: readonly string[];
 }
 
 export interface IssueReportTokenUsageSession {
@@ -290,9 +297,10 @@ export async function generateIssueReport(
     },
     options?.enrichers ?? [],
   );
-  const markdown = renderIssueReportMarkdown(report);
+  const pricedReport = applyIssueReportProviderPricing(report);
+  const markdown = renderIssueReportMarkdown(pricedReport);
   return {
-    report,
+    report: pricedReport,
     markdown,
     outputPaths,
   };
@@ -893,8 +901,33 @@ function buildGitHubActivity(
   ).length;
   const mergedAt = loaded.issue?.mergedAt ?? null;
   const closedAt = loaded.issue?.closedAt ?? null;
+  const issueTransitions = buildIssueTrackerTransitions(
+    loaded.issue?.issueTransitions ?? [],
+  );
+  const issueStateTransitionsStatus =
+    issueTransitions.length > 0
+      ? "complete"
+      : loaded.issue !== null &&
+          (loaded.issue.trackerState !== null ||
+            loaded.issue.trackerLabels.length > 0)
+        ? "complete"
+        : "unavailable";
+  const issueStateTransitionsNote =
+    issueTransitions.length > 0
+      ? `Canonical local artifacts preserved ${issueTransitions.length.toString()} observed issue state/label transition${issueTransitions.length === 1 ? "" : "s"}.`
+      : issueStateTransitionsStatus === "complete"
+        ? "Canonical local artifacts preserved tracker-side issue snapshots, but no state or label change was observed after the initial snapshot."
+        : "Canonical local artifacts do not record issue state or label transition history.";
   const notes = [
-    "Issue state and label transitions are not part of the canonical local artifact contract yet.",
+    ...(issueStateTransitionsStatus === "unavailable"
+      ? [
+          "Issue state and label transitions were unavailable because this issue artifact predates the canonical transition ledger.",
+        ]
+      : issueTransitions.length === 0
+        ? [
+            "No issue-side state or label changes were observed after the initial tracker snapshot for this run.",
+          ]
+        : []),
     ...(mergedAt === null && closedAt === null
       ? [
           "Merge timing and exact issue-close timing remained unavailable in the canonical local artifacts for this issue.",
@@ -912,9 +945,9 @@ function buildGitHubActivity(
 
   return {
     status: "partial",
-    issueStateTransitionsStatus: "unavailable",
-    issueStateTransitionsNote:
-      "Canonical local artifacts do not record issue state or label transition history.",
+    issueStateTransitionsStatus,
+    issueStateTransitionsNote,
+    issueTransitions,
     pullRequests,
     reviewFeedbackRounds,
     reviewLoopSummary: buildReviewLoopSummary(
@@ -935,6 +968,41 @@ function buildGitHubActivity(
   };
 }
 
+function buildIssueTrackerTransitions(
+  transitions: readonly IssueArtifactTransition[],
+): readonly IssueReportTrackerTransition[] {
+  return transitions.map((transition) => {
+    if (transition.kind === "state-changed") {
+      return {
+        at: transition.observedAt,
+        kind: transition.kind,
+        summary: `Issue state changed from ${renderTransitionValue(transition.fromState)} to ${renderTransitionValue(transition.toState)}.`,
+        details: [],
+      };
+    }
+
+    return {
+      at: transition.observedAt,
+      kind: transition.kind,
+      summary: `Issue labels changed (${transition.addedLabels.length.toString()} added, ${transition.removedLabels.length.toString()} removed).`,
+      details: [
+        `From: ${renderTransitionLabels(transition.fromLabels)}`,
+        `To: ${renderTransitionLabels(transition.toLabels)}`,
+        `Added: ${renderTransitionLabels(transition.addedLabels)}`,
+        `Removed: ${renderTransitionLabels(transition.removedLabels)}`,
+      ],
+    };
+  });
+}
+
+function renderTransitionValue(value: string | null): string {
+  return value ?? "(none)";
+}
+
+function renderTransitionLabels(labels: readonly string[]): string {
+  return labels.length === 0 ? "None" : labels.join(", ");
+}
+
 function buildTokenUsage(
   loaded: LoadedIssueArtifacts,
   attemptNumbers: readonly number[],
@@ -942,52 +1010,12 @@ function buildTokenUsage(
   const sessions = loaded.sessions.map((session) =>
     buildTokenUsageSession(loaded, session),
   );
-  const attempts = attemptNumbers.map((attemptNumber) => {
-    const attemptSessions = sessions.filter(
-      (session) => session.attemptNumber === attemptNumber,
-    );
-    return {
-      attemptNumber,
-      sessionIds: attemptSessions.map((session) => session.sessionId),
-      totalTokens: sumIfAllPresent(
-        attemptSessions.map((session) => session.totalTokens),
-      ),
-      costUsd: sumIfAllPresent(
-        attemptSessions.map((session) => session.costUsd),
-      ),
-    };
-  });
-  const agents = aggregateAgents(sessions);
-  const totalTokens = sumIfAllPresent(
-    sessions.map((session) => session.totalTokens),
-  );
-  const costUsd = sumIfAllPresent(sessions.map((session) => session.costUsd));
-  const observedTokenSubtotal = sumIfAnyPresent(
-    sessions.map((session) => session.totalTokens),
-  );
-  const observedCostSubtotal = sumIfAnyPresent(
-    sessions.map((session) => session.costUsd),
-  );
-  const completeCount = sessions.filter(
-    (session) => session.status === "complete",
-  ).length;
-  const estimatedCount = sessions.filter(
-    (session) => session.status === "estimated",
-  ).length;
-  const partialCount = sessions.filter(
-    (session) => session.status === "partial",
-  ).length;
-  const unavailableCount = sessions.filter(
-    (session) => session.status === "unavailable",
-  ).length;
-  const status =
-    sessions.length === 0 || unavailableCount === sessions.length
-      ? "unavailable"
-      : partialCount > 0 || unavailableCount > 0
-        ? "partial"
-        : estimatedCount > 0
-          ? "estimated"
-          : "complete";
+  const rollup = rollupIssueReportTokenUsageSessions(sessions, attemptNumbers);
+  const completeCount = rollup.counts.complete;
+  const estimatedCount = rollup.counts.estimated;
+  const partialCount = rollup.counts.partial;
+  const unavailableCount = rollup.counts.unavailable;
+  const status = rollup.status;
   const explanation =
     status === "complete"
       ? `Canonical runner-event accounting supplied complete token and cost totals for all ${sessions.length.toString()} session(s).`
@@ -1009,14 +1037,14 @@ function buildTokenUsage(
               .join(", ")}.`
           : "Canonical runner-event accounting was unavailable for all recorded sessions.";
   const notes = [
-    ...(totalTokens === null && observedTokenSubtotal !== null
+    ...(rollup.totalTokens === null && rollup.observedTokenSubtotal !== null
       ? [
-          `${sessions.filter((session) => session.totalTokens !== null).length.toString()} of ${sessions.length.toString()} recorded session(s) supplied token totals, yielding an observed token subtotal of ${observedTokenSubtotal.toString()} even though the strict aggregate total remained unavailable.`,
+          `${sessions.filter((session) => session.totalTokens !== null).length.toString()} of ${sessions.length.toString()} recorded session(s) supplied token totals, yielding an observed token subtotal of ${rollup.observedTokenSubtotal.toString()} even though the strict aggregate total remained unavailable.`,
         ]
       : []),
-    ...(costUsd === null && observedCostSubtotal !== null
+    ...(rollup.costUsd === null && rollup.observedCostSubtotal !== null
       ? [
-          `${sessions.filter((session) => session.costUsd !== null).length.toString()} of ${sessions.length.toString()} recorded session(s) supplied explicit cost facts, yielding an observed cost subtotal of ${observedCostSubtotal.toFixed(2)} USD even though the strict aggregate cost remained unavailable.`,
+          `${sessions.filter((session) => session.costUsd !== null).length.toString()} of ${sessions.length.toString()} recorded session(s) supplied explicit cost facts, yielding an observed cost subtotal of ${rollup.observedCostSubtotal.toFixed(2)} USD even though the strict aggregate cost remained unavailable.`,
         ]
       : []),
     ...(sessions.some((session) => session.costUsd === null)
@@ -1034,13 +1062,13 @@ function buildTokenUsage(
   return {
     status,
     explanation,
-    totalTokens,
-    costUsd,
-    observedTokenSubtotal,
-    observedCostSubtotal,
+    totalTokens: rollup.totalTokens,
+    costUsd: rollup.costUsd,
+    observedTokenSubtotal: rollup.observedTokenSubtotal,
+    observedCostSubtotal: rollup.observedCostSubtotal,
     sessions,
-    attempts,
-    agents,
+    attempts: rollup.attempts,
+    agents: rollup.agents,
     rawArtifacts: [
       ...sessions.flatMap((session) => session.sourceArtifacts),
       ...(loaded.logPointers === null ? [] : [loaded.paths.logPointersFile]),
@@ -1751,49 +1779,6 @@ function buildTokenUsageSession(
       ),
     ],
   };
-}
-
-function aggregateAgents(
-  sessions: readonly IssueReportTokenUsageSession[],
-): readonly IssueReportTokenUsageAgent[] {
-  const grouped = new Map<
-    string,
-    {
-      readonly sessionCount: number;
-      readonly totalTokens: number | null;
-      readonly costUsd: number | null;
-    }
-  >();
-  for (const session of sessions) {
-    const label =
-      session.model === null
-        ? session.provider
-        : `${session.provider} (${session.model})`;
-    const existing = grouped.get(label) ?? {
-      sessionCount: 0,
-      totalTokens: 0,
-      costUsd: 0,
-    };
-    grouped.set(label, {
-      sessionCount: existing.sessionCount + 1,
-      totalTokens:
-        existing.totalTokens === null || session.totalTokens === null
-          ? null
-          : existing.totalTokens + session.totalTokens,
-      costUsd:
-        existing.costUsd === null || session.costUsd === null
-          ? null
-          : existing.costUsd + session.costUsd,
-    });
-  }
-  return [...grouped.entries()]
-    .map(([agent, value]) => ({
-      agent,
-      sessionCount: value.sessionCount,
-      totalTokens: value.totalTokens,
-      costUsd: value.costUsd,
-    }))
-    .sort((left, right) => left.agent.localeCompare(right.agent));
 }
 
 function readPullRequestFromDetails(

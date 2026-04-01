@@ -108,6 +108,8 @@ describe("issue artifacts", () => {
         currentOutcome: "awaiting-plan-review",
         currentSummary: "Waiting for human review",
         observedAt: firstObservedAt,
+        trackerState: "open",
+        trackerLabels: ["symphony:running"],
         latestAttemptNumber: 1,
       },
       events: [
@@ -135,6 +137,8 @@ describe("issue artifacts", () => {
         currentOutcome: "awaiting-plan-review",
         currentSummary: "Waiting for human review",
         observedAt: secondObservedAt,
+        trackerState: "open",
+        trackerLabels: ["symphony:running"],
       },
       events: [
         {
@@ -158,6 +162,9 @@ describe("issue artifacts", () => {
     expect(summary.branch).toBe("symphony/43");
     expect(summary.mergedAt).toBeNull();
     expect(summary.closedAt).toBeNull();
+    expect(summary.trackerState).toBe("open");
+    expect(summary.trackerLabels).toEqual(["symphony:running"]);
+    expect(summary.issueTransitions).toEqual([]);
 
     const events = await readIssueArtifactEvents(instance, 43);
     expect(events).toHaveLength(1);
@@ -190,6 +197,8 @@ describe("issue artifacts", () => {
         observedAt: "2026-03-09T10:20:00.000Z",
         mergedAt: "2026-03-09T10:18:00.000Z",
         closedAt: "2026-03-09T10:20:00.000Z",
+        trackerState: "closed",
+        trackerLabels: [],
       },
       events: [
         {
@@ -210,6 +219,88 @@ describe("issue artifacts", () => {
     const summary = await readIssueArtifactSummary(instance, 43);
     expect(summary.mergedAt).toBe("2026-03-09T10:18:00.000Z");
     expect(summary.closedAt).toBe("2026-03-09T10:20:00.000Z");
+    expect(summary.trackerState).toBe("closed");
+    expect(summary.trackerLabels).toEqual([]);
+  });
+
+  it("records tracker state and label transitions in the canonical issue summary", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const instance = deriveInstanceFromWorkspaceRoot(workspaceRoot);
+    const store = new LocalIssueArtifactStore(instance);
+
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Local Issue Reporting Artifact Contract",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "claimed",
+        currentSummary: "Claimed issue",
+        observedAt: "2026-03-09T10:00:00.000Z",
+        trackerState: "open",
+        trackerLabels: ["symphony:running"],
+      },
+    });
+
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Local Issue Reporting Artifact Contract",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "failed",
+        currentSummary: "Issue failed",
+        observedAt: "2026-03-09T10:05:00.000Z",
+        trackerState: "open",
+        trackerLabels: ["symphony:failed"],
+      },
+    });
+
+    await store.recordObservation({
+      issue: {
+        issueNumber: 43,
+        issueIdentifier: "sociotechnica-org/symphony-ts#43",
+        repo: "sociotechnica-org/symphony-ts",
+        title: "Local Issue Reporting Artifact Contract",
+        issueUrl: "https://example.test/issues/43",
+        branch: "symphony/43",
+        currentOutcome: "succeeded",
+        currentSummary: "Issue completed successfully",
+        observedAt: "2026-03-09T10:10:00.000Z",
+        trackerState: "closed",
+        trackerLabels: [],
+      },
+    });
+
+    const summary = await readIssueArtifactSummary(instance, 43);
+    expect(summary.issueTransitions).toEqual([
+      {
+        observedAt: "2026-03-09T10:05:00.000Z",
+        kind: "labels-changed",
+        fromLabels: ["symphony:running"],
+        toLabels: ["symphony:failed"],
+        addedLabels: ["symphony:failed"],
+        removedLabels: ["symphony:running"],
+      },
+      {
+        observedAt: "2026-03-09T10:10:00.000Z",
+        kind: "state-changed",
+        fromState: "open",
+        toState: "closed",
+      },
+      {
+        observedAt: "2026-03-09T10:10:00.000Z",
+        kind: "labels-changed",
+        fromLabels: ["symphony:failed"],
+        toLabels: [],
+        addedLabels: [],
+        removedLabels: ["symphony:failed"],
+      },
+    ]);
   });
 
   it("deduplicates keyed operator intervention events across non-consecutive writes", async () => {

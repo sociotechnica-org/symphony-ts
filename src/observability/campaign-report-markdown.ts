@@ -109,6 +109,18 @@ export function renderCampaignGitHubActivityMarkdown(
   lines.push(`- Status: ${digest.githubActivity.status}`);
   lines.push(`- Summary: ${digest.githubActivity.summary}`);
   lines.push(
+    `- Issue transitions: ${digest.githubActivity.issueTransitionStatus}`,
+  );
+  lines.push(
+    `- Issue transition summary: ${digest.githubActivity.issueTransitionSummary}`,
+  );
+  lines.push(
+    `- State transitions observed: ${digest.githubActivity.stateTransitionCount.toString()}`,
+  );
+  lines.push(
+    `- Label transitions observed: ${digest.githubActivity.labelTransitionCount.toString()}`,
+  );
+  lines.push(
     `- Pull requests observed: ${digest.githubActivity.pullRequests.length.toString()}`,
   );
   lines.push(
@@ -145,6 +157,18 @@ export function renderCampaignGitHubActivityMarkdown(
   );
   for (const note of digest.githubActivity.notes) {
     lines.push(`- Note: ${note}`);
+  }
+  lines.push("");
+
+  lines.push("## Issue Transitions");
+  if (digest.githubActivity.issuesWithTransitions.length === 0) {
+    lines.push("- None observed.");
+  } else {
+    for (const issue of digest.githubActivity.issuesWithTransitions) {
+      lines.push(
+        `- ${renderIssueLabel(issue.issueNumber, issue.issueTitle)} | transitions ${issue.transitionCount.toString()}`,
+      );
+    }
   }
   lines.push("");
 

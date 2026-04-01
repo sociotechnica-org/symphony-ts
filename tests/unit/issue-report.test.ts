@@ -55,6 +55,18 @@ describe("issue report generation", () => {
     expect(generated.report.githubActivity.closedAt).toBe(
       "2026-03-09T10:20:00.000Z",
     );
+    expect(generated.report.githubActivity.issueStateTransitionsStatus).toBe(
+      "complete",
+    );
+    expect(generated.report.githubActivity.issueTransitions).toEqual([
+      expect.objectContaining({
+        kind: "state-changed",
+        summary: "Issue state changed from open to closed.",
+      }),
+      expect.objectContaining({
+        kind: "labels-changed",
+      }),
+    ]);
     expect(generated.report.learnings.status).toBe("complete");
     expect(generated.report.timeline.map((entry) => entry.kind)).toEqual(
       expect.arrayContaining([
@@ -73,6 +85,9 @@ describe("issue report generation", () => {
     expect(generated.markdown).toContain("## Learnings");
     expect(generated.markdown).toContain("Merged at: 2026-03-09T10:18:00.000Z");
     expect(generated.markdown).toContain("Closed at: 2026-03-09T10:20:00.000Z");
+    expect(generated.markdown).toContain(
+      "Issue transition: 2026-03-09T10:20:00.000Z | Issue state changed from open to closed.",
+    );
     expect(generated.markdown).toContain("pending checks None");
     expect(generated.markdown).toContain("failing checks None");
   });
@@ -95,28 +110,28 @@ describe("issue report generation", () => {
       generatedAt: "2026-03-09T13:05:00.000Z",
     });
 
-    expect(generated.report.tokenUsage.status).toBe("partial");
+    expect(generated.report.tokenUsage.status).toBe("estimated");
     expect(generated.report.tokenUsage.totalTokens).toBe(2750);
-    expect(generated.report.tokenUsage.costUsd).toBeNull();
+    expect(generated.report.tokenUsage.costUsd).toBeCloseTo(0.01625, 6);
     expect(generated.report.tokenUsage.observedTokenSubtotal).toBe(2750);
     expect(generated.report.tokenUsage.observedCostSubtotal).toBeNull();
     expect(generated.report.tokenUsage.sessions[0]).toEqual(
       expect.objectContaining({
-        status: "partial",
+        status: "estimated",
         inputTokens: 2000,
         outputTokens: 750,
         totalTokens: 2750,
-        costUsd: null,
+        costUsd: 0.01625,
       }),
     );
     expect(generated.report.tokenUsage.explanation).toContain(
-      "Canonical runner-event accounting",
+      "used checked-in provider pricing estimates",
     );
     expect(generated.report.tokenUsage.explanation).toContain(
-      "1 remained partial",
+      "0 session(s) supplied explicit backend cost facts",
     );
-    expect(generated.report.tokenUsage.explanation).not.toContain(
-      "remained estimated",
+    expect(generated.report.tokenUsage.sessions[0]?.notes).toContain(
+      "Cached input token detail was unavailable, so provider pricing treated cached input usage as zero.",
     );
   });
 

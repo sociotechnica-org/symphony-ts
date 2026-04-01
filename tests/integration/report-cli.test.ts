@@ -99,14 +99,15 @@ describe("report CLI", () => {
       path.join(reportDir, "report.json"),
       "utf8",
     );
-    expect(reportJson).toContain('"status": "partial"');
+    expect(reportJson).toContain('"status": "estimated"');
     expect(reportJson).toContain('"totalTokens": 2750');
+    expect(reportJson).toContain('"costUsd": 0.01625');
     expect(reportJson).toContain('"observedTokenSubtotal": 2750');
     expect(reportJson).toContain('"observedCostSubtotal": null');
-    expect(reportJson).toContain("Canonical runner-event accounting");
+    expect(reportJson).toContain("checked-in provider pricing estimates");
     expect(
       await fs.readFile(path.join(reportDir, "report.md"), "utf8"),
-    ).toContain("Observed token subtotal: 2750");
+    ).toContain("Estimated cost (USD): 0.02");
   });
 
   it("renders a failed issue report with explicit token unavailability", async () => {
@@ -185,10 +186,12 @@ describe("report CLI", () => {
       path.join(reportDir, "report.md"),
       "utf8",
     );
-    expect(reportJson).toContain('"status": "partial"');
+    expect(reportJson).toContain('"status": "estimated"');
     expect(reportJson).toContain('"totalTokens": 3210');
+    expect(reportJson).toContain('"costUsd": 0.007625');
     expect(reportJson).toContain("matched Codex JSONL session");
-    expect(reportMd).toContain("Status: partial");
+    expect(reportMd).toContain("Status: estimated");
+    expect(reportMd).toContain("Estimated cost (USD): 0.01");
     expect(reportMd).toContain("Final summary:");
   });
 

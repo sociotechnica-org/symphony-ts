@@ -535,6 +535,19 @@ class ClosedIssueTracker extends SequencedTracker {
   }
 }
 
+class FailedIssueTracker extends SequencedTracker {
+  override async getIssue(issueNumber: number): Promise<RuntimeIssue> {
+    if (this.failed.some((entry) => entry.issueNumber === issueNumber)) {
+      return {
+        ...createIssue(issueNumber, "symphony:failed"),
+        labels: ["symphony:failed"],
+        state: "open",
+      };
+    }
+    return await super.getIssue(issueNumber);
+  }
+}
+
 class FlakyTracker extends SequencedTracker {
   override async ensureLabels(): Promise<void> {
     await super.ensureLabels();
@@ -4009,6 +4022,65 @@ describe("BootstrapOrchestrator", () => {
           observation.issue.currentOutcome === "succeeded" &&
           observation.issue.mergedAt === "2026-03-11T12:05:27.000Z" &&
           observation.issue.closedAt === "2026-03-11T12:06:00.000Z",
+      ),
+    ).toBeDefined();
+  });
+
+  it("persists the post-failure tracker labels in the terminal failure observation", async () => {
+    const tracker = new FailedIssueTracker({
+      ready: [createIssue(87)],
+    });
+    tracker.setLifecycleSequence(87, [
+      lifecycle("missing-target", "symphony/87"),
+    ]);
+    const artifactStore = new RecordingIssueArtifactStore();
+    const orchestrator = new BootstrapOrchestrator(
+      {
+        ...baseConfig,
+        polling: {
+          ...baseConfig.polling,
+          retry: {
+            maxAttempts: 1,
+            backoffMs: 0,
+          },
+        },
+      },
+      staticPromptBuilder,
+      tracker,
+      new StaticWorkspaceManager(),
+      {
+        describeSession() {
+          return createRunnerSessionDescription();
+        },
+        async run(): Promise<RunnerExecutionResult> {
+          const timestamp = "2026-03-11T12:05:27.000Z";
+          return {
+            exitCode: 17,
+            stdout: "",
+            stderr: "simulated failure",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          };
+        },
+      },
+      new NullLogger(),
+      artifactStore,
+    );
+
+    await orchestrator.runOnce();
+
+    expect(tracker.failed).toEqual([
+      {
+        issueNumber: 87,
+        reason: "Runner exited with 17\nsimulated failure",
+      },
+    ]);
+    expect(
+      artifactStore.observations.find(
+        (observation) =>
+          observation.issue.issueNumber === 87 &&
+          observation.issue.currentOutcome === "failed" &&
+          observation.issue.trackerLabels?.includes("symphony:failed") === true,
       ),
     ).toBeDefined();
   });
