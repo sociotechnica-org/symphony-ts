@@ -271,14 +271,14 @@ This issue changes long-running orchestration behavior, so slot-consumption stat
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| One issue is already active locally, one slot remains free, another ready issue exists | one slot already reserved/active, one slot free | ready issue is still claimable | reserve the free slot and dispatch the ready issue on the next poll without waiting for the first run to finish |
-| One issue has been selected for dispatch but is still in claim/startup work when the next poll begins | slot is already reserved for that issue | tracker may still show ready or newly running | do not treat the slot as free and do not over-dispatch another issue into the same capacity |
-| Active local run count already equals `maxConcurrentRuns` | all slots reserved/active | ready issues may still exist | keep polling/reconciling status, but do not dispatch new ready work |
-| Background dispatch fails before the run becomes active | reserved slot plus startup/claim failure | issue may remain ready or move back out of running | release the slot, record the failure path, and let a later poll reconsider capacity normally |
-| Factory halt or dispatch pressure becomes active while another run is still active | one or more slots active | ready issues may exist | keep inspecting running work but block new slot reservations until halt/pressure clears |
-| Shutdown is requested while background runs are active | active slots and abort controllers exist | tracker state unchanged or running | stop reserving new slots, abort active runs through existing shutdown paths, and release slots only after cleanup |
+| Observed condition                                                                                    | Local facts available                           | Normalized tracker facts available                 | Expected decision                                                                                                 |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| One issue is already active locally, one slot remains free, another ready issue exists                | one slot already reserved/active, one slot free | ready issue is still claimable                     | reserve the free slot and dispatch the ready issue on the next poll without waiting for the first run to finish   |
+| One issue has been selected for dispatch but is still in claim/startup work when the next poll begins | slot is already reserved for that issue         | tracker may still show ready or newly running      | do not treat the slot as free and do not over-dispatch another issue into the same capacity                       |
+| Active local run count already equals `maxConcurrentRuns`                                             | all slots reserved/active                       | ready issues may still exist                       | keep polling/reconciling status, but do not dispatch new ready work                                               |
+| Background dispatch fails before the run becomes active                                               | reserved slot plus startup/claim failure        | issue may remain ready or move back out of running | release the slot, record the failure path, and let a later poll reconsider capacity normally                      |
+| Factory halt or dispatch pressure becomes active while another run is still active                    | one or more slots active                        | ready issues may exist                             | keep inspecting running work but block new slot reservations until halt/pressure clears                           |
+| Shutdown is requested while background runs are active                                                | active slots and abort controllers exist        | tracker state unchanged or running                 | stop reserving new slots, abort active runs through existing shutdown paths, and release slots only after cleanup |
 
 ## Storage / Persistence Contract
 

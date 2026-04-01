@@ -16,6 +16,10 @@ import {
   createHostDispatchState,
   type HostDispatchRuntimeState,
 } from "./host-dispatch-state.js";
+import {
+  createLocalDispatchRuntimeState,
+  type LocalDispatchRuntimeState,
+} from "./local-dispatch-state.js";
 import type { RunningEntry } from "./running-entry.js";
 import {
   createLandingRuntimeState,
@@ -47,7 +51,7 @@ export interface PollingState {
 }
 
 export interface OrchestratorState {
-  readonly runningIssueNumbers: Set<number>;
+  readonly localDispatch: LocalDispatchRuntimeState;
   readonly terminalIssueReporting: TerminalIssueReportingRuntimeState;
   readonly runAbortControllers: Map<number, AbortController>;
   readonly retries: RetryRuntimeState;
@@ -69,7 +73,7 @@ export function createOrchestratorState(
   hostDispatchWorkerHosts: readonly SshWorkerHostConfig[] = [],
 ): OrchestratorState {
   return {
-    runningIssueNumbers: new Set<number>(),
+    localDispatch: createLocalDispatchRuntimeState(),
     terminalIssueReporting: createTerminalIssueReportingRuntimeState(),
     runAbortControllers: new Map<number, AbortController>(),
     retries: createRetryRuntimeState(),

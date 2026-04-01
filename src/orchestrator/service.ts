@@ -134,6 +134,15 @@ import {
   reserveHostForIssue,
 } from "./host-dispatch-state.js";
 import {
+  countReservedLocalDispatches,
+  hasReservedLocalDispatch,
+  listBackgroundDispatchTasks,
+  listReservedLocalDispatches,
+  noteBackgroundDispatchTask,
+  releaseLocalDispatch,
+  reserveLocalDispatch,
+} from "./local-dispatch-state.js";
+import {
   clearRetryState,
   collectDueRetries,
   hasQueuedRetry,
@@ -609,6 +618,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
     try {
       await this.#runOnceInner();
+      await this.#waitForBackgroundDispatches();
     } finally {
       if (signal !== undefined) {
         signal.removeEventListener("abort", handleAbort!);
@@ -679,7 +689,7 @@ export class BootstrapOrchestrator implements Orchestrator {
       );
       availableSlots =
         this.#config.polling.maxConcurrentRuns -
-        this.#state.runningIssueNumbers.size;
+        countReservedLocalDispatches(this.#state.localDispatch);
       this.#logger.info("Poll candidates fetched", {
         readyCount: readyCandidates.length,
         runningCount: runningCandidates.length,
@@ -725,22 +735,66 @@ export class BootstrapOrchestrator implements Orchestrator {
       return;
     }
 
-    const runs: Promise<void>[] = [];
+    let startedDispatches = 0;
     for (const entry of queue) {
-      if (runs.length >= availableSlots) {
+      if (startedDispatches >= availableSlots) {
         break;
       }
-      if (this.#state.runningIssueNumbers.has(entry.issue.number)) {
+      if (
+        hasReservedLocalDispatch(this.#state.localDispatch, entry.issue.number)
+      ) {
         continue;
       }
-      runs.push(
-        entry.source === "ready"
-          ? this.#processReadyIssue(entry.issue, entry.attempt)
-          : this.#processRunningIssue(entry.issue, entry.attempt),
-      );
+      if (this.#startDispatchTask(entry)) {
+        startedDispatches += 1;
+      }
     }
 
-    await Promise.all(runs);
+    if (startedDispatches > 0) {
+      this.#notifyDashboard();
+      await this.#persistStatusSnapshot();
+    }
+  }
+
+  #startDispatchTask(entry: QueueEntry): boolean {
+    if (!reserveLocalDispatch(this.#state.localDispatch, entry.issue.number)) {
+      return false;
+    }
+
+    const task = (async (): Promise<void> => {
+      try {
+        if (entry.source === "ready") {
+          await this.#processReadyIssue(entry.issue, entry.attempt);
+        } else {
+          await this.#processRunningIssue(entry.issue, entry.attempt);
+        }
+      } catch (error) {
+        this.#logger.error("Dispatch task failed", {
+          issueNumber: entry.issue.number,
+          source: entry.source,
+          error: this.#normalizeFailure(error as Error),
+        });
+      } finally {
+        releaseLocalDispatch(this.#state.localDispatch, entry.issue.number);
+        this.#notifyDashboard();
+        await this.#persistStatusSnapshot();
+      }
+    })();
+
+    noteBackgroundDispatchTask(
+      this.#state.localDispatch,
+      entry.issue.number,
+      task,
+    );
+    return true;
+  }
+
+  async #waitForBackgroundDispatches(): Promise<void> {
+    const tasks = listBackgroundDispatchTasks(this.#state.localDispatch);
+    if (tasks.length === 0) {
+      return;
+    }
+    await Promise.allSettled(tasks);
   }
 
   async #reconcileTerminalIssueReporting(): Promise<void> {
@@ -951,28 +1005,31 @@ export class BootstrapOrchestrator implements Orchestrator {
       this.#abortActiveRuns();
     };
     signal?.addEventListener("abort", handleAbort, { once: true });
-    while (!signal?.aborted) {
-      try {
-        await this.runOnce();
-      } catch (error) {
-        this.#logger.error("Poll cycle failed", {
-          error: this.#normalizeFailure(error as Error),
-        });
+    try {
+      while (!signal?.aborted) {
+        try {
+          await this.#runOnceInner();
+        } catch (error) {
+          this.#logger.error("Poll cycle failed", {
+            error: this.#normalizeFailure(error as Error),
+          });
+        }
+        if (signal?.aborted) {
+          break;
+        }
+        this.#state.polling.nextPollAtMs =
+          Date.now() + this.#config.polling.intervalMs;
+        this.#notifyDashboard();
+        await this.#sleep(this.#config.polling.intervalMs, signal);
       }
-      if (signal?.aborted) {
-        break;
+    } finally {
+      // signal is optional — keep ?. for safety even though TypeScript narrows
+      // it to non-null after the while loop (the loop runs forever if undefined).
+      signal?.removeEventListener("abort", handleAbort);
+      if (this.#shutdownSignal === signal) {
+        this.#shutdownSignal = undefined;
       }
-      this.#state.polling.nextPollAtMs =
-        Date.now() + this.#config.polling.intervalMs;
-      this.#notifyDashboard();
-      await this.#sleep(this.#config.polling.intervalMs, signal);
-    }
-    // signal is optional — keep ?. for safety even though TypeScript narrows
-    // it to non-null after the while loop (the loop runs forever if undefined).
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    signal?.removeEventListener("abort", handleAbort);
-    if (this.#shutdownSignal === signal) {
-      this.#shutdownSignal = undefined;
+      await this.#waitForBackgroundDispatches();
     }
   }
 
@@ -1174,14 +1231,12 @@ export class BootstrapOrchestrator implements Orchestrator {
     if (!lease) {
       return;
     }
-    this.#state.runningIssueNumbers.add(issue.number);
     let preserveLease = false;
     try {
       preserveLease = await work(lease);
     } catch (error) {
       await this.#handleUnexpectedFailure(issue, attempt, error as Error);
     } finally {
-      this.#state.runningIssueNumbers.delete(issue.number);
       if (!preserveLease) {
         await this.#leaseManager.release(lease);
       }
@@ -2581,7 +2636,7 @@ export class BootstrapOrchestrator implements Orchestrator {
     const retainedIssueNumbers = new Set<number>([
       ...readyIssues.map((issue) => issue.number),
       ...runningIssues.map((issue) => issue.number),
-      ...this.#state.runningIssueNumbers,
+      ...listReservedLocalDispatches(this.#state.localDispatch),
       ...listQueuedRetries(this.#state.retries).map(
         (retry) => retry.issue.number,
       ),
@@ -4605,7 +4660,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           workerPid: process.pid,
           pollIntervalMs: this.#config.polling.intervalMs,
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
-          activeLocalRuns: this.#state.runningIssueNumbers.size,
+          activeLocalRuns: countReservedLocalDispatches(
+            this.#state.localDispatch,
+          ),
           retries: this.#state.retries,
           hostDispatch: this.#state.hostDispatch,
           dispatchPressure: getActiveDispatchPressure(
@@ -4655,7 +4712,9 @@ export class BootstrapOrchestrator implements Orchestrator {
           workerPid: process.pid,
           pollIntervalMs: this.#config.polling.intervalMs,
           maxConcurrentRuns: this.#config.polling.maxConcurrentRuns,
-          activeLocalRuns: this.#state.runningIssueNumbers.size,
+          activeLocalRuns: countReservedLocalDispatches(
+            this.#state.localDispatch,
+          ),
           retries: this.#state.retries,
           hostDispatch: this.#state.hostDispatch,
           dispatchPressure: getActiveDispatchPressure(
