@@ -220,7 +220,7 @@ describe("BootstrapOrchestrator terminal issue reporting reconciliation", () => 
     terminalReportingMocks.listTerminalIssues.mockResolvedValue([]);
 
     const orchestrator = new BootstrapOrchestrator(
-      createConfig(root, { retryBackoffMs: 200 }),
+      createConfig(root),
       promptBuilder,
       new IdleTracker(),
       new IdleWorkspaceManager(),
@@ -274,7 +274,7 @@ describe("BootstrapOrchestrator terminal issue reporting reconciliation", () => 
     });
 
     const orchestrator = new BootstrapOrchestrator(
-      createConfig(root),
+      createConfig(root, { retryBackoffMs: 40 }),
       promptBuilder,
       new IdleTracker(),
       new IdleWorkspaceManager(),
@@ -283,7 +283,7 @@ describe("BootstrapOrchestrator terminal issue reporting reconciliation", () => 
     );
 
     await orchestrator.runOnce();
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, 50));
     await orchestrator.runOnce();
 
     expect(terminalReportingMocks.listTerminalIssues).toHaveBeenCalledTimes(1);
@@ -333,7 +333,7 @@ describe("BootstrapOrchestrator terminal issue reporting reconciliation", () => 
     });
 
     const orchestrator = new BootstrapOrchestrator(
-      createConfig(root),
+      createConfig(root, { retryBackoffMs: 200 }),
       promptBuilder,
       new IdleTracker(),
       new IdleWorkspaceManager(),
