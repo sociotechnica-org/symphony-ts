@@ -134,6 +134,7 @@ function buildIssueReport(
       status: "complete",
       issueStateTransitionsStatus: "unavailable",
       issueStateTransitionsNote: "Unavailable.",
+      issueTransitions: [],
       pullRequests: [],
       reviewFeedbackRounds: 0,
       reviewLoopSummary: "Unavailable.",

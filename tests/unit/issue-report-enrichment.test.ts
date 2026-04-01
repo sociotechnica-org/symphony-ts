@@ -12,7 +12,10 @@ import type {
   IssueReportDocument,
   LoadedIssueArtifacts,
 } from "../../src/observability/issue-report.js";
-import { generateIssueReport } from "../../src/observability/issue-report.js";
+import {
+  ISSUE_REPORT_SCHEMA_VERSION,
+  generateIssueReport,
+} from "../../src/observability/issue-report.js";
 import { mergeIssueReportEnrichment } from "../../src/observability/issue-report-enrichment.js";
 import { asFiniteNumber } from "../../src/domain/number-coerce.js";
 import { CodexIssueReportEnricher } from "../../src/runner/codex-report-enricher.js";
@@ -162,7 +165,7 @@ describe("issue report enrichment", () => {
   it("recomputes observed token subtotals and uses pricing-safe wording when enrichment cannot price a provider", () => {
     const sessionId = "sociotechnica-org/symphony-ts#44/attempt-1/session-1";
     const report: IssueReportDocument = {
-      version: 4,
+      version: ISSUE_REPORT_SCHEMA_VERSION,
       generatedAt: "2026-03-09T13:00:00.000Z",
       summary: {
         status: "complete",
@@ -185,6 +188,7 @@ describe("issue report enrichment", () => {
         status: "partial",
         issueStateTransitionsStatus: "unavailable",
         issueStateTransitionsNote: "Unavailable.",
+        issueTransitions: [],
         pullRequests: [],
         reviewFeedbackRounds: 0,
         reviewLoopSummary: "Unavailable.",
