@@ -187,12 +187,12 @@ Existing ready-promotion states (`unconfigured`, `blocked-review-needed`, `label
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker/config facts available | Expected decision |
-| --- | --- | --- | --- |
-| Checked-in self-hosting `WORKFLOW.md`, `SYMPHONY_REPO` unset | repo-owned root workflow content | explicit `tracker.repo: sociotechnica-org/symphony-ts` in workflow | ready-promotion config load succeeds and continues into the existing promotion flow |
-| Third-party or temp GitHub workflow omits `tracker.repo`, `SYMPHONY_REPO` unset | workflow content only | no tracker repo | keep current `ConfigError`; do not weaken generic validation |
-| `SYMPHONY_REPO` is intentionally set for a GitHub workflow | workflow plus env | explicit env override | preserve current override behavior |
-| Checked-in self-hosting workflow drifts back to an empty `tracker.repo` | repo-owned workflow file | missing tracker repo in the checked-in contract | repo-owned regression test fails before the drift reaches operator runtime |
+| Observed condition                                                              | Local facts available            | Normalized tracker/config facts available                          | Expected decision                                                                   |
+| ------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Checked-in self-hosting `WORKFLOW.md`, `SYMPHONY_REPO` unset                    | repo-owned root workflow content | explicit `tracker.repo: sociotechnica-org/symphony-ts` in workflow | ready-promotion config load succeeds and continues into the existing promotion flow |
+| Third-party or temp GitHub workflow omits `tracker.repo`, `SYMPHONY_REPO` unset | workflow content only            | no tracker repo                                                    | keep current `ConfigError`; do not weaken generic validation                        |
+| `SYMPHONY_REPO` is intentionally set for a GitHub workflow                      | workflow plus env                | explicit env override                                              | preserve current override behavior                                                  |
+| Checked-in self-hosting workflow drifts back to an empty `tracker.repo`         | repo-owned workflow file         | missing tracker repo in the checked-in contract                    | repo-owned regression test fails before the drift reaches operator runtime          |
 
 ## Observability Requirements
 
