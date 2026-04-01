@@ -85,6 +85,36 @@ function createDeferred<T>(): {
   return { promise, resolve };
 }
 
+async function waitForCondition(
+  check: () => boolean,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (check()) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+function rejectOnShutdownAbort(
+  signal: AbortSignal | undefined,
+  reject: (reason?: unknown) => void,
+): void {
+  const handleAbort = (): void => {
+    reject(new RunnerShutdownError("Runner cancelled by shutdown", "graceful"));
+  };
+  if (signal?.aborted) {
+    handleAbort();
+    return;
+  }
+  signal?.addEventListener("abort", handleAbort, { once: true });
+}
+
 function createObservableStalledProbe(): LivenessProbe {
   return {
     async capture(options) {
@@ -511,6 +541,35 @@ class FlakyTracker extends SequencedTracker {
     if (this.ensureLabelsCalls === 1) {
       throw new Error("transient label failure");
     }
+  }
+}
+
+class BlockingClaimTracker extends SequencedTracker {
+  readonly claimStarted = createDeferred<void>();
+  readonly #releaseClaim = createDeferred<void>();
+  readonly #blockedIssueNumber: number;
+
+  constructor(
+    blockedIssueNumber: number,
+    options: {
+      ready?: readonly RuntimeIssue[];
+      running?: readonly RuntimeIssue[];
+    },
+  ) {
+    super(options);
+    this.#blockedIssueNumber = blockedIssueNumber;
+  }
+
+  releaseClaim(): void {
+    this.#releaseClaim.resolve();
+  }
+
+  override async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
+    if (issueNumber === this.#blockedIssueNumber) {
+      this.claimStarted.resolve();
+      await this.#releaseClaim.promise;
+    }
+    return await super.claimIssue(issueNumber);
   }
 }
 
@@ -1066,6 +1125,239 @@ describe("BootstrapOrchestrator", () => {
       expect(
         [...tracker.completed].sort((left, right) => left - right),
       ).toEqual([1, 2]);
+    } finally {
+      await removeTempRoot(tempRoot);
+    }
+  });
+
+  it("surfaces background dispatch errors to runOnce callers", async () => {
+    const tempRoot = await createTempDir("symphony-run-once-dispatch-error-");
+    try {
+      const workspaceRootFile = path.join(tempRoot, "workspace-root-file");
+      await fs.writeFile(workspaceRootFile, "not-a-directory", "utf8");
+      const tracker = new SequencedTracker({
+        ready: [createIssue(1)],
+      });
+      let runnerStarted = false;
+      const orchestrator = new BootstrapOrchestrator(
+        {
+          ...withLocalInstanceRoot(baseConfig, tempRoot),
+          workspace: {
+            ...baseConfig.workspace,
+            root: workspaceRootFile,
+          },
+        },
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(): Promise<RunnerExecutionResult> {
+            runnerStarted = true;
+            const startedAt = new Date().toISOString();
+            return {
+              startedAt,
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+              finishedAt: new Date().toISOString(),
+            };
+          },
+        },
+        new NullLogger(),
+      );
+
+      await expect(orchestrator.runOnce()).rejects.toMatchObject({
+        code: "ENOTDIR",
+      });
+      expect(runnerStarted).toBe(false);
+    } finally {
+      await removeTempRoot(tempRoot);
+    }
+  });
+
+  it("keeps polling and fills a later-ready slot while another run stays active", async () => {
+    const tempRoot = await createTempDir("symphony-active-slot-fill-test-");
+    try {
+      const tracker = new SequencedTracker({
+        ready: [createIssue(1)],
+      });
+      tracker.setLifecycleSequence(1, [
+        lifecycle("missing-target", "symphony/1"),
+        lifecycle("handoff-ready", "symphony/1"),
+      ]);
+      tracker.setLifecycleSequence(2, [
+        lifecycle("missing-target", "symphony/2"),
+        lifecycle("handoff-ready", "symphony/2"),
+      ]);
+      const runner = new BlockingRecordingRunner([1, 2]);
+      const orchestrator = new BootstrapOrchestrator(
+        withLocalInstanceRoot(
+          {
+            ...baseConfig,
+            polling: { ...baseConfig.polling, intervalMs: 1 },
+          },
+          tempRoot,
+        ),
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
+
+      const controller = new AbortController();
+      const loop = orchestrator.runLoop(controller.signal);
+
+      await runner.waitForIssue(1);
+      tracker.readyIssues.set(2, createIssue(2));
+      await runner.waitForIssue(2);
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
+      );
+      expect(snapshot.counts.activeLocalRuns).toBe(2);
+      expect(
+        [...runner.startedIssues].sort((left, right) => left - right),
+      ).toEqual([1, 2]);
+
+      runner.release();
+      controller.abort();
+      await loop;
+    } finally {
+      await removeTempRoot(tempRoot);
+    }
+  });
+
+  it("keeps the shutdown signal visible until a claim-blocked dispatch starts", async () => {
+    const tempRoot = await createTempDir(
+      "symphony-claim-blocked-shutdown-test-",
+    );
+    try {
+      const tracker = new BlockingClaimTracker(1, {
+        ready: [createIssue(1)],
+      });
+      tracker.setLifecycleSequence(1, [
+        lifecycle("missing-target", "symphony/1"),
+      ]);
+      const runStartedWithAbort = createDeferred<boolean>();
+      const orchestrator = new BootstrapOrchestrator(
+        withLocalInstanceRoot(
+          {
+            ...baseConfig,
+            polling: { ...baseConfig.polling, intervalMs: 1 },
+          },
+          tempRoot,
+        ),
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        {
+          describeSession() {
+            return createRunnerSessionDescription();
+          },
+          async run(_session, options): Promise<RunnerExecutionResult> {
+            const startedAborted = options?.signal?.aborted ?? false;
+            runStartedWithAbort.resolve(startedAborted);
+            if (startedAborted) {
+              return await new Promise<RunnerExecutionResult>(
+                (_resolve, reject) => {
+                  rejectOnShutdownAbort(options?.signal, reject);
+                },
+              );
+            }
+            const startedAt = new Date().toISOString();
+            return {
+              startedAt,
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+              finishedAt: new Date().toISOString(),
+            };
+          },
+        },
+        new NullLogger(),
+      );
+
+      const controller = new AbortController();
+      const loop = orchestrator.runLoop(controller.signal);
+
+      await tracker.claimStarted.promise;
+      controller.abort();
+      tracker.releaseClaim();
+
+      await expect(runStartedWithAbort.promise).resolves.toBe(true);
+      await loop;
+
+      const leaseManager = new LocalIssueLeaseManager(
+        tempRoot,
+        new NullLogger(),
+      );
+      const snapshot = await leaseManager.inspect(1);
+
+      expect(tracker.completed).toEqual([]);
+      expect(snapshot.kind).toBe("shutdown-terminated");
+    } finally {
+      await removeTempRoot(tempRoot);
+    }
+  });
+
+  it("reserves a slot before claim completes so later polls do not over-dispatch", async () => {
+    const tempRoot = await createTempDir(
+      "symphony-claim-reservation-slot-test-",
+    );
+    try {
+      const tracker = new BlockingClaimTracker(1, {
+        ready: [createIssue(1), createIssue(2)],
+      });
+      tracker.setLifecycleSequence(1, [
+        lifecycle("missing-target", "symphony/1"),
+        lifecycle("handoff-ready", "symphony/1"),
+      ]);
+      tracker.setLifecycleSequence(2, [
+        lifecycle("missing-target", "symphony/2"),
+        lifecycle("handoff-ready", "symphony/2"),
+      ]);
+      const runner = new BlockingRecordingRunner([1, 2]);
+      const orchestrator = new BootstrapOrchestrator(
+        withLocalInstanceRoot(
+          {
+            ...baseConfig,
+            polling: {
+              ...baseConfig.polling,
+              intervalMs: 1,
+              maxConcurrentRuns: 1,
+            },
+          },
+          tempRoot,
+        ),
+        staticPromptBuilder,
+        tracker,
+        new StaticWorkspaceManager(),
+        runner,
+        new NullLogger(),
+      );
+
+      const controller = new AbortController();
+      const loop = orchestrator.runLoop(controller.signal);
+
+      await tracker.claimStarted.promise;
+      await waitForCondition(() => tracker.ensureLabelsCalls >= 2);
+
+      expect(tracker.readyIssues.has(2)).toBe(true);
+      expect(runner.startedIssues).not.toContain(2);
+
+      const snapshot = await readFactoryStatusSnapshot(
+        deriveStatusFilePath(deriveTestInstance(tempRoot)),
+      );
+      expect(snapshot.counts.activeLocalRuns).toBe(1);
+
+      tracker.releaseClaim();
+      runner.release();
+      controller.abort();
+      await loop;
     } finally {
       await removeTempRoot(tempRoot);
     }
@@ -4098,18 +4390,7 @@ describe("BootstrapOrchestrator", () => {
             started.resolve();
             return await new Promise<RunnerExecutionResult>(
               (_resolve, reject) => {
-                options?.signal?.addEventListener(
-                  "abort",
-                  () => {
-                    reject(
-                      new RunnerShutdownError(
-                        "Runner cancelled by shutdown",
-                        "graceful",
-                      ),
-                    );
-                  },
-                  { once: true },
-                );
+                rejectOnShutdownAbort(options?.signal, reject);
               },
             );
           },
@@ -4159,18 +4440,7 @@ describe("BootstrapOrchestrator", () => {
           started.resolve();
           return await new Promise<RunnerExecutionResult>(
             (_resolve, reject) => {
-              options?.signal?.addEventListener(
-                "abort",
-                () => {
-                  reject(
-                    new RunnerShutdownError(
-                      "Runner cancelled by shutdown",
-                      "graceful",
-                    ),
-                  );
-                },
-                { once: true },
-              );
+              rejectOnShutdownAbort(options?.signal, reject);
             },
           );
         },
@@ -4230,18 +4500,7 @@ describe("BootstrapOrchestrator", () => {
             async runTurn(_turn, options): Promise<RunnerTurnResult> {
               started.resolve();
               return await new Promise<RunnerTurnResult>((_resolve, reject) => {
-                options?.signal?.addEventListener(
-                  "abort",
-                  () => {
-                    reject(
-                      new RunnerShutdownError(
-                        "Runner cancelled by shutdown",
-                        "graceful",
-                      ),
-                    );
-                  },
-                  { once: true },
-                );
+                rejectOnShutdownAbort(options?.signal, reject);
               });
             },
             async close(): Promise<void> {},

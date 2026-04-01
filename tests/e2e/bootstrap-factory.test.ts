@@ -1056,6 +1056,64 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
   });
 
+  it("fills a later-ready dispatch slot while another runner turn is still active", async () => {
+    server.seedIssue({
+      number: 96,
+      title: "Long-running active turn",
+      body: "Stay active long enough for a later poll to fill the spare slot.",
+      labels: ["symphony:ready"],
+    });
+    server.seedIssue({
+      number: 97,
+      title: "Later-ready issue",
+      body: "Become ready after another issue is already running.",
+      labels: [],
+    });
+
+    const startedFile = path.join(tempDir, "issue-96-started");
+    const releaseFile = path.join(tempDir, "issue-96-release");
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve(
+        "tests/fixtures/fake-agent-selective-block-success.sh",
+      ),
+      maxConcurrentRuns: 2,
+      agentEnv: {
+        SYMPHONY_TEST_BLOCK_ISSUE_NUMBER: "96",
+        SYMPHONY_TEST_START_FILE: startedFile,
+        SYMPHONY_TEST_RELEASE_FILE: releaseFile,
+      },
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+    const controller = new AbortController();
+    const loop = orchestrator.runLoop(controller.signal);
+
+    await waitForFile(startedFile);
+    server.setIssueLabels(97, ["symphony:ready"]);
+    await waitForPullRequestHead(server, "symphony/97");
+
+    expect(server.getIssue(96).labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+    expect(
+      server.getPullRequests().map((pullRequest) => pullRequest.head),
+    ).toContain("symphony/97");
+
+    await fs.writeFile(releaseFile, "release", "utf8");
+    await waitForPullRequestHead(server, "symphony/96");
+
+    controller.abort();
+    await loop;
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.worker.maxConcurrentRuns).toBe(2);
+    expect(server.getPullRequests()).toHaveLength(2);
+  });
+
   it("preserves the watchdog stall reason instead of flattening it to shutdown", async () => {
     server.seedIssue({
       number: 83,
