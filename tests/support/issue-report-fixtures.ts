@@ -387,6 +387,8 @@ export async function seedEventOnlyIssueArtifacts(
     readonly events: readonly IssueArtifactEvent[];
     readonly title?: string | undefined;
     readonly branch?: string | null | undefined;
+    readonly trackerState?: "open" | "closed" | null | undefined;
+    readonly trackerLabels?: readonly string[] | undefined;
   },
 ): Promise<void> {
   const artifactPaths = deriveIssueArtifactPaths(
@@ -413,6 +415,8 @@ export async function seedEventOnlyIssueArtifacts(
         currentSummary: options.currentSummary,
         firstObservedAt: options.events[0]?.observedAt ?? options.observedAt,
         lastUpdatedAt: options.observedAt,
+        trackerState: options.trackerState ?? null,
+        trackerLabels: [...(options.trackerLabels ?? [])],
         latestAttemptNumber: options.events.at(-1)?.attemptNumber ?? null,
         latestSessionId: options.events.at(-1)?.sessionId ?? null,
       },

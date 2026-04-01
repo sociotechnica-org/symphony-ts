@@ -127,7 +127,9 @@ describe("campaign report", () => {
               },
             ],
             reviewFeedbackRounds: 1,
+            mergeTimingRelevant: true,
             mergedAt: "2026-03-03T11:30:00.000Z",
+            closeTimingRelevant: true,
             closedAt: "2026-03-03T12:00:00.000Z",
           },
           tokenUsage: {
@@ -294,7 +296,9 @@ describe("campaign report", () => {
               },
             ],
             reviewFeedbackRounds: 0,
+            mergeTimingRelevant: true,
             mergedAt: "2026-03-03T11:30:00.000Z",
+            closeTimingRelevant: true,
             closedAt: "2026-03-03T12:00:00.000Z",
           },
         }),
@@ -475,6 +479,42 @@ describe("campaign report", () => {
     );
   });
 
+  it("uses structured close-timing relevance instead of parsing transition summaries", () => {
+    const digest = buildCampaignDigest(
+      {
+        kind: "issues",
+        issueNumbers: [44],
+      },
+      [
+        buildStoredIssueReport({
+          issueNumber: 44,
+          title: "Issue 44",
+          summary: {
+            outcome: "failed",
+            overallConclusion:
+              "Failed after the tracker already showed the issue closed.",
+          },
+          githubActivity: {
+            status: "partial",
+            issueStateTransitionsStatus: "complete",
+            issueStateTransitionsNote:
+              "Canonical local artifacts preserved tracker-side issue snapshots, but no state or label change was observed after the initial snapshot.",
+            closeTimingRelevant: true,
+            closedAt: null,
+          },
+        }),
+      ],
+      "2026-03-11T12:00:00.000Z",
+    );
+
+    expect(digest.githubActivity.closeAvailabilityNote).toBe(
+      "Issue close timing was recorded for 0 of 1 selected issue reports where it was applicable.",
+    );
+    expect(digest.learnings.changesToMake).toContain(
+      "Record exact issue-close timing in canonical local artifacts so campaign windows can compare tracker closure against report completion.",
+    );
+  });
+
   it("renders all five markdown outputs with stable headings", () => {
     const digest = buildCampaignDigest(
       {
@@ -572,7 +612,9 @@ function buildStoredIssueReport(options: {
       | undefined;
     readonly reviewFeedbackRounds?: number | undefined;
     readonly blockingReviewerVerdictCount?: number | null | undefined;
+    readonly mergeTimingRelevant?: boolean | undefined;
     readonly mergedAt?: string | null | undefined;
+    readonly closeTimingRelevant?: boolean | undefined;
     readonly closedAt?: string | null | undefined;
   };
   readonly tokenUsage?: {
@@ -644,12 +686,20 @@ function buildStoredIssueReport(options: {
       pullRequests: options.githubActivity?.pullRequests ?? [],
       reviewFeedbackRounds: options.githubActivity?.reviewFeedbackRounds ?? 0,
       reviewLoopSummary: "No review activity recorded.",
+      mergeTimingRelevant:
+        options.githubActivity?.mergeTimingRelevant !== undefined
+          ? options.githubActivity.mergeTimingRelevant
+          : (options.githubActivity?.mergedAt ?? null) !== null,
       mergedAt: options.githubActivity?.mergedAt ?? null,
       mergeNote:
         options.githubActivity?.mergedAt === undefined ||
         options.githubActivity.mergedAt === null
           ? "Merge timing unavailable."
           : "Merge timing recorded in canonical issue artifacts.",
+      closeTimingRelevant:
+        options.githubActivity?.closeTimingRelevant !== undefined
+          ? options.githubActivity.closeTimingRelevant
+          : (options.githubActivity?.closedAt ?? null) !== null,
       closedAt: options.githubActivity?.closedAt ?? null,
       closeNote:
         options.githubActivity?.closedAt === undefined ||

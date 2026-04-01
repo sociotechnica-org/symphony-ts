@@ -37,7 +37,7 @@ import {
 import { applyIssueReportProviderPricing } from "./issue-report-pricing.js";
 import { rollupIssueReportTokenUsageSessions } from "./issue-report-token-usage.js";
 
-export const ISSUE_REPORT_SCHEMA_VERSION = 5 as const;
+export const ISSUE_REPORT_SCHEMA_VERSION = 6 as const;
 
 export type IssueReportAvailability = GitHubActivityAvailability;
 export type IssueReportTokenUsageStatus =
@@ -116,8 +116,10 @@ export interface IssueReportGitHubActivity {
   readonly pullRequests: readonly IssueReportPullRequestActivity[];
   readonly reviewFeedbackRounds: number;
   readonly reviewLoopSummary: string;
+  readonly mergeTimingRelevant: boolean;
   readonly mergedAt: string | null;
   readonly mergeNote: string;
+  readonly closeTimingRelevant: boolean;
   readonly closedAt: string | null;
   readonly closeNote: string;
   readonly notes: readonly string[];
@@ -959,6 +961,7 @@ function buildGitHubActivity(
       pullRequests,
       reviewFeedbackRounds,
     ),
+    mergeTimingRelevant: mergeTiming.status !== null,
     mergedAt,
     mergeNote:
       mergeTiming.status === null
@@ -966,6 +969,7 @@ function buildGitHubActivity(
         : mergedAt === null
           ? "Canonical local artifacts did not preserve a merged pull request timestamp for this issue."
           : "Canonical local artifacts preserved the merged pull request timestamp for this issue.",
+    closeTimingRelevant: closeTiming.status !== null,
     closedAt,
     closeNote:
       closeTiming.status === null

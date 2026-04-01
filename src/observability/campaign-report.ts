@@ -559,16 +559,16 @@ function buildCampaignGitHubActivity(
       ? ""
       : `Failing checks were observed for ${pullRequests.filter((pullRequest) => pullRequest.failingChecks.length > 0).length.toString()} pull requests.`,
   ]);
-  const mergeRelevantReports = reports.filter((storedReport) =>
-    isMergeTimingRelevantForReport(storedReport.report),
+  const mergeRelevantReports = reports.filter(
+    (storedReport) => storedReport.report.githubActivity.mergeTimingRelevant,
   );
   const mergeCoverage = summarizeObservedLifecycleTimestamps(
     mergeRelevantReports.map(
       (storedReport) => storedReport.report.githubActivity.mergedAt,
     ),
   );
-  const closeRelevantReports = reports.filter((storedReport) =>
-    isCloseTimingRelevantForReport(storedReport.report),
+  const closeRelevantReports = reports.filter(
+    (storedReport) => storedReport.report.githubActivity.closeTimingRelevant,
   );
   const closeCoverage = summarizeObservedLifecycleTimestamps(
     closeRelevantReports.map(
@@ -699,26 +699,6 @@ function summarizeObservedLifecycleTimestamps(
   };
 }
 
-function isMergeTimingRelevantForReport(report: IssueReportDocument): boolean {
-  return (
-    report.githubActivity.mergedAt !== null ||
-    report.summary.outcome === "merged" ||
-    report.summary.outcome === "succeeded"
-  );
-}
-
-function isCloseTimingRelevantForReport(report: IssueReportDocument): boolean {
-  return (
-    report.githubActivity.closedAt !== null ||
-    report.summary.outcome === "succeeded" ||
-    report.githubActivity.issueTransitions.some(
-      (transition) =>
-        transition.kind === "state-changed" &&
-        transition.summary.includes(" to closed."),
-    )
-  );
-}
-
 function buildCampaignTokenUsage(
   reports: readonly StoredIssueReportDocument[],
 ): CampaignTokenUsage {
@@ -820,22 +800,22 @@ function buildCampaignLearnings(
     tokenUsage.status === "complete"
       ? ""
       : `Expand token-usage capture or enrichment; campaign token coverage was ${tokenUsage.status} across ${summary.issueCount.toString()} issue reports.`,
-    reports.some((storedReport) =>
-      isMergeTimingRelevantForReport(storedReport.report),
+    reports.some(
+      (storedReport) => storedReport.report.githubActivity.mergeTimingRelevant,
     ) &&
     reports.every(
       (storedReport) =>
-        !isMergeTimingRelevantForReport(storedReport.report) ||
+        !storedReport.report.githubActivity.mergeTimingRelevant ||
         storedReport.report.githubActivity.mergedAt === null,
     )
       ? "Record merge timing in canonical local artifacts so campaign digests can distinguish shipped work from PR-open state."
       : "",
-    reports.some((storedReport) =>
-      isCloseTimingRelevantForReport(storedReport.report),
+    reports.some(
+      (storedReport) => storedReport.report.githubActivity.closeTimingRelevant,
     ) &&
     reports.every(
       (storedReport) =>
-        !isCloseTimingRelevantForReport(storedReport.report) ||
+        !storedReport.report.githubActivity.closeTimingRelevant ||
         storedReport.report.githubActivity.closedAt === null,
     )
       ? "Record exact issue-close timing in canonical local artifacts so campaign windows can compare tracker closure against report completion."

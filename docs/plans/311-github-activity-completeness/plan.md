@@ -42,6 +42,7 @@ Today the reporting surface has one explicit semantic hole:
 2. `src/observability/campaign-report.ts` still treats the issue-level top status as the aggregate completeness source, so campaign GitHub activity can never become `complete`
 3. the report model already distinguishes transition completeness with `issueStateTransitionsStatus`, but the umbrella GitHub status does not say what broader facts it is meant to cover
 4. unit-test builders in `tests/unit/campaign-report.test.ts` also hardcode GitHub activity to `partial`, which hides the intended contract
+5. PR review surfaced that campaign rollups currently re-derive close-timing applicability from lossy report text, which can diverge from issue-report semantics when tracker state was already closed but no explicit close timestamp was preserved
 
 ## Decision Notes
 
@@ -50,6 +51,7 @@ Today the reporting surface has one explicit semantic hole:
 3. Treat the section as `complete` only when every GitHub activity fact the report claims to preserve for this issue is complete or not applicable.
 4. Keep issue-transition completeness as its own explicit sub-status because campaigns and markdown already expose it separately.
 5. Prefer a shared observability helper for GitHub activity completeness rather than re-encoding slightly different rules in issue and campaign builders.
+6. If campaign aggregation needs applicability facts that only exist during issue-report generation, persist a small structured signal in the issue report instead of re-deriving relevance from rendered summaries.
 
 ## Spec Alignment By Abstraction Level
 
@@ -199,7 +201,7 @@ Rules:
 
 1. use only the GitHub facts already preserved in issue summaries, attempt snapshots, session snapshots, and lifecycle events
 2. do not add synthetic completeness flags to canonical artifacts
-3. keep the report schema version unchanged unless implementation evidence shows a structural schema change is necessary
+3. if review or implementation evidence shows campaign/report consumers need a structured relevance signal that cannot be recovered safely from existing report text, expand the generated issue-report schema narrowly and bump its version rather than relying on summary-string parsing
 
 ## Observability Requirements
 
@@ -213,9 +215,10 @@ Rules:
 1. Define a focused GitHub activity completeness helper in `src/observability/` or an equivalent narrow seam used by both issue and campaign report builders.
 2. Update `buildGitHubActivity` in `src/observability/issue-report.ts` to derive `status` from the preserved transition, PR review/check, merge, and close facts instead of returning a hardcoded constant.
 3. Keep campaign GitHub rollups aligned with the same semantics in `src/observability/campaign-report.ts`, reducing any duplicated status logic where practical.
-4. Update report markdown wording only where it currently assumes the section is partial by default.
-5. Refine unit-test builders so complete GitHub activity can be modeled explicitly in tests instead of being forced to `partial`.
-6. Add or update focused integration coverage if the CLI/report-generation path needs a regression for the new status values.
+4. Persist structured merge/close timing applicability in generated issue reports if campaign aggregation cannot otherwise reuse the exact issue-level semantics without fragile re-derivation.
+5. Update report markdown wording only where it currently assumes the section is partial by default.
+6. Refine unit-test builders so complete GitHub activity can be modeled explicitly in tests instead of being forced to `partial`, and so campaign tests can model structured timing applicability directly.
+7. Add or update focused integration coverage if the CLI/report-generation path needs regressions for the new status values or schema bump.
 
 ## Tests And Acceptance Scenarios
 
@@ -225,10 +228,12 @@ Rules:
    - complete issue artifacts with preserved transitions, PR review/check facts, merge timing, and close timing produce `githubActivity.status: complete`
    - missing relevant lifecycle timing or missing PR review/check facts keep `githubActivity.status: partial`
    - legacy/no-coverage GitHub artifacts still produce `githubActivity.status: unavailable` when nothing relevant is preserved
+   - issues first observed in tracker state `closed` without a preserved `closedAt` timestamp still mark close timing as relevant in the structured report output
 2. `tests/unit/campaign-report.test.ts`
    - campaigns with all selected issues GitHub-complete now aggregate to `githubActivity.status: complete`
    - campaigns with mixed complete/partial/unavailable issue GitHub activity still aggregate correctly
    - campaign issue-transition status remains derived from transition-specific sub-statuses, not flattened away by the umbrella status
+   - campaign close-timing notes and learnings honor the structured issue-report relevance flag instead of parsing transition summaries
 
 ### Integration tests
 
