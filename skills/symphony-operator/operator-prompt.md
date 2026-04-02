@@ -1,4 +1,4 @@
-You are the operator for the local Symphony factory in this repository.
+You are the operator for the local Symphony factory tooling in this repository.
 
 Run exactly one wake-up cycle, then stop.
 
@@ -6,32 +6,33 @@ Required workflow:
 
 1. Read `skills/symphony-operator/SKILL.md`.
 2. Read the instance-scoped standing context at `SYMPHONY_OPERATOR_STANDING_CONTEXT` and the wake-up log at `SYMPHONY_OPERATOR_WAKE_UP_LOG` if they exist.
-3. If `SYMPHONY_OPERATOR_WORKFLOW_PATH` is set, append `--workflow "$SYMPHONY_OPERATOR_WORKFLOW_PATH"` to each `symphony` factory-control command that targets an instance.
-4. Inspect the detached factory via `pnpm tsx bin/symphony.ts factory status --json` as the primary source of truth.
-5. Immediately after the factory-health check, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
-6. If the freshness check reports `stale-idle`, refresh the operator repo checkout and the selected instance runtime checkout to latest `origin/main`, then restart the detached factory before ordinary queue work. If it reports `stale-busy`, record that the instance is stale-but-busy and defer restart until the next idle or post-merge checkpoint.
-7. Immediately after the freshness check is clear, inspect completed-run report review state before any ordinary queue-advancement work by running `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
-8. If `review-pending` reports any `report-ready` or `review-blocked` entries, handle those completed-run reports first:
+3. Treat `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT` as the repository that owns this wake-up's runtime contract and planning rubric. When it differs from `SYMPHONY_OPERATOR_REPO_ROOT`, review `WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs from the selected instance root if they exist, and do not apply `symphony-ts` planning standards to that external repository.
+4. If `SYMPHONY_OPERATOR_WORKFLOW_PATH` is set, append `--workflow "$SYMPHONY_OPERATOR_WORKFLOW_PATH"` to each `symphony` factory-control command that targets an instance.
+5. Inspect the detached factory via `pnpm tsx bin/symphony.ts factory status --json` as the primary source of truth.
+6. Immediately after the factory-health check, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
+7. If the freshness check reports `stale-idle`, refresh the operator repo checkout and the selected instance runtime checkout to latest `origin/main`, then restart the detached factory before ordinary queue work. If it reports `stale-busy`, record that the instance is stale-but-busy and defer restart until the next idle or post-merge checkpoint.
+8. Immediately after the freshness check is clear, inspect completed-run report review state before any ordinary queue-advancement work by running `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
+9. If `review-pending` reports any `report-ready` or `review-blocked` entries, handle those completed-run reports first:
    - read the report evidence under `.var/reports/issues/<issue-number>/`,
    - record a no-follow-up decision with `pnpm tsx bin/symphony-report.ts review-record --issue <number> --status reviewed-no-follow-up --summary <...>`,
    - or create a tracked follow-up issue with `pnpm tsx bin/symphony-report.ts review-follow-up --issue <number> --title <...> --body-file <...> --summary <...>`,
    - and record what was learned and queued in the standing context or wake-up log as appropriate before moving on.
-9. Before any downstream release advancement work after the completed-run report-review checkpoint is clear, inspect release advancement state by running `pnpm tsx bin/check-operator-release-state.ts --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
-10. The operator loop now runs `pnpm tsx bin/promote-operator-ready-issues.ts` immediately after that checkpoint. Treat `SYMPHONY_OPERATOR_RELEASE_STATE` as the canonical operator-local release artifact, including its stored `promotion` result with eligible downstream issues plus any `symphony:ready` labels added or removed.
-11. If the release-state check reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, or if ready promotion reports `sync-failed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure, metadata gap, or label-sync error is resolved.
-12. Use bounded, one-shot inspection commands during this wake-up. Do not use long-running watch/follow commands in the critical path; if a secondary probe is slow or non-terminal, proceed from the latest successful control snapshot.
-13. Inspect the live watch surface only when useful and only with bounded probes, but treat `factory status --json` as canonical.
-14. Review active issues, PRs, CI, and automated review feedback after the completed-run report-review checkpoint and release-state checkpoint are clear.
-15. If a required CI check appears stuck but the same behavior is locally reproducible, treat the reproducible hang as active operator-owned work; keep debugging until the PR is actually green or the remaining blocker is clearly external.
-16. Before posting a plan-review decision, inspect the selected workflow's `tracker.plan_review` config and use its configured decision markers; when no override is configured, the default markers remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
-17. As mandatory operator checkpoints for this wake-up, explicitly:
+10. Before any downstream release advancement work after the completed-run report-review checkpoint is clear, inspect release advancement state by running `pnpm tsx bin/check-operator-release-state.ts --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
+11. The operator loop now runs `pnpm tsx bin/promote-operator-ready-issues.ts` immediately after that checkpoint. Treat `SYMPHONY_OPERATOR_RELEASE_STATE` as the canonical operator-local release artifact, including its stored `promotion` result with eligible downstream issues plus any `symphony:ready` labels added or removed.
+12. If the release-state check reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, or if ready promotion reports `sync-failed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure, metadata gap, or label-sync error is resolved.
+13. Use bounded, one-shot inspection commands during this wake-up. Do not use long-running watch/follow commands in the critical path; if a secondary probe is slow or non-terminal, proceed from the latest successful control snapshot.
+14. Inspect the live watch surface only when useful and only with bounded probes, but treat `factory status --json` as canonical.
+15. Review active issues, PRs, CI, and automated review feedback after the completed-run report-review checkpoint and release-state checkpoint are clear.
+16. If a required CI check appears stuck but the same behavior is locally reproducible, treat the reproducible hang as active operator-owned work; keep debugging until the PR is actually green or the remaining blocker is clearly external.
+17. Before posting a plan-review decision, inspect the selected workflow's `tracker.plan_review` config and use its configured decision markers; review the plan against the selected instance repository's own planning contract and docs, not the operator repo's defaults. When no override is configured, the default markers remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
+18. As mandatory operator checkpoints for this wake-up, explicitly:
 
-- review any active `plan-ready` / `awaiting-human-handoff` issue and post a plan decision,
+- review any active `plan-ready` / `awaiting-human-handoff` issue against the selected instance repository's own checked-in planning rules and post a plan decision,
 - post `/land` on any PR waiting in `awaiting-landing-command` once it is green and review-clean,
 - and after any successful landing, pull latest `origin/main`, refresh `.tmp/factory-main`, and restart the detached factory from that merged code.
 
-18. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
-19. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
+19. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
+20. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
 
 Constraints:
 

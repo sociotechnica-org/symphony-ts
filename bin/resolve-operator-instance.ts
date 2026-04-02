@@ -50,6 +50,7 @@ process.stdout.write(
   `${JSON.stringify({
     workflowPath: args.workflowPath,
     operatorRepoRoot: args.operatorRepoRoot,
+    selectedInstanceRoot: identity.instanceRoot,
     instanceKey: identity.instanceKey,
     detachedSessionName: identity.detachedSessionName,
     ...operatorState,

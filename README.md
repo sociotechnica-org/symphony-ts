@@ -209,6 +209,12 @@ session across wake-ups, and `--operator-command` or
 `SYMPHONY_OPERATOR_COMMAND` only as the raw-command escape hatch. Operator
 status artifacts now expose the resolved provider, model, command source,
 effective command, and session mode/reset reason.
+When the operator loop targets an external repository with `--workflow`, treat
+that selected instance repository as the owner of plan-review standards and
+repo policy. The `symphony-ts` checkout supplies operator tooling and local
+state, but plan review should read the selected repository's `WORKFLOW.md`,
+`AGENTS.md`, `README.md`, and relevant docs when they exist instead of
+implicitly importing `symphony-ts` architecture rules.
 
 Generate a per-issue report from local artifacts:
 

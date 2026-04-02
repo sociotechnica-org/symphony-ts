@@ -129,13 +129,13 @@ This slice preserves the existing operator and tracker lifecycle states. The beh
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Selected-instance facts available | Expected decision |
-| --- | --- | --- | --- |
-| Operator runs from `symphony-ts` root against `../target-repo/WORKFLOW.md` | operator checkout paths, selected workflow path | selected instance root and repo docs exist | review the plan against `../target-repo` docs, not `symphony-ts` docs |
-| Selected instance has `WORKFLOW.md` but no `AGENTS.md` | workflow path and instance root | no `AGENTS.md`, maybe `README.md` and docs | continue with the selected repository's checked-in instructions that do exist; do not fall back to `symphony-ts` planning rules |
-| Selected instance overrides `tracker.plan_review` markers | workflow config available | selected marker strings resolved | use selected marker protocol plus selected repository rubric |
-| Self-hosting `symphony-ts` workflow is selected | operator checkout equals instance root | local repo docs are the selected repo docs | preserve current self-hosting behavior |
-| Prompt still says "this repository" without selected-instance clarification | operator checkout root visible | external instance root also exists | invalid implementation for this issue; prompt must explicitly distinguish tooling repo from selected instance review authority |
+| Observed condition                                                          | Local facts available                           | Selected-instance facts available          | Expected decision                                                                                                               |
+| --------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| Operator runs from `symphony-ts` root against `../target-repo/WORKFLOW.md`  | operator checkout paths, selected workflow path | selected instance root and repo docs exist | review the plan against `../target-repo` docs, not `symphony-ts` docs                                                           |
+| Selected instance has `WORKFLOW.md` but no `AGENTS.md`                      | workflow path and instance root                 | no `AGENTS.md`, maybe `README.md` and docs | continue with the selected repository's checked-in instructions that do exist; do not fall back to `symphony-ts` planning rules |
+| Selected instance overrides `tracker.plan_review` markers                   | workflow config available                       | selected marker strings resolved           | use selected marker protocol plus selected repository rubric                                                                    |
+| Self-hosting `symphony-ts` workflow is selected                             | operator checkout equals instance root          | local repo docs are the selected repo docs | preserve current self-hosting behavior                                                                                          |
+| Prompt still says "this repository" without selected-instance clarification | operator checkout root visible                  | external instance root also exists         | invalid implementation for this issue; prompt must explicitly distinguish tooling repo from selected instance review authority  |
 
 ## Storage / Persistence Contract
 

@@ -317,6 +317,7 @@ describe("operator loop workflow selection", () => {
       ) as {
         readonly state: string;
         readonly selectedWorkflowPath: string | null;
+        readonly selectedInstanceRoot: string;
         readonly operatorStateRoot: string;
         readonly standingContext: string;
         readonly wakeUpLog: string;
@@ -333,6 +334,7 @@ describe("operator loop workflow selection", () => {
       expect(run.stateRoot.startsWith(ralphInstancesRoot)).toBe(true);
       expect(statusJson.state).toBe("idle");
       expect(statusJson.selectedWorkflowPath).toBe(workflowPath);
+      expect(statusJson.selectedInstanceRoot).toBe(path.dirname(workflowPath));
       expect(statusJson.operatorStateRoot).toBe(run.stateRoot);
       expect(statusJson.standingContext).toBe(run.standingContextPath);
       expect(statusJson.wakeUpLog).toBe(run.wakeUpLogPath);
@@ -340,6 +342,9 @@ describe("operator loop workflow selection", () => {
       expect(statusJson.releaseState.advancementState).toBe("unconfigured");
       expect(statusJson.releaseState.promotion.state).toBe("unconfigured");
       expect(statusMd).toContain(`- Selected workflow: ${workflowPath}`);
+      expect(statusMd).toContain(
+        `- Selected instance root: ${path.dirname(workflowPath)}`,
+      );
       expect(statusMd).toContain(`- Operator state root: ${run.stateRoot}`);
       expect(statusMd).toContain(
         `- Standing context: ${run.standingContextPath}`,
@@ -450,6 +455,30 @@ describe("operator loop workflow selection", () => {
       expect(prompt).toContain("bin/symphony-report.ts review-pending");
       expect(prompt).toContain("bin/check-operator-release-state.ts");
       expect(prompt).toContain("Read the instance-scoped standing context");
+      expect(prompt).toContain("SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT");
+      expect(prompt).toContain(
+        "selected instance root if they exist, and do not apply `symphony-ts` planning standards",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("exports the selected instance root to the operator command environment", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-instance-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const capturePath = path.join(tempDir, "instance-root.txt");
+
+    try {
+      await runOperatorLoopWithCommand(
+        workflowPath,
+        `node -e ${JSON.stringify(`require("node:fs").writeFileSync(${JSON.stringify(capturePath)}, process.env.SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT ?? "")`)}`,
+      );
+      createdPaths.add(tempDir);
+
+      expect(await fs.readFile(capturePath, "utf8")).toBe(
+        path.dirname(workflowPath),
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

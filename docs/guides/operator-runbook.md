@@ -63,6 +63,13 @@ and use the factory commands in this runbook with `--workflow
 ../target-repo/WORKFLOW.md` whenever your shell is not already inside that
 instance root.
 
+For operator plan review, the selected instance repository is the authority.
+The operator checkout provides the loop, tooling, and local `.ralph/` state,
+but a third-party plan must be judged against that repository's own
+`WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist.
+Do not apply `symphony-ts` planning standards to an external repository unless
+that repository's checked-in instructions explicitly say to do so.
+
 Normal path rules:
 
 - Treat `factory status --json` as the primary source of truth.
@@ -209,16 +216,16 @@ Intervene directly only when the runtime contract is impaired or an explicit hum
 
 Use this table:
 
-| Situation                                                                                        | Operator action                                                                                                             |
-| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `awaiting-human-handoff`                                                                         | Review the plan and post one of the workflow's accepted plan-review decision markers from `tracker.plan_review`             |
-| `degraded-review-infrastructure`                                                                 | Inspect the missing reviewer-app output path before further automation or manual landing                                    |
-| `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                                                      |
-| Detached runtime stopped or degraded                                                             | Use `factory status`, then `factory start` or `factory restart`                                                             |
-| Severe failure pattern where continuing automation would be harmful                              | Use `factory pause --reason ...`, inspect `factory status`, then optionally `factory stop` until humans reconcile           |
-| `restart-recovery` visible after startup                                                         | Inspect the recovery summary and per-issue decisions before manual reruns                                                   |
-| `retry-backoff` or `watchdog-recovery`                                                           | Prefer waiting for the queue/recovery path unless the factory is degraded or the posture stops progressing                  |
-| Failed issue with retained workspace                                                             | Inspect artifacts and retained workspace, fix the underlying problem, then relabel or rerun through the normal tracker path |
+| Situation                                                                                        | Operator action                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `awaiting-human-handoff`                                                                         | Review the plan against the selected instance repository's own checked-in planning contract and post one of the workflow's accepted plan-review decision markers from `tracker.plan_review` |
+| `degraded-review-infrastructure`                                                                 | Inspect the missing reviewer-app output path before further automation or manual landing                                                                                                    |
+| `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                                                                                                                      |
+| Detached runtime stopped or degraded                                                             | Use `factory status`, then `factory start` or `factory restart`                                                                                                                             |
+| Severe failure pattern where continuing automation would be harmful                              | Use `factory pause --reason ...`, inspect `factory status`, then optionally `factory stop` until humans reconcile                                                                           |
+| `restart-recovery` visible after startup                                                         | Inspect the recovery summary and per-issue decisions before manual reruns                                                                                                                   |
+| `retry-backoff` or `watchdog-recovery`                                                           | Prefer waiting for the queue/recovery path unless the factory is degraded or the posture stops progressing                                                                                  |
+| Failed issue with retained workspace                                                             | Inspect artifacts and retained workspace, fix the underlying problem, then relabel or rerun through the normal tracker path                                                                 |
 
 Avoid manual branch takeovers while the factory is healthy. If the runtime missed CI or review follow-up, treat that as a product problem first.
 

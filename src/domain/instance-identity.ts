@@ -8,6 +8,7 @@ const MAX_INSTANCE_LABEL_LENGTH = 24;
 const INSTANCE_HASH_LENGTH = 10;
 
 export interface SymphonyInstanceIdentity {
+  readonly instanceRoot: string;
   readonly instanceKey: string;
   readonly detachedSessionName: string;
 }
@@ -33,6 +34,7 @@ export function deriveSymphonyInstanceIdentity(
   const instanceRoot = normalizeInstanceRoot(instanceRootOrWorkflowPath);
   const instanceKey = deriveSymphonyInstanceKey(instanceRoot);
   return {
+    instanceRoot,
     instanceKey,
     detachedSessionName: `${DETACHED_SESSION_PREFIX}-${instanceKey}`,
   };
