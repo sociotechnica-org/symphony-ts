@@ -579,10 +579,7 @@ function formatRefreshLine(
   nowMs: number,
 ): string {
   if (polling === null) {
-    return (
-      colorize("│ Next refresh: ", BOLD) +
-      colorize("n/a", SECONDARY_TEXT)
-    );
+    return colorize("│ Next refresh: ", BOLD) + colorize("n/a", SECONDARY_TEXT);
   }
   if (polling.checkingNow) {
     return colorize("│ Next refresh: ", BOLD) + colorize("checking now…", CYAN);

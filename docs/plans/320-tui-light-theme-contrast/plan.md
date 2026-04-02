@@ -130,13 +130,13 @@ This slice does not change orchestration state, retries, continuations, reconcil
 
 ## Contrast Decision Matrix
 
-| Observed render condition | Current render behavior | Expected render behavior |
-| --- | --- | --- |
-| Recovery posture summary/detail on a light terminal | summary text and detail rely on dim gray | operator-critical summary/detail text uses default or otherwise high-contrast foreground |
-| Recovery posture entry metadata | issue family/id/detail all rely heavily on colored/dim text | compact status tags may stay colored, but the explanatory text remains readable without depending on dim styling |
-| Ticket table row for active/waiting items | large text spans inherit status colors, with adjacent dim metadata | color is limited to short status cues while row content remains readable on light themes |
-| Empty-state rows such as `No active tickets` | empty-state text uses dim gray | empty-state text remains muted but still legible on light backgrounds |
-| Dark terminal rendering | current palette is readable | dark-mode readability remains acceptable after neutralizing the low-contrast choices |
+| Observed render condition                           | Current render behavior                                            | Expected render behavior                                                                                         |
+| --------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Recovery posture summary/detail on a light terminal | summary text and detail rely on dim gray                           | operator-critical summary/detail text uses default or otherwise high-contrast foreground                         |
+| Recovery posture entry metadata                     | issue family/id/detail all rely heavily on colored/dim text        | compact status tags may stay colored, but the explanatory text remains readable without depending on dim styling |
+| Ticket table row for active/waiting items           | large text spans inherit status colors, with adjacent dim metadata | color is limited to short status cues while row content remains readable on light themes                         |
+| Empty-state rows such as `No active tickets`        | empty-state text uses dim gray                                     | empty-state text remains muted but still legible on light backgrounds                                            |
+| Dark terminal rendering                             | current palette is readable                                        | dark-mode readability remains acceptable after neutralizing the low-contrast choices                             |
 
 ## Observability Requirements
 
