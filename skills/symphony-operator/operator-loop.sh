@@ -14,6 +14,7 @@ RELEASE_STATE_CHECKER="$REPO_ROOT/bin/check-operator-release-state.ts"
 READY_PROMOTER="$REPO_ROOT/bin/promote-operator-ready-issues.ts"
 INSTANCE_KEY=""
 DETACHED_SESSION_NAME=""
+SELECTED_INSTANCE_ROOT=""
 INSTANCE_STATE_ROOT=""
 LOG_DIR=""
 LOCK_DIR=""
@@ -146,6 +147,7 @@ const fs = require("node:fs");
 const data = JSON.parse(fs.readFileSync(0, "utf8"));
   const mappings = {
   workflowPath: "WORKFLOW_PATH",
+  selectedInstanceRoot: "SELECTED_INSTANCE_ROOT",
   instanceKey: "INSTANCE_KEY",
   detachedSessionName: "DETACHED_SESSION_NAME",
   operatorStateRoot: "INSTANCE_STATE_ROOT",
@@ -510,6 +512,7 @@ write_status() {
   "repoRoot": "$(json_escape "$REPO_ROOT")",
   "instanceKey": "$(json_escape "$INSTANCE_KEY")",
   "detachedSessionName": "$(json_escape "$DETACHED_SESSION_NAME")",
+  "selectedInstanceRoot": "$(json_escape "$SELECTED_INSTANCE_ROOT")",
   "operatorStateRoot": "$(json_escape "$INSTANCE_STATE_ROOT")",
   "pid": $$,
   "runOnce": $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'true'; else printf 'false'; fi),
@@ -568,6 +571,7 @@ EOF
 - Repo root: $REPO_ROOT
 - Instance key: $INSTANCE_KEY
 - Detached session: $DETACHED_SESSION_NAME
+- Selected instance root: $SELECTED_INSTANCE_ROOT
 - Operator state root: $INSTANCE_STATE_ROOT
 - Mode: $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'once'; else printf 'continuous'; fi)
 - Interval seconds: $INTERVAL_SECONDS
@@ -748,6 +752,7 @@ run_cycle() {
     printf 'repo_root=%s\n' "$REPO_ROOT"
     printf 'instance_key=%s\n' "$INSTANCE_KEY"
     printf 'detached_session=%s\n' "$DETACHED_SESSION_NAME"
+    printf 'selected_instance_root=%s\n' "$SELECTED_INSTANCE_ROOT"
     printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
     printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
     printf 'provider=%s\n' "$OPERATOR_PROVIDER"
@@ -769,6 +774,7 @@ run_cycle() {
     export SYMPHONY_OPERATOR_REPO_ROOT="$REPO_ROOT"
     export SYMPHONY_OPERATOR_INSTANCE_KEY="$INSTANCE_KEY"
     export SYMPHONY_OPERATOR_DETACHED_SESSION_NAME="$DETACHED_SESSION_NAME"
+    export SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT="$SELECTED_INSTANCE_ROOT"
     export SYMPHONY_OPERATOR_STATE_ROOT="$INSTANCE_STATE_ROOT"
     export SYMPHONY_OPERATOR_STANDING_CONTEXT="$STANDING_CONTEXT"
     export SYMPHONY_OPERATOR_WAKE_UP_LOG="$WAKE_UP_LOG"

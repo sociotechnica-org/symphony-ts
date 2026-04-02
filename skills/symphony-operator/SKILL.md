@@ -1,6 +1,6 @@
 ---
 name: symphony-operator
-description: Operate and maintain the local Symphony factory in this repository. Use this skill when monitoring the live factory, repairing stalled runs, handling PR review and CI follow-up, or improving the operator loop itself.
+description: Operate and maintain the local Symphony factory from this repository checkout. Use this skill when monitoring the live factory, repairing stalled runs, handling PR review and CI follow-up, or improving the operator loop itself.
 ---
 
 # Symphony Operator
@@ -34,7 +34,7 @@ provider session for that instance.
 - Observe the live factory, not just the repository.
 - Repair broken or stalled execution.
 - Drive PRs through CI and automated review to a mergeable state.
-- Handle `plan-ready` issues using the selected workflow's configured `tracker.plan_review` protocol: review plans, request changes when needed, and approve when ready.
+- Handle `plan-ready` issues using the selected workflow's configured `tracker.plan_review` protocol: review plans against the selected instance repository's own checked-in contract, request changes when needed, and approve when ready.
 - Keep GitHub as a thin queue and rely on Symphony's own polling and concurrency.
 - Maintain the selected instance's persistent local operator notebook as:
   - `.ralph/instances/<instance-key>/standing-context.md` for durable guidance
@@ -65,7 +65,7 @@ provider session for that instance.
 14. If the factory is unhealthy, fix the concrete problem and restart it.
 15. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
 16. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
-17. If an active issue is waiting in `plan-ready`, inspect the selected workflow's configured `tracker.plan_review` markers, review the plan, and post an explicit review decision comment using that protocol. When no override is configured, the defaults remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
+17. If an active issue is waiting in `plan-ready`, inspect the selected workflow's configured `tracker.plan_review` markers, then review the plan against the selected instance root at `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT`. Read that repository's `WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist; if the selected instance differs from the operator checkout, do not import `symphony-ts` planning standards into that external repository. Post an explicit review decision comment using the selected workflow's protocol. When no override is configured, the defaults remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
 
 18. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
 19. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
@@ -78,6 +78,7 @@ provider session for that instance.
 - Keep concurrency conservative.
 - Treat `docs/guides/operator-runbook.md` as the canonical daily-use procedure and keep this skill focused on operator policy, checkpoints, and escalation.
 - Treat the factory-control surface as the primary local runtime contract; use ad hoc `screen`, `ps`, or `pkill` inspection only when the control command is unavailable or inconsistent.
+- Treat the operator checkout as tooling, not automatically as policy authority. For plan review and repo-owned rules, the selected instance repository is the source of truth.
 - In a wake-up cycle, favor short, bounded inspection commands over long-running watchers. If a secondary GitHub or watch-surface probe is slow or non-terminal, stop and continue from the latest successful control-surface read instead of waiting indefinitely.
 - Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring and `pnpm tsx bin/symphony.ts factory attach` when you need the full-screen TUI; do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can kill the worker.
 - Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
@@ -92,6 +93,7 @@ provider session for that instance.
 - Keep release dependency truth in the typed `release-state.json` artifact, not only in markdown notes. Standing context may explain release sequencing, but prerequisite failure gating must remain inspectable through the typed artifact.
 - Treat plan review as a required operator checkpoint:
   - read the selected workflow's `tracker.plan_review` config first,
+  - read the selected instance repository's `WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist,
   - if the plan is sound, post that workflow's approval marker,
   - if revisions are needed, post that workflow's changes-requested marker with concrete guidance,
   - if explicitly bypassing review, post that workflow's waiver marker and record why.

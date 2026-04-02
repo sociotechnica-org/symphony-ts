@@ -21,6 +21,7 @@ describe("instance identity helpers", () => {
       "/tmp/project-a/WORKFLOW.md",
     );
 
+    expect(identity.instanceRoot).toBe("/tmp/project-a");
     expect(identity.instanceKey).toMatch(/^project-a-[0-9a-f]{10}$/);
     expect(identity.detachedSessionName).toBe(
       `symphony-factory-${identity.instanceKey}`,
