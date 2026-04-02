@@ -21,18 +21,19 @@ Required workflow:
 11. The operator loop now runs `pnpm tsx bin/promote-operator-ready-issues.ts` immediately after that checkpoint. Treat `SYMPHONY_OPERATOR_RELEASE_STATE` as the canonical operator-local release artifact, including its stored `promotion` result with eligible downstream issues plus any `symphony:ready` labels added or removed.
 12. If the release-state check reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, or if ready promotion reports `sync-failed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure, metadata gap, or label-sync error is resolved.
 13. Use bounded, one-shot inspection commands during this wake-up. Do not use long-running watch/follow commands in the critical path; if a secondary probe is slow or non-terminal, proceed from the latest successful control snapshot.
-14. Inspect the live watch surface only when useful and only with bounded probes, but treat `factory status --json` as canonical.
-15. Review active issues, PRs, CI, and automated review feedback after the completed-run report-review checkpoint and release-state checkpoint are clear.
-16. If a required CI check appears stuck but the same behavior is locally reproducible, treat the reproducible hang as active operator-owned work; keep debugging until the PR is actually green or the remaining blocker is clearly external.
-17. Before posting a plan-review decision, inspect the selected workflow's `tracker.plan_review` config and use its configured decision markers; review the plan against the selected instance repository's own planning contract and docs, not the operator repo's defaults. When no override is configured, the default markers remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
-18. As mandatory operator checkpoints for this wake-up, explicitly:
+14. Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh` from inside this wake-up shell. Use the supported factory-control and status commands for deeper inspection instead of nesting the operator loop.
+15. Inspect the live watch surface only when useful and only with bounded probes, but treat `factory status --json` as canonical.
+16. Review active issues, PRs, CI, and automated review feedback after the completed-run report-review checkpoint and release-state checkpoint are clear.
+17. If a required CI check appears stuck but the same behavior is locally reproducible, treat the reproducible hang as active operator-owned work; keep debugging until the PR is actually green or the remaining blocker is clearly external.
+18. Before posting a plan-review decision, inspect the selected workflow's `tracker.plan_review` config and use its configured decision markers; review the plan against the selected instance repository's own planning contract and docs, not the operator repo's defaults. When no override is configured, the default markers remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
+19. As mandatory operator checkpoints for this wake-up, explicitly:
 
 - review any active `plan-ready` / `awaiting-human-handoff` issue against the selected instance repository's own checked-in planning rules and post a plan decision,
 - post `/land` on any PR waiting in `awaiting-landing-command` once it is green and review-clean,
 - and after any successful landing, pull latest `origin/main`, refresh `.tmp/factory-main`, and restart the detached factory from that merged code.
 
-19. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
-20. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
+20. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
+21. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
 
 Constraints:
 

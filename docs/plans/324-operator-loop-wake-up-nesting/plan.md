@@ -290,14 +290,14 @@ state must stay explicit.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected decision |
-| --- | --- | --- |
-| Top-level operator launch from repo root | no inherited parent-loop marker; normal config/instance metadata available | continue through startup, acquire the instance lock, and run normally |
-| Descendant shell inside an active wake-up launches `pnpm operator` or `operator-loop.sh` | inherited parent-loop marker present in environment | fail immediately with a clear nested-launch error; do not acquire a second lock or start a second wake-up |
-| Nested launch targets a different checkout or different selected workflow | inherited parent-loop marker present even though state-root/instance-key may differ | still fail closed because the child is inside an already-running wake-up process tree |
-| Second top-level launch from another terminal for the same instance | no inherited parent-loop marker; same instance lock already owned by a live process | keep existing behavior: exit with the current "already running" lock message |
-| Stale lock found for a valid top-level launch | no inherited parent-loop marker; lock owner not live | keep existing stale-lock recovery behavior |
-| Operator command fails for non-nesting reasons | top-level launch succeeded; wake-up command exits non-zero | keep existing failed-cycle and retry behavior; this issue does not change ordinary cycle failure handling |
+| Observed condition                                                                       | Local facts available                                                               | Expected decision                                                                                         |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Top-level operator launch from repo root                                                 | no inherited parent-loop marker; normal config/instance metadata available          | continue through startup, acquire the instance lock, and run normally                                     |
+| Descendant shell inside an active wake-up launches `pnpm operator` or `operator-loop.sh` | inherited parent-loop marker present in environment                                 | fail immediately with a clear nested-launch error; do not acquire a second lock or start a second wake-up |
+| Nested launch targets a different checkout or different selected workflow                | inherited parent-loop marker present even though state-root/instance-key may differ | still fail closed because the child is inside an already-running wake-up process tree                     |
+| Second top-level launch from another terminal for the same instance                      | no inherited parent-loop marker; same instance lock already owned by a live process | keep existing behavior: exit with the current "already running" lock message                              |
+| Stale lock found for a valid top-level launch                                            | no inherited parent-loop marker; lock owner not live                                | keep existing stale-lock recovery behavior                                                                |
+| Operator command fails for non-nesting reasons                                           | top-level launch succeeded; wake-up command exits non-zero                          | keep existing failed-cycle and retry behavior; this issue does not change ordinary cycle failure handling |
 
 ## Storage / Persistence Contract
 

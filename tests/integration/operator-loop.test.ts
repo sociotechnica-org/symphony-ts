@@ -1,4 +1,8 @@
-import { execFile, spawn } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -186,6 +190,51 @@ async function runOperatorLoopWithArgs(
     stdout: result.stdout,
     stderr: result.stderr,
   };
+}
+
+async function runOperatorLoopExpectFailure(
+  workflowPath: string,
+  args: readonly string[] = [],
+  env?: NodeJS.ProcessEnv,
+): Promise<{
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+}> {
+  try {
+    await execFileAsync(
+      "bash",
+      [
+        path.join("skills", "symphony-operator", "operator-loop.sh"),
+        "--once",
+        "--workflow",
+        workflowPath,
+        ...args,
+      ],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          GH_TOKEN: "test-token",
+          SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
+          ...env,
+        },
+      },
+    );
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException & {
+      readonly code?: number | string;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+    return {
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+      exitCode: typeof failure.code === "number" ? failure.code : null,
+    };
+  }
+
+  throw new Error("Expected operator loop invocation to fail");
 }
 
 function buildAppendWakeUpLogCommand(entryTitle: string): string {
@@ -436,6 +485,9 @@ describe("operator loop workflow selection", () => {
         "SYMPHONY_OPERATOR_STANDING_CONTEXT",
       );
       const wakeUpLogIndex = prompt.indexOf("SYMPHONY_OPERATOR_WAKE_UP_LOG");
+      const nestedLoopIndex = prompt.indexOf(
+        "Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh`",
+      );
       const appendIndex = prompt.indexOf(
         "append a new timestamped journal entry",
       );
@@ -446,6 +498,7 @@ describe("operator loop workflow selection", () => {
       expect(queueWorkIndex).toBeGreaterThanOrEqual(0);
       expect(standingContextIndex).toBeGreaterThanOrEqual(0);
       expect(wakeUpLogIndex).toBeGreaterThanOrEqual(0);
+      expect(nestedLoopIndex).toBeGreaterThanOrEqual(0);
       expect(appendIndex).toBeGreaterThanOrEqual(0);
       expect(freshnessIndex).toBeLessThan(reportReviewIndex);
       expect(reportReviewIndex).toBeLessThan(releaseStateIndex);
@@ -458,6 +511,9 @@ describe("operator loop workflow selection", () => {
       expect(prompt).toContain("SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT");
       expect(prompt).toContain(
         "selected instance root if they exist, and do not apply `symphony-ts` planning standards",
+      );
+      expect(prompt).toContain(
+        "Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh`",
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -480,6 +536,153 @@ describe("operator loop workflow selection", () => {
         path.dirname(workflowPath),
       );
     } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a nested operator loop launched from inside a wake-up cycle", async () => {
+    const parentDir = await createTempDir("symphony-operator-loop-parent-");
+    const nestedDir = await createTempDir("symphony-operator-loop-nested-");
+    const parentWorkflow = await writeWorkflow(parentDir);
+    const nestedWorkflow = await writeWorkflow(nestedDir);
+    const nestedResultPath = path.join(parentDir, "nested-result.json");
+    const nestedStdoutPath = path.join(parentDir, "nested-stdout.txt");
+    const nestedStderrPath = path.join(parentDir, "nested-stderr.txt");
+    const nestedCommandPath = path.join(parentDir, "nested-command.sh");
+    const nestedPaths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey: deriveSymphonyInstanceKey(path.dirname(nestedWorkflow)),
+    });
+
+    try {
+      await fs.writeFile(
+        nestedCommandPath,
+        `#!/usr/bin/env bash
+set -euo pipefail
+set +e
+bash ${JSON.stringify(path.join(repoRoot, "skills", "symphony-operator", "operator-loop.sh"))} --once --workflow ${JSON.stringify(nestedWorkflow)} >${JSON.stringify(nestedStdoutPath)} 2>${JSON.stringify(nestedStderrPath)}
+status=$?
+set -e
+node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(nestedResultPath)}, JSON.stringify({ error: null, status: Number(process.argv[1]), stdout: fs.readFileSync(${JSON.stringify(nestedStdoutPath)}, "utf8"), stderr: fs.readFileSync(${JSON.stringify(nestedStderrPath)}, "utf8") }, null, 2));`)} "$status"
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+      const run = await runOperatorLoopWithOptions(parentWorkflow, {
+        env: {
+          SYMPHONY_OPERATOR_COMMAND: nestedCommandPath,
+        },
+      });
+      createdPaths.add(parentDir);
+      createdPaths.add(nestedDir);
+      createdPaths.add(run.stateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      const nestedResult = JSON.parse(
+        await fs.readFile(nestedResultPath, "utf8"),
+      ) as {
+        readonly error: string | null;
+        readonly status: number | null;
+        readonly stdout: string;
+        readonly stderr: string;
+      };
+
+      expect(nestedResult.error).toBeNull();
+      expect(nestedResult.status).toBe(1);
+      expect(nestedResult.stderr).toContain(
+        "nested operator loop launch rejected inside an active wake-up cycle",
+      );
+      expect(nestedResult.stderr).toContain("parent_pid=");
+      expect(nestedResult.stderr).toContain("requested_instance=");
+      await expect(fs.access(nestedPaths.statusJsonPath)).rejects.toThrow();
+      await expect(fs.access(nestedPaths.lockDir)).rejects.toThrow();
+    } finally {
+      await fs.rm(parentDir, { recursive: true, force: true });
+      await fs.rm(nestedDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the existing same-instance lock rejection for separate top-level launches", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-lock-");
+    const workflowPath = await writeWorkflow(tempDir);
+
+    const childHolder: { current: ChildProcessWithoutNullStreams | null } = {
+      current: null,
+    };
+    try {
+      createdPaths.add(tempDir);
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(
+          "bash",
+          [
+            path.join("skills", "symphony-operator", "operator-loop.sh"),
+            "--interval-seconds",
+            "60",
+            "--workflow",
+            workflowPath,
+          ],
+          {
+            cwd: repoRoot,
+            env: {
+              ...process.env,
+              GH_TOKEN: "test-token",
+              SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
+            },
+          },
+        );
+        childHolder.current = child;
+
+        let collectedStderr = "";
+        const timeout = setTimeout(() => {
+          reject(
+            new Error(
+              "Timed out waiting for operator loop to acquire the lock",
+            ),
+          );
+        }, 10000);
+
+        child.stderr.setEncoding("utf8");
+        child.stderr.on("data", (chunk: string) => {
+          collectedStderr += chunk;
+          if (
+            collectedStderr.includes(
+              "operator-loop: going to sleep until the first wake-up cycle",
+            )
+          ) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+        child.on("error", (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+        child.on("close", (code) => {
+          if (code !== null && code !== 0) {
+            clearTimeout(timeout);
+            reject(
+              new Error(
+                `Operator loop exited before the lock test completed: ${code.toString()}`,
+              ),
+            );
+          }
+        });
+      });
+
+      const failure = await runOperatorLoopExpectFailure(workflowPath);
+      expect(failure.exitCode).toBe(1);
+      expect(failure.stderr).toContain(
+        "operator-loop: another loop is already running with pid",
+      );
+    } finally {
+      const childProcess = childHolder.current;
+      if (childProcess !== null) {
+        childProcess.kill("SIGTERM");
+        await new Promise<void>((resolve) => {
+          childProcess.once("close", () => resolve());
+        });
+      }
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });

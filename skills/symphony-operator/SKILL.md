@@ -80,6 +80,7 @@ provider session for that instance.
 - Treat the factory-control surface as the primary local runtime contract; use ad hoc `screen`, `ps`, or `pkill` inspection only when the control command is unavailable or inconsistent.
 - Treat the operator checkout as tooling, not automatically as policy authority. For plan review and repo-owned rules, the selected instance repository is the source of truth.
 - In a wake-up cycle, favor short, bounded inspection commands over long-running watchers. If a secondary GitHub or watch-surface probe is slow or non-terminal, stop and continue from the latest successful control-surface read instead of waiting indefinitely.
+- Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh` from inside an active wake-up shell. Use the supported factory-control and status commands instead of nesting the operator loop.
 - Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring and `pnpm tsx bin/symphony.ts factory attach` when you need the full-screen TUI; do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can kill the worker.
 - Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
 - Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart` over manual `screen` and process cleanup.
