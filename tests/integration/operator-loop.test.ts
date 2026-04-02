@@ -20,6 +20,27 @@ import { createTempDir } from "../support/git.js";
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
 const ralphInstancesRoot = path.join(repoRoot, ".ralph", "instances");
+const inheritedParentLoopEnvKeys = [
+  "SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP",
+  "SYMPHONY_OPERATOR_PARENT_LOOP_PID",
+  "SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY",
+  "SYMPHONY_OPERATOR_PARENT_REPO_ROOT",
+  "SYMPHONY_OPERATOR_PARENT_SELECTED_INSTANCE_ROOT",
+  "SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH",
+] as const;
+
+function buildTopLevelOperatorLoopEnv(
+  overrides?: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of inheritedParentLoopEnvKeys) {
+    delete env[key];
+  }
+  return {
+    ...env,
+    ...overrides,
+  };
+}
 
 async function writeWorkflow(rootDir: string): Promise<string> {
   const workflowPath = path.join(rootDir, "WORKFLOW.md");
@@ -111,12 +132,11 @@ async function runOperatorLoopWithOptions(
     ],
     {
       cwd: repoRoot,
-      env: {
-        ...process.env,
+      env: buildTopLevelOperatorLoopEnv({
         SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
         GH_TOKEN: "test-token",
         ...options?.env,
-      },
+      }),
     },
   );
 
@@ -178,11 +198,10 @@ async function runOperatorLoopWithArgs(
     ],
     {
       cwd: repoRoot,
-      env: {
-        ...process.env,
+      env: buildTopLevelOperatorLoopEnv({
         GH_TOKEN: "test-token",
         ...env,
-      },
+      }),
     },
   );
 
@@ -213,12 +232,11 @@ async function runOperatorLoopExpectFailure(
       ],
       {
         cwd: repoRoot,
-        env: {
-          ...process.env,
+        env: buildTopLevelOperatorLoopEnv({
           GH_TOKEN: "test-token",
           SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
           ...env,
-        },
+        }),
       },
     );
   } catch (error) {
@@ -402,6 +420,50 @@ describe("operator loop workflow selection", () => {
       expect(statusMd).toContain(`- Release state: ${run.releaseStatePath}`);
       expect(statusMd).toContain(`- Ready promotion state: unconfigured`);
     } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sanitizes inherited parent-loop markers for top-level test launches", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-sanitized-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const previousParentLoopEnv = Object.fromEntries(
+      inheritedParentLoopEnvKeys.map((key) => [key, process.env[key]]),
+    ) as Record<
+      (typeof inheritedParentLoopEnvKeys)[number],
+      string | undefined
+    >;
+
+    process.env.SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP = "1";
+    process.env.SYMPHONY_OPERATOR_PARENT_LOOP_PID = "12345";
+    process.env.SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY = "parent-instance";
+    process.env.SYMPHONY_OPERATOR_PARENT_REPO_ROOT = "/tmp/parent-repo";
+    process.env.SYMPHONY_OPERATOR_PARENT_SELECTED_INSTANCE_ROOT =
+      "/tmp/parent-instance";
+    process.env.SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH =
+      "/tmp/parent-instance/WORKFLOW.md";
+
+    try {
+      const run = await runOperatorLoop(workflowPath);
+      createdPaths.add(tempDir);
+      createdPaths.add(run.stateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      expect(run.stderr).toContain("operator-loop: waking up");
+      expect(run.stderr).not.toContain(
+        "nested operator loop launch rejected inside an active wake-up cycle",
+      );
+    } finally {
+      for (const key of inheritedParentLoopEnvKeys) {
+        const previousValue = previousParentLoopEnv[key];
+        if (previousValue === undefined) {
+          delete process.env[key];
+          continue;
+        }
+        process.env[key] = previousValue;
+      }
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
@@ -624,11 +686,10 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
           ],
           {
             cwd: repoRoot,
-            env: {
-              ...process.env,
+            env: buildTopLevelOperatorLoopEnv({
               GH_TOKEN: "test-token",
               SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
-            },
+            }),
           },
         );
         childHolder.current = child;
@@ -1151,11 +1212,10 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
           ],
           {
             cwd: repoRoot,
-            env: {
-              ...process.env,
+            env: buildTopLevelOperatorLoopEnv({
               GH_TOKEN: "test-token",
               SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
-            },
+            }),
           },
         );
         let collectedStderr = "";
