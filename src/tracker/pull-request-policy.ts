@@ -366,7 +366,7 @@ export function evaluatePullRequestLifecycle(
       requiredReviewerState: snapshot.requiredReviewerState,
       summary: snapshot.hasLandingCommand
         ? `Pull request ${snapshot.pullRequest.url} is awaiting landing / merge observation`
-        : `Pull request ${snapshot.pullRequest.url} is awaiting a human /land command`,
+        : `Pull request ${snapshot.pullRequest.url} is awaiting an explicit /land command`,
     },
     nextNoCheckObservation: null,
   };

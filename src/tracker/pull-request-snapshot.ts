@@ -68,7 +68,7 @@ function compareIsoTimestampsDescending(left: string, right: string): number {
   return right.localeCompare(left);
 }
 
-function isHumanLandingApprover(
+function isQualifyingLandingCommandAuthor(
   authorLogin: string | null,
   authorAssociation: string,
   reviewerAppLogins: ReadonlySet<string>,
@@ -77,12 +77,18 @@ function isHumanLandingApprover(
     return false;
   }
   const normalized = authorLogin.toLowerCase();
+  if (reviewerAppLogins.has(normalized)) {
+    return false;
+  }
+
+  if (normalized.endsWith("[bot]")) {
+    return true;
+  }
+
   return (
-    !reviewerAppLogins.has(normalized) &&
-    !normalized.endsWith("[bot]") &&
-    (authorAssociation === "OWNER" ||
-      authorAssociation === "MEMBER" ||
-      authorAssociation === "COLLABORATOR")
+    authorAssociation === "OWNER" ||
+    authorAssociation === "MEMBER" ||
+    authorAssociation === "COLLABORATOR"
   );
 }
 
@@ -167,7 +173,7 @@ export function createPullRequestSnapshot(input: {
       : (currentHeadIssueComments
           .filter(
             (comment) =>
-              isHumanLandingApprover(
+              isQualifyingLandingCommandAuthor(
                 comment.authorLogin,
                 comment.authorAssociation,
                 reviewerAppLogins,

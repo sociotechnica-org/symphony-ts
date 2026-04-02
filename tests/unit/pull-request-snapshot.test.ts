@@ -734,7 +734,7 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual([]);
   });
 
-  it("detects a human /land command on the current PR head", () => {
+  it("detects a member-authored /land command on the current PR head", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
       pullRequest,
@@ -777,7 +777,50 @@ describe("createPullRequestSnapshot", () => {
     });
   });
 
-  it("ignores stale or bot-authored /land comments", () => {
+  it("detects a non-reviewer bot /land command on the current PR head", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "symphony-operator[bot]" },
+              body: "/land",
+              createdAt: "2026-03-06T02:01:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    expect(snapshot.hasLandingCommand).toBe(true);
+    expect(snapshot.landingCommand).toEqual({
+      commentId: "comment-1",
+      authorLogin: "symphony-operator[bot]",
+      observedAt: "2026-03-06T02:01:00.000Z",
+      url: "https://example.test/pr/24#comment-1",
+    });
+  });
+
+  it("ignores stale or reviewer-bot /land comments", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
       pullRequest,

@@ -1535,7 +1535,7 @@ function buildTimelineEntry(
         title: "Landing command observed",
         summary: readEventSummary(
           event.details,
-          "A human /land command was observed for the current pull request head.",
+          "A /land command was observed for the current pull request head.",
         ),
         attemptNumber: event.attemptNumber,
         sessionId: event.sessionId,
