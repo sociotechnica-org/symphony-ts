@@ -1,8 +1,11 @@
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import {
-  parsePlanReviewSignal,
+  DEFAULT_PLAN_REVIEW_PROTOCOL,
+  type PlanReviewDecisionSignal,
+  type PlanReviewProtocol,
   type PlanReviewSignal,
-} from "./plan-review-signal.js";
+} from "../domain/plan-review.js";
+import { parsePlanReviewSignal } from "./plan-review-signal.js";
 import { missingPullRequestLifecycle } from "./pull-request-policy.js";
 
 export interface IssueCommentSnapshot {
@@ -12,8 +15,6 @@ export interface IssueCommentSnapshot {
   readonly url: string;
   readonly authorLogin: string | null;
 }
-
-type PlanReviewDecisionSignal = Exclude<PlanReviewSignal, "plan-ready">;
 
 interface ParsedPlanReviewComment {
   readonly signal: PlanReviewSignal;
@@ -38,8 +39,9 @@ export interface PlanReviewProtocolEvaluation {
 
 function parsePlanReviewComment(
   comment: IssueCommentSnapshot,
+  protocol: PlanReviewProtocol,
 ): ParsedPlanReviewComment | null {
-  const signal = parsePlanReviewSignal(comment.body);
+  const signal = parsePlanReviewSignal(comment.body, protocol);
   return signal === null ? null : { signal, comment };
 }
 
@@ -105,10 +107,11 @@ function hasAcknowledgedLatestSignal(
 function buildPlanReviewAcknowledgement(
   signal: PlanReviewDecisionSignal,
   comment: IssueCommentSnapshot,
+  protocol: PlanReviewProtocol,
 ): string {
   const nextAction =
     signal === "changes-requested"
-      ? "Revise the plan, post a fresh `Plan status: plan-ready` comment, and wait for review again."
+      ? `Revise the plan, post a fresh \`${protocol.planReadySignal}\` comment, and wait for review again.`
       : signal === "approved"
         ? "Begin substantial implementation."
         : "Begin substantial implementation without waiting for plan approval.";
@@ -151,9 +154,10 @@ export function evaluatePlanReviewProtocol(
   branchName: string,
   issueUrl: string,
   comments: readonly IssueCommentSnapshot[],
+  protocol: PlanReviewProtocol = DEFAULT_PLAN_REVIEW_PROTOCOL,
 ): PlanReviewProtocolEvaluation {
   const parsedSignals = comments
-    .map(parsePlanReviewComment)
+    .map((comment) => parsePlanReviewComment(comment, protocol))
     .filter((entry): entry is ParsedPlanReviewComment => entry !== null)
     .sort(sortPlanReviewComments);
   const latestSignal = parsedSignals.at(-1) ?? null;
@@ -195,6 +199,7 @@ export function evaluatePlanReviewProtocol(
           body: buildPlanReviewAcknowledgement(
             latestSignal.signal,
             latestSignal.comment,
+            protocol,
           ),
         };
 
@@ -232,6 +237,8 @@ export function evaluatePlanReviewLifecycle(
   branchName: string,
   issueUrl: string,
   comments: readonly IssueCommentSnapshot[],
+  protocol: PlanReviewProtocol = DEFAULT_PLAN_REVIEW_PROTOCOL,
 ): HandoffLifecycle | null {
-  return evaluatePlanReviewProtocol(branchName, issueUrl, comments).lifecycle;
+  return evaluatePlanReviewProtocol(branchName, issueUrl, comments, protocol)
+    .lifecycle;
 }

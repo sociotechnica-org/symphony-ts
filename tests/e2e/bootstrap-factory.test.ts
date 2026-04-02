@@ -6,6 +6,11 @@ import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
+import {
+  buildDefaultPlanReviewReplyGuidance,
+  buildDefaultPlanReviewReplyTemplateBlock,
+  type PlanReviewProtocol,
+} from "../../src/domain/plan-review.js";
 import { writeFactoryHaltRecord } from "../../src/domain/factory-halt.js";
 import { getCodexRemoteWorkerHosts } from "../../src/domain/workflow.js";
 import {
@@ -42,6 +47,29 @@ import { createFakeCodexExecutable } from "../support/fake-codex.js";
 import { createFakeSshExecutable } from "../support/fake-ssh.js";
 
 const originalEnv = { ...process.env };
+
+const customPlanReviewBase = {
+  planReadySignal: "Review status: ready-for-human-plan",
+  legacyPlanReadySignals: [],
+  approvedSignal: "Review verdict: ship-it",
+  changesRequestedSignal: "Review verdict: needs-revision",
+  waivedSignal: "Review verdict: waived",
+  metadataLabels: {
+    planPath: "Plan file",
+    branchName: "Issue branch",
+    planUrl: "Plan link",
+    branchUrl: "Branch link",
+    compareUrl: "Diff link",
+  },
+} as const;
+
+const customPlanReview: PlanReviewProtocol = {
+  ...customPlanReviewBase,
+  reviewReplyGuidance:
+    buildDefaultPlanReviewReplyGuidance(customPlanReviewBase),
+  replyTemplateBlock:
+    buildDefaultPlanReviewReplyTemplateBlock(customPlanReviewBase),
+};
 
 async function writeWorkflow(options: {
   rootDir: string;
@@ -91,6 +119,7 @@ async function writeWorkflow(options: {
         readonly required: boolean;
       }[]
     | undefined;
+  planReviewYaml?: string | undefined;
   archiveRoot?: string | undefined;
 }): Promise<string> {
   const workflowPath = path.join(options.rootDir, "WORKFLOW.md");
@@ -168,6 +197,7 @@ ${options
   .join("\n")}
 `
 }
+${options.planReviewYaml ?? ""}
 polling:
   interval_ms: 5
   max_concurrent_runs: ${options.maxConcurrentRuns ?? 1}
@@ -1641,6 +1671,73 @@ describe("Phase 1.2 PR lifecycle factory", () => {
     );
 
     expect(await countRemoteBranchCommits(remotePath, "symphony/53")).toBe(1);
+  });
+
+  it("waits on a workflow-configured custom plan-review handoff", async () => {
+    server.seedIssue({
+      number: 316,
+      title: "Configurable plan review",
+      body: "Use a workflow-configured plan-review marker.",
+      labels: ["symphony:ready"],
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve(
+        "tests/fixtures/fake-agent-custom-plan-review.sh",
+      ),
+      planReviewYaml: `  plan_review:
+    plan_ready_signal: "Review status: ready-for-human-plan"
+    legacy_plan_ready_signals: []
+    approved_signal: "Review verdict: ship-it"
+    changes_requested_signal: "Review verdict: needs-revision"
+    waived_signal: "Review verdict: waived"
+    metadata_labels:
+      plan_path: "Plan file"
+      branch_name: "Issue branch"
+      plan_url: "Plan link"
+      branch_url: "Branch link"
+      compare_url: "Diff link"
+`,
+    });
+    const orchestrator = await createOrchestrator(workflowPath);
+
+    await orchestrator.runOnce();
+
+    const issue = server.getIssue(316);
+    expect(issue.comments).toHaveLength(1);
+    const planReadyComment = issue.comments[0];
+    if (!planReadyComment) {
+      throw new Error("expected custom plan-ready comment to be present");
+    }
+    expect(planReadyComment).toContain("Review status: ready-for-human-plan");
+    expect(planReadyComment).toContain("Issue branch: `symphony/316`");
+    expect(parsePlanReadyCommentMetadata(planReadyComment)).toBeNull();
+    expect(
+      parsePlanReadyCommentMetadata(planReadyComment, customPlanReview),
+    ).toEqual({
+      planPath: "docs/plans/316-custom-plan-review/plan.md",
+      branchName: "symphony/316",
+      planUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/blob/symphony/316/docs/plans/316-custom-plan-review/plan.md",
+      branchUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/tree/symphony/316",
+      compareUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/compare/main...symphony/316",
+    });
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.factoryState).toBe("blocked");
+    expect(status.lastAction?.kind).toBe("awaiting-human-handoff");
+    expect(status.activeIssues[0]).toMatchObject({
+      issueNumber: 316,
+      status: "awaiting-human-handoff",
+      branchName: "symphony/316",
+    });
   });
 
   it("resumes implementation after approved plan review with a fresh run budget and prompt-visible lifecycle context", async () => {

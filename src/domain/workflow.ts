@@ -2,6 +2,7 @@ import path from "node:path";
 import { ConfigError } from "./errors.js";
 import type { RuntimeIssue } from "./issue.js";
 import type { HandoffLifecycle } from "./handoff.js";
+import type { PlanReviewProtocol } from "./plan-review.js";
 
 export interface QueuePriorityConfig {
   readonly enabled: boolean;
@@ -44,6 +45,7 @@ interface BaseGitHubTrackerConfig {
   readonly approvedReviewBotLogins?: readonly string[] | undefined;
   readonly reviewerApps?: readonly GitHubReviewerAppConfig[] | undefined;
   readonly queuePriority?: GitHubQueuePriorityConfig | undefined;
+  readonly planReview?: PlanReviewProtocol | undefined;
 }
 
 export interface GitHubTrackerConfig extends BaseGitHubTrackerConfig {
@@ -67,6 +69,7 @@ export interface LinearTrackerConfig {
   readonly activeStates: readonly string[];
   readonly terminalStates: readonly string[];
   readonly queuePriority?: QueuePriorityConfig | undefined;
+  readonly planReview?: PlanReviewProtocol | undefined;
 }
 
 export type TrackerConfig =

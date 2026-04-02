@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDefaultPlanReviewReplyGuidance,
+  buildDefaultPlanReviewReplyTemplateBlock,
+  type PlanReviewProtocol,
+} from "../../src/domain/plan-review.js";
+import {
   evaluatePlanReviewProtocol,
   evaluatePlanReviewLifecycle,
   type IssueCommentSnapshot,
@@ -18,6 +23,28 @@ function comment(
     authorLogin: "user",
   };
 }
+
+const customProtocolBase = {
+  planReadySignal: "Review status: ready-for-human-plan",
+  legacyPlanReadySignals: [],
+  approvedSignal: "Review verdict: ship-it",
+  changesRequestedSignal: "Review verdict: needs-revision",
+  waivedSignal: "Review verdict: waived",
+  metadataLabels: {
+    planPath: "Plan file",
+    branchName: "Issue branch",
+    planUrl: "Plan link",
+    branchUrl: "Branch link",
+    compareUrl: "Diff link",
+  },
+} as const;
+
+const customProtocol: PlanReviewProtocol = {
+  ...customProtocolBase,
+  reviewReplyGuidance: buildDefaultPlanReviewReplyGuidance(customProtocolBase),
+  replyTemplateBlock:
+    buildDefaultPlanReviewReplyTemplateBlock(customProtocolBase),
+};
 
 describe("plan-review-policy", () => {
   it("waits when the latest relevant signal is plan-ready", () => {
@@ -242,5 +269,47 @@ describe("plan-review-policy", () => {
 
     expect(protocol.lifecycle).toBeNull();
     expect(protocol.acknowledgement).toBeNull();
+  });
+
+  it("recognizes configured plan-review markers", () => {
+    const lifecycle = evaluatePlanReviewLifecycle(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Review status: ready-for-human-plan\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
+      ],
+      customProtocol,
+    );
+
+    expect(lifecycle?.kind).toBe("awaiting-human-handoff");
+  });
+
+  it("uses the configured plan-ready marker in acknowledgement guidance", () => {
+    const protocol = evaluatePlanReviewProtocol(
+      "symphony/32",
+      "https://example.test/issues/32",
+      [
+        comment(
+          "Review status: ready-for-human-plan\n\nWaiting for review.",
+          "2026-03-07T10:05:00.000Z",
+          2,
+        ),
+        comment(
+          "Review verdict: needs-revision\n\nRequired changes\n- Split the issue.",
+          "2026-03-07T10:06:00.000Z",
+          3,
+        ),
+      ],
+      customProtocol,
+    );
+
+    expect(protocol.lifecycle?.kind).toBe("missing-target");
+    expect(protocol.acknowledgement?.body).toContain(
+      "`Review status: ready-for-human-plan`",
+    );
   });
 });

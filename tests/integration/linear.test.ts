@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  buildDefaultPlanReviewReplyGuidance,
+  buildDefaultPlanReviewReplyTemplateBlock,
+  type PlanReviewProtocol,
+} from "../../src/domain/plan-review.js";
 import { JsonLogger } from "../../src/observability/logger.js";
 import type { Logger } from "../../src/observability/logger.js";
 import type { LinearTrackerConfig } from "../../src/domain/workflow.js";
@@ -33,6 +38,29 @@ class CapturingLogger implements Logger {
 
   error(_message: string, _data?: Record<string, unknown>): void {}
 }
+
+const customPlanReviewBase = {
+  planReadySignal: "Review status: ready-for-human-plan",
+  legacyPlanReadySignals: [],
+  approvedSignal: "Review verdict: ship-it",
+  changesRequestedSignal: "Review verdict: needs-revision",
+  waivedSignal: "Review verdict: waived",
+  metadataLabels: {
+    planPath: "Plan file",
+    branchName: "Issue branch",
+    planUrl: "Plan link",
+    branchUrl: "Branch link",
+    compareUrl: "Diff link",
+  },
+} as const;
+
+const customPlanReview: PlanReviewProtocol = {
+  ...customPlanReviewBase,
+  reviewReplyGuidance:
+    buildDefaultPlanReviewReplyGuidance(customPlanReviewBase),
+  replyTemplateBlock:
+    buildDefaultPlanReviewReplyTemplateBlock(customPlanReviewBase),
+};
 
 describe("LinearTracker", () => {
   let server: MockLinearServer;
@@ -334,6 +362,31 @@ describe("LinearTracker", () => {
       "Human Review",
     );
     expect(lifecycle.kind).toBe("awaiting-human-review");
+  });
+
+  it("maps configured plan-review markers into the shared Linear handoff lifecycle", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 26,
+      title: "Custom review protocol",
+      stateName: "Human Review",
+      assigneeEmail: "worker@example.test",
+    });
+    server.addComment({
+      projectSlug: "symphony-linear",
+      issueNumber: 26,
+      body: "Review verdict: ship-it\n\nSummary\n- Approved to merge.",
+    });
+
+    const tracker = new LinearTracker(
+      createConfig(server, {
+        planReview: customPlanReview,
+      }),
+      new JsonLogger(),
+    );
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/26");
+
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
   });
 
   it("does not move a successful run backward from Rework into Human Review", async () => {

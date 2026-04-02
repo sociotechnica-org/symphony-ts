@@ -1,9 +1,36 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildDefaultPlanReviewReplyGuidance,
+  buildDefaultPlanReviewReplyTemplateBlock,
+  type PlanReviewProtocol,
+} from "../../src/domain/plan-review.js";
+import {
   buildPlanReadyCommentMetadata,
   formatPlanReadyComment,
   parsePlanReadyCommentMetadata,
 } from "../../src/tracker/plan-review-comment.js";
+
+const customProtocolBase = {
+  planReadySignal: "Review status: ready-for-human-plan",
+  legacyPlanReadySignals: [],
+  approvedSignal: "Review verdict: ship-it",
+  changesRequestedSignal: "Review verdict: needs-revision",
+  waivedSignal: "Review verdict: waived",
+  metadataLabels: {
+    planPath: "Plan file",
+    branchName: "Issue branch",
+    planUrl: "Plan link",
+    branchUrl: "Branch link",
+    compareUrl: "Diff link",
+  },
+} as const;
+
+const customProtocol: PlanReviewProtocol = {
+  ...customProtocolBase,
+  reviewReplyGuidance: buildDefaultPlanReviewReplyGuidance(customProtocolBase),
+  replyTemplateBlock:
+    buildDefaultPlanReviewReplyTemplateBlock(customProtocolBase),
+};
 
 describe("plan-review-comment", () => {
   it("formats a recoverable plan-ready comment with branch and GitHub links", () => {
@@ -133,6 +160,48 @@ Compare URL: https://github.com/sociotechnica-org/symphony-ts/compare/main...sym
       planUrl: "https://example.test/plan",
       branchUrl: "https://example.test/branch",
       compareUrl: "https://example.test/compare",
+    });
+  });
+
+  it("formats configured markers, labels, and reply guidance", () => {
+    const body = formatPlanReadyComment({
+      repo: "sociotechnica-org/symphony-ts",
+      planPath: "docs/plans/316-configurable-plan-review-protocol/plan.md",
+      branchName: "symphony/316",
+      summaryLines: ["Ready for configured review."],
+      protocol: customProtocol,
+    });
+
+    expect(body).toContain(customProtocol.planReadySignal);
+    expect(body).toContain(
+      "Plan file: `docs/plans/316-configurable-plan-review-protocol/plan.md`",
+    );
+    expect(body).toContain("Issue branch: `symphony/316`");
+    expect(body).toContain(customProtocol.approvedSignal);
+    expect(body).toContain(customProtocol.changesRequestedSignal);
+    expect(body).toContain(customProtocol.waivedSignal);
+    expect(body).toContain(customProtocol.reviewReplyGuidance);
+  });
+
+  it("parses configured metadata labels when the matching protocol is provided", () => {
+    const body = formatPlanReadyComment({
+      repo: "sociotechnica-org/symphony-ts",
+      planPath: "docs/plans/316-configurable-plan-review-protocol/plan.md",
+      branchName: "symphony/316",
+      summaryLines: ["Ready for configured review."],
+      protocol: customProtocol,
+    });
+
+    expect(parsePlanReadyCommentMetadata(body)).toBeNull();
+    expect(parsePlanReadyCommentMetadata(body, customProtocol)).toEqual({
+      planPath: "docs/plans/316-configurable-plan-review-protocol/plan.md",
+      branchName: "symphony/316",
+      planUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/blob/symphony/316/docs/plans/316-configurable-plan-review-protocol/plan.md",
+      branchUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/tree/symphony/316",
+      compareUrl:
+        "https://github.com/sociotechnica-org/symphony-ts/compare/main...symphony/316",
     });
   });
 });

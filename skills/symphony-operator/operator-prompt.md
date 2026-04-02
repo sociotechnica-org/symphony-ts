@@ -23,14 +23,15 @@ Required workflow:
 13. Inspect the live watch surface only when useful and only with bounded probes, but treat `factory status --json` as canonical.
 14. Review active issues, PRs, CI, and automated review feedback after the completed-run report-review checkpoint and release-state checkpoint are clear.
 15. If a required CI check appears stuck but the same behavior is locally reproducible, treat the reproducible hang as active operator-owned work; keep debugging until the PR is actually green or the remaining blocker is clearly external.
-16. As mandatory operator checkpoints for this wake-up, explicitly:
+16. Before posting a plan-review decision, inspect the selected workflow's `tracker.plan_review` config and use its configured decision markers; when no override is configured, the default markers remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
+17. As mandatory operator checkpoints for this wake-up, explicitly:
 
 - review any active `plan-ready` / `awaiting-human-handoff` issue and post a plan decision,
 - post `/land` on any PR waiting in `awaiting-landing-command` once it is green and review-clean,
 - and after any successful landing, pull latest `origin/main`, refresh `.tmp/factory-main`, and restart the detached factory from that merged code.
 
-17. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
-18. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
+18. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
+19. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
 
 Constraints:
 
