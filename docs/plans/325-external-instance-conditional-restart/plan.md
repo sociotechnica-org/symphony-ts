@@ -167,15 +167,15 @@ This behavior is stateful because the operator must compare what the detached ru
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Recorded running facts available | Expected decision |
-| --- | --- | --- | --- |
-| External-instance PR merged, operator checkout unchanged, selected `WORKFLOW.md` unchanged | current engine identity matches prior engine; current workflow identity matches prior workflow | running engine identity and running workflow identity present | no restart; record that the merge did not change runtime/workflow inputs |
-| External-instance PR merged, selected `WORKFLOW.md` changed, engine unchanged, factory idle | current workflow identity differs; engine identity matches | running workflow identity present | restart now so the detached runtime reloads the new workflow contract |
-| External-instance PR merged, selected `WORKFLOW.md` changed, engine unchanged, factory busy | same as above plus active work exists | running workflow identity present | defer restart and surface workflow-stale busy posture |
-| `symphony-ts` engine checkout advanced, external instance still runs old runtime, factory idle | current engine identity differs; workflow identity matches | running engine identity present | restart now |
-| `symphony-ts` engine checkout advanced, factory busy | current engine identity differs; active work exists | running engine identity present | defer restart until safe checkpoint |
-| Either running workflow identity or current workflow identity is unavailable | one side missing | startup snapshot incomplete or current file unreadable | do not guess from merge events alone; surface unavailable assessment |
-| Detached runtime stopped or degraded | control state is not `running` | any recorded identities may be stale | use normal recovery/start flow first, not freshness restart logic |
+| Observed condition                                                                             | Local facts available                                                                          | Recorded running facts available                              | Expected decision                                                        |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| External-instance PR merged, operator checkout unchanged, selected `WORKFLOW.md` unchanged     | current engine identity matches prior engine; current workflow identity matches prior workflow | running engine identity and running workflow identity present | no restart; record that the merge did not change runtime/workflow inputs |
+| External-instance PR merged, selected `WORKFLOW.md` changed, engine unchanged, factory idle    | current workflow identity differs; engine identity matches                                     | running workflow identity present                             | restart now so the detached runtime reloads the new workflow contract    |
+| External-instance PR merged, selected `WORKFLOW.md` changed, engine unchanged, factory busy    | same as above plus active work exists                                                          | running workflow identity present                             | defer restart and surface workflow-stale busy posture                    |
+| `symphony-ts` engine checkout advanced, external instance still runs old runtime, factory idle | current engine identity differs; workflow identity matches                                     | running engine identity present                               | restart now                                                              |
+| `symphony-ts` engine checkout advanced, factory busy                                           | current engine identity differs; active work exists                                            | running engine identity present                               | defer restart until safe checkpoint                                      |
+| Either running workflow identity or current workflow identity is unavailable                   | one side missing                                                                               | startup snapshot incomplete or current file unreadable        | do not guess from merge events alone; surface unavailable assessment     |
+| Detached runtime stopped or degraded                                                           | control state is not `running`                                                                 | any recorded identities may be stale                          | use normal recovery/start flow first, not freshness restart logic        |
 
 ## Storage / Persistence Contract
 
@@ -205,7 +205,7 @@ This behavior is stateful because the operator must compare what the detached ru
    - [`skills/symphony-operator/operator-prompt.md`](../../../skills/symphony-operator/operator-prompt.md)
    - [`skills/symphony-operator/SKILL.md`](../../../skills/symphony-operator/SKILL.md)
    - [`docs/guides/operator-runbook.md`](../../guides/operator-runbook.md)
-   so self-hosting still restarts after merged runtime code while external instances restart only when runtime/workflow drift is detected
+     so self-hosting still restarts after merged runtime code while external instances restart only when runtime/workflow drift is detected
 6. add or update tests for the new identity parsing and restart decision contract
 7. run local QA: `pnpm format`, `pnpm lint`, `pnpm typecheck`, `pnpm test`
 
