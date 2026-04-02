@@ -66,6 +66,10 @@ export SYMPHONY_REPO=your-org/your-repo
 ```
 
 See [Configuration](#configuration) for all available fields.
+Repositories that use the technical-plan review station can override the
+comment markers, metadata labels, guidance text, and reply-template block via
+`tracker.plan_review`; omitting that section preserves Symphony's current
+`Plan status: plan-ready` and `Plan review: ...` protocol.
 
 For deeper docs, use:
 

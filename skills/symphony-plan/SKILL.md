@@ -227,7 +227,9 @@ Required behavior:
 5. begin substantial implementation only after the plan is explicitly `approved` or explicitly `waived`
 6. if approval is waived, record that fact in the issue or PR notes so the handoff remains inspectable
 
-Use these exact first-line markers for the human reply protocol:
+Use the workflow's configured `tracker.plan_review` decision markers for the
+human reply protocol. When the workflow does not override them, the defaults
+remain:
 
 - `Plan review: approved`
 - `Plan review: changes-requested`
@@ -235,9 +237,9 @@ Use these exact first-line markers for the human reply protocol:
 
 The `plan-ready` issue comment should include:
 
-- the exact first line `Plan status: plan-ready`
-- the plan path
-- the issue branch name
+- the exact configured `plan_ready_signal` first line
+- the configured plan-path metadata label and value
+- the configured branch metadata label and value
 - a direct GitHub link to the reviewed `plan.md` on that branch
 - the branch URL and compare URL so GitHub review is one click away
 - a short summary
@@ -266,7 +268,8 @@ After writing the plan:
 6. if review feedback arrives, revise the plan, summarize the changes in a fresh issue comment, and return to `plan-ready`
 7. once the plan is explicitly `approved`, or plan approval is explicitly `waived`, begin substantial implementation; if approval is waived, record that waiver in the issue or PR notes so the handoff remains inspectable
 
-Use this exact reply-template block in the `plan-ready` comment:
+Use the workflow's configured reply-template block in the `plan-ready` comment.
+When the workflow does not override it, the default block is:
 
 ````md
 ```md

@@ -211,7 +211,7 @@ Use this table:
 
 | Situation                                                                                        | Operator action                                                                                                             |
 | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `awaiting-human-handoff`                                                                         | Review the plan and post `Plan review: approved`, `Plan review: changes-requested`, or `Plan review: waived`                |
+| `awaiting-human-handoff`                                                                         | Review the plan and post one of the workflow's accepted plan-review decision markers from `tracker.plan_review`             |
 | `degraded-review-infrastructure`                                                                 | Inspect the missing reviewer-app output path before further automation or manual landing                                    |
 | `awaiting-landing-command` with green, review-clean PR and required approved bot review observed | Post `/land` on the PR                                                                                                      |
 | Detached runtime stopped or degraded                                                             | Use `factory status`, then `factory start` or `factory restart`                                                             |

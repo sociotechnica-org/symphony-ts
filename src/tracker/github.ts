@@ -1,5 +1,6 @@
 import type { HandoffLifecycle, PullRequestHandle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
+import { DEFAULT_PLAN_REVIEW_PROTOCOL } from "../domain/plan-review.js";
 import type { GitHubCompatibleTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
 import {
@@ -283,6 +284,7 @@ export class GitHubTracker implements Tracker {
         url: comment.html_url,
         authorLogin: comment.user?.login ?? null,
       })),
+      this.#config.planReview ?? DEFAULT_PLAN_REVIEW_PROTOCOL,
     );
     if (protocol.acknowledgement !== null) {
       await this.#client.createComment(

@@ -15,6 +15,20 @@ tracker:
     - devin-ai-integration
   approved_review_bot_logins:
     - devin-ai-integration
+  # Optional plan-review protocol overrides.
+  # Defaults preserve Symphony's built-in markers, metadata labels, guidance,
+  # and reply-template block.
+  # plan_review:
+  #   plan_ready_signal: "Plan status: plan-ready"
+  #   approved_signal: "Plan review: approved"
+  #   changes_requested_signal: "Plan review: changes-requested"
+  #   waived_signal: "Plan review: waived"
+  #   metadata_labels:
+  #     plan_path: "Plan path"
+  #     branch_name: "Branch"
+  #     plan_url: "Plan URL"
+  #     branch_url: "Branch URL"
+  #     compare_url: "Compare URL"
   # Optional tracker-owned ready-work ordering seam.
   # GitHub requires project_number / field_name configuration.
   # Linear only uses enabled: true and maps native issue priority when present.
@@ -147,9 +161,9 @@ Rules:
 
 When posting the `plan-ready` handoff comment, include:
 
-- the exact first line `Plan status: plan-ready`
-- the plan path
-- the issue branch name
+- the exact first line `{{ config.tracker.planReview.planReadySignal }}`
+- the `{{ config.tracker.planReview.metadataLabels.planPath }}` value
+- the `{{ config.tracker.planReview.metadataLabels.branchName }}` value
 - a direct GitHub link to the reviewed `plan.md` on that branch
 - the branch URL and compare URL so the review surface is easy to inspect in GitHub
 - a short summary
@@ -160,52 +174,10 @@ Before posting `plan-ready`, commit the reviewed `plan.md` on the issue branch, 
 
 Accepted first-line review markers are:
 
-- `Plan review: approved`
-- `Plan review: changes-requested`
-- `Plan review: waived`
+- `{{ config.tracker.planReview.approvedSignal }}`
+- `{{ config.tracker.planReview.changesRequestedSignal }}`
+- `{{ config.tracker.planReview.waivedSignal }}`
 
 Use this exact reply-template block in the `plan-ready` comment:
 
-```md
-Plan review: approved
-
-Summary
-
-- Approved to implement.
-```
-
-```md
-Plan review: changes-requested
-
-Summary
-
-- One-sentence decision.
-
-What is good
-
-- ...
-
-Required changes
-
-- ...
-
-Architecture / spec concerns
-
-- ...
-
-Slice / PR size concerns
-
-- ...
-
-Approval condition
-
-- Approve after ...
-```
-
-```md
-Plan review: waived
-
-Summary
-
-- Plan review is waived; proceed to implementation.
-```
+{{ config.tracker.planReview.replyTemplateBlock }}

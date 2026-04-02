@@ -1,15 +1,17 @@
 import { TrackerError } from "../domain/errors.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
+import {
+  DEFAULT_PLAN_REVIEW_PROTOCOL,
+  type PlanReviewProtocol,
+  type PlanReviewSignal,
+} from "../domain/plan-review.js";
 import type { LinearTrackerConfig } from "../domain/workflow.js";
 import type {
   LinearComment,
   LinearIssueSnapshot,
   LinearProjectSnapshot,
 } from "./linear-normalize.js";
-import {
-  parsePlanReviewSignal,
-  type PlanReviewSignal,
-} from "./plan-review-signal.js";
+import { parsePlanReviewSignal } from "./plan-review-signal.js";
 import { sameLinearStateName } from "./linear-state-name.js";
 
 export type LinearIssueClassification =
@@ -130,6 +132,7 @@ export function createLinearHandoffLifecycle(
   const reviewSignal = latestLinearReviewSignal(
     issue.comments,
     currentLinearHandoffStartedAt(issue),
+    config.planReview ?? DEFAULT_PLAN_REVIEW_PROTOCOL,
   );
   const stateName = issue.state.name;
   const hasHandoffMarker = issue.workpad?.status === "handoff-ready";
@@ -255,6 +258,7 @@ function linearLifecycle(
 function latestLinearReviewSignal(
   comments: readonly LinearComment[],
   handoffStartedAt: string | null,
+  protocol: PlanReviewProtocol = DEFAULT_PLAN_REVIEW_PROTOCOL,
 ): PlanReviewSignal | null {
   const handoffStartTime =
     handoffStartedAt === null ? Number.NaN : Date.parse(handoffStartedAt);
@@ -274,7 +278,7 @@ function latestLinearReviewSignal(
           Date.parse(right.comment.createdAt);
         return timeDiff !== 0 ? timeDiff : left.index - right.index;
       })
-      .map(({ comment }) => parsePlanReviewSignal(comment.body))
+      .map(({ comment }) => parsePlanReviewSignal(comment.body, protocol))
       .filter((signal): signal is PlanReviewSignal => signal !== null)
       .at(-1) ?? null
   );

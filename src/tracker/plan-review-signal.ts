@@ -1,10 +1,17 @@
-export type PlanReviewSignal =
-  | "plan-ready"
-  | "changes-requested"
-  | "approved"
-  | "waived";
+import {
+  DEFAULT_PLAN_REVIEW_PROTOCOL,
+  type PlanReviewProtocol,
+  type PlanReviewSignal,
+} from "../domain/plan-review.js";
 
-export function parsePlanReviewSignal(body: string): PlanReviewSignal | null {
+function normalizeMarker(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function parsePlanReviewSignal(
+  body: string,
+  protocol: PlanReviewProtocol = DEFAULT_PLAN_REVIEW_PROTOCOL,
+): PlanReviewSignal | null {
   const firstLine = body
     .split(/\r?\n/u)
     .map((line) => line.trim())
@@ -14,21 +21,21 @@ export function parsePlanReviewSignal(body: string): PlanReviewSignal | null {
     return null;
   }
 
-  const normalized = firstLine.toLowerCase();
-  if (
-    normalized === "plan status: plan-ready" ||
-    // Legacy human-authored marker; the trailing period is intentional.
-    normalized === "plan ready for review."
-  ) {
+  const normalized = normalizeMarker(firstLine);
+  const planReadySignals = [
+    protocol.planReadySignal,
+    ...protocol.legacyPlanReadySignals,
+  ].map(normalizeMarker);
+  if (planReadySignals.includes(normalized)) {
     return "plan-ready";
   }
-  if (normalized === "plan review: changes-requested") {
+  if (normalized === normalizeMarker(protocol.changesRequestedSignal)) {
     return "changes-requested";
   }
-  if (normalized === "plan review: approved") {
+  if (normalized === normalizeMarker(protocol.approvedSignal)) {
     return "approved";
   }
-  if (normalized === "plan review: waived") {
+  if (normalized === normalizeMarker(protocol.waivedSignal)) {
     return "waived";
   }
 

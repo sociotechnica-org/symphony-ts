@@ -34,7 +34,7 @@ provider session for that instance.
 - Observe the live factory, not just the repository.
 - Repair broken or stalled execution.
 - Drive PRs through CI and automated review to a mergeable state.
-- Handle `plan-ready` issues: review plans, request changes when needed, and approve when ready.
+- Handle `plan-ready` issues using the selected workflow's configured `tracker.plan_review` protocol: review plans, request changes when needed, and approve when ready.
 - Keep GitHub as a thin queue and rely on Symphony's own polling and concurrency.
 - Maintain the selected instance's persistent local operator notebook as:
   - `.ralph/instances/<instance-key>/standing-context.md` for durable guidance
@@ -65,11 +65,7 @@ provider session for that instance.
 14. If the factory is unhealthy, fix the concrete problem and restart it.
 15. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
 16. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
-17. If an active issue is waiting in `plan-ready`, review the plan and post an explicit review decision comment:
-
-- `Plan review: approved`
-- `Plan review: changes-requested`
-- `Plan review: waived` (record why in the comment)
+17. If an active issue is waiting in `plan-ready`, inspect the selected workflow's configured `tracker.plan_review` markers, review the plan, and post an explicit review decision comment using that protocol. When no override is configured, the defaults remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
 
 18. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
 19. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
@@ -95,9 +91,10 @@ provider session for that instance.
 - Keep runner assumptions provider-neutral. The current runtime may use `codex`, `claude-code`, or `generic-command`; do not assume every healthy run appears as a direct `codex exec` child process.
 - Keep release dependency truth in the typed `release-state.json` artifact, not only in markdown notes. Standing context may explain release sequencing, but prerequisite failure gating must remain inspectable through the typed artifact.
 - Treat plan review as a required operator checkpoint:
-  - if the plan is sound, post `Plan review: approved`,
-  - if revisions are needed, post `Plan review: changes-requested` with concrete guidance,
-  - if explicitly bypassing review, post `Plan review: waived` and record why.
+  - read the selected workflow's `tracker.plan_review` config first,
+  - if the plan is sound, post that workflow's approval marker,
+  - if revisions are needed, post that workflow's changes-requested marker with concrete guidance,
+  - if explicitly bypassing review, post that workflow's waiver marker and record why.
 
 ## Factory Fix Rule
 

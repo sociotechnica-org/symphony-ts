@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  buildDefaultPlanReviewReplyGuidance,
+  buildDefaultPlanReviewReplyTemplateBlock,
+  type PlanReviewProtocol,
+} from "../../src/domain/plan-review.js";
+import {
   createPromptBuilder,
   loadWorkflow,
 } from "../../src/config/workflow.js";
@@ -27,6 +32,7 @@ function createTracker(
     accepted: boolean;
     required: boolean;
   }[],
+  planReview?: PlanReviewProtocol,
 ): GitHubTracker {
   return new GitHubTracker(
     {
@@ -41,10 +47,34 @@ function createTracker(
       approvedReviewBotLogins: approvedReviewBotLogins ?? [],
       reviewerApps: reviewerApps ?? [],
       queuePriority,
+      planReview,
     },
     logger,
   );
 }
+
+const customPlanReviewBase = {
+  planReadySignal: "Review status: ready-for-human-plan",
+  legacyPlanReadySignals: [],
+  approvedSignal: "Review verdict: ship-it",
+  changesRequestedSignal: "Review verdict: needs-revision",
+  waivedSignal: "Review verdict: waived",
+  metadataLabels: {
+    planPath: "Plan file",
+    branchName: "Issue branch",
+    planUrl: "Plan link",
+    branchUrl: "Branch link",
+    compareUrl: "Diff link",
+  },
+} as const;
+
+const customPlanReview: PlanReviewProtocol = {
+  ...customPlanReviewBase,
+  reviewReplyGuidance:
+    buildDefaultPlanReviewReplyGuidance(customPlanReviewBase),
+  replyTemplateBlock:
+    buildDefaultPlanReviewReplyTemplateBlock(customPlanReviewBase),
+};
 
 describe("GitHubTracker", () => {
   let server: MockGitHubServer;
@@ -211,6 +241,32 @@ describe("GitHubTracker", () => {
     server.addIssueComment({
       issueNumber: 7,
       body: "Plan ready for review.\n\nWaiting for human review.",
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-human-handoff");
+    expect(lifecycle.summary).toMatch(/waiting for human plan review/i);
+  });
+
+  it("reports awaiting-human-handoff for a configured custom plan-review marker", async () => {
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      customPlanReview,
+    );
+
+    server.addIssueComment({
+      issueNumber: 7,
+      body: formatPlanReadyComment({
+        repo: "sociotechnica-org/symphony-ts",
+        planPath: "docs/plans/316-configurable-plan-review-protocol/plan.md",
+        branchName: "symphony/7",
+        summaryLines: ["Ready for configured human review."],
+        protocol: customPlanReview,
+      }),
     });
 
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");

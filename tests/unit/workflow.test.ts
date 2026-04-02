@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_PLAN_REVIEW_PROTOCOL } from "../../src/domain/plan-review.js";
 import {
   createPromptBuilder,
   loadWorkflow,
@@ -106,6 +107,9 @@ ${buildSharedWorkflowSections()}`,
       expect(workflow.config.tracker.approvedReviewBotLogins).toEqual([
         "greptile[bot]",
       ]);
+      expect(workflow.config.tracker.planReview).toEqual(
+        DEFAULT_PLAN_REVIEW_PROTOCOL,
+      );
     }
     const promptBuilder = createPromptBuilder(workflow);
     const rendered = await promptBuilder.build({
@@ -189,6 +193,83 @@ ${buildSharedWorkflowSections()}`,
         },
       ]);
     }
+  });
+
+  it("loads a configured plan-review protocol override for GitHub trackers", async () => {
+    const dir = await createTempDir("workflow-plan-review-override-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+  plan_review:
+    plan_ready_signal: "Review status: ready-for-human-plan"
+    legacy_plan_ready_signals: []
+    approved_signal: "Review verdict: ship-it"
+    changes_requested_signal: "Review verdict: needs-revision"
+    waived_signal: "Review verdict: waived"
+    metadata_labels:
+      plan_path: "Plan file"
+      branch_name: "Issue branch"
+      plan_url: "Plan link"
+      branch_url: "Branch link"
+      compare_url: "Diff link"
+${buildSharedWorkflowSections()}`,
+        [
+          "ready={{ config.tracker.planReview.planReadySignal }}",
+          "approved={{ config.tracker.planReview.approvedSignal }}",
+          "label={{ config.tracker.planReview.metadataLabels.planPath }}",
+        ].join(" / "),
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    if (
+      workflow.config.tracker.kind !== "github" &&
+      workflow.config.tracker.kind !== "github-bootstrap"
+    ) {
+      throw new Error("expected GitHub tracker config");
+    }
+
+    expect(workflow.config.tracker.planReview?.planReadySignal).toBe(
+      "Review status: ready-for-human-plan",
+    );
+    expect(workflow.config.tracker.planReview?.approvedSignal).toBe(
+      "Review verdict: ship-it",
+    );
+    expect(workflow.config.tracker.planReview?.metadataLabels.planPath).toBe(
+      "Plan file",
+    );
+
+    const promptBuilder = createPromptBuilder(workflow);
+    const rendered = await promptBuilder.build({
+      issue: {
+        id: "1",
+        identifier: "repo#1",
+        number: 1,
+        title: "T",
+        description: "D",
+        labels: ["a"],
+        state: "open",
+        url: "https://example.test/issues/1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        queuePriority: null,
+      },
+      attempt: null,
+      pullRequest: null,
+    });
+
+    expect(rendered).toContain("ready=Review status: ready-for-human-plan");
+    expect(rendered).toContain("approved=Review verdict: ship-it");
+    expect(rendered).toContain("label=Plan file");
   });
 
   it("preserves the authoritative resolved instance paths", async () => {
@@ -2099,6 +2180,7 @@ ${buildSharedWorkflowSections()}`,
       assignee: null,
       activeStates: ["Todo", "In Progress"],
       terminalStates: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+      planReview: DEFAULT_PLAN_REVIEW_PROTOCOL,
     });
   });
 

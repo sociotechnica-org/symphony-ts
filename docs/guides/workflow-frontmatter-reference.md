@@ -234,6 +234,110 @@ higher scheduling priority.
 If `enabled: false`, the GitHub queue-priority object may omit the other
 fields.
 
+##### `tracker.plan_review`
+
+- Type: object
+- Required: no
+- Default: omitted, which preserves Symphony's built-in plan-review protocol
+
+Workflow-owned override surface for the technical-plan review handoff on
+GitHub-backed and Linear trackers. When omitted, Symphony preserves the
+current built-in `Plan status: plan-ready` / `Plan review: ...` protocol.
+
+Supported keys:
+
+- `plan_ready_signal`
+- `legacy_plan_ready_signals`
+- `approved_signal`
+- `changes_requested_signal`
+- `waived_signal`
+- `metadata_labels`
+- `review_reply_guidance`
+- `reply_template_block`
+
+Example:
+
+```yaml
+tracker:
+  plan_review:
+    plan_ready_signal: "Review status: plan-ready"
+    legacy_plan_ready_signals: []
+    approved_signal: "Review verdict: approved"
+    changes_requested_signal: "Review verdict: changes-requested"
+    waived_signal: "Review verdict: waived"
+    metadata_labels:
+      plan_path: "Plan file"
+      branch_name: "Issue branch"
+      plan_url: "Plan link"
+      branch_url: "Branch link"
+      compare_url: "Compare link"
+```
+
+###### `tracker.plan_review.plan_ready_signal`
+
+- Type: non-empty string
+- Required: no
+- Default: `Plan status: plan-ready`
+
+###### `tracker.plan_review.legacy_plan_ready_signals`
+
+- Type: string array
+- Required: no
+- Default: `[Plan ready for review.]`
+
+Use `[]` to disable the built-in legacy compatibility marker entirely.
+
+###### `tracker.plan_review.approved_signal`
+
+- Type: non-empty string
+- Required: no
+- Default: `Plan review: approved`
+
+###### `tracker.plan_review.changes_requested_signal`
+
+- Type: non-empty string
+- Required: no
+- Default: `Plan review: changes-requested`
+
+###### `tracker.plan_review.waived_signal`
+
+- Type: non-empty string
+- Required: no
+- Default: `Plan review: waived`
+
+###### `tracker.plan_review.metadata_labels`
+
+- Type: object
+- Required: no
+- Default: built-in labels shown below
+
+Supported keys:
+
+- `plan_path` default `Plan path`
+- `branch_name` default `Branch`
+- `plan_url` default `Plan URL`
+- `branch_url` default `Branch URL`
+- `compare_url` default `Compare URL`
+
+###### `tracker.plan_review.review_reply_guidance`
+
+- Type: non-empty string
+- Required: no
+- Default: derived from the configured review-decision markers
+
+This is the note inserted above the reply-template block in the worker's
+plan-ready comment.
+
+###### `tracker.plan_review.reply_template_block`
+
+- Type: non-empty string
+- Required: no
+- Default: a Markdown fenced-block template derived from the configured
+  review-decision markers
+
+Override this when the repository wants a different reviewer reply template
+than the built-in approved / changes-requested / waived block.
+
 #### Linear tracker fields
 
 These fields apply to `tracker.kind: linear`.

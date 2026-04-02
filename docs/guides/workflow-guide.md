@@ -656,12 +656,15 @@ enforced in the same way.
 Plan review is a runtime-supported station, but it is not automatically
 required for every repository.
 
-Current canonical first lines are:
+The default protocol is:
 
 - `Plan status: plan-ready`
 - `Plan review: approved`
 - `Plan review: changes-requested`
 - `Plan review: waived`
+
+Repositories can override those markers, the plan-ready metadata labels, and
+the reply-template guidance through `tracker.plan_review` in `WORKFLOW.md`.
 
 In `symphony-ts` itself, the prompt and `AGENTS.md` make this handoff required
 before substantial implementation. Other repositories can choose not to use it.
