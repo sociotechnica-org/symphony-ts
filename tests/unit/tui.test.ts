@@ -18,7 +18,23 @@ import {
   type RunnerVisibilitySnapshot,
 } from "../../src/runner/service.js";
 
+const ANSI_DIM_WHITE = "\x1b[2;37m";
+const ANSI_DEFAULT_FOREGROUND = "\x1b[39m";
+const ANSI_WARNING = "\x1b[1;33m";
+
 // ─── Fixtures ────────────────────────────────────────────────────────────────
+
+function findRenderedLine(output: string, plainText: string): string {
+  const line = output
+    .split("\n")
+    .find((candidate) => stripAnsi(candidate).includes(plainText));
+  expect(line).toBeDefined();
+  return line!;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*m/g, "");
+}
 
 function makeSnapshot(overrides: Partial<TuiSnapshot> = {}): TuiSnapshot {
   const snapshot = {
@@ -206,6 +222,54 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("Recovery posture");
   });
 
+  it("keeps recovery posture primary text on the default foreground", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        recoveryPosture: {
+          summary: {
+            family: "retry-backoff",
+            summary: "1 issue is queued in retry backoff.",
+            issueCount: 1,
+          },
+          entries: [
+            {
+              family: "retry-backoff",
+              issueNumber: 166,
+              issueIdentifier: "sociotechnica-org/symphony-ts#166",
+              title: "Recovery posture observability",
+              source: "retry-queue",
+              summary:
+                "Retry attempt 2 is queued until 2026-03-17T10:05:00.000Z.",
+              observedAt: "2026-03-17T10:00:00.000Z",
+            },
+          ],
+        },
+      }),
+      0,
+    );
+
+    const summaryLine = findRenderedLine(
+      output,
+      "1 issue is queued in retry backoff.",
+    );
+    const entryLine = findRenderedLine(
+      output,
+      "Retry attempt 2 is queued until 2026-03-17T10:05:00.000Z.",
+    );
+
+    expect(summaryLine).not.toContain(ANSI_DIM_WHITE);
+    expect(summaryLine).toContain(
+      `${ANSI_DEFAULT_FOREGROUND}1 issue is queued in retry backoff.`,
+    );
+    expect(entryLine).not.toContain(ANSI_DIM_WHITE);
+    expect(entryLine).toContain(
+      `${ANSI_DEFAULT_FOREGROUND}#166 sociotechnica-org/symphony-ts#166`,
+    );
+    expect(entryLine).toContain(
+      `${ANSI_DEFAULT_FOREGROUND}Retry attempt 2 is queued until 2026-03-17T10:05:00.000Z.`,
+    );
+  });
+
   it("omits duplicated last-action detail when summary is blank", () => {
     const output = formatSnapshotContent(
       makeSnapshot({
@@ -232,6 +296,71 @@ describe("formatSnapshotContent", () => {
     const output = formatSnapshotContent(makeSnapshot(), 0);
     expect(output).toContain("Tickets");
     expect(output).toContain("No active tickets");
+  });
+
+  it("keeps waiting ticket rows readable by reserving warning color for compact cues", () => {
+    const output = formatSnapshotContent(
+      makeSnapshot({
+        tickets: [
+          {
+            issueNumber: 245,
+            identifier: "sociotechnica-org/symphony-ts#245",
+            title: "Contrast test ticket",
+            status: "awaiting-human-review",
+            summary: "Waiting for plan review approval",
+            startedAt: null,
+            updatedAt: new Date("2026-03-14T10:02:00.000Z"),
+            pullRequest: null,
+            checks: { pendingNames: [], failingNames: [] },
+            review: { actionableCount: 0, unresolvedThreadCount: 0 },
+            blockedReason: "Waiting for plan review approval",
+            runnerAccounting: undefined,
+            runnerVisibility: null,
+            liveRun: null,
+          },
+        ],
+      }),
+      0,
+      220,
+      "",
+      new Date("2026-03-14T10:03:00.000Z").getTime(),
+    );
+
+    const ticketLine = findRenderedLine(output, "Contrast test ticket");
+
+    expect(ticketLine).not.toContain(ANSI_DIM_WHITE);
+    expect(ticketLine).toContain(`${ANSI_WARNING}●`);
+    expect(ticketLine).toContain(`${ANSI_DEFAULT_FOREGROUND}#245`);
+    expect(ticketLine).toContain(`${ANSI_DEFAULT_FOREGROUND}human-review`);
+    expect(ticketLine).toContain(
+      `${ANSI_DEFAULT_FOREGROUND}Contrast test ticket · Waiting for plan review approval`,
+    );
+    expect(ticketLine).not.toContain(`${ANSI_WARNING}human-review`);
+    expect(ticketLine).not.toContain(`${ANSI_WARNING}Contrast test ticket`);
+  });
+
+  it("renders empty-state rows without dim light-theme styling", () => {
+    const output = formatSnapshotContent(makeSnapshot(), 0);
+
+    const recoveryLine = findRenderedLine(
+      output,
+      "No issue-level recovery entries",
+    );
+    const ticketsLine = findRenderedLine(output, "No active tickets");
+    const retriesLine = findRenderedLine(output, "No queued retries");
+
+    expect(recoveryLine).not.toContain(ANSI_DIM_WHITE);
+    expect(recoveryLine).toContain(
+      `${ANSI_DEFAULT_FOREGROUND}No issue-level recovery entries`,
+    );
+    expect(ticketsLine).not.toContain(ANSI_DIM_WHITE);
+    expect(ticketsLine).toContain(
+      `${ANSI_DEFAULT_FOREGROUND}No active tickets`,
+    );
+    expect(retriesLine).not.toContain(ANSI_DIM_WHITE);
+    expect(retriesLine).toContain(
+      `${ANSI_DEFAULT_FOREGROUND}No queued retries`,
+    );
   });
 
   it("renders ticket-first rows with short GitHub identifiers and condensed detail", () => {
