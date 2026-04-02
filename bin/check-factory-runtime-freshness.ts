@@ -3,6 +3,11 @@ import path from "node:path";
 import { inspectFactoryControl } from "../src/cli/factory-control.js";
 import { collectFactoryRuntimeIdentity } from "../src/observability/runtime-identity.js";
 import { assessOperatorRuntimeFreshness } from "../src/observability/operator-runtime-freshness.js";
+import {
+  collectFactoryWorkflowIdentity,
+  renderFactoryWorkflowIdentity,
+} from "../src/observability/workflow-identity.js";
+import { renderFactoryRuntimeIdentity } from "../src/observability/runtime-identity.js";
 
 interface Args {
   readonly workflowPath?: string;
@@ -40,9 +45,11 @@ function renderText(
   result: ReturnType<typeof assessOperatorRuntimeFreshness>,
 ): string {
   return [
-    `Freshness: ${result.kind}`,
-    `Runtime head: ${result.runtimeHeadSha ?? "unavailable"}`,
-    `Engine head: ${result.engineHeadSha ?? "unavailable"}`,
+    `Restart assessment: ${result.kind}`,
+    `Running runtime: ${renderFactoryRuntimeIdentity(result.runningRuntimeIdentity ?? null)}`,
+    `Current runtime: ${renderFactoryRuntimeIdentity(result.currentRuntimeIdentity ?? null)}`,
+    `Running workflow: ${renderFactoryWorkflowIdentity(result.runningWorkflowIdentity)}`,
+    `Current workflow: ${renderFactoryWorkflowIdentity(result.currentWorkflowIdentity)}`,
     `Control state: ${result.controlState}`,
     `Factory state: ${result.factoryState ?? "unavailable"}`,
     `Active issues: ${result.activeIssueCount.toString()}`,
@@ -61,9 +68,13 @@ async function main(): Promise<void> {
   const engineRuntimeIdentity = await collectFactoryRuntimeIdentity(
     args.operatorRepoRoot,
   );
+  const currentWorkflowIdentity = await collectFactoryWorkflowIdentity(
+    status.paths.workflowPath,
+  );
   const result = assessOperatorRuntimeFreshness({
     status,
     engineRuntimeIdentity,
+    currentWorkflowIdentity,
   });
 
   if (args.json) {

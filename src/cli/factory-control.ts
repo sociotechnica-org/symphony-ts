@@ -29,6 +29,10 @@ import {
   type FactoryRuntimeIdentity,
 } from "../observability/runtime-identity.js";
 import {
+  renderFactoryWorkflowIdentity,
+  type FactoryWorkflowIdentity,
+} from "../observability/workflow-identity.js";
+import {
   deriveStartupFilePath,
   parseStartupSnapshotContent,
   type StartupSnapshot,
@@ -86,6 +90,7 @@ export interface FactoryStartupAssessment {
   readonly workerAlive: boolean;
   readonly stale: boolean;
   readonly runtimeIdentity: FactoryRuntimeIdentity | null;
+  readonly workflowIdentity: FactoryWorkflowIdentity | null;
 }
 
 export interface FactoryControlStatusSnapshot {
@@ -434,6 +439,11 @@ export function renderFactoryControlStatus(
       lines.push(
         `Runtime version: ${renderFactoryRuntimeIdentity(
           snapshot.startup.runtimeIdentity,
+        )}`,
+      );
+      lines.push(
+        `Workflow contract: ${renderFactoryWorkflowIdentity(
+          snapshot.startup.workflowIdentity,
         )}`,
       );
     }
@@ -1162,6 +1172,7 @@ function assessStartupSnapshot(
     workerAlive,
     stale,
     runtimeIdentity: snapshot.runtimeIdentity ?? null,
+    workflowIdentity: snapshot.workflowIdentity ?? null,
   };
 }
 

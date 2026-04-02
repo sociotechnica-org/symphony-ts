@@ -41,6 +41,13 @@ function buildStatus(
         source: "git",
         detail: null,
       },
+      workflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+        source: "file",
+        detail: null,
+      },
     },
     snapshotFreshness: {
       freshness: "fresh",
@@ -118,6 +125,13 @@ describe("assessOperatorRuntimeFreshness", () => {
         source: "git",
         detail: null,
       },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+        source: "file",
+        detail: null,
+      },
     });
 
     expect(result.kind).toBe("fresh");
@@ -135,10 +149,19 @@ describe("assessOperatorRuntimeFreshness", () => {
         source: "git",
         detail: null,
       },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+        source: "file",
+        detail: null,
+      },
     });
 
-    expect(result.kind).toBe("stale-idle");
+    expect(result.kind).toBe("stale-runtime-idle");
     expect(result.shouldRestart).toBe(true);
+    expect(result.runtimeChanged).toBe(true);
+    expect(result.workflowChanged).toBe(false);
   });
 
   it("defers restart when runtime is stale and busy", () => {
@@ -181,11 +204,97 @@ describe("assessOperatorRuntimeFreshness", () => {
         source: "git",
         detail: null,
       },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+        source: "file",
+        detail: null,
+      },
     });
 
-    expect(result.kind).toBe("stale-busy");
+    expect(result.kind).toBe("stale-runtime-busy");
     expect(result.shouldRestart).toBe(false);
     expect(result.activeIssueCount).toBe(1);
+  });
+
+  it("requests restart when only the workflow contract changed and the instance is idle", () => {
+    const result = assessOperatorRuntimeFreshness({
+      status: buildStatus(),
+      engineRuntimeIdentity: {
+        checkoutPath: "/tmp/repo",
+        headSha: "runtime-sha",
+        committedAt: "2026-03-30T00:00:00Z",
+        isDirty: false,
+        source: "git",
+        detail: null,
+      },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "0e14f3b03df8b0a6b946fdd8f0aac546f85d6d58b7615476a8ad5f5d6d6292af",
+        source: "file",
+        detail: null,
+      },
+    });
+
+    expect(result.kind).toBe("stale-workflow-idle");
+    expect(result.shouldRestart).toBe(true);
+    expect(result.runtimeChanged).toBe(false);
+    expect(result.workflowChanged).toBe(true);
+  });
+
+  it("defers restart when both runtime and workflow are stale but the instance is busy", () => {
+    const result = assessOperatorRuntimeFreshness({
+      status: buildStatus({
+        statusSnapshot: {
+          ...buildStatus().statusSnapshot!,
+          factoryState: "running",
+          activeIssues: [
+            {
+              issueNumber: 1,
+              issueIdentifier: "repo#1",
+              title: "active",
+              source: "running",
+              runSequence: 1,
+              status: "running",
+              summary: "running",
+              workspacePath: null,
+              branchName: "branch",
+              runSessionId: null,
+              executionOwner: null,
+              ownerPid: 123,
+              runnerPid: null,
+              startedAt: null,
+              updatedAt: "2026-03-30T00:00:00Z",
+              pullRequest: null,
+              checks: { pendingNames: [], failingNames: [] },
+              review: { actionableCount: 0, unresolvedThreadCount: 0 },
+              blockedReason: null,
+              runnerVisibility: null,
+            },
+          ],
+        },
+      }),
+      engineRuntimeIdentity: {
+        checkoutPath: "/tmp/repo",
+        headSha: "engine-sha",
+        committedAt: "2026-03-30T00:00:00Z",
+        isDirty: false,
+        source: "git",
+        detail: null,
+      },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "0e14f3b03df8b0a6b946fdd8f0aac546f85d6d58b7615476a8ad5f5d6d6292af",
+        source: "file",
+        detail: null,
+      },
+    });
+
+    expect(result.kind).toBe("stale-runtime-and-workflow-busy");
+    expect(result.shouldRestart).toBe(false);
   });
 
   it("reports stopped when factory control is not running", () => {
@@ -201,13 +310,20 @@ describe("assessOperatorRuntimeFreshness", () => {
         source: "git",
         detail: null,
       },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+        source: "file",
+        detail: null,
+      },
     });
 
     expect(result.kind).toBe("stopped");
     expect(result.shouldRestart).toBe(false);
   });
 
-  it("reports engine-head-unavailable when the operator checkout head is unavailable", () => {
+  it("reports unavailable when the operator checkout head is unavailable", () => {
     const result = assessOperatorRuntimeFreshness({
       status: buildStatus(),
       engineRuntimeIdentity: {
@@ -218,13 +334,23 @@ describe("assessOperatorRuntimeFreshness", () => {
         source: "git-error",
         detail: "git unavailable",
       },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+        source: "file",
+        detail: null,
+      },
     });
 
-    expect(result.kind).toBe("engine-head-unavailable");
+    expect(result.kind).toBe("unavailable");
     expect(result.shouldRestart).toBe(false);
+    expect(result.unavailableReasons).toContain(
+      "current engine checkout head is unavailable; inspect the operator repo checkout",
+    );
   });
 
-  it("reports runtime-head-unavailable when the running factory head is unavailable", () => {
+  it("reports unavailable when the running factory head is unavailable", () => {
     const result = assessOperatorRuntimeFreshness({
       status: buildStatus({
         startup: {
@@ -247,9 +373,45 @@ describe("assessOperatorRuntimeFreshness", () => {
         source: "git",
         detail: null,
       },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash:
+          "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+        source: "file",
+        detail: null,
+      },
     });
 
-    expect(result.kind).toBe("runtime-head-unavailable");
+    expect(result.kind).toBe("unavailable");
     expect(result.shouldRestart).toBe(false);
+    expect(result.unavailableReasons).toContain(
+      "running factory runtime head is unavailable; inspect the startup snapshot",
+    );
+  });
+
+  it("reports unavailable instead of guessing when the current workflow cannot be read", () => {
+    const result = assessOperatorRuntimeFreshness({
+      status: buildStatus(),
+      engineRuntimeIdentity: {
+        checkoutPath: "/tmp/repo",
+        headSha: "runtime-sha",
+        committedAt: "2026-03-30T00:00:00Z",
+        isDirty: false,
+        source: "git",
+        detail: null,
+      },
+      currentWorkflowIdentity: {
+        workflowPath: "/tmp/repo/WORKFLOW.md",
+        contentHash: null,
+        source: "missing",
+        detail: "workflow file does not exist",
+      },
+    });
+
+    expect(result.kind).toBe("unavailable");
+    expect(result.shouldRestart).toBe(false);
+    expect(result.unavailableReasons).toContain(
+      "current workflow identity is unavailable for /tmp/repo/WORKFLOW.md (missing: workflow file does not exist)",
+    );
   });
 });
