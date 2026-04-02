@@ -48,6 +48,10 @@ When resumable mode is enabled, the operator state root also carries
 provider, model, command source, effective command, session mode, and any
 automatic reset reason.
 
+Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh`
+from inside an active wake-up shell. Use the supported factory-control and
+status commands when you need deeper inspection during a cycle.
+
 ## Third-Party Onboarding
 
 If you are operating a third-party repository instead of self-hosting

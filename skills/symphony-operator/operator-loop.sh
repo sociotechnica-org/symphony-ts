@@ -87,6 +87,31 @@ Examples:
 EOF
 }
 
+reject_nested_launch() {
+  if [ "${SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP:-}" != "1" ]; then
+    return 0
+  fi
+
+  local message
+  message="operator-loop: nested operator loop launch rejected inside an active wake-up cycle"
+  if [ -n "${SYMPHONY_OPERATOR_PARENT_LOOP_PID:-}" ]; then
+    message="$message; parent_pid=${SYMPHONY_OPERATOR_PARENT_LOOP_PID}"
+  fi
+  if [ -n "${SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY:-}" ]; then
+    message="$message; parent_instance=${SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY}"
+  fi
+  if [ -n "${SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH:-}" ]; then
+    message="$message; parent_workflow=${SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH}"
+  fi
+  message="$message; requested_instance=${INSTANCE_KEY}"
+  if [ -n "$WORKFLOW_PATH" ]; then
+    message="$message; requested_workflow=${WORKFLOW_PATH}"
+  fi
+
+  echo "$message" >&2
+  exit 1
+}
+
 json_escape() {
   local value="$1"
   value="${value//\\/\\\\}"
@@ -771,6 +796,12 @@ run_cycle() {
   set +e
   (
     cd "$REPO_ROOT"
+    export SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP="1"
+    export SYMPHONY_OPERATOR_PARENT_LOOP_PID="$$"
+    export SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY="$INSTANCE_KEY"
+    export SYMPHONY_OPERATOR_PARENT_REPO_ROOT="$REPO_ROOT"
+    export SYMPHONY_OPERATOR_PARENT_SELECTED_INSTANCE_ROOT="$SELECTED_INSTANCE_ROOT"
+    export SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH="$WORKFLOW_PATH"
     export SYMPHONY_OPERATOR_REPO_ROOT="$REPO_ROOT"
     export SYMPHONY_OPERATOR_INSTANCE_KEY="$INSTANCE_KEY"
     export SYMPHONY_OPERATOR_DETACHED_SESSION_NAME="$DETACHED_SESSION_NAME"
@@ -875,6 +906,7 @@ else
 fi
 
 resolve_instance_state
+reject_nested_launch
 warn_default_command
 ensure_runtime_paths
 trap 'release_lock' EXIT
