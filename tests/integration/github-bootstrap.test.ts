@@ -536,7 +536,7 @@ describe("GitHubTracker", () => {
 
     const second = await tracker.inspectIssueHandoff("symphony/7");
     expect(second.kind).toBe("awaiting-landing-command");
-    expect(second.summary).toMatch(/awaiting a human \/land command/i);
+    expect(second.summary).toMatch(/awaiting an explicit \/land command/i);
   });
 
   it("ignores /land comments from non-member humans", async () => {
@@ -561,7 +561,36 @@ describe("GitHubTracker", () => {
     const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
 
     expect(lifecycle.kind).toBe("awaiting-landing-command");
-    expect(lifecycle.summary).toMatch(/awaiting a human \/land command/i);
+    expect(lifecycle.summary).toMatch(/awaiting an explicit \/land command/i);
+  });
+
+  it("keeps awaiting-landing once an operator bot already posted /land on the current head", async () => {
+    const tracker = createTracker(server);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestComment({
+      head: "symphony/7",
+      authorLogin: "symphony-operator[bot]",
+      authorAssociation: "NONE",
+      body: "/land",
+      createdAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    const first = await tracker.inspectIssueHandoff("symphony/7");
+    const second = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(first.kind).toBe("awaiting-landing");
+    expect(first.landingCommand?.authorLogin).toBe("symphony-operator[bot]");
+    expect(second.kind).toBe("awaiting-landing");
+    expect(second.summary).toMatch(/awaiting landing/i);
   });
 
   it("reports handoff-ready after the same pull request is merged", async () => {
@@ -1090,7 +1119,7 @@ describe("GitHubTracker", () => {
 
     expect(lifecycle.kind).toBe("awaiting-landing-command");
     expect(lifecycle.actionableReviewFeedback).toHaveLength(0);
-    expect(lifecycle.summary).toMatch(/awaiting a human \/land command/i);
+    expect(lifecycle.summary).toMatch(/awaiting an explicit \/land command/i);
   });
 
   it("waits for required approved bot review before allowing landing", async () => {
@@ -1270,7 +1299,7 @@ describe("GitHubTracker", () => {
 
     expect(lifecycle.kind).toBe("awaiting-landing-command");
     expect(lifecycle.actionableReviewFeedback).toHaveLength(0);
-    expect(lifecycle.summary).toMatch(/awaiting a human \/land command/i);
+    expect(lifecycle.summary).toMatch(/awaiting an explicit \/land command/i);
   });
 
   it("does not auto-resolve human review threads after a follow-up push", async () => {

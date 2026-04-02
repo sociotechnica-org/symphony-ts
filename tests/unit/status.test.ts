@@ -766,7 +766,7 @@ describe("factory status helpers", () => {
         lastAction: {
           kind: "awaiting-landing-command",
           summary:
-            "Pull request https://example.test/pr/12 is awaiting a human /land command",
+            "Pull request https://example.test/pr/12 is awaiting an explicit /land command",
           at: "2026-03-06T12:00:00.000Z",
           issueNumber: 12,
         },
@@ -775,9 +775,9 @@ describe("factory status helpers", () => {
             ...createSnapshot().activeIssues[0]!,
             status: "awaiting-landing-command",
             summary:
-              "Pull request https://example.test/pr/12 is awaiting a human /land command",
+              "Pull request https://example.test/pr/12 is awaiting an explicit /land command",
             blockedReason:
-              "Pull request https://example.test/pr/12 is awaiting a human /land command",
+              "Pull request https://example.test/pr/12 is awaiting an explicit /land command",
           },
         ],
       }),
@@ -786,6 +786,6 @@ describe("factory status helpers", () => {
     expect(output).toContain(
       "#12 Expose factory status [awaiting-landing-command]",
     );
-    expect(output).toContain("awaiting a human /land command");
+    expect(output).toContain("awaiting an explicit /land command");
   });
 });
