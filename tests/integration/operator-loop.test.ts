@@ -456,7 +456,7 @@ describe("operator loop workflow selection", () => {
         "external instances, do not restart when only unrelated repository files changed",
       );
       expect(prompt).toContain(
-        "self-hosting merges should normally produce that stale-runtime result",
+        "For self-hosting merges, that should normally surface as runtime drift",
       );
       expect(standingContextIndex).toBeLessThan(appendIndex);
       expect(prompt).toContain("bin/symphony-report.ts review-pending");
