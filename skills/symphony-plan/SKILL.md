@@ -239,14 +239,14 @@ The `plan-ready` issue comment should include:
 
 - the exact configured `plan_ready_signal` first line
 - the configured plan-path metadata label and value
-- the configured branch metadata label and value
+- the configured issue branch name metadata label and value
 - a direct GitHub link to the reviewed `plan.md` on that branch
 - the branch URL and compare URL so GitHub review is one click away
 - a short summary
 - a short note that the review reply must begin with one of the accepted markers
 - copy-pasteable fenced markdown templates for `approved`, `changes-requested`, and `waived`
 
-Before posting `plan-ready`, commit the reviewed `plan.md` on the issue branch, push the branch, and verify the linked branch/file are inspectable in GitHub. The reviewed plan must be recoverable from the canonical tracker plus repo, not from local-only uncommitted workspace state.
+Before posting `plan-ready`, commit the reviewed `plan.md` on the issue branch, push the issue branch, and verify the linked branch/file are inspectable in GitHub. The reviewed plan must be recoverable from the canonical tracker plus repo, not from local-only uncommitted workspace state.
 
 This review station is the first slice for plan-process issues because it preserves the workflow boundary and uses existing issue comments instead of inventing new runtime machinery.
 

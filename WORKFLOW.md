@@ -163,7 +163,7 @@ When posting the `plan-ready` handoff comment, include:
 
 - the exact first line `{{ config.tracker.planReview.planReadySignal }}`
 - the `{{ config.tracker.planReview.metadataLabels.planPath }}` value
-- the `{{ config.tracker.planReview.metadataLabels.branchName }}` value
+- the `{{ config.tracker.planReview.metadataLabels.branchName }}` value for the issue branch name
 - a direct GitHub link to the reviewed `plan.md` on that branch
 - the branch URL and compare URL so the review surface is easy to inspect in GitHub
 - a short summary
