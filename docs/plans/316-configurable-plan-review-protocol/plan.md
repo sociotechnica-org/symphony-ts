@@ -144,15 +144,15 @@ This issue preserves the existing normalized handoff lifecycle states. The only 
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker/config facts available | Expected decision |
-| --- | --- | --- | --- |
-| Repository omits plan-review protocol config entirely | workflow has only existing tracker fields | resolved tracker config defaults to Symphony protocol | preserve current behavior exactly |
-| Repository configures custom markers but leaves metadata-label overrides omitted | workflow contains partial override | resolved protocol merges custom markers with default metadata labels/template defaults | accept configured markers and keep default metadata shape where not overridden |
-| Worker posts a custom plan-ready first line that matches workflow config | no PR yet | configured parser recognizes custom plan-ready marker | enter `awaiting-human-handoff` |
-| Human posts a default Symphony approval marker on a repo that configured a different approval marker | no PR yet | configured parser does not recognize the default marker | no resume transition from that comment; repository-chosen protocol remains authoritative |
-| Human posts a configured approval/waiver/changes-requested marker without any prior recognized plan-ready anchor | no PR yet | configured decision marker exists, but no anchored plan-ready comment exists | ignore as unanchored review decision, same as today |
-| Custom plan-ready metadata omits one of the repository-required labels | plan-ready comment exists | signal is valid but metadata parse is incomplete under configured required labels | waiting-state detection should still work if the configured first-line marker is valid; metadata helper/report parsing remains null/incomplete instead of inventing fields |
-| Operator guidance still assumes default strings while workflow config overrides them | workflow has custom protocol | operator prompt/skill did not read resolved protocol | invalid implementation for this issue; guidance must point back to configured protocol instead of default-only text |
+| Observed condition                                                                                               | Local facts available                     | Normalized tracker/config facts available                                              | Expected decision                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository omits plan-review protocol config entirely                                                            | workflow has only existing tracker fields | resolved tracker config defaults to Symphony protocol                                  | preserve current behavior exactly                                                                                                                                          |
+| Repository configures custom markers but leaves metadata-label overrides omitted                                 | workflow contains partial override        | resolved protocol merges custom markers with default metadata labels/template defaults | accept configured markers and keep default metadata shape where not overridden                                                                                             |
+| Worker posts a custom plan-ready first line that matches workflow config                                         | no PR yet                                 | configured parser recognizes custom plan-ready marker                                  | enter `awaiting-human-handoff`                                                                                                                                             |
+| Human posts a default Symphony approval marker on a repo that configured a different approval marker             | no PR yet                                 | configured parser does not recognize the default marker                                | no resume transition from that comment; repository-chosen protocol remains authoritative                                                                                   |
+| Human posts a configured approval/waiver/changes-requested marker without any prior recognized plan-ready anchor | no PR yet                                 | configured decision marker exists, but no anchored plan-ready comment exists           | ignore as unanchored review decision, same as today                                                                                                                        |
+| Custom plan-ready metadata omits one of the repository-required labels                                           | plan-ready comment exists                 | signal is valid but metadata parse is incomplete under configured required labels      | waiting-state detection should still work if the configured first-line marker is valid; metadata helper/report parsing remains null/incomplete instead of inventing fields |
+| Operator guidance still assumes default strings while workflow config overrides them                             | workflow has custom protocol              | operator prompt/skill did not read resolved protocol                                   | invalid implementation for this issue; guidance must point back to configured protocol instead of default-only text                                                        |
 
 ## Storage / Persistence Contract
 
@@ -186,7 +186,7 @@ This issue preserves the existing normalized handoff lifecycle states. The only 
 6. update operator guidance:
    - `skills/symphony-operator/SKILL.md`
    - `skills/symphony-operator/operator-prompt.md`
-   so it references the configured protocol instead of default-only strings
+     so it references the configured protocol instead of default-only strings
 7. add or update tests for:
    - workflow config parsing/defaults
    - default protocol formatting/parsing compatibility
