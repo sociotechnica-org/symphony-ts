@@ -115,14 +115,14 @@ State ownership rule:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Open PR, same head, no qualifying `/land` comment | no local landing memory required | `landingCommand: null`, all other landing gates satisfied | return `awaiting-landing-command` |
-| Open PR, same head, qualifying `/land` already present | no local landing memory required | `landingCommand` observed for current head | return `awaiting-landing`; do not solicit another `/land` |
-| Open PR, new head after an older `/land` | no local landing memory required | prior command is stale for the new head | reevaluate on current-head comments only; if none qualify, return `awaiting-landing-command` |
-| Open PR, same head, prior `/land` present, merge blocked by checks/review/mergeability | no local landing memory required | current head no longer landable | return the existing blocked lifecycle (`awaiting-system-checks`, `awaiting-human-review`, `rework-required`, or `degraded-review-infrastructure`) |
-| PR merged after `/land` | no local landing memory required | merged lifecycle facts | return `handoff-ready` |
-| PR comment looks like `/land` but does not satisfy the qualifying-command rule | no local landing memory required | comment present but not accepted as landing command | remain `awaiting-landing-command` |
+| Observed condition                                                                     | Local facts available            | Normalized tracker facts available                        | Expected decision                                                                                                                                 |
+| -------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open PR, same head, no qualifying `/land` comment                                      | no local landing memory required | `landingCommand: null`, all other landing gates satisfied | return `awaiting-landing-command`                                                                                                                 |
+| Open PR, same head, qualifying `/land` already present                                 | no local landing memory required | `landingCommand` observed for current head                | return `awaiting-landing`; do not solicit another `/land`                                                                                         |
+| Open PR, new head after an older `/land`                                               | no local landing memory required | prior command is stale for the new head                   | reevaluate on current-head comments only; if none qualify, return `awaiting-landing-command`                                                      |
+| Open PR, same head, prior `/land` present, merge blocked by checks/review/mergeability | no local landing memory required | current head no longer landable                           | return the existing blocked lifecycle (`awaiting-system-checks`, `awaiting-human-review`, `rework-required`, or `degraded-review-infrastructure`) |
+| PR merged after `/land`                                                                | no local landing memory required | merged lifecycle facts                                    | return `handoff-ready`                                                                                                                            |
+| PR comment looks like `/land` but does not satisfy the qualifying-command rule         | no local landing memory required | comment present but not accepted as landing command       | remain `awaiting-landing-command`                                                                                                                 |
 
 ## Storage / Persistence Contract
 
