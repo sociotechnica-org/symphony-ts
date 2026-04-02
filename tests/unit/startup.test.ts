@@ -94,6 +94,24 @@ function createConfig(
   };
 }
 
+async function writeWorkflowContract(workflowPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(workflowPath), { recursive: true });
+  await fs.writeFile(
+    workflowPath,
+    [
+      "---",
+      "tracker:",
+      "  kind: github-bootstrap",
+      "  repo: sociotechnica-org/symphony-ts",
+      "---",
+      "",
+      "# test workflow",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 async function readFileAtRef(
   repoPath: string,
   ref: string,
@@ -144,6 +162,8 @@ describe("startup service", () => {
     const config = createConfig(runtimeRoot, remote.remotePath);
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const outcome = await runStartupPreparation({
         config,
         logger: new JsonLogger(),
@@ -193,6 +213,8 @@ describe("startup service", () => {
     const logger = new JsonLogger();
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const firstStartup = await runStartupPreparation({
         config,
         logger,
@@ -268,6 +290,8 @@ describe("startup service", () => {
     );
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const outcome = await runStartupPreparation({
         config,
         logger: new JsonLogger(),
@@ -300,6 +324,8 @@ describe("startup service", () => {
     };
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const outcome = await runStartupPreparation({
         config,
         logger: new JsonLogger(),
@@ -343,6 +369,8 @@ describe("startup service", () => {
     };
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       await expect(
         runStartupPreparation({
           config,
