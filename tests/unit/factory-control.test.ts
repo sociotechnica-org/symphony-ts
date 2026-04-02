@@ -87,6 +87,13 @@ function createStartupSnapshot(
       source: "git",
       detail: null,
     },
+    workflowIdentity: {
+      workflowPath: "/repo/WORKFLOW.md",
+      contentHash:
+        "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+      source: "file",
+      detail: null,
+    },
     ...overrides,
   };
 }
@@ -2407,6 +2414,13 @@ describe("renderFactoryControlStatus", () => {
           source: "git",
           detail: null,
         },
+        workflowIdentity: {
+          workflowPath: "/repo/WORKFLOW.md",
+          contentHash:
+            "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+          source: "file",
+          detail: null,
+        },
       },
       snapshotFreshness: {
         freshness: "unavailable",
@@ -2428,6 +2442,9 @@ describe("renderFactoryControlStatus", () => {
     expect(output).toContain("Runtime root: /repo/.tmp/factory-main");
     expect(output).toContain(
       "Runtime version: 4e5d1350f4b6b48525f4dca84e0d7df5c27f4c26 | committed 2026-03-13T11:57:00.000Z | clean",
+    );
+    expect(output).toContain(
+      "Workflow contract: /repo/WORKFLOW.md | sha256 8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
     );
     expect(output).toContain("Snapshot freshness: unavailable");
     expect(output).toContain(

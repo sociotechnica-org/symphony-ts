@@ -451,6 +451,13 @@ describe("operator loop workflow selection", () => {
       expect(reportReviewIndex).toBeLessThan(releaseStateIndex);
       expect(releaseStateIndex).toBeLessThan(queueWorkIndex);
       expect(prompt).toContain("bin/check-factory-runtime-freshness.ts");
+      expect(prompt).toContain("stale `*-idle` state");
+      expect(prompt).toContain(
+        "external instances, do not restart when only unrelated repository files changed",
+      );
+      expect(prompt).toContain(
+        "For self-hosting merges, that should normally surface as runtime drift",
+      );
       expect(standingContextIndex).toBeLessThan(appendIndex);
       expect(prompt).toContain("bin/symphony-report.ts review-pending");
       expect(prompt).toContain("bin/check-operator-release-state.ts");

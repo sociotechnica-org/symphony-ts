@@ -94,6 +94,24 @@ function createConfig(
   };
 }
 
+async function writeWorkflowContract(workflowPath: string): Promise<void> {
+  await fs.mkdir(path.dirname(workflowPath), { recursive: true });
+  await fs.writeFile(
+    workflowPath,
+    [
+      "---",
+      "tracker:",
+      "  kind: github-bootstrap",
+      "  repo: sociotechnica-org/symphony-ts",
+      "---",
+      "",
+      "# test workflow",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 async function readFileAtRef(
   repoPath: string,
   ref: string,
@@ -144,6 +162,8 @@ describe("startup service", () => {
     const config = createConfig(runtimeRoot, remote.remotePath);
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const outcome = await runStartupPreparation({
         config,
         logger: new JsonLogger(),
@@ -174,7 +194,12 @@ describe("startup service", () => {
         runtimeIdentity: {
           checkoutPath: process.cwd(),
         },
+        workflowIdentity: {
+          workflowPath: config.workflowPath,
+          source: "file",
+        },
       });
+      expect(snapshot.workflowIdentity?.contentHash).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       await fs.rm(runtimeRoot, { recursive: true, force: true });
       await fs.rm(remote.rootDir, { recursive: true, force: true });
@@ -188,6 +213,8 @@ describe("startup service", () => {
     const logger = new JsonLogger();
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const firstStartup = await runStartupPreparation({
         config,
         logger,
@@ -263,6 +290,8 @@ describe("startup service", () => {
     );
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const outcome = await runStartupPreparation({
         config,
         logger: new JsonLogger(),
@@ -295,6 +324,8 @@ describe("startup service", () => {
     };
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       const outcome = await runStartupPreparation({
         config,
         logger: new JsonLogger(),
@@ -315,6 +346,10 @@ describe("startup service", () => {
         runtimeIdentity: {
           checkoutPath: process.cwd(),
         },
+        workflowIdentity: {
+          workflowPath: config.workflowPath,
+          source: "file",
+        },
       });
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
@@ -334,6 +369,8 @@ describe("startup service", () => {
     };
 
     try {
+      await writeWorkflowContract(config.workflowPath);
+
       await expect(
         runStartupPreparation({
           config,
@@ -352,6 +389,10 @@ describe("startup service", () => {
         provider: "github-bootstrap/test-abort",
         runtimeIdentity: {
           checkoutPath: process.cwd(),
+        },
+        workflowIdentity: {
+          workflowPath: config.workflowPath,
+          source: "file",
         },
       });
     } finally {
@@ -374,6 +415,43 @@ describe("startup service", () => {
       ),
     ).toMatchObject({
       summary: null,
+    });
+  });
+
+  it("round-trips recorded workflow identity from startup snapshots", () => {
+    const snapshot = parseStartupSnapshotContent(
+      JSON.stringify({
+        version: 1,
+        state: "ready",
+        updatedAt: "2026-03-14T12:00:00.000Z",
+        workerPid: 6543,
+        provider: "github-bootstrap/test-failure",
+        summary: "ready",
+        runtimeIdentity: {
+          checkoutPath: "/tmp/runtime",
+          headSha: "runtime-sha",
+          committedAt: "2026-03-14T11:00:00.000Z",
+          isDirty: false,
+          source: "git",
+          detail: null,
+        },
+        workflowIdentity: {
+          workflowPath: "/tmp/project/WORKFLOW.md",
+          contentHash:
+            "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+          source: "file",
+          detail: null,
+        },
+      }),
+      "startup.json",
+    );
+
+    expect(snapshot.workflowIdentity).toEqual({
+      workflowPath: "/tmp/project/WORKFLOW.md",
+      contentHash:
+        "8b78342f9d6cb87a4fc8af4f35adf6ec0d8367864e594b0f88ff3a780b3fa929",
+      source: "file",
+      detail: null,
     });
   });
 });

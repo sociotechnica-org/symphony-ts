@@ -115,7 +115,7 @@ pnpm tsx bin/check-operator-release-state.ts --workflow ../target-repo/WORKFLOW.
 
 11. If the detached runtime is stopped or degraded, repair that first.
 12. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. Do not do that for work the release-state artifact says is blocked by a failed prerequisite, unresolved dependency metadata, or a ready-promotion sync failure. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
-13. After a merge, fast-forward the instance root checkout and `<instance-root>/.tmp/factory-main` to `origin/main`, then restart the detached factory from merged code.
+13. After a merge, fast-forward the instance root checkout to `origin/main`, rerun `bin/check-factory-runtime-freshness.ts`, and restart the detached factory only when the assessment reports that the runtime engine or selected `WORKFLOW.md` is stale. Self-hosting merges should normally produce runtime drift; external instances should stay up when the merge changed unrelated repository files only.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
 

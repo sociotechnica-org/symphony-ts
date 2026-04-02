@@ -3,20 +3,31 @@ import type {
   FactoryControlStatusSnapshot,
 } from "../cli/factory-control.js";
 import type { FactoryRuntimeIdentity } from "./runtime-identity.js";
+import type { FactoryWorkflowIdentity } from "./workflow-identity.js";
 
 export type OperatorRuntimeFreshnessKind =
   | "fresh"
-  | "stale-idle"
-  | "stale-busy"
+  | "stale-runtime-idle"
+  | "stale-runtime-busy"
+  | "stale-workflow-idle"
+  | "stale-workflow-busy"
+  | "stale-runtime-and-workflow-idle"
+  | "stale-runtime-and-workflow-busy"
   | "stopped"
-  | "engine-head-unavailable"
-  | "runtime-head-unavailable";
+  | "unavailable";
 
 export interface OperatorRuntimeFreshnessSnapshot {
   readonly kind: OperatorRuntimeFreshnessKind;
   readonly shouldRestart: boolean;
+  readonly runningRuntimeIdentity: FactoryRuntimeIdentity | null;
+  readonly currentRuntimeIdentity: FactoryRuntimeIdentity | null;
   readonly runtimeHeadSha: string | null;
   readonly engineHeadSha: string | null;
+  readonly runningWorkflowIdentity: FactoryWorkflowIdentity | null;
+  readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
+  readonly runtimeChanged: boolean;
+  readonly workflowChanged: boolean;
+  readonly unavailableReasons: readonly string[];
   readonly controlState: FactoryControlState;
   readonly factoryState: string | null;
   readonly activeIssueCount: number;
@@ -26,9 +37,12 @@ export interface OperatorRuntimeFreshnessSnapshot {
 export function assessOperatorRuntimeFreshness(args: {
   readonly status: FactoryControlStatusSnapshot;
   readonly engineRuntimeIdentity: FactoryRuntimeIdentity | null;
+  readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
 }): OperatorRuntimeFreshnessSnapshot {
   const runtimeHeadSha = args.status.startup?.runtimeIdentity?.headSha ?? null;
   const engineHeadSha = args.engineRuntimeIdentity?.headSha ?? null;
+  const runningWorkflowIdentity = args.status.startup?.workflowIdentity ?? null;
+  const currentWorkflowIdentity = args.currentWorkflowIdentity;
   const controlState = args.status.controlState;
   const factoryState = args.status.statusSnapshot?.factoryState ?? null;
   const activeIssueCount = args.status.statusSnapshot?.activeIssues.length ?? 0;
@@ -37,8 +51,15 @@ export function assessOperatorRuntimeFreshness(args: {
     return {
       kind: "stopped",
       shouldRestart: false,
+      runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
+      currentRuntimeIdentity: args.engineRuntimeIdentity,
       runtimeHeadSha,
       engineHeadSha,
+      runningWorkflowIdentity,
+      currentWorkflowIdentity,
+      runtimeChanged: false,
+      workflowChanged: false,
+      unavailableReasons: [],
       controlState,
       factoryState,
       activeIssueCount,
@@ -47,70 +68,190 @@ export function assessOperatorRuntimeFreshness(args: {
     };
   }
 
-  if (engineHeadSha === null) {
+  const unavailableReasons = collectUnavailableReasons({
+    engineHeadSha,
+    runtimeHeadSha,
+    runningWorkflowIdentity,
+    currentWorkflowIdentity,
+  });
+  if (unavailableReasons.length > 0) {
     return {
-      kind: "engine-head-unavailable",
+      kind: "unavailable",
       shouldRestart: false,
+      runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
+      currentRuntimeIdentity: args.engineRuntimeIdentity,
       runtimeHeadSha,
       engineHeadSha,
+      runningWorkflowIdentity,
+      currentWorkflowIdentity,
+      runtimeChanged: false,
+      workflowChanged: false,
+      unavailableReasons,
       controlState,
       factoryState,
       activeIssueCount,
-      summary:
-        "Could not determine the engine checkout head; investigate the operator repo checkout before applying freshness restarts.",
+      summary: `Could not determine whether a restart is required: ${unavailableReasons.join("; ")}`,
     };
   }
 
-  if (runtimeHeadSha === null) {
-    return {
-      kind: "runtime-head-unavailable",
-      shouldRestart: false,
-      runtimeHeadSha,
-      engineHeadSha,
-      controlState,
-      factoryState,
-      activeIssueCount,
-      summary:
-        "Could not determine the running factory head; investigate startup/runtime identity before applying freshness restarts.",
-    };
-  }
+  const runtimeChanged = runtimeHeadSha !== engineHeadSha;
+  const workflowChanged = workflowIdentityChanged(
+    runningWorkflowIdentity,
+    currentWorkflowIdentity,
+  );
 
-  if (runtimeHeadSha === engineHeadSha) {
+  if (!runtimeChanged && !workflowChanged) {
     return {
       kind: "fresh",
       shouldRestart: false,
+      runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
+      currentRuntimeIdentity: args.engineRuntimeIdentity,
       runtimeHeadSha,
       engineHeadSha,
-      controlState,
-      factoryState,
-      activeIssueCount,
-      summary: "Factory runtime is already on the current engine head.",
-    };
-  }
-
-  if (factoryState === "idle") {
-    return {
-      kind: "stale-idle",
-      shouldRestart: true,
-      runtimeHeadSha,
-      engineHeadSha,
+      runningWorkflowIdentity,
+      currentWorkflowIdentity,
+      runtimeChanged,
+      workflowChanged,
+      unavailableReasons: [],
       controlState,
       factoryState,
       activeIssueCount,
       summary:
-        "Factory runtime is behind the current engine head and the instance is idle; restart it before ordinary queue work.",
+        "Factory runtime and selected workflow already match the current engine and repository-owned workflow contract.",
     };
   }
 
   return {
-    kind: "stale-busy",
-    shouldRestart: false,
+    kind: deriveStaleKind({ runtimeChanged, workflowChanged, factoryState }),
+    shouldRestart: factoryState === "idle",
+    runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
+    currentRuntimeIdentity: args.engineRuntimeIdentity,
     runtimeHeadSha,
     engineHeadSha,
+    runningWorkflowIdentity,
+    currentWorkflowIdentity,
+    runtimeChanged,
+    workflowChanged,
+    unavailableReasons: [],
     controlState,
     factoryState,
     activeIssueCount,
-    summary:
-      "Factory runtime is behind the current engine head but the instance is busy; defer restart until the next idle or post-merge checkpoint.",
+    summary: summarizeStaleness({
+      runtimeChanged,
+      workflowChanged,
+      factoryState,
+    }),
   };
+}
+
+function collectUnavailableReasons(args: {
+  readonly engineHeadSha: string | null;
+  readonly runtimeHeadSha: string | null;
+  readonly runningWorkflowIdentity: FactoryWorkflowIdentity | null;
+  readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
+}): string[] {
+  const reasons: string[] = [];
+  if (args.engineHeadSha === null) {
+    reasons.push(
+      "current engine checkout head is unavailable; inspect the operator repo checkout",
+    );
+  }
+  if (args.runtimeHeadSha === null) {
+    reasons.push(
+      "running factory runtime head is unavailable; inspect the startup snapshot",
+    );
+  }
+  if (args.runningWorkflowIdentity?.contentHash === null) {
+    reasons.push(
+      summarizeWorkflowUnavailable(
+        "running workflow identity",
+        args.runningWorkflowIdentity,
+      ),
+    );
+  }
+  if (args.currentWorkflowIdentity?.contentHash === null) {
+    reasons.push(
+      summarizeWorkflowUnavailable(
+        "current workflow identity",
+        args.currentWorkflowIdentity,
+      ),
+    );
+  }
+  if (args.runningWorkflowIdentity === null) {
+    reasons.push(
+      "running workflow identity is unavailable; inspect the startup snapshot",
+    );
+  }
+  if (args.currentWorkflowIdentity === null) {
+    reasons.push(
+      "current workflow identity is unavailable; inspect the selected WORKFLOW.md",
+    );
+  }
+  return reasons;
+}
+
+function summarizeWorkflowUnavailable(
+  label: string,
+  identity: FactoryWorkflowIdentity | null,
+): string {
+  if (identity === null) {
+    return `${label} is unavailable`;
+  }
+  const source =
+    identity.detail === null
+      ? identity.source
+      : `${identity.source}: ${identity.detail}`;
+  return `${label} is unavailable for ${identity.workflowPath} (${source})`;
+}
+
+function workflowIdentityChanged(
+  running: FactoryWorkflowIdentity | null,
+  current: FactoryWorkflowIdentity | null,
+): boolean {
+  if (
+    running === null ||
+    current === null ||
+    running.contentHash === null ||
+    current.contentHash === null
+  ) {
+    return false;
+  }
+  return (
+    running.workflowPath !== current.workflowPath ||
+    running.contentHash !== current.contentHash
+  );
+}
+
+function deriveStaleKind(args: {
+  readonly runtimeChanged: boolean;
+  readonly workflowChanged: boolean;
+  readonly factoryState: string | null;
+}): OperatorRuntimeFreshnessKind {
+  const suffix = args.factoryState === "idle" ? "idle" : "busy";
+  if (args.runtimeChanged && args.workflowChanged) {
+    return suffix === "idle"
+      ? "stale-runtime-and-workflow-idle"
+      : "stale-runtime-and-workflow-busy";
+  }
+  if (args.runtimeChanged) {
+    return suffix === "idle" ? "stale-runtime-idle" : "stale-runtime-busy";
+  }
+  return suffix === "idle" ? "stale-workflow-idle" : "stale-workflow-busy";
+}
+
+function summarizeStaleness(args: {
+  readonly runtimeChanged: boolean;
+  readonly workflowChanged: boolean;
+  readonly factoryState: string | null;
+}): string {
+  const cause =
+    args.runtimeChanged && args.workflowChanged
+      ? "the engine checkout and selected workflow contract changed"
+      : args.runtimeChanged
+        ? "the engine checkout changed"
+        : "the selected workflow contract changed";
+  if (args.factoryState === "idle") {
+    return `Factory restart is required because ${cause} and the instance is idle; restart before ordinary queue work.`;
+  }
+  return `Factory restart is required because ${cause}, but the instance is busy; defer restart until the next idle or post-merge checkpoint.`;
 }

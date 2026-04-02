@@ -47,7 +47,7 @@ provider session for that instance.
 2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
 3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
 4. Immediately after the factory-health read, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root <operator-repo-root> --json` for the selected instance, and append `--workflow <selected-workflow>` when operating on a non-default instance.
-5. If the freshness check reports `stale-idle`, refresh the operator repo checkout plus the selected instance runtime checkout to latest `origin/main`, then restart the detached factory before ordinary queue work. If it reports `stale-busy`, record that fact in the wake-up log and defer restart until the next idle or post-merge checkpoint.
+5. If the freshness check reports any stale `*-idle` state, refresh the checkout that actually drifted, restart the detached factory before ordinary queue work, and record whether the restart was caused by runtime drift, workflow drift, or both. If it reports any stale `*-busy` state, record that fact in the wake-up log and defer restart until the next idle or post-merge checkpoint. If it reports `fresh`, do not restart just because a repository merge happened.
 6. Before any ordinary queue-advancement work after the freshness check is clear, run `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-repo-root> --json` for the selected instance and treat any `report-ready` or `review-blocked` entry as the first operator checkpoint after the factory-health read.
 7. For each pending completed-run report review:
    - read the generated report under `.var/reports/issues/<issue-number>/`
@@ -69,7 +69,7 @@ provider session for that instance.
 
 18. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
 19. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
-20. When a `/land` completes and the PR actually merges, fast-forward the root checkout and `.tmp/factory-main` to the latest `origin/main`, then restart the detached factory so the next issue runs on merged code.
+20. When a `/land` completes and the PR actually merges, fast-forward the selected instance root checkout to the latest `origin/main`, rerun the freshness check, and restart the detached factory only when it reports a stale `*-idle` state. Self-hosting merges should normally surface runtime drift; external instances should not restart when the merge left both the runtime engine and selected `WORKFLOW.md` unchanged.
 21. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
 
 ## Operational Rules
@@ -123,8 +123,8 @@ Do not leave local-only tracked fixes sitting outside the normal PR flow. Worker
   - each wake-up should check for `plan-ready` issues and decide `approved`, `changes-requested`, or `waived`
   - each wake-up should check for review-clean PRs waiting on `/land` and post it when the guard conditions are satisfied
 - Landing is not complete at merge observation alone:
-  - after a landed PR merges, the operator should pull the latest `origin/main` into the root checkout and `.tmp/factory-main`
-  - then restart the detached factory from that refreshed runtime before allowing the next queued issue to proceed
+  - after a landed PR merges, the operator should fast-forward the selected instance root checkout to the latest `origin/main`
+  - then rerun the freshness check and restart only when runtime or selected-workflow drift actually requires it before allowing the next queued issue to proceed
 - When a PR is green and review-clean, the operator should issue `/land` on the PR without waiting for separate human intervention unless the user has explicitly reserved landing for themselves. This is the normal way to keep the factory moving overnight.
 - `/land` is appropriate only when:
   - required CI is green,

@@ -10,7 +10,7 @@ Required workflow:
 4. If `SYMPHONY_OPERATOR_WORKFLOW_PATH` is set, append `--workflow "$SYMPHONY_OPERATOR_WORKFLOW_PATH"` to each `symphony` factory-control command that targets an instance.
 5. Inspect the detached factory via `pnpm tsx bin/symphony.ts factory status --json` as the primary source of truth.
 6. Immediately after the factory-health check, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
-7. If the freshness check reports `stale-idle`, refresh the operator repo checkout and the selected instance runtime checkout to latest `origin/main`, then restart the detached factory before ordinary queue work. If it reports `stale-busy`, record that the instance is stale-but-busy and defer restart until the next idle or post-merge checkpoint.
+7. If the freshness check reports any stale `*-idle` state, refresh the checkout that actually drifted, restart the detached factory before ordinary queue work, and record whether the restart was caused by runtime drift, workflow drift, or both. If it reports any stale `*-busy` state, record that the instance is stale-but-busy and defer restart until the next idle or post-merge checkpoint. If it reports `fresh`, do not restart just because a repository merge happened.
 8. Immediately after the freshness check is clear, inspect completed-run report review state before any ordinary queue-advancement work by running `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root "$SYMPHONY_OPERATOR_REPO_ROOT" --json` plus the selected workflow path when needed.
 9. If `review-pending` reports any `report-ready` or `review-blocked` entries, handle those completed-run reports first:
    - read the report evidence under `.var/reports/issues/<issue-number>/`,
@@ -29,7 +29,7 @@ Required workflow:
 
 - review any active `plan-ready` / `awaiting-human-handoff` issue against the selected instance repository's own checked-in planning rules and post a plan decision,
 - post `/land` on any PR waiting in `awaiting-landing-command` once it is green and review-clean,
-- and after any successful landing, pull latest `origin/main`, refresh `.tmp/factory-main`, and restart the detached factory from that merged code.
+- and after any successful landing, fast-forward the selected instance root checkout to latest `origin/main`, rerun the freshness check, and restart the detached factory only when it reports a stale `*-idle` state. For self-hosting merges, that should normally surface as runtime drift. For external instances, do not restart when only unrelated repository files changed.
 
 19. Repair concrete factory/operator problems, or advance review/landing work, using the rules in the skill.
 20. Before finishing the cycle, append a new timestamped journal entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG` and update `SYMPHONY_OPERATOR_STANDING_CONTEXT` only when durable guidance truly changed.
