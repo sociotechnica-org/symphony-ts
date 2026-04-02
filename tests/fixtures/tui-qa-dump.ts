@@ -13,7 +13,10 @@
  * event → human-readable label pipeline.
  *
  * Use this to visually QA TUI changes without needing a live factory.
- * Compare output against the Elixir reference in issue #98.
+ * Check the rendered frames in both a light and dark terminal theme and
+ * confirm recovery posture lines, ticket rows, and muted empty-state text
+ * remain readable before comparing layout against the Elixir reference in
+ * issue #98.
  */
 
 import {

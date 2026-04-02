@@ -17,14 +17,17 @@ import { setLogFile, getLogFilePath } from "./logger.js";
 
 const RESET = "\x1b[0m";
 const BOLD = "\x1b[1m";
-const DIM = "\x1b[2m";
-const RED = "\x1b[31m";
-const GREEN = "\x1b[32m";
-const YELLOW = "\x1b[33m";
-const BLUE = "\x1b[34m";
-const MAGENTA = "\x1b[35m";
-const CYAN = "\x1b[36m";
-const GRAY = "\x1b[2;37m"; // dim white — visible on dark terminals unlike \x1b[90m (bright black)
+const DEFAULT_FOREGROUND = "\x1b[39m";
+const RED = "\x1b[1;31m";
+const GREEN = "\x1b[1;32m";
+const YELLOW = "\x1b[1;33m";
+const BLUE = "\x1b[1;34m";
+const MAGENTA = "\x1b[1;35m";
+const CYAN = BLUE;
+const PRIMARY_TEXT = DEFAULT_FOREGROUND;
+const SECONDARY_TEXT = DEFAULT_FOREGROUND;
+const SEPARATOR_TEXT = BLUE;
+const ACCENT_TEXT = BLUE;
 
 function colorize(text: string, code: string): string {
   return `${code}${text}${RESET}`;
@@ -427,12 +430,12 @@ export function formatSnapshotContent(
     colorize("╭─ SYMPHONY STATUS", BOLD),
     colorize("│ Tickets: ", BOLD) +
       colorize(String(renderedTickets.length), GREEN) +
-      colorize(" active", GRAY) +
-      colorize(" | ", GRAY) +
+      colorize(" active", SECONDARY_TEXT) +
+      colorize(" | ", SEPARATOR_TEXT) +
       colorize("agents ", BOLD) +
       colorize(String(liveRunCount), GREEN) +
-      colorize("/", GRAY) +
-      colorize(String(maxConcurrentRuns), GRAY),
+      colorize("/", SEPARATOR_TEXT) +
+      colorize(String(maxConcurrentRuns), SECONDARY_TEXT),
     colorize("│ Throughput: ", BOLD) +
       colorize(`${formatTps(tps)} tps`, CYAN) +
       sparklineSuffix,
@@ -474,12 +477,14 @@ function formatRecoveryRows(
 ): string[] {
   const rows = [
     "│  " +
-      colorize(recoveryPosture.summary.family, CYAN) +
-      colorize(" | ", GRAY) +
-      colorize(recoveryPosture.summary.summary, GRAY),
+      colorize(recoveryPosture.summary.family, ACCENT_TEXT) +
+      colorize(" | ", SEPARATOR_TEXT) +
+      colorize(recoveryPosture.summary.summary, PRIMARY_TEXT),
   ];
   if (recoveryPosture.entries.length === 0) {
-    rows.push("│  " + colorize("No issue-level recovery entries", GRAY));
+    rows.push(
+      "│  " + colorize("No issue-level recovery entries", SECONDARY_TEXT),
+    );
     return rows;
   }
   for (const entry of recoveryPosture.entries.slice(0, 4)) {
@@ -491,9 +496,9 @@ function formatRecoveryRows(
       "│  " +
         colorize(`[${entry.family}]`, YELLOW) +
         " " +
-        colorize(issuePrefix, CYAN) +
-        colorize(" ", GRAY) +
-        colorize(truncate(entry.summary, 92), GRAY),
+        colorize(issuePrefix, PRIMARY_TEXT) +
+        " " +
+        colorize(truncate(entry.summary, 92), PRIMARY_TEXT),
     );
   }
   if (recoveryPosture.entries.length > 4) {
@@ -501,7 +506,7 @@ function formatRecoveryRows(
       "│  " +
         colorize(
           `+${String(recoveryPosture.entries.length - 4)} more recovery entries`,
-          GRAY,
+          SECONDARY_TEXT,
         ),
     );
   }
@@ -529,7 +534,7 @@ function formatDispatchState(
     const pressureSuffix =
       dispatchPressure === null
         ? ""
-        : colorize(" | ", GRAY) +
+        : colorize(" | ", SEPARATOR_TEXT) +
           colorize(
             `pressure ${dispatchPressure.retryClass} until ${formatDueIn(
               Date.parse(dispatchPressure.resumeAt) - nowMs,
@@ -538,8 +543,8 @@ function formatDispatchState(
           );
     return (
       colorize("halted", RED) +
-      colorize(" | ", GRAY) +
-      colorize(detail, GRAY) +
+      colorize(" | ", SEPARATOR_TEXT) +
+      colorize(detail, PRIMARY_TEXT) +
       pressureSuffix
     );
   }
@@ -547,7 +552,7 @@ function formatDispatchState(
     const pressureSuffix =
       dispatchPressure === null
         ? ""
-        : colorize(" | ", GRAY) +
+        : colorize(" | ", SEPARATOR_TEXT) +
           colorize(
             `pressure ${dispatchPressure.retryClass} until ${formatDueIn(
               Date.parse(dispatchPressure.resumeAt) - nowMs,
@@ -556,8 +561,11 @@ function formatDispatchState(
           );
     return (
       colorize("halt degraded", RED) +
-      colorize(" | ", GRAY) +
-      colorize(truncate(halt.detail ?? "unreadable halt state", 80), GRAY) +
+      colorize(" | ", SEPARATOR_TEXT) +
+      colorize(
+        truncate(halt.detail ?? "unreadable halt state", 80),
+        PRIMARY_TEXT,
+      ) +
       pressureSuffix
     );
   }
@@ -571,7 +579,7 @@ function formatRefreshLine(
   nowMs: number,
 ): string {
   if (polling === null) {
-    return colorize("│ Next refresh: ", BOLD) + colorize("n/a", GRAY);
+    return colorize("│ Next refresh: ", BOLD) + colorize("n/a", SECONDARY_TEXT);
   }
   if (polling.checkingNow) {
     return colorize("│ Next refresh: ", BOLD) + colorize("checking now…", CYAN);
@@ -585,7 +593,7 @@ function formatRefreshLine(
 
 function formatRateLimits(rateLimits: TuiSnapshot["rateLimits"]): string {
   if (rateLimits === null) {
-    return colorize("unavailable", GRAY);
+    return colorize("unavailable", SECONDARY_TEXT);
   }
   const { limitId, primary, secondary, credits } = rateLimits;
   const idPart = colorize(limitId ?? "unknown", YELLOW);
@@ -600,11 +608,11 @@ function formatRateLimits(rateLimits: TuiSnapshot["rateLimits"]): string {
   const creditsPart = colorize(credits ?? "credits n/a", GREEN);
   return (
     idPart +
-    colorize(" | ", GRAY) +
+    colorize(" | ", SEPARATOR_TEXT) +
     primaryPart +
-    colorize(" | ", GRAY) +
+    colorize(" | ", SEPARATOR_TEXT) +
     secondaryPart +
-    colorize(" | ", GRAY) +
+    colorize(" | ", SEPARATOR_TEXT) +
     creditsPart
   );
 }
@@ -634,10 +642,10 @@ function formatDispatchPressure(
   );
   return (
     colorize(dispatchPressure.retryClass, YELLOW) +
-    colorize(" until ", GRAY) +
+    colorize(" until ", SEPARATOR_TEXT) +
     colorize(formatDueIn(remainingMs), CYAN) +
-    colorize(" | ", GRAY) +
-    colorize(truncate(dispatchPressure.reason, 80), GRAY)
+    colorize(" | ", SEPARATOR_TEXT) +
+    colorize(truncate(dispatchPressure.reason, 80), PRIMARY_TEXT)
   );
 }
 
@@ -655,7 +663,12 @@ function formatLastActionLine(
   if (detail === "") {
     return line + elapsedSuffix;
   }
-  return line + colorize(" | ", GRAY) + colorize(detail, GRAY) + elapsedSuffix;
+  return (
+    line +
+    colorize(" | ", SEPARATOR_TEXT) +
+    colorize(detail, PRIMARY_TEXT) +
+    elapsedSuffix
+  );
 }
 
 // ─── Ticket table ─────────────────────────────────────────────────────────
@@ -669,7 +682,7 @@ function ticketTableHeaderRow(detailWidth: number): string {
     formatCell("TOKENS", TOKENS_WIDTH),
     formatCell("DETAIL", detailWidth),
   ].join(" ");
-  return "│   " + colorize(header, GRAY);
+  return "│   " + colorize(header, ACCENT_TEXT);
 }
 
 function ticketTableSeparatorRow(detailWidth: number): string {
@@ -681,7 +694,7 @@ function ticketTableSeparatorRow(detailWidth: number): string {
     TOKENS_WIDTH +
     detailWidth +
     5;
-  return "│   " + colorize("─".repeat(width), GRAY);
+  return "│   " + colorize("─".repeat(width), SEPARATOR_TEXT);
 }
 
 function formatTicketRows(
@@ -692,7 +705,7 @@ function formatTicketRows(
   trackerKind: TuiSnapshot["trackerKind"],
 ): string[] {
   if (tickets.length === 0) {
-    return ["│  " + colorize("No active tickets", GRAY), "│"];
+    return ["│  " + colorize("No active tickets", SECONDARY_TEXT), "│"];
   }
   return tickets.map((entry) =>
     formatTicketRow(entry, detailWidth, nowMs, maxTurns, trackerKind),
@@ -723,17 +736,17 @@ function formatTicketRow(
     "│ " +
     colorize("●", statusColor) +
     " " +
-    colorize(issue, CYAN) +
+    colorize(issue, PRIMARY_TEXT) +
     " " +
-    colorize(stage, statusColor) +
+    colorize(stage, PRIMARY_TEXT) +
     " " +
     colorize(activity, ageColor) +
     " " +
-    colorize(runner, CYAN) +
+    colorize(runner, ACCENT_TEXT) +
     " " +
-    colorize(tokens, YELLOW) +
+    colorize(tokens, MAGENTA) +
     " " +
-    colorize(detail, statusColor)
+    colorize(detail, PRIMARY_TEXT)
   );
 }
 
@@ -758,7 +771,7 @@ function statusDotColor(
       case "running":
         return BLUE;
       case "idle":
-        return GRAY;
+        return SECONDARY_TEXT;
     }
     return unreachableVisibilityState(visibility.state);
   }
@@ -778,26 +791,26 @@ function formatHeaderTokens(codexTotals: TuiSnapshot["codexTotals"]): string {
   ) {
     return (
       colorize("in pending", YELLOW) +
-      colorize(" | ", GRAY) +
+      colorize(" | ", SEPARATOR_TEXT) +
       colorize("out pending", YELLOW) +
-      colorize(" | ", GRAY) +
+      colorize(" | ", SEPARATOR_TEXT) +
       colorize("total pending", YELLOW) +
-      colorize(" | ", GRAY) +
+      colorize(" | ", SEPARATOR_TEXT) +
       colorize(`${String(codexTotals.pendingRunCount)} pending`, YELLOW)
     );
   }
 
   const pendingSuffix =
     codexTotals.pendingRunCount > 0
-      ? colorize(" | ", GRAY) +
+      ? colorize(" | ", SEPARATOR_TEXT) +
         colorize(`${String(codexTotals.pendingRunCount)} pending`, YELLOW)
       : "";
 
   return (
     colorize(`in ${formatCount(codexTotals.inputTokens)}`, YELLOW) +
-    colorize(" | ", GRAY) +
+    colorize(" | ", SEPARATOR_TEXT) +
     colorize(`out ${formatCount(codexTotals.outputTokens)}`, YELLOW) +
-    colorize(" | ", GRAY) +
+    colorize(" | ", SEPARATOR_TEXT) +
     colorize(`total ${formatCount(codexTotals.totalTokens)}`, YELLOW) +
     pendingSuffix
   );
@@ -908,18 +921,23 @@ function unreachableVisibilityState(state: never): never {
 
 function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
   if (retrying.length === 0) {
-    return ["│  " + colorize("No queued retries", GRAY)];
+    return ["│  " + colorize("No queued retries", SECONDARY_TEXT)];
   }
   return retrying.map((entry) => {
     const dueStr = formatDueIn(entry.dueInMs);
-    const classPart = " " + colorize(`class=${entry.retryClass}`, DIM);
+    const classPart =
+      " " + colorize(`class=${entry.retryClass}`, SECONDARY_TEXT);
     const hostPart =
       entry.preferredHost === null
         ? ""
-        : " " + colorize(`host=${entry.preferredHost}`, DIM);
+        : " " + colorize(`host=${entry.preferredHost}`, SECONDARY_TEXT);
     const errorPart =
       entry.lastError.trim() !== ""
-        ? " " + colorize(`error=${sanitizeRetryError(entry.lastError)}`, DIM)
+        ? " " +
+          colorize(
+            `error=${sanitizeRetryError(entry.lastError)}`,
+            SECONDARY_TEXT,
+          )
         : "";
     return (
       "│  " +
@@ -930,7 +948,7 @@ function formatRetryRows(retrying: TuiSnapshot["retrying"]): string[] {
       colorize(`attempt=${String(entry.nextAttempt)}`, YELLOW) +
       classPart +
       hostPart +
-      colorize(" in ", DIM) +
+      colorize(" in ", SEPARATOR_TEXT) +
       colorize(dueStr, CYAN) +
       errorPart
     );
@@ -1285,7 +1303,10 @@ function formatElapsedActionSuffix(
     return "";
   }
   const elapsedSeconds = Math.max(0, Math.floor((nowMs - actionAtMs) / 1000));
-  return colorize(` (${formatRuntimeSeconds(elapsedSeconds)} ago)`, GRAY);
+  return colorize(
+    ` (${formatRuntimeSeconds(elapsedSeconds)} ago)`,
+    SECONDARY_TEXT,
+  );
 }
 
 function formatRuntimeAndTurns(
