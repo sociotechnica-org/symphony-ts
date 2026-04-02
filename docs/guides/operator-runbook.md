@@ -47,6 +47,7 @@ When resumable mode is enabled, the operator state root also carries
 `operator-session.json`, and `status.json` / `status.md` expose the resolved
 provider, model, command source, effective command, session mode, and any
 automatic reset reason.
+
 Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh`
 from inside an active wake-up shell. Use the supported factory-control and
 status commands when you need deeper inspection during a cycle.
