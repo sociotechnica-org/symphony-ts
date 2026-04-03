@@ -28,6 +28,12 @@ export interface OperatorInstanceStatePaths {
   readonly sessionStatePath: string;
 }
 
+export interface OperatorInstanceCoordinationPaths {
+  readonly operatorCoordinationRoot: string;
+  readonly activeWakeUpLockDir: string;
+  readonly activeWakeUpOwnerFile: string;
+}
+
 export function deriveSymphonyInstanceIdentity(
   instanceRootOrWorkflowPath: string,
 ): SymphonyInstanceIdentity {
@@ -81,6 +87,27 @@ export function deriveOperatorInstanceStatePaths(args: {
       "report-review-state.json",
     ),
     sessionStatePath: path.join(operatorStateRoot, "operator-session.json"),
+  };
+}
+
+export function deriveOperatorInstanceCoordinationPaths(
+  instanceRootOrWorkflowPath: string,
+): OperatorInstanceCoordinationPaths {
+  const instanceRoot = normalizeInstanceRoot(instanceRootOrWorkflowPath);
+  const operatorCoordinationRoot = path.join(
+    instanceRoot,
+    ".var",
+    "factory",
+    "operator",
+  );
+  const activeWakeUpLockDir = path.join(
+    operatorCoordinationRoot,
+    "active-wake-up.lock",
+  );
+  return {
+    operatorCoordinationRoot,
+    activeWakeUpLockDir,
+    activeWakeUpOwnerFile: path.join(activeWakeUpLockDir, "owner"),
   };
 }
 

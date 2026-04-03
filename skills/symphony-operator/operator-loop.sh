@@ -27,6 +27,9 @@ LEGACY_SCRATCHPAD=""
 RELEASE_STATE=""
 REPORT_REVIEW_STATE=""
 SESSION_STATE=""
+OPERATOR_COORDINATION_ROOT=""
+ACTIVE_WAKE_UP_LOCK_DIR=""
+ACTIVE_WAKE_UP_OWNER_FILE=""
 
 INTERVAL_SECONDS="${SYMPHONY_OPERATOR_INTERVAL_SECONDS:-300}"
 WORKFLOW_PATH="${SYMPHONY_OPERATOR_WORKFLOW_PATH:-}"
@@ -64,6 +67,7 @@ READY_PROMOTION_UPDATED_AT=""
 READY_PROMOTION_ELIGIBLE_ISSUES=""
 READY_PROMOTION_ADDED=""
 READY_PROMOTION_REMOVED=""
+ACTIVE_WAKE_UP_LEASE_HELD=0
 
 usage() {
   cat <<'EOF'
@@ -88,28 +92,28 @@ EOF
 }
 
 reject_nested_launch() {
-  if [ "${SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP:-}" != "1" ]; then
-    return 0
-  fi
-
   local message
-  message="operator-loop: nested operator loop launch rejected inside an active wake-up cycle"
-  if [ -n "${SYMPHONY_OPERATOR_PARENT_LOOP_PID:-}" ]; then
-    message="$message; parent_pid=${SYMPHONY_OPERATOR_PARENT_LOOP_PID}"
-  fi
-  if [ -n "${SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY:-}" ]; then
-    message="$message; parent_instance=${SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY}"
-  fi
-  if [ -n "${SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH:-}" ]; then
-    message="$message; parent_workflow=${SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH}"
-  fi
-  message="$message; requested_instance=${INSTANCE_KEY}"
-  if [ -n "$WORKFLOW_PATH" ]; then
-    message="$message; requested_workflow=${WORKFLOW_PATH}"
+  if [ "${SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP:-}" = "1" ]; then
+    message="operator-loop: nested operator loop launch rejected inside an active wake-up cycle; reason=inherited-parent-loop"
+    if [ -n "${SYMPHONY_OPERATOR_PARENT_LOOP_PID:-}" ]; then
+      message="$message; parent_pid=${SYMPHONY_OPERATOR_PARENT_LOOP_PID}"
+    fi
+    if [ -n "${SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY:-}" ]; then
+      message="$message; parent_instance=${SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY}"
+    fi
+    if [ -n "${SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH:-}" ]; then
+      message="$message; parent_workflow=${SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH}"
+    fi
+    message="$message; requested_instance=${INSTANCE_KEY}"
+    if [ -n "$WORKFLOW_PATH" ]; then
+      message="$message; requested_workflow=${WORKFLOW_PATH}"
+    fi
+
+    echo "$message" >&2
+    exit 1
   fi
 
-  echo "$message" >&2
-  exit 1
+  reject_launch_during_active_wake_up_lease
 }
 
 json_escape() {
@@ -187,6 +191,9 @@ const data = JSON.parse(fs.readFileSync(0, "utf8"));
   releaseStatePath: "RELEASE_STATE",
   reportReviewStatePath: "REPORT_REVIEW_STATE",
   sessionStatePath: "SESSION_STATE",
+  operatorCoordinationRoot: "OPERATOR_COORDINATION_ROOT",
+  activeWakeUpLockDir: "ACTIVE_WAKE_UP_LOCK_DIR",
+  activeWakeUpOwnerFile: "ACTIVE_WAKE_UP_OWNER_FILE",
 };
 for (const [jsonKey, shellKey] of Object.entries(mappings)) {
   const value = data[jsonKey];
@@ -316,6 +323,49 @@ for (const [jsonKey, shellKey] of Object.entries(mappings)) {
 '
   )"
   eval "$recorded_exports"
+}
+
+write_cycle_log_header() {
+  local log_file="$1"
+
+  {
+    printf '== Symphony operator cycle ==\n'
+    printf 'started_at=%s\n' "$LAST_CYCLE_STARTED_AT"
+    printf 'repo_root=%s\n' "$REPO_ROOT"
+    printf 'instance_key=%s\n' "$INSTANCE_KEY"
+    printf 'detached_session=%s\n' "$DETACHED_SESSION_NAME"
+    printf 'selected_instance_root=%s\n' "$SELECTED_INSTANCE_ROOT"
+    printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
+    printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
+    printf 'provider=%s\n' "$OPERATOR_PROVIDER"
+    printf 'model=%s\n' "${OPERATOR_MODEL:-}"
+    printf 'command_source=%s\n' "$OPERATOR_COMMAND_SOURCE"
+    printf 'base_command=%s\n' "$BASE_OPERATOR_COMMAND"
+    printf 'effective_command=%s\n' "$EFFECTIVE_OPERATOR_COMMAND"
+    printf 'session_state=%s\n' "$SESSION_STATE"
+    printf 'session_mode=%s\n' "$OPERATOR_SESSION_MODE"
+    printf 'session_summary=%s\n' "$OPERATOR_SESSION_SUMMARY"
+    printf 'session_backend_id=%s\n' "${OPERATOR_SESSION_ID:-}"
+    printf 'prompt=%s\n' "$PROMPT_FILE"
+    printf '\n'
+  } >>"$log_file"
+}
+
+record_cycle_failure_before_command() {
+  local log_file="$1"
+  local failure_message="$2"
+  local cycle_message="$3"
+
+  LAST_CYCLE_FINISHED_AT="$(now_utc)"
+  LAST_CYCLE_EXIT_CODE="1"
+
+  {
+    printf 'failure_at=%s\n' "$LAST_CYCLE_FINISHED_AT"
+    printf 'failure=%s\n' "$failure_message"
+  } >>"$log_file"
+
+  record_operator_cycle
+  write_status "failed" "$cycle_message"
 }
 
 refresh_release_state() {
@@ -512,6 +562,94 @@ pid_is_live() {
   local pid="${1:-}"
   [[ "$pid" =~ ^[0-9]+$ ]] || return 1
   kill -0 "$pid" 2>/dev/null
+}
+
+read_active_wake_up_owner_value() {
+  local key="$1"
+  sed -n "s/^${key}=//p" "$ACTIVE_WAKE_UP_OWNER_FILE" 2>/dev/null | head -n 1
+}
+
+clear_stale_active_wake_up_lease() {
+  local existing_pid="${1:-}"
+  echo "operator-loop: clearing stale active wake-up lease for pid ${existing_pid:-unknown}" >&2
+  rm -rf "$ACTIVE_WAKE_UP_LOCK_DIR"
+}
+
+reject_launch_during_active_wake_up_lease() {
+  while [ -d "$ACTIVE_WAKE_UP_LOCK_DIR" ]; do
+    local existing_pid owner_repo_root owner_instance_root owner_workflow message
+    existing_pid="$(read_active_wake_up_owner_value pid)"
+    if ! pid_is_live "$existing_pid"; then
+      clear_stale_active_wake_up_lease "$existing_pid"
+      sleep 0.1
+      continue
+    fi
+
+    owner_repo_root="$(read_active_wake_up_owner_value operator_repo_root)"
+    owner_instance_root="$(read_active_wake_up_owner_value selected_instance_root)"
+    owner_workflow="$(read_active_wake_up_owner_value workflow_path)"
+    message="operator-loop: operator loop launch rejected while another wake-up cycle is active for this instance; reason=live-active-wake-up-lease; owner_pid=${existing_pid}"
+    if [ -n "$owner_repo_root" ]; then
+      message="$message; owner_repo_root=${owner_repo_root}"
+    fi
+    if [ -n "$owner_instance_root" ]; then
+      message="$message; owner_selected_instance_root=${owner_instance_root}"
+    fi
+    if [ -n "$owner_workflow" ]; then
+      message="$message; owner_workflow=${owner_workflow}"
+    fi
+    message="$message; requested_instance=${INSTANCE_KEY}"
+    if [ -n "$WORKFLOW_PATH" ]; then
+      message="$message; requested_workflow=${WORKFLOW_PATH}"
+    fi
+
+    echo "$message" >&2
+    exit 1
+  done
+}
+
+acquire_active_wake_up_lease() {
+  mkdir -p "$OPERATOR_COORDINATION_ROOT"
+
+  while true; do
+    if mkdir "$ACTIVE_WAKE_UP_LOCK_DIR" 2>/dev/null; then
+      ACTIVE_WAKE_UP_LEASE_HELD=1
+      cat >"$ACTIVE_WAKE_UP_OWNER_FILE" <<EOF
+pid=$$
+started_at=$(now_utc)
+selected_instance_root=$SELECTED_INSTANCE_ROOT
+operator_repo_root=$REPO_ROOT
+workflow_path=$WORKFLOW_PATH
+instance_key=$INSTANCE_KEY
+EOF
+      return 0
+    fi
+
+    local existing_pid owner_repo_root owner_instance_root owner_workflow
+    existing_pid="$(read_active_wake_up_owner_value pid)"
+    if ! pid_is_live "$existing_pid"; then
+      clear_stale_active_wake_up_lease "$existing_pid"
+      sleep 0.1
+      continue
+    fi
+
+    owner_repo_root="$(read_active_wake_up_owner_value operator_repo_root)"
+    owner_instance_root="$(read_active_wake_up_owner_value selected_instance_root)"
+    owner_workflow="$(read_active_wake_up_owner_value workflow_path)"
+    echo "operator-loop: active wake-up lease already held for this instance; owner_pid=${existing_pid}; owner_repo_root=${owner_repo_root:-unknown}; owner_selected_instance_root=${owner_instance_root:-unknown}; owner_workflow=${owner_workflow:-unknown}" >&2
+    return 1
+  done
+}
+
+release_active_wake_up_lease() {
+  if [ -d "$ACTIVE_WAKE_UP_LOCK_DIR" ]; then
+    local existing_pid
+    existing_pid="$(read_active_wake_up_owner_value pid)"
+    if [ "$existing_pid" = "$$" ]; then
+      rm -rf "$ACTIVE_WAKE_UP_LOCK_DIR"
+    fi
+  fi
+  ACTIVE_WAKE_UP_LEASE_HELD=0
 }
 
 write_status() {
@@ -768,30 +906,16 @@ run_cycle() {
     :
   fi
   prepare_operator_cycle
+  write_cycle_log_header "$log_file"
   emit_terminal_trace "waking up (${OPERATOR_PROVIDER}${OPERATOR_MODEL:+/$OPERATOR_MODEL}; $(describe_cycle_terminal_mode))"
   write_status "acting" "Running operator wake-up cycle"
-
-  {
-    printf '== Symphony operator cycle ==\n'
-    printf 'started_at=%s\n' "$LAST_CYCLE_STARTED_AT"
-    printf 'repo_root=%s\n' "$REPO_ROOT"
-    printf 'instance_key=%s\n' "$INSTANCE_KEY"
-    printf 'detached_session=%s\n' "$DETACHED_SESSION_NAME"
-    printf 'selected_instance_root=%s\n' "$SELECTED_INSTANCE_ROOT"
-    printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
-    printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
-    printf 'provider=%s\n' "$OPERATOR_PROVIDER"
-    printf 'model=%s\n' "${OPERATOR_MODEL:-}"
-    printf 'command_source=%s\n' "$OPERATOR_COMMAND_SOURCE"
-    printf 'base_command=%s\n' "$BASE_OPERATOR_COMMAND"
-    printf 'effective_command=%s\n' "$EFFECTIVE_OPERATOR_COMMAND"
-    printf 'session_state=%s\n' "$SESSION_STATE"
-    printf 'session_mode=%s\n' "$OPERATOR_SESSION_MODE"
-    printf 'session_summary=%s\n' "$OPERATOR_SESSION_SUMMARY"
-    printf 'session_backend_id=%s\n' "${OPERATOR_SESSION_ID:-}"
-    printf 'prompt=%s\n' "$PROMPT_FILE"
-    printf '\n'
-  } >>"$log_file"
+  if ! acquire_active_wake_up_lease; then
+    record_cycle_failure_before_command \
+      "$log_file" \
+      "active wake-up lease already held for this instance" \
+      "Operator cycle failed before the wake-up lease could be acquired"
+    return 1
+  fi
 
   set +e
   (
@@ -830,6 +954,7 @@ run_cycle() {
   ) >>"$log_file" 2>&1
   exit_code=$?
   set -e
+  release_active_wake_up_lease
 
   LAST_CYCLE_FINISHED_AT="$(now_utc)"
   LAST_CYCLE_EXIT_CODE="$exit_code"
@@ -909,7 +1034,7 @@ resolve_instance_state
 reject_nested_launch
 warn_default_command
 ensure_runtime_paths
-trap 'release_lock' EXIT
+trap 'release_active_wake_up_lease; release_lock' EXIT
 acquire_lock
 trap on_signal INT TERM
 # Only the lock owner should publish operator-loop status snapshots.

@@ -8,6 +8,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  deriveOperatorInstanceCoordinationPaths,
   deriveOperatorInstanceStatePaths,
   deriveSymphonyInstanceKey,
 } from "../../src/domain/instance-identity.js";
@@ -255,6 +256,71 @@ async function runOperatorLoopExpectFailure(
   throw new Error("Expected operator loop invocation to fail");
 }
 
+async function runOperatorLoopExpectFailureFromCheckout(
+  checkoutRoot: string,
+  workflowPath: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<{
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+}> {
+  try {
+    await execFileAsync(
+      "bash",
+      [
+        path.join(
+          checkoutRoot,
+          "skills",
+          "symphony-operator",
+          "operator-loop.sh",
+        ),
+        "--once",
+        "--workflow",
+        workflowPath,
+      ],
+      {
+        cwd: checkoutRoot,
+        env: buildTopLevelOperatorLoopEnv({
+          GH_TOKEN: "test-token",
+          SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
+          ...env,
+        }),
+      },
+    );
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException & {
+      readonly code?: number | string;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+    return {
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+      exitCode: typeof failure.code === "number" ? failure.code : null,
+    };
+  }
+
+  throw new Error("Expected operator loop invocation to fail");
+}
+
+async function waitForPathExists(
+  targetPath: string,
+  timeoutMs = 10000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fs.access(targetPath);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  throw new Error(`Timed out waiting for ${targetPath} to exist`);
+}
+
 function buildAppendWakeUpLogCommand(entryTitle: string): string {
   const entry = `\n## ${entryTitle}\n- Appended by integration test.\n`;
   const program = `const fs = require("node:fs"); fs.appendFileSync(process.env.SYMPHONY_OPERATOR_WAKE_UP_LOG, ${JSON.stringify(entry)});`;
@@ -315,6 +381,53 @@ printf '{"type":"result","session_id":"%s","modelUsage":{"%s":{"inputTokens":1,"
 `;
   await fs.writeFile(executablePath, script, { encoding: "utf8", mode: 0o755 });
   return executablePath;
+}
+
+async function createLeaseFailingMkdirExecutable(
+  directory: string,
+): Promise<void> {
+  const executablePath = path.join(directory, "mkdir");
+  const script = `#!/usr/bin/env bash
+set -euo pipefail
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATH="\${PATH#"$SELF_DIR:"}"
+
+target="\${1:-}"
+if [[ "\${SYMPHONY_TEST_FORCE_ACTIVE_WAKE_UP_LEASE_FAILURE:-}" = "1" && -n "$target" && "$target" = "\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LOCK_DIR:-}" ]]; then
+  mkdir -p "$target"
+  cat >"$target/owner" <<EOF
+pid=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_FAIL_PID:-$$}
+operator_repo_root=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_REPO_ROOT:-/tmp/owner-repo}
+selected_instance_root=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_INSTANCE_ROOT:-/tmp/owner-instance}
+workflow_path=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_WORKFLOW:-/tmp/owner-instance/WORKFLOW.md}
+EOF
+  exit 1
+fi
+
+exec mkdir "$@"
+`;
+  await fs.writeFile(executablePath, script, { encoding: "utf8", mode: 0o755 });
+}
+
+async function createAlternateOperatorCheckout(rootDir: string): Promise<void> {
+  await fs.mkdir(rootDir, { recursive: true });
+  const symlinkEntries = [
+    { name: "bin", type: "dir" as const },
+    { name: "node_modules", type: "dir" as const },
+    { name: "skills", type: "dir" as const },
+    { name: "src", type: "dir" as const },
+    { name: "package.json", type: "file" as const },
+    { name: "pnpm-lock.yaml", type: "file" as const },
+    { name: "tsconfig.json", type: "file" as const },
+  ];
+
+  for (const entry of symlinkEntries) {
+    await fs.symlink(
+      path.join(repoRoot, entry.name),
+      path.join(rootDir, entry.name),
+      entry.type,
+    );
+  }
 }
 
 async function writeIssueSummary(args: {
@@ -669,6 +782,268 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
     } finally {
       await fs.rm(parentDir, { recursive: true, force: true });
       await fs.rm(nestedDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a same-instance nested launch from another checkout after inherited markers are scrubbed", async () => {
+    const instanceDir = await createTempDir("symphony-operator-loop-instance-");
+    const alternateCheckout = await createTempDir(
+      "symphony-operator-loop-checkout-",
+    );
+    const workflowPath = await writeWorkflow(instanceDir);
+    const nestedResultPath = path.join(instanceDir, "nested-result.json");
+    const nestedStdoutPath = path.join(instanceDir, "nested-stdout.txt");
+    const nestedStderrPath = path.join(instanceDir, "nested-stderr.txt");
+    const nestedCommandPath = path.join(instanceDir, "nested-command.sh");
+    const coordinationPaths =
+      deriveOperatorInstanceCoordinationPaths(workflowPath);
+    const nestedPaths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: alternateCheckout,
+      instanceKey: deriveSymphonyInstanceKey(path.dirname(workflowPath)),
+    });
+
+    try {
+      await createAlternateOperatorCheckout(alternateCheckout);
+      await fs.writeFile(
+        nestedCommandPath,
+        `#!/usr/bin/env bash
+set -euo pipefail
+set +e
+(
+  cd ${JSON.stringify(alternateCheckout)}
+  env \\
+    -u SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP \\
+    -u SYMPHONY_OPERATOR_PARENT_LOOP_PID \\
+    -u SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY \\
+    -u SYMPHONY_OPERATOR_PARENT_REPO_ROOT \\
+    -u SYMPHONY_OPERATOR_PARENT_SELECTED_INSTANCE_ROOT \\
+    -u SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH \\
+    GH_TOKEN=test-token \\
+    SYMPHONY_OPERATOR_COMMAND='cat >/dev/null' \\
+    bash ${JSON.stringify(path.join(alternateCheckout, "skills", "symphony-operator", "operator-loop.sh"))} --once --workflow ${JSON.stringify(workflowPath)} >${JSON.stringify(nestedStdoutPath)} 2>${JSON.stringify(nestedStderrPath)}
+)
+status=$?
+set -e
+node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(nestedResultPath)}, JSON.stringify({ error: null, status: Number(process.argv[1]), stdout: fs.readFileSync(${JSON.stringify(nestedStdoutPath)}, "utf8"), stderr: fs.readFileSync(${JSON.stringify(nestedStderrPath)}, "utf8") }, null, 2));`)} "$status"
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+
+      const run = await runOperatorLoopWithOptions(workflowPath, {
+        env: {
+          SYMPHONY_OPERATOR_COMMAND: nestedCommandPath,
+        },
+      });
+      createdPaths.add(instanceDir);
+      createdPaths.add(alternateCheckout);
+      createdPaths.add(run.stateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      const nestedResult = JSON.parse(
+        await fs.readFile(nestedResultPath, "utf8"),
+      ) as {
+        readonly error: string | null;
+        readonly status: number | null;
+        readonly stdout: string;
+        readonly stderr: string;
+      };
+
+      expect(nestedResult.error).toBeNull();
+      expect(nestedResult.status).toBe(1);
+      expect(nestedResult.stderr).toContain(
+        "operator loop launch rejected while another wake-up cycle is active for this instance",
+      );
+      expect(nestedResult.stderr).toContain("reason=live-active-wake-up-lease");
+      expect(nestedResult.stderr).toContain(`owner_repo_root=${repoRoot}`);
+      expect(nestedResult.stderr).toContain(
+        `owner_selected_instance_root=${path.dirname(workflowPath)}`,
+      );
+      await expect(fs.access(nestedPaths.statusJsonPath)).rejects.toThrow();
+      await expect(fs.access(nestedPaths.lockDir)).rejects.toThrow();
+      await expect(
+        fs.access(coordinationPaths.activeWakeUpLockDir),
+      ).rejects.toThrow();
+    } finally {
+      await fs.rm(instanceDir, { recursive: true, force: true });
+      await fs.rm(alternateCheckout, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an independent top-level launch from another checkout while a same-instance wake-up is active", async () => {
+    const instanceDir = await createTempDir("symphony-operator-loop-instance-");
+    const alternateCheckout = await createTempDir(
+      "symphony-operator-loop-checkout-",
+    );
+    const workflowPath = await writeWorkflow(instanceDir);
+    const coordinationPaths =
+      deriveOperatorInstanceCoordinationPaths(workflowPath);
+    const childHolder: { current: ChildProcessWithoutNullStreams | null } = {
+      current: null,
+    };
+
+    try {
+      createdPaths.add(instanceDir);
+      createdPaths.add(alternateCheckout);
+      await createAlternateOperatorCheckout(alternateCheckout);
+
+      const parent = spawn(
+        "bash",
+        [
+          path.join("skills", "symphony-operator", "operator-loop.sh"),
+          "--once",
+          "--workflow",
+          workflowPath,
+        ],
+        {
+          cwd: repoRoot,
+          env: buildTopLevelOperatorLoopEnv({
+            GH_TOKEN: "test-token",
+            SYMPHONY_OPERATOR_COMMAND: "sleep 5",
+          }),
+        },
+      );
+      childHolder.current = parent;
+
+      let parentStderr = "";
+      parent.stderr.setEncoding("utf8");
+      parent.stderr.on("data", (chunk: string) => {
+        parentStderr += chunk;
+      });
+
+      await Promise.race([
+        waitForPathExists(coordinationPaths.activeWakeUpLockDir),
+        new Promise<never>((_, reject) => {
+          parent.once("error", reject);
+          parent.once("close", (code) => {
+            reject(
+              new Error(
+                `Parent operator loop exited before publishing the active wake-up lease: ${code?.toString() ?? "unknown"}\n${parentStderr}`,
+              ),
+            );
+          });
+        }),
+      ]);
+
+      const failure = await runOperatorLoopExpectFailureFromCheckout(
+        alternateCheckout,
+        workflowPath,
+      );
+      expect(failure.exitCode).toBe(1);
+      expect(failure.stderr).toContain(
+        "operator loop launch rejected while another wake-up cycle is active for this instance",
+      );
+      expect(failure.stderr).toContain("reason=live-active-wake-up-lease");
+      expect(failure.stderr).toContain(`owner_repo_root=${repoRoot}`);
+      expect(failure.stderr).toContain(
+        `owner_selected_instance_root=${path.dirname(workflowPath)}`,
+      );
+    } finally {
+      const childProcess = childHolder.current;
+      if (
+        childProcess !== null &&
+        childProcess.exitCode === null &&
+        childProcess.signalCode === null
+      ) {
+        childProcess.kill("SIGTERM");
+        await new Promise<void>((resolve) => {
+          childProcess.once("close", () => resolve());
+        });
+      }
+      await fs.rm(instanceDir, { recursive: true, force: true });
+      await fs.rm(alternateCheckout, { recursive: true, force: true });
+    }
+  });
+
+  it("records cycle bookkeeping when the wake-up lease acquisition loses the race", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-lease-race-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const fakeBinDir = path.join(tempDir, "bin");
+    const commandLog = path.join(tempDir, "claude-lease-race.log");
+    const coordinationPaths =
+      deriveOperatorInstanceCoordinationPaths(workflowPath);
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey: deriveSymphonyInstanceKey(path.dirname(workflowPath)),
+    });
+
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await createFakeOperatorExecutable({
+      directory: fakeBinDir,
+      name: "claude",
+      logPath: commandLog,
+    });
+    await createLeaseFailingMkdirExecutable(fakeBinDir);
+
+    try {
+      const failure = await runOperatorLoopExpectFailure(
+        workflowPath,
+        ["--provider", "claude", "--resume-session"],
+        {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+          SYMPHONY_TEST_FORCE_ACTIVE_WAKE_UP_LEASE_FAILURE: "1",
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LOCK_DIR:
+            coordinationPaths.activeWakeUpLockDir,
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_FAIL_PID: process.pid.toString(),
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_REPO_ROOT:
+            "/tmp/lease-owner-repo",
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_INSTANCE_ROOT:
+            path.dirname(workflowPath),
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_WORKFLOW: workflowPath,
+        },
+      );
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly operatorSession: {
+          readonly mode: string;
+          readonly summary: string;
+        };
+        readonly lastCycle: {
+          readonly exitCode: number | null;
+          readonly finishedAt: string | null;
+          readonly logFile: string | null;
+        };
+      };
+      const statusMd = await fs.readFile(paths.statusMdPath, "utf8");
+
+      expect(failure.exitCode).toBe(1);
+      expect(failure.stderr).toContain(
+        "operator-loop: active wake-up lease already held for this instance",
+      );
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.operatorSession.mode).toBe("fresh");
+      expect(statusJson.operatorSession.summary).toContain(
+        "Operator cycle failed before a reusable backend session was recorded.",
+      );
+      expect(statusJson.lastCycle.exitCode).toBe(1);
+      expect(statusJson.lastCycle.finishedAt).not.toBeNull();
+      expect(statusJson.lastCycle.logFile).not.toBeNull();
+      expect(statusMd).toContain("- Last cycle exit code: 1");
+
+      const logFile = statusJson.lastCycle.logFile;
+      if (logFile === null) {
+        throw new Error("Expected a recorded cycle log file");
+      }
+      createdPaths.add(logFile);
+
+      const logContents = await fs.readFile(logFile, "utf8");
+      expect(logContents).toContain("== Symphony operator cycle ==");
+      expect(logContents).toContain(
+        "failure=active wake-up lease already held for this instance",
+      );
+      expect(logContents).toContain("session_mode=fresh");
+      expect(await fs.readFile(commandLog, "utf8").catch(() => "")).toBe("");
+      await expect(
+        fs.readFile(coordinationPaths.activeWakeUpOwnerFile, "utf8"),
+      ).resolves.toContain(`pid=${process.pid.toString()}`);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
