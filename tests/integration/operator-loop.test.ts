@@ -256,6 +256,66 @@ async function runOperatorLoopExpectFailure(
   throw new Error("Expected operator loop invocation to fail");
 }
 
+async function runOperatorLoopExpectFailureFromCheckout(
+  checkoutRoot: string,
+  workflowPath: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<{
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number | null;
+}> {
+  try {
+    await execFileAsync(
+      "bash",
+      [
+        path.join(checkoutRoot, "skills", "symphony-operator", "operator-loop.sh"),
+        "--once",
+        "--workflow",
+        workflowPath,
+      ],
+      {
+        cwd: checkoutRoot,
+        env: buildTopLevelOperatorLoopEnv({
+          GH_TOKEN: "test-token",
+          SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
+          ...env,
+        }),
+      },
+    );
+  } catch (error) {
+    const failure = error as NodeJS.ErrnoException & {
+      readonly code?: number | string;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
+    return {
+      stdout: failure.stdout ?? "",
+      stderr: failure.stderr ?? "",
+      exitCode: typeof failure.code === "number" ? failure.code : null,
+    };
+  }
+
+  throw new Error("Expected operator loop invocation to fail");
+}
+
+async function waitForPathExists(
+  targetPath: string,
+  timeoutMs = 10000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fs.access(targetPath);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+
+  throw new Error(`Timed out waiting for ${targetPath} to exist`);
+}
+
 function buildAppendWakeUpLogCommand(entryTitle: string): string {
   const entry = `\n## ${entryTitle}\n- Appended by integration test.\n`;
   const program = `const fs = require("node:fs"); fs.appendFileSync(process.env.SYMPHONY_OPERATOR_WAKE_UP_LOG, ${JSON.stringify(entry)});`;
@@ -755,7 +815,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
       expect(nestedResult.error).toBeNull();
       expect(nestedResult.status).toBe(1);
       expect(nestedResult.stderr).toContain(
-        "nested operator loop launch rejected inside an active wake-up cycle",
+        "operator loop launch rejected while another wake-up cycle is active for this instance",
       );
       expect(nestedResult.stderr).toContain("reason=live-active-wake-up-lease");
       expect(nestedResult.stderr).toContain(`owner_repo_root=${repoRoot}`);
@@ -768,6 +828,91 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
         fs.access(coordinationPaths.activeWakeUpLockDir),
       ).rejects.toThrow();
     } finally {
+      await fs.rm(instanceDir, { recursive: true, force: true });
+      await fs.rm(alternateCheckout, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an independent top-level launch from another checkout while a same-instance wake-up is active", async () => {
+    const instanceDir = await createTempDir("symphony-operator-loop-instance-");
+    const alternateCheckout = await createTempDir(
+      "symphony-operator-loop-checkout-",
+    );
+    const workflowPath = await writeWorkflow(instanceDir);
+    const coordinationPaths =
+      deriveOperatorInstanceCoordinationPaths(workflowPath);
+    const childHolder: { current: ChildProcessWithoutNullStreams | null } = {
+      current: null,
+    };
+
+    try {
+      createdPaths.add(instanceDir);
+      createdPaths.add(alternateCheckout);
+      await createAlternateOperatorCheckout(alternateCheckout);
+
+      const parent = spawn(
+        "bash",
+        [
+          path.join("skills", "symphony-operator", "operator-loop.sh"),
+          "--once",
+          "--workflow",
+          workflowPath,
+        ],
+        {
+          cwd: repoRoot,
+          env: buildTopLevelOperatorLoopEnv({
+            GH_TOKEN: "test-token",
+            SYMPHONY_OPERATOR_COMMAND: "sleep 5",
+          }),
+        },
+      );
+      childHolder.current = parent;
+
+      let parentStderr = "";
+      parent.stderr.setEncoding("utf8");
+      parent.stderr.on("data", (chunk: string) => {
+        parentStderr += chunk;
+      });
+
+      await Promise.race([
+        waitForPathExists(coordinationPaths.activeWakeUpLockDir),
+        new Promise<never>((_, reject) => {
+          parent.once("error", reject);
+          parent.once("close", (code) => {
+            reject(
+              new Error(
+                `Parent operator loop exited before publishing the active wake-up lease: ${code?.toString() ?? "unknown"}\n${parentStderr}`,
+              ),
+            );
+          });
+        }),
+      ]);
+
+      const failure = await runOperatorLoopExpectFailureFromCheckout(
+        alternateCheckout,
+        workflowPath,
+      );
+      expect(failure.exitCode).toBe(1);
+      expect(failure.stderr).toContain(
+        "operator loop launch rejected while another wake-up cycle is active for this instance",
+      );
+      expect(failure.stderr).toContain("reason=live-active-wake-up-lease");
+      expect(failure.stderr).toContain(`owner_repo_root=${repoRoot}`);
+      expect(failure.stderr).toContain(
+        `owner_selected_instance_root=${path.dirname(workflowPath)}`,
+      );
+    } finally {
+      const childProcess = childHolder.current;
+      if (
+        childProcess !== null &&
+        childProcess.exitCode === null &&
+        childProcess.signalCode === null
+      ) {
+        childProcess.kill("SIGTERM");
+        await new Promise<void>((resolve) => {
+          childProcess.once("close", () => resolve());
+        });
+      }
       await fs.rm(instanceDir, { recursive: true, force: true });
       await fs.rm(alternateCheckout, { recursive: true, force: true });
     }

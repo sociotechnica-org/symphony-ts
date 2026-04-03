@@ -113,7 +113,7 @@ reject_nested_launch() {
     exit 1
   fi
 
-  reject_nested_launch_from_active_wake_up_lease
+  reject_launch_during_active_wake_up_lease
 }
 
 json_escape() {
@@ -532,7 +532,7 @@ clear_stale_active_wake_up_lease() {
   rm -rf "$ACTIVE_WAKE_UP_LOCK_DIR"
 }
 
-reject_nested_launch_from_active_wake_up_lease() {
+reject_launch_during_active_wake_up_lease() {
   while [ -d "$ACTIVE_WAKE_UP_LOCK_DIR" ]; do
     local existing_pid owner_repo_root owner_instance_root owner_workflow message
     existing_pid="$(read_active_wake_up_owner_value pid)"
@@ -545,7 +545,7 @@ reject_nested_launch_from_active_wake_up_lease() {
     owner_repo_root="$(read_active_wake_up_owner_value operator_repo_root)"
     owner_instance_root="$(read_active_wake_up_owner_value selected_instance_root)"
     owner_workflow="$(read_active_wake_up_owner_value workflow_path)"
-    message="operator-loop: nested operator loop launch rejected inside an active wake-up cycle; reason=live-active-wake-up-lease; owner_pid=${existing_pid}"
+    message="operator-loop: operator loop launch rejected while another wake-up cycle is active for this instance; reason=live-active-wake-up-lease; owner_pid=${existing_pid}"
     if [ -n "$owner_repo_root" ]; then
       message="$message; owner_repo_root=${owner_repo_root}"
     fi
