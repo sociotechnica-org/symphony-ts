@@ -325,6 +325,49 @@ for (const [jsonKey, shellKey] of Object.entries(mappings)) {
   eval "$recorded_exports"
 }
 
+write_cycle_log_header() {
+  local log_file="$1"
+
+  {
+    printf '== Symphony operator cycle ==\n'
+    printf 'started_at=%s\n' "$LAST_CYCLE_STARTED_AT"
+    printf 'repo_root=%s\n' "$REPO_ROOT"
+    printf 'instance_key=%s\n' "$INSTANCE_KEY"
+    printf 'detached_session=%s\n' "$DETACHED_SESSION_NAME"
+    printf 'selected_instance_root=%s\n' "$SELECTED_INSTANCE_ROOT"
+    printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
+    printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
+    printf 'provider=%s\n' "$OPERATOR_PROVIDER"
+    printf 'model=%s\n' "${OPERATOR_MODEL:-}"
+    printf 'command_source=%s\n' "$OPERATOR_COMMAND_SOURCE"
+    printf 'base_command=%s\n' "$BASE_OPERATOR_COMMAND"
+    printf 'effective_command=%s\n' "$EFFECTIVE_OPERATOR_COMMAND"
+    printf 'session_state=%s\n' "$SESSION_STATE"
+    printf 'session_mode=%s\n' "$OPERATOR_SESSION_MODE"
+    printf 'session_summary=%s\n' "$OPERATOR_SESSION_SUMMARY"
+    printf 'session_backend_id=%s\n' "${OPERATOR_SESSION_ID:-}"
+    printf 'prompt=%s\n' "$PROMPT_FILE"
+    printf '\n'
+  } >>"$log_file"
+}
+
+record_cycle_failure_before_command() {
+  local log_file="$1"
+  local failure_message="$2"
+  local cycle_message="$3"
+
+  LAST_CYCLE_FINISHED_AT="$(now_utc)"
+  LAST_CYCLE_EXIT_CODE="1"
+
+  {
+    printf 'failure_at=%s\n' "$LAST_CYCLE_FINISHED_AT"
+    printf 'failure=%s\n' "$failure_message"
+  } >>"$log_file"
+
+  record_operator_cycle
+  write_status "failed" "$cycle_message"
+}
+
 refresh_release_state() {
   pnpm tsx "$RELEASE_STATE_CHECKER" \
     --workflow "$WORKFLOW_PATH" \
@@ -863,35 +906,16 @@ run_cycle() {
     :
   fi
   prepare_operator_cycle
+  write_cycle_log_header "$log_file"
   emit_terminal_trace "waking up (${OPERATOR_PROVIDER}${OPERATOR_MODEL:+/$OPERATOR_MODEL}; $(describe_cycle_terminal_mode))"
   write_status "acting" "Running operator wake-up cycle"
   if ! acquire_active_wake_up_lease; then
-    LAST_CYCLE_FINISHED_AT="$(now_utc)"
-    LAST_CYCLE_EXIT_CODE="1"
+    record_cycle_failure_before_command \
+      "$log_file" \
+      "active wake-up lease already held for this instance" \
+      "Operator cycle failed before the wake-up lease could be acquired"
     return 1
   fi
-
-  {
-    printf '== Symphony operator cycle ==\n'
-    printf 'started_at=%s\n' "$LAST_CYCLE_STARTED_AT"
-    printf 'repo_root=%s\n' "$REPO_ROOT"
-    printf 'instance_key=%s\n' "$INSTANCE_KEY"
-    printf 'detached_session=%s\n' "$DETACHED_SESSION_NAME"
-    printf 'selected_instance_root=%s\n' "$SELECTED_INSTANCE_ROOT"
-    printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
-    printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
-    printf 'provider=%s\n' "$OPERATOR_PROVIDER"
-    printf 'model=%s\n' "${OPERATOR_MODEL:-}"
-    printf 'command_source=%s\n' "$OPERATOR_COMMAND_SOURCE"
-    printf 'base_command=%s\n' "$BASE_OPERATOR_COMMAND"
-    printf 'effective_command=%s\n' "$EFFECTIVE_OPERATOR_COMMAND"
-    printf 'session_state=%s\n' "$SESSION_STATE"
-    printf 'session_mode=%s\n' "$OPERATOR_SESSION_MODE"
-    printf 'session_summary=%s\n' "$OPERATOR_SESSION_SUMMARY"
-    printf 'session_backend_id=%s\n' "${OPERATOR_SESSION_ID:-}"
-    printf 'prompt=%s\n' "$PROMPT_FILE"
-    printf '\n'
-  } >>"$log_file"
 
   set +e
   (

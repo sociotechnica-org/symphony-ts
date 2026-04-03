@@ -269,7 +269,12 @@ async function runOperatorLoopExpectFailureFromCheckout(
     await execFileAsync(
       "bash",
       [
-        path.join(checkoutRoot, "skills", "symphony-operator", "operator-loop.sh"),
+        path.join(
+          checkoutRoot,
+          "skills",
+          "symphony-operator",
+          "operator-loop.sh",
+        ),
         "--once",
         "--workflow",
         workflowPath,
@@ -376,6 +381,32 @@ printf '{"type":"result","session_id":"%s","modelUsage":{"%s":{"inputTokens":1,"
 `;
   await fs.writeFile(executablePath, script, { encoding: "utf8", mode: 0o755 });
   return executablePath;
+}
+
+async function createLeaseFailingMkdirExecutable(
+  directory: string,
+): Promise<void> {
+  const executablePath = path.join(directory, "mkdir");
+  const script = `#!/usr/bin/env bash
+set -euo pipefail
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+PATH="\${PATH#"$SELF_DIR:"}"
+
+target="\${1:-}"
+if [[ "\${SYMPHONY_TEST_FORCE_ACTIVE_WAKE_UP_LEASE_FAILURE:-}" = "1" && -n "$target" && "$target" = "\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LOCK_DIR:-}" ]]; then
+  mkdir -p "$target"
+  cat >"$target/owner" <<EOF
+pid=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_FAIL_PID:-$$}
+operator_repo_root=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_REPO_ROOT:-/tmp/owner-repo}
+selected_instance_root=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_INSTANCE_ROOT:-/tmp/owner-instance}
+workflow_path=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_WORKFLOW:-/tmp/owner-instance/WORKFLOW.md}
+EOF
+  exit 1
+fi
+
+exec mkdir "$@"
+`;
+  await fs.writeFile(executablePath, script, { encoding: "utf8", mode: 0o755 });
 }
 
 async function createAlternateOperatorCheckout(rootDir: string): Promise<void> {
@@ -915,6 +946,97 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
       }
       await fs.rm(instanceDir, { recursive: true, force: true });
       await fs.rm(alternateCheckout, { recursive: true, force: true });
+    }
+  });
+
+  it("records cycle bookkeeping when the wake-up lease acquisition loses the race", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-lease-race-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const fakeBinDir = path.join(tempDir, "bin");
+    const commandLog = path.join(tempDir, "claude-lease-race.log");
+    const coordinationPaths =
+      deriveOperatorInstanceCoordinationPaths(workflowPath);
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey: deriveSymphonyInstanceKey(path.dirname(workflowPath)),
+    });
+
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await createFakeOperatorExecutable({
+      directory: fakeBinDir,
+      name: "claude",
+      logPath: commandLog,
+    });
+    await createLeaseFailingMkdirExecutable(fakeBinDir);
+
+    try {
+      const failure = await runOperatorLoopExpectFailure(
+        workflowPath,
+        ["--provider", "claude", "--resume-session"],
+        {
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+          SYMPHONY_TEST_FORCE_ACTIVE_WAKE_UP_LEASE_FAILURE: "1",
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LOCK_DIR:
+            coordinationPaths.activeWakeUpLockDir,
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_FAIL_PID: process.pid.toString(),
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_REPO_ROOT:
+            "/tmp/lease-owner-repo",
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_INSTANCE_ROOT:
+            path.dirname(workflowPath),
+          SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_WORKFLOW: workflowPath,
+        },
+      );
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly operatorSession: {
+          readonly mode: string;
+          readonly summary: string;
+        };
+        readonly lastCycle: {
+          readonly exitCode: number | null;
+          readonly finishedAt: string | null;
+          readonly logFile: string | null;
+        };
+      };
+      const statusMd = await fs.readFile(paths.statusMdPath, "utf8");
+
+      expect(failure.exitCode).toBe(1);
+      expect(failure.stderr).toContain(
+        "operator-loop: active wake-up lease already held for this instance",
+      );
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.operatorSession.mode).toBe("fresh");
+      expect(statusJson.operatorSession.summary).toContain(
+        "Operator cycle failed before a reusable backend session was recorded.",
+      );
+      expect(statusJson.lastCycle.exitCode).toBe(1);
+      expect(statusJson.lastCycle.finishedAt).not.toBeNull();
+      expect(statusJson.lastCycle.logFile).not.toBeNull();
+      expect(statusMd).toContain("- Last cycle exit code: 1");
+
+      const logFile = statusJson.lastCycle.logFile;
+      if (logFile === null) {
+        throw new Error("Expected a recorded cycle log file");
+      }
+      createdPaths.add(logFile);
+
+      const logContents = await fs.readFile(logFile, "utf8");
+      expect(logContents).toContain("== Symphony operator cycle ==");
+      expect(logContents).toContain(
+        "failure=active wake-up lease already held for this instance",
+      );
+      expect(logContents).toContain("session_mode=fresh");
+      expect(await fs.readFile(commandLog, "utf8").catch(() => "")).toBe("");
+      await expect(
+        fs.readFile(coordinationPaths.activeWakeUpOwnerFile, "utf8"),
+      ).resolves.toContain(`pid=${process.pid.toString()}`);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
 
