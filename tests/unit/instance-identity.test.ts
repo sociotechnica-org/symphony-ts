@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  deriveOperatorInstanceCoordinationPaths,
   deriveOperatorInstanceStatePaths,
   deriveSymphonyInstanceIdentity,
   deriveSymphonyInstanceKey,
@@ -58,6 +59,22 @@ describe("instance identity helpers", () => {
     );
     expect(paths.sessionStatePath).toBe(
       path.join(paths.operatorStateRoot, "operator-session.json"),
+    );
+  });
+
+  it("derives selected-instance coordination paths under .var/factory/operator", () => {
+    const paths = deriveOperatorInstanceCoordinationPaths(
+      "/tmp/project-a/WORKFLOW.md",
+    );
+
+    expect(paths.operatorCoordinationRoot).toBe(
+      path.join("/tmp/project-a", ".var", "factory", "operator"),
+    );
+    expect(paths.activeWakeUpLockDir).toBe(
+      path.join(paths.operatorCoordinationRoot, "active-wake-up.lock"),
+    );
+    expect(paths.activeWakeUpOwnerFile).toBe(
+      path.join(paths.activeWakeUpLockDir, "owner"),
     );
   });
 });

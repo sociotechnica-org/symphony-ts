@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  deriveOperatorInstanceCoordinationPaths,
   deriveOperatorInstanceStatePaths,
   deriveSymphonyInstanceIdentity,
 } from "../src/domain/instance-identity.js";
@@ -45,6 +46,7 @@ const operatorState = deriveOperatorInstanceStatePaths({
   operatorRepoRoot: args.operatorRepoRoot,
   instanceKey: identity.instanceKey,
 });
+const coordination = deriveOperatorInstanceCoordinationPaths(args.workflowPath);
 
 process.stdout.write(
   `${JSON.stringify({
@@ -54,5 +56,6 @@ process.stdout.write(
     instanceKey: identity.instanceKey,
     detachedSessionName: identity.detachedSessionName,
     ...operatorState,
+    ...coordination,
   })}\n`,
 );

@@ -8,6 +8,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  deriveOperatorInstanceCoordinationPaths,
   deriveOperatorInstanceStatePaths,
   deriveSymphonyInstanceKey,
 } from "../../src/domain/instance-identity.js";
@@ -315,6 +316,27 @@ printf '{"type":"result","session_id":"%s","modelUsage":{"%s":{"inputTokens":1,"
 `;
   await fs.writeFile(executablePath, script, { encoding: "utf8", mode: 0o755 });
   return executablePath;
+}
+
+async function createAlternateOperatorCheckout(rootDir: string): Promise<void> {
+  await fs.mkdir(rootDir, { recursive: true });
+  const symlinkEntries = [
+    { name: "bin", type: "dir" as const },
+    { name: "node_modules", type: "dir" as const },
+    { name: "skills", type: "dir" as const },
+    { name: "src", type: "dir" as const },
+    { name: "package.json", type: "file" as const },
+    { name: "pnpm-lock.yaml", type: "file" as const },
+    { name: "tsconfig.json", type: "file" as const },
+  ];
+
+  for (const entry of symlinkEntries) {
+    await fs.symlink(
+      path.join(repoRoot, entry.name),
+      path.join(rootDir, entry.name),
+      entry.type,
+    );
+  }
 }
 
 async function writeIssueSummary(args: {
@@ -662,6 +684,92 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
     } finally {
       await fs.rm(parentDir, { recursive: true, force: true });
       await fs.rm(nestedDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a same-instance nested launch from another checkout after inherited markers are scrubbed", async () => {
+    const instanceDir = await createTempDir("symphony-operator-loop-instance-");
+    const alternateCheckout = await createTempDir(
+      "symphony-operator-loop-checkout-",
+    );
+    const workflowPath = await writeWorkflow(instanceDir);
+    const nestedResultPath = path.join(instanceDir, "nested-result.json");
+    const nestedStdoutPath = path.join(instanceDir, "nested-stdout.txt");
+    const nestedStderrPath = path.join(instanceDir, "nested-stderr.txt");
+    const nestedCommandPath = path.join(instanceDir, "nested-command.sh");
+    const coordinationPaths =
+      deriveOperatorInstanceCoordinationPaths(workflowPath);
+    const nestedPaths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: alternateCheckout,
+      instanceKey: deriveSymphonyInstanceKey(path.dirname(workflowPath)),
+    });
+
+    try {
+      await createAlternateOperatorCheckout(alternateCheckout);
+      await fs.writeFile(
+        nestedCommandPath,
+        `#!/usr/bin/env bash
+set -euo pipefail
+set +e
+(
+  cd ${JSON.stringify(alternateCheckout)}
+  env \\
+    -u SYMPHONY_OPERATOR_ACTIVE_PARENT_LOOP \\
+    -u SYMPHONY_OPERATOR_PARENT_LOOP_PID \\
+    -u SYMPHONY_OPERATOR_PARENT_INSTANCE_KEY \\
+    -u SYMPHONY_OPERATOR_PARENT_REPO_ROOT \\
+    -u SYMPHONY_OPERATOR_PARENT_SELECTED_INSTANCE_ROOT \\
+    -u SYMPHONY_OPERATOR_PARENT_WORKFLOW_PATH \\
+    GH_TOKEN=test-token \\
+    SYMPHONY_OPERATOR_COMMAND='cat >/dev/null' \\
+    bash ${JSON.stringify(path.join(alternateCheckout, "skills", "symphony-operator", "operator-loop.sh"))} --once --workflow ${JSON.stringify(workflowPath)} >${JSON.stringify(nestedStdoutPath)} 2>${JSON.stringify(nestedStderrPath)}
+)
+status=$?
+set -e
+node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON.stringify(nestedResultPath)}, JSON.stringify({ error: null, status: Number(process.argv[1]), stdout: fs.readFileSync(${JSON.stringify(nestedStdoutPath)}, "utf8"), stderr: fs.readFileSync(${JSON.stringify(nestedStderrPath)}, "utf8") }, null, 2));`)} "$status"
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+
+      const run = await runOperatorLoopWithOptions(workflowPath, {
+        env: {
+          SYMPHONY_OPERATOR_COMMAND: nestedCommandPath,
+        },
+      });
+      createdPaths.add(instanceDir);
+      createdPaths.add(alternateCheckout);
+      createdPaths.add(run.stateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      const nestedResult = JSON.parse(
+        await fs.readFile(nestedResultPath, "utf8"),
+      ) as {
+        readonly error: string | null;
+        readonly status: number | null;
+        readonly stdout: string;
+        readonly stderr: string;
+      };
+
+      expect(nestedResult.error).toBeNull();
+      expect(nestedResult.status).toBe(1);
+      expect(nestedResult.stderr).toContain(
+        "nested operator loop launch rejected inside an active wake-up cycle",
+      );
+      expect(nestedResult.stderr).toContain("reason=live-active-wake-up-lease");
+      expect(nestedResult.stderr).toContain(`owner_repo_root=${repoRoot}`);
+      expect(nestedResult.stderr).toContain(
+        `owner_selected_instance_root=${path.dirname(workflowPath)}`,
+      );
+      await expect(fs.access(nestedPaths.statusJsonPath)).rejects.toThrow();
+      await expect(fs.access(nestedPaths.lockDir)).rejects.toThrow();
+      await expect(
+        fs.access(coordinationPaths.activeWakeUpLockDir),
+      ).rejects.toThrow();
+    } finally {
+      await fs.rm(instanceDir, { recursive: true, force: true });
+      await fs.rm(alternateCheckout, { recursive: true, force: true });
     }
   });
 
