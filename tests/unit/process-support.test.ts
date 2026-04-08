@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTempDir } from "../support/git.js";
-import { terminateChildProcess, waitForExit } from "../support/process.js";
+import { assertExited, terminateChildProcess } from "../support/process.js";
 
 async function waitForFile(targetPath: string): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt += 1) {
@@ -68,6 +68,8 @@ describe("process test support", () => {
     expect(descendantPid).toBeGreaterThan(0);
 
     await terminateChildProcess(child);
-    await waitForExit(descendantPid, 1);
+    // terminateChildProcess already waited for the detached parent's process
+    // group to disappear, so this is a strict descendant-exit assertion.
+    await assertExited(descendantPid);
   });
 });

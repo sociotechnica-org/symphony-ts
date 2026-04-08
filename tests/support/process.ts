@@ -8,7 +8,10 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export function signalProcessTree(pid: number, signal: NodeJS.Signals): void {
+function signalDetachedProcessGroupLeader(
+  pid: number,
+  signal: NodeJS.Signals,
+): void {
   try {
     process.kill(-pid, signal);
     return;
@@ -33,9 +36,9 @@ export function signalProcessTree(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-export async function waitForExit(
+async function waitForExitWithAttempts(
   pid: number,
-  attempts = PROCESS_POLL_ATTEMPTS,
+  attempts: number,
 ): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
@@ -56,11 +59,16 @@ export async function waitForExit(
   throw new Error(`Timed out waiting for pid ${pid} to exit`);
 }
 
-export async function waitForProcessGroupExit(
-  pid: number,
-  attempts = PROCESS_POLL_ATTEMPTS,
-): Promise<void> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
+export async function waitForExit(pid: number): Promise<void> {
+  await waitForExitWithAttempts(pid, PROCESS_POLL_ATTEMPTS);
+}
+
+export async function assertExited(pid: number): Promise<void> {
+  await waitForExitWithAttempts(pid, 1);
+}
+
+async function waitForDetachedProcessGroupExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < PROCESS_POLL_ATTEMPTS; attempt += 1) {
     try {
       process.kill(-pid, 0);
       await delay(PROCESS_POLL_INTERVAL_MS);
@@ -169,17 +177,19 @@ export async function terminateChildProcess(
   if (child.exitCode !== null || child.signalCode !== null) {
     await waitForClose(child, graceMs);
     await waitForExit(pid);
-    await waitForProcessGroupExit(pid);
+    await waitForDetachedProcessGroupExit(pid);
     return;
   }
 
   let closeError: unknown;
-  signalProcessTree(pid, "SIGTERM");
+  // terminateChildProcess is only used with detached test children, so the
+  // child pid is also the process-group leader we can target via -pid.
+  signalDetachedProcessGroupLeader(pid, "SIGTERM");
 
   try {
     await waitForClose(child, graceMs);
   } catch {
-    signalProcessTree(pid, "SIGKILL");
+    signalDetachedProcessGroupLeader(pid, "SIGKILL");
     try {
       await waitForClose(child, graceMs);
     } catch (error) {
@@ -195,7 +205,7 @@ export async function terminateChildProcess(
   // Detached test children lead their own process groups. Waiting for the
   // group to disappear keeps descendant shells from leaking past test exit.
   try {
-    await waitForProcessGroupExit(pid);
+    await waitForDetachedProcessGroupExit(pid);
   } catch (error) {
     throw closeError ?? error;
   }

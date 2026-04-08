@@ -1631,7 +1631,8 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
           clearTimeout(timeout);
           // Wait for terminateChildProcess to confirm the process group is gone,
           // and still verify group exit if the shell closed before requestShutdown
-          // ran.
+          // ran. Once close fires there are no later stderr data events and the
+          // timeout is cleared, so this fallback cannot race with requestShutdown.
           const settle = shutdownPromise ?? terminateChildProcess(child);
           void settle.then(() => resolve(collectedStderr), reject);
         });
