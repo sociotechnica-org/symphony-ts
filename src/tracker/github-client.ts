@@ -112,6 +112,17 @@ interface IssueBlockedStatusGraphQlResponse {
   > | null;
 }
 
+function blockedRelationshipSupportMessage(repo: string): string {
+  return `GitHub blocked-relationship enforcement for ${repo} requires GraphQL issue dependency summary support; disable tracker.respect_blocked_relationships or use a GitHub instance that exposes issueDependenciesSummary.`;
+}
+
+function isIssueDependencySummaryFieldError(error: unknown): boolean {
+  return (
+    error instanceof TrackerError &&
+    error.message.includes("issueDependenciesSummary")
+  );
+}
+
 interface ProjectQueuePriorityFieldPageResponse {
   readonly repository: {
     readonly owner: {
@@ -680,14 +691,26 @@ export class GitHubClient {
       return new Map<number, GitHubIssueBlockedStatus>();
     }
 
-    const response =
-      await this.#graphqlRequest<IssueBlockedStatusGraphQlResponse>(
+    let response: IssueBlockedStatusGraphQlResponse;
+    try {
+      response = await this.#graphqlRequest<IssueBlockedStatusGraphQlResponse>(
         buildIssueBlockedStatusQuery(normalizedIssueNumbers),
         {
           owner: this.#repoOwner,
           repo: this.#repoName,
         },
       );
+    } catch (error) {
+      if (isIssueDependencySummaryFieldError(error)) {
+        throw new TrackerError(
+          blockedRelationshipSupportMessage(this.#config.repo),
+          {
+            cause: error,
+          },
+        );
+      }
+      throw error;
+    }
 
     const repository = response.repository;
     if (repository === null) {
@@ -709,7 +732,7 @@ export class GitHubClient {
       }
       if (issue.issueDependenciesSummary === null) {
         throw new TrackerError(
-          `GitHub issue ${this.#config.repo}#${issueNumber.toString()} returned no issue-dependency summary`,
+          `${blockedRelationshipSupportMessage(this.#config.repo)} GitHub issue ${this.#config.repo}#${issueNumber.toString()} returned no issue-dependency summary.`,
         );
       }
 

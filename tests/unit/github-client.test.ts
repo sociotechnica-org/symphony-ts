@@ -522,4 +522,43 @@ describe("GitHubClient", () => {
       await server.stop();
     }
   });
+
+  it("explains when blocked-relationship enforcement is unavailable on the GitHub instance", async () => {
+    const server = new MockGitHubServer();
+    await server.start();
+    try {
+      server.seedIssue({
+        number: 7,
+        title: "Blocked issue",
+        body: "",
+        labels: ["symphony:ready"],
+      });
+      server.setIssueDependencyQueryFailure(
+        "Cannot query field 'issueDependenciesSummary' on type 'Issue'.",
+      );
+
+      const client = new GitHubClient(
+        {
+          kind: "github",
+          repo: "sociotechnica-org/symphony-ts",
+          apiUrl: server.baseUrl,
+          readyLabel: "symphony:ready",
+          runningLabel: "symphony:running",
+          failedLabel: "symphony:failed",
+          respectBlockedRelationships: true,
+          successComment: "done",
+          reviewBotLogins: [],
+        },
+        createLoggerSpy(),
+      );
+
+      await expect(
+        client.getIssueBlockedStatusByIssueNumber([7]),
+      ).rejects.toThrow(
+        /disable tracker\.respect_blocked_relationships or use a GitHub instance that exposes issueDependenciesSummary/i,
+      );
+    } finally {
+      await server.stop();
+    }
+  });
 });

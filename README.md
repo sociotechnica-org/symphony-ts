@@ -418,7 +418,9 @@ but it also asks GitHub whether the issue currently has any open blocking
 relationships and excludes blocked issues from dispatch. Claiming re-checks the
 same fact to catch fetch/claim races. The default is `false`, which preserves
 today's label-only behavior. Enabled mode fails closed if GitHub cannot return
-the blocked-status fact.
+the blocked-status fact. Older or feature-limited GitHub instances that do not
+expose `issueDependenciesSummary` through GraphQL will also fail closed with a
+message that points back to this toggle.
 
 When multiple remote Codex worker hosts are configured, Symphony selects a host
 at dispatch time, keeps continuation turns on that same host, and prefers the
