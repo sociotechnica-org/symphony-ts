@@ -39,6 +39,9 @@ tracker:
   #   option_rank_map:
   #     P0: 0
   #     P1: 1
+  # Optional GitHub-only dispatch guard that excludes ready issues when GitHub
+  # still marks them blocked by open issue relationships.
+  # respect_blocked_relationships: true
 polling:
   interval_ms: 30000
   max_concurrent_runs: 1

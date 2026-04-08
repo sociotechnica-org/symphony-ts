@@ -2,6 +2,7 @@ import type { HandoffLifecycle, PullRequestHandle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import { DEFAULT_PLAN_REVIEW_PROTOCOL } from "../domain/plan-review.js";
 import type { GitHubCompatibleTrackerConfig } from "../domain/workflow.js";
+import { TrackerError } from "../domain/errors.js";
 import type { Logger } from "../observability/logger.js";
 import {
   evaluateGuardedLanding,
@@ -71,7 +72,36 @@ export class GitHubTracker implements Tracker {
   }
 
   async fetchReadyIssues(): Promise<readonly RuntimeIssue[]> {
-    return await this.#client.fetchIssuesByLabel(this.#config.readyLabel);
+    const readyIssues = await this.#client.fetchIssuesByLabel(
+      this.#config.readyLabel,
+    );
+    if (!this.#config.respectBlockedRelationships || readyIssues.length === 0) {
+      return readyIssues;
+    }
+
+    const blockedStatusByIssueNumber =
+      await this.#client.getIssueBlockedStatusByIssueNumber(
+        readyIssues.map((issue) => issue.number),
+      );
+
+    return readyIssues.filter((issue) => {
+      const blockedStatus = blockedStatusByIssueNumber.get(issue.number);
+      if (blockedStatus === undefined) {
+        throw new TrackerError(
+          `Missing blocked-status result for GitHub issue ${issue.identifier}`,
+        );
+      }
+      if (!blockedStatus.isBlocked) {
+        return true;
+      }
+
+      this.#logger.info("Filtered blocked GitHub ready issue", {
+        issueNumber: issue.number,
+        repo: this.#config.repo,
+        openBlockerCount: blockedStatus.openBlockerCount,
+      });
+      return false;
+    });
   }
 
   async fetchRunningIssues(): Promise<readonly RuntimeIssue[]> {
@@ -93,6 +123,24 @@ export class GitHubTracker implements Tracker {
       issue.labels.includes(this.#config.runningLabel)
     ) {
       return null;
+    }
+    if (this.#config.respectBlockedRelationships) {
+      const blockedStatus = (
+        await this.#client.getIssueBlockedStatusByIssueNumber([issueNumber])
+      ).get(issueNumber);
+      if (blockedStatus === undefined) {
+        throw new TrackerError(
+          `Missing blocked-status result for GitHub issue ${issue.identifier}`,
+        );
+      }
+      if (blockedStatus.isBlocked) {
+        this.#logger.info("Rejected blocked GitHub issue claim", {
+          issueNumber,
+          repo: this.#config.repo,
+          openBlockerCount: blockedStatus.openBlockerCount,
+        });
+        return null;
+      }
     }
 
     const nextLabels = issue.labels.filter(

@@ -10,6 +10,7 @@ const githubTracker: GitHubTrackerConfig = {
   readyLabel: "symphony:ready",
   runningLabel: "symphony:running",
   failedLabel: "symphony:failed",
+  respectBlockedRelationships: false,
   successComment: "done",
   reviewBotLogins: ["greptile[bot]"],
 };

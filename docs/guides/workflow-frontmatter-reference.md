@@ -234,6 +234,18 @@ higher scheduling priority.
 If `enabled: false`, the GitHub queue-priority object may omit the other
 fields.
 
+##### `tracker.respect_blocked_relationships`
+
+- Type: boolean
+- Required: no
+- Default: `false`
+
+GitHub-only dispatch guard. When enabled, Symphony still requires the ready
+label, but it also reads GitHub issue relationship data and treats any issue
+with one or more open blockers as non-dispatchable. `fetchReadyIssues()` and
+`claimIssue()` both honor this flag. Enabled mode fails closed if the blocked
+status cannot be read from GitHub.
+
 ##### `tracker.plan_review`
 
 - Type: object
@@ -847,6 +859,7 @@ tracker:
     devin:
       accepted: true
       required: true
+  respect_blocked_relationships: true
   queue_priority:
     enabled: true
     project_number: 7

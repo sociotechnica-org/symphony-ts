@@ -255,14 +255,14 @@ One GitHub issue carrying the ready label under one workflow configuration.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Toggle omitted or `false` | issue has ready label | blocked-status contract intentionally inactive | preserve current label-only behavior |
-| Toggle enabled, issue has ready label, GitHub reports open blockers | ready label present | `isBlocked = true` | exclude from `fetchReadyIssues()` and log the filter |
-| Toggle enabled, issue was unblocked during fetch but becomes blocked before claim | stale fetch result, fresh claim recheck | fresh `isBlocked = true` | `claimIssue()` returns `null` and leaves labels unchanged |
-| Toggle enabled, issue clears blockers before claim and still has ready label | stale fetch result, fresh claim recheck | fresh `isBlocked = false` | allow the normal ready -> running claim path |
-| Toggle enabled, issue loses the ready label before claim | fresh issue read at claim | label missing regardless of blocked status | `claimIssue()` returns `null` |
-| Toggle enabled, blocked-status transport errors or is unsupported | no safe blocked-status fact | blocked-status unavailable | throw a tracker error and fail closed instead of silently dispatching |
+| Observed condition                                                                | Local facts available                   | Normalized tracker facts available             | Expected decision                                                     |
+| --------------------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------- |
+| Toggle omitted or `false`                                                         | issue has ready label                   | blocked-status contract intentionally inactive | preserve current label-only behavior                                  |
+| Toggle enabled, issue has ready label, GitHub reports open blockers               | ready label present                     | `isBlocked = true`                             | exclude from `fetchReadyIssues()` and log the filter                  |
+| Toggle enabled, issue was unblocked during fetch but becomes blocked before claim | stale fetch result, fresh claim recheck | fresh `isBlocked = true`                       | `claimIssue()` returns `null` and leaves labels unchanged             |
+| Toggle enabled, issue clears blockers before claim and still has ready label      | stale fetch result, fresh claim recheck | fresh `isBlocked = false`                      | allow the normal ready -> running claim path                          |
+| Toggle enabled, issue loses the ready label before claim                          | fresh issue read at claim               | label missing regardless of blocked status     | `claimIssue()` returns `null`                                         |
+| Toggle enabled, blocked-status transport errors or is unsupported                 | no safe blocked-status fact             | blocked-status unavailable                     | throw a tracker error and fail closed instead of silently dispatching |
 
 ## Implementation Steps
 

@@ -40,6 +40,7 @@ interface BaseGitHubTrackerConfig {
   readonly readyLabel: string;
   readonly runningLabel: string;
   readonly failedLabel: string;
+  readonly respectBlockedRelationships: boolean;
   readonly successComment: string;
   readonly reviewBotLogins: readonly string[];
   readonly approvedReviewBotLogins?: readonly string[] | undefined;

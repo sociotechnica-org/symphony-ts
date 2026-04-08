@@ -249,6 +249,7 @@ const baseConfig: ResolvedConfig = {
     readyLabel: "symphony:ready",
     runningLabel: "symphony:running",
     failedLabel: "symphony:failed",
+    respectBlockedRelationships: false,
     successComment: "done",
     reviewBotLogins: ["greptile[bot]"],
   },

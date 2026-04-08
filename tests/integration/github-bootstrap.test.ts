@@ -33,6 +33,7 @@ function createTracker(
     required: boolean;
   }[],
   planReview?: PlanReviewProtocol,
+  respectBlockedRelationships = false,
 ): GitHubTracker {
   return new GitHubTracker(
     {
@@ -42,6 +43,7 @@ function createTracker(
       readyLabel: "symphony:ready",
       runningLabel: "symphony:running",
       failedLabel: "symphony:failed",
+      respectBlockedRelationships,
       successComment: "done",
       reviewBotLogins: ["greptile[bot]", "bugbot[bot]"],
       approvedReviewBotLogins: approvedReviewBotLogins ?? [],
@@ -214,6 +216,106 @@ describe("GitHubTracker", () => {
     const ready = await tracker.fetchReadyIssues();
 
     expect(ready[0]?.queuePriority).toBeNull();
+  });
+
+  it("preserves label-only ready reads when blocked-relationship enforcement is disabled", async () => {
+    server.setIssueBlockedByCount(7, 1);
+    const tracker = createTracker(server);
+
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready.map((issue) => issue.number)).toEqual([7]);
+  });
+
+  it("filters blocked ready issues when blocked-relationship enforcement is enabled", async () => {
+    server.setIssueBlockedByCount(7, 1);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready).toEqual([]);
+  });
+
+  it("returns unblocked ready issues when blocked-relationship enforcement is enabled", async () => {
+    server.setIssueBlockedByCount(7, 0);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready.map((issue) => issue.number)).toEqual([7]);
+  });
+
+  it("rejects a claim when the issue becomes blocked after the ready read", async () => {
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+    expect(ready.map((issue) => issue.number)).toEqual([7]);
+
+    server.setIssueBlockedByCount(7, 1);
+
+    const claimed = await tracker.claimIssue(7);
+
+    expect(claimed).toBeNull();
+    expect(server.getIssue(7).labels.map((label) => label.name)).toEqual([
+      "symphony:ready",
+    ]);
+  });
+
+  it("allows a normal claim while the issue remains unblocked", async () => {
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const claimed = await tracker.claimIssue(7);
+
+    expect(claimed?.labels).toContain("symphony:running");
+  });
+
+  it("fails closed when GitHub blocked-status data cannot be read", async () => {
+    server.setIssueDependencyQueryFailure(
+      "Issue dependency summary unavailable",
+    );
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    await expect(tracker.fetchReadyIssues()).rejects.toThrow(
+      /Issue dependency summary unavailable/,
+    );
+    await expect(tracker.claimIssue(7)).rejects.toThrow(
+      /Issue dependency summary unavailable/,
+    );
   });
 
   it("reports awaiting-human-handoff when the latest issue handoff is plan-ready", async () => {
