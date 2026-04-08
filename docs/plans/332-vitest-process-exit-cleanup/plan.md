@@ -178,13 +178,13 @@ The regression should fail on `leaked`, not silently leave cleanup to Vitest pro
 
 ## Failure-Class Matrix
 
-| Observed condition                                                            | Local facts available                                                | Expected decision                                                                 |
-| ----------------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Focused operator-loop test finishes and all spawned processes exit            | parent pid dead, descendant pids dead                                | pass normally and allow Vitest to exit                                            |
-| Parent test process exits but a repo-owned descendant remains alive           | parent pid dead, descendant pid still live                           | fail the test with a clear cleanup error                                          |
-| Parent ignores `SIGTERM` within the bounded window                            | parent pid still live after grace period                             | escalate to stronger termination in the shared helper and fail if still not gone  |
-| Shell parent exits but operator child/grandchild keeps the group alive        | immediate child dead, descendant or process-group members still live | fix test helper or shell cleanup so descendants are terminated deterministically  |
-| Focused slice exits cleanly but full `pnpm test` still hangs                  | operator-loop slice clean, whole-suite hang persists                 | continue narrowing to the next leaking file before widening the fix               |
+| Observed condition                                                     | Local facts available                                                | Expected decision                                                                |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Focused operator-loop test finishes and all spawned processes exit     | parent pid dead, descendant pids dead                                | pass normally and allow Vitest to exit                                           |
+| Parent test process exits but a repo-owned descendant remains alive    | parent pid dead, descendant pid still live                           | fail the test with a clear cleanup error                                         |
+| Parent ignores `SIGTERM` within the bounded window                     | parent pid still live after grace period                             | escalate to stronger termination in the shared helper and fail if still not gone |
+| Shell parent exits but operator child/grandchild keeps the group alive | immediate child dead, descendant or process-group members still live | fix test helper or shell cleanup so descendants are terminated deterministically |
+| Focused slice exits cleanly but full `pnpm test` still hangs           | operator-loop slice clean, whole-suite hang persists                 | continue narrowing to the next leaking file before widening the fix              |
 
 ## Storage / Persistence Contract
 
