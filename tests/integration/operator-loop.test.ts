@@ -943,11 +943,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
       );
     } finally {
       const childProcess = childHolder.current;
-      if (
-        childProcess !== null &&
-        childProcess.exitCode === null &&
-        childProcess.signalCode === null
-      ) {
+      if (childProcess !== null) {
         await terminateChildProcess(childProcess);
       }
       await fs.rm(instanceDir, { recursive: true, force: true });
@@ -1634,8 +1630,9 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
         child.on("close", () => {
           clearTimeout(timeout);
           // Wait for terminateChildProcess to confirm the process group is gone,
-          // not just for the shell's close event to fire.
-          const settle = shutdownPromise ?? Promise.resolve();
+          // and still verify group exit if the shell closed before requestShutdown
+          // ran.
+          const settle = shutdownPromise ?? terminateChildProcess(child);
           void settle.then(() => resolve(collectedStderr), reject);
         });
       });
