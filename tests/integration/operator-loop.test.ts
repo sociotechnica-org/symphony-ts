@@ -17,6 +17,7 @@ import {
   writeOperatorReleaseState,
 } from "../../src/observability/operator-release-state.js";
 import { createTempDir } from "../support/git.js";
+import { terminateChildProcess } from "../support/process.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -898,6 +899,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
         ],
         {
           cwd: repoRoot,
+          detached: true,
           env: buildTopLevelOperatorLoopEnv({
             GH_TOKEN: "test-token",
             SYMPHONY_OPERATOR_COMMAND: "sleep 5",
@@ -941,15 +943,8 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
       );
     } finally {
       const childProcess = childHolder.current;
-      if (
-        childProcess !== null &&
-        childProcess.exitCode === null &&
-        childProcess.signalCode === null
-      ) {
-        childProcess.kill("SIGTERM");
-        await new Promise<void>((resolve) => {
-          childProcess.once("close", () => resolve());
-        });
+      if (childProcess !== null) {
+        await terminateChildProcess(childProcess);
       }
       await fs.rm(instanceDir, { recursive: true, force: true });
       await fs.rm(alternateCheckout, { recursive: true, force: true });
@@ -1068,6 +1063,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
           ],
           {
             cwd: repoRoot,
+            detached: true,
             env: buildTopLevelOperatorLoopEnv({
               GH_TOKEN: "test-token",
               SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
@@ -1121,10 +1117,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
     } finally {
       const childProcess = childHolder.current;
       if (childProcess !== null) {
-        childProcess.kill("SIGTERM");
-        await new Promise<void>((resolve) => {
-          childProcess.once("close", () => resolve());
-        });
+        await terminateChildProcess(childProcess);
       }
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -1594,6 +1587,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
           ],
           {
             cwd: repoRoot,
+            detached: true,
             env: buildTopLevelOperatorLoopEnv({
               GH_TOKEN: "test-token",
               SYMPHONY_OPERATOR_COMMAND: "cat >/dev/null",
@@ -1602,9 +1596,17 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
         );
         let collectedStderr = "";
         let shutdownRequested = false;
-        const timeout = setTimeout(() => {
+        let shutdownPromise: Promise<void> | null = null;
+        const requestShutdown = () => {
+          if (shutdownRequested) {
+            return;
+          }
           shutdownRequested = true;
-          child.kill("SIGTERM");
+          shutdownPromise = terminateChildProcess(child);
+          void shutdownPromise.catch(reject);
+        };
+        const timeout = setTimeout(() => {
+          requestShutdown();
         }, 10000);
         const maybeRequestShutdown = () => {
           if (
@@ -1617,8 +1619,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
             return;
           }
 
-          shutdownRequested = true;
-          child.kill("SIGTERM");
+          requestShutdown();
         };
         child.stderr.setEncoding("utf8");
         child.stderr.on("data", (chunk: string) => {
@@ -1628,7 +1629,12 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
         child.on("error", reject);
         child.on("close", () => {
           clearTimeout(timeout);
-          resolve(collectedStderr);
+          // Wait for terminateChildProcess to confirm the process group is gone,
+          // and still verify group exit if the shell closed before requestShutdown
+          // ran. Once close fires there are no later stderr data events and the
+          // timeout is cleared, so this fallback cannot race with requestShutdown.
+          const settle = shutdownPromise ?? terminateChildProcess(child);
+          void settle.then(() => resolve(collectedStderr), reject);
         });
       });
 
