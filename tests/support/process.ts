@@ -175,9 +175,17 @@ export async function terminateChildProcess(
   }
 
   if (child.exitCode !== null || child.signalCode !== null) {
+    // The detached shell can exit before its descendants. Keep signaling the
+    // original process group so lingering children do not survive test teardown.
+    signalDetachedProcessGroupLeader(pid, "SIGTERM");
     await waitForClose(child, graceMs);
     await waitForExit(pid);
-    await waitForDetachedProcessGroupExit(pid);
+    try {
+      await waitForDetachedProcessGroupExit(pid);
+    } catch {
+      signalDetachedProcessGroupLeader(pid, "SIGKILL");
+      await waitForDetachedProcessGroupExit(pid);
+    }
     return;
   }
 
