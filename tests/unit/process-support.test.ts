@@ -68,6 +68,6 @@ describe("process test support", () => {
     expect(descendantPid).toBeGreaterThan(0);
 
     await terminateChildProcess(child);
-    await waitForExit(descendantPid);
+    await waitForExit(descendantPid, 1);
   });
 });

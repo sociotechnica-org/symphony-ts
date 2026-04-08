@@ -15,8 +15,7 @@ export function signalProcessTree(pid: number, signal: NodeJS.Signals): void {
   } catch (error) {
     const systemError = error as NodeJS.ErrnoException;
     if (systemError.code !== "ESRCH") {
-      // Fall through to direct pid signaling when the child is not the process
-      // group leader or the group is already gone.
+      throw error;
     }
   }
 
@@ -54,11 +53,69 @@ export async function waitForExit(
   throw new Error(`Timed out waiting for pid ${pid} to exit`);
 }
 
+export async function waitForProcessGroupExit(
+  pid: number,
+  attempts = PROCESS_POLL_ATTEMPTS,
+): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      process.kill(-pid, 0);
+      await delay(PROCESS_POLL_INTERVAL_MS);
+    } catch (error) {
+      const systemError = error as NodeJS.ErrnoException;
+      if (systemError.code === "ESRCH") {
+        return;
+      }
+      if (systemError.code === "EPERM") {
+        await delay(PROCESS_POLL_INTERVAL_MS);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(`Timed out waiting for process group ${pid} to exit`);
+}
+
+type TrackedStream = {
+  closed?: boolean;
+  destroyed?: boolean;
+  readable?: boolean;
+  readableEnded?: boolean;
+  writable?: boolean;
+  writableEnded?: boolean;
+};
+
+function isStreamOpen(
+  stream: NodeJS.ReadableStream | NodeJS.WritableStream | null,
+): boolean {
+  if (stream === null) {
+    return false;
+  }
+
+  const tracked = stream as TrackedStream;
+  if (tracked.closed === true || tracked.destroyed === true) {
+    return false;
+  }
+  if (tracked.readable === true && tracked.readableEnded !== true) {
+    return true;
+  }
+  if (tracked.writable === true && tracked.writableEnded !== true) {
+    return true;
+  }
+
+  return false;
+}
+
 async function waitForClose(
   child: ChildProcess,
   timeoutMs: number,
 ): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) {
+  if (
+    (child.exitCode !== null || child.signalCode !== null) &&
+    !isStreamOpen(child.stdin) &&
+    !isStreamOpen(child.stdout) &&
+    !isStreamOpen(child.stderr)
+  ) {
     return;
   }
 
@@ -109,6 +166,7 @@ export async function terminateChildProcess(
   if (child.exitCode !== null || child.signalCode !== null) {
     await waitForClose(child, graceMs);
     await waitForExit(pid);
+    await waitForProcessGroupExit(pid);
     return;
   }
 
@@ -122,4 +180,7 @@ export async function terminateChildProcess(
   }
 
   await waitForExit(pid);
+  // Detached test children lead their own process groups. Waiting for the
+  // group to disappear keeps descendant shells from leaking past test exit.
+  await waitForProcessGroupExit(pid);
 }

@@ -17,10 +17,7 @@ import {
   writeOperatorReleaseState,
 } from "../../src/observability/operator-release-state.js";
 import { createTempDir } from "../support/git.js";
-import {
-  signalProcessTree,
-  terminateChildProcess,
-} from "../support/process.js";
+import { terminateChildProcess } from "../support/process.js";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -1609,11 +1606,6 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
             return;
           }
           shutdownRequested = true;
-          if (child.pid !== undefined) {
-            signalProcessTree(child.pid, "SIGTERM");
-          } else {
-            child.kill("SIGTERM");
-          }
           shutdownPromise = terminateChildProcess(child);
           void shutdownPromise.catch(reject);
         };
