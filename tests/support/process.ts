@@ -15,6 +15,9 @@ export function signalProcessTree(pid: number, signal: NodeJS.Signals): void {
   } catch (error) {
     const systemError = error as NodeJS.ErrnoException;
     if (systemError.code !== "ESRCH") {
+      // Detached test children should be their own process-group leaders.
+      // Falling back to pid-only signaling after any other error would risk
+      // hiding a descendant leak behind a partially successful shutdown.
       throw error;
     }
   }
@@ -170,17 +173,30 @@ export async function terminateChildProcess(
     return;
   }
 
+  let closeError: unknown;
   signalProcessTree(pid, "SIGTERM");
 
   try {
     await waitForClose(child, graceMs);
   } catch {
     signalProcessTree(pid, "SIGKILL");
-    await waitForClose(child, graceMs);
+    try {
+      await waitForClose(child, graceMs);
+    } catch (error) {
+      closeError = error;
+    }
   }
 
-  await waitForExit(pid);
+  try {
+    await waitForExit(pid);
+  } catch (error) {
+    throw closeError ?? error;
+  }
   // Detached test children lead their own process groups. Waiting for the
   // group to disappear keeps descendant shells from leaking past test exit.
-  await waitForProcessGroupExit(pid);
+  try {
+    await waitForProcessGroupExit(pid);
+  } catch (error) {
+    throw closeError ?? error;
+  }
 }

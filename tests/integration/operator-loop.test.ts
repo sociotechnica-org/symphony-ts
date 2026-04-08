@@ -1633,6 +1633,8 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
         child.on("error", reject);
         child.on("close", () => {
           clearTimeout(timeout);
+          // Wait for terminateChildProcess to confirm the process group is gone,
+          // not just for the shell's close event to fire.
           const settle = shutdownPromise ?? Promise.resolve();
           void settle.then(() => resolve(collectedStderr), reject);
         });
