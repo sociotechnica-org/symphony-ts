@@ -1226,6 +1226,13 @@ function resolveGitHubTrackerConfig<
       "tracker.running_label",
     ),
     failedLabel: requireString(tracker["failed_label"], "tracker.failed_label"),
+    respectBlockedRelationships:
+      tracker["respect_blocked_relationships"] === undefined
+        ? false
+        : requireBoolean(
+            tracker["respect_blocked_relationships"],
+            "tracker.respect_blocked_relationships",
+          ),
     successComment: requireString(
       tracker["success_comment"],
       "tracker.success_comment",

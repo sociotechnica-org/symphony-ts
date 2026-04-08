@@ -160,6 +160,7 @@ describe("tracker tool service", () => {
       readyLabel: "symphony:ready",
       runningLabel: "symphony:running",
       failedLabel: "symphony:failed",
+      respectBlockedRelationships: false,
       reviewBotLogins: [],
       successComment: "done",
     });

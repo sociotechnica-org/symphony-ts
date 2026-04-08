@@ -195,6 +195,100 @@ ${buildSharedWorkflowSections()}`,
     }
   });
 
+  it("defaults GitHub blocked-relationship enforcement to false when omitted", async () => {
+    const dir = await createTempDir("workflow-github-blocked-default-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    const workflow = await loadWorkflow(workflowPath);
+    if (
+      workflow.config.tracker.kind !== "github" &&
+      workflow.config.tracker.kind !== "github-bootstrap"
+    ) {
+      throw new Error("expected GitHub tracker config");
+    }
+
+    expect(workflow.config.tracker.respectBlockedRelationships).toBe(false);
+  });
+
+  it("accepts explicit GitHub blocked-relationship enforcement values", async () => {
+    const cases = [
+      { value: "true", expected: true },
+      { value: "false", expected: false },
+    ] as const;
+
+    for (const testCase of cases) {
+      const dir = await createTempDir(
+        `workflow-github-blocked-${testCase.value}-`,
+      );
+      const workflowPath = path.join(dir, "WORKFLOW.md");
+      await fs.writeFile(
+        workflowPath,
+        buildWorkflow(
+          `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  respect_blocked_relationships: ${testCase.value}
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+        ),
+        "utf8",
+      );
+
+      const workflow = await loadWorkflow(workflowPath);
+      if (
+        workflow.config.tracker.kind !== "github" &&
+        workflow.config.tracker.kind !== "github-bootstrap"
+      ) {
+        throw new Error("expected GitHub tracker config");
+      }
+
+      expect(workflow.config.tracker.respectBlockedRelationships).toBe(
+        testCase.expected,
+      );
+    }
+  });
+
+  it("rejects non-boolean GitHub blocked-relationship enforcement config", async () => {
+    const dir = await createTempDir("workflow-github-blocked-invalid-");
+    const workflowPath = path.join(dir, "WORKFLOW.md");
+    await fs.writeFile(
+      workflowPath,
+      buildWorkflow(
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  respect_blocked_relationships: "yes"
+  success_comment: done
+${buildSharedWorkflowSections()}`,
+      ),
+      "utf8",
+    );
+
+    await expect(loadWorkflow(workflowPath)).rejects.toThrow(
+      "Expected boolean for tracker.respect_blocked_relationships",
+    );
+  });
+
   it("loads a configured plan-review protocol override for GitHub trackers", async () => {
     const dir = await createTempDir("workflow-plan-review-override-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
@@ -291,6 +385,7 @@ ${buildSharedWorkflowSections()}`,
           readyLabel: "symphony:ready",
           runningLabel: "symphony:running",
           failedLabel: "symphony:failed",
+          respectBlockedRelationships: false,
           successComment: "done",
           reviewBotLogins: [],
         },

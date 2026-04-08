@@ -363,6 +363,7 @@ tracker:
     devin:
       accepted: true
       required: true
+  respect_blocked_relationships: true
   queue_priority:
     enabled: true
     project_number: 12
@@ -410,6 +411,16 @@ fields when `option_rank_map` provides the rank mapping. For Linear, Symphony
 can optionally normalize the native issue `priority` field into the same
 contract when `tracker.queue_priority.enabled: true`; native `priority: 0`,
 `null`, or disabled config still fall back to `queuePriority: null`.
+
+`tracker.respect_blocked_relationships` is an optional GitHub-only dispatch
+guard. When enabled, Symphony keeps using the ready label as the coarse gate,
+but it also asks GitHub whether the issue currently has any open blocking
+relationships and excludes blocked issues from dispatch. Claiming re-checks the
+same fact to catch fetch/claim races. The default is `false`, which preserves
+today's label-only behavior. Enabled mode fails closed if GitHub cannot return
+the blocked-status fact. Older or feature-limited GitHub instances that do not
+expose `issueDependenciesSummary` through GraphQL will also fail closed with a
+message that points back to this toggle.
 
 When multiple remote Codex worker hosts are configured, Symphony selects a host
 at dispatch time, keeps continuation turns on that same host, and prefers the

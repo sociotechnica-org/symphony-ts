@@ -99,6 +99,30 @@ interface GraphQlResponse<T> {
   readonly errors?: ReadonlyArray<{ readonly message: string }>;
 }
 
+interface IssueBlockedStatusGraphQlIssueResponse {
+  readonly number: number;
+  readonly issueDependenciesSummary: {
+    readonly blockedBy: number;
+  } | null;
+}
+
+interface IssueBlockedStatusGraphQlResponse {
+  readonly repository: Readonly<
+    Record<string, IssueBlockedStatusGraphQlIssueResponse | null>
+  > | null;
+}
+
+function blockedRelationshipSupportMessage(repo: string): string {
+  return `GitHub blocked-relationship enforcement for ${repo} requires GraphQL issue dependency summary support; disable tracker.respect_blocked_relationships or use a GitHub instance that exposes issueDependenciesSummary.`;
+}
+
+function isIssueDependencySummaryFieldError(error: unknown): boolean {
+  return (
+    error instanceof TrackerError &&
+    error.message.includes("issueDependenciesSummary")
+  );
+}
+
 interface ProjectQueuePriorityFieldPageResponse {
   readonly repository: {
     readonly owner: {
@@ -265,6 +289,12 @@ export interface GitHubMergeRequestAcceptedResult {
 export type GitHubMergeRequestResult =
   | GitHubMergeRequestBlockedResult
   | GitHubMergeRequestAcceptedResult;
+
+export interface GitHubIssueBlockedStatus {
+  readonly issueNumber: number;
+  readonly isBlocked: boolean;
+  readonly openBlockerCount: number;
+}
 
 const NULL_LOGGER: Logger = {
   info() {},
@@ -453,6 +483,29 @@ const PROJECT_QUEUE_PRIORITY_FIELD_QUERY = `
   }
 `;
 
+function buildIssueBlockedStatusQuery(issueNumbers: readonly number[]): string {
+  const selections = issueNumbers
+    .map(
+      (
+        issueNumber,
+      ) => `      issue_${issueNumber.toString()}: issue(number: ${issueNumber.toString()}) {
+        number
+        issueDependenciesSummary {
+          blockedBy
+        }
+      }`,
+    )
+    .join("\n");
+
+  return `
+  query IssueBlockedStatus($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+${selections}
+    }
+  }
+`;
+}
+
 function paginationInfo(
   pageInfo:
     | {
@@ -626,6 +679,71 @@ export class GitHubClient {
       this.#issuePath(`issues/${issueNumber}`),
     );
     return await this.#toRuntimeIssue(issue);
+  }
+
+  async getIssueBlockedStatusByIssueNumber(
+    issueNumbers: readonly number[],
+  ): Promise<ReadonlyMap<number, GitHubIssueBlockedStatus>> {
+    const normalizedIssueNumbers = [...new Set(issueNumbers)].sort(
+      (left, right) => left - right,
+    );
+    if (normalizedIssueNumbers.length === 0) {
+      return new Map<number, GitHubIssueBlockedStatus>();
+    }
+
+    let response: IssueBlockedStatusGraphQlResponse;
+    try {
+      response = await this.#graphqlRequest<IssueBlockedStatusGraphQlResponse>(
+        buildIssueBlockedStatusQuery(normalizedIssueNumbers),
+        {
+          owner: this.#repoOwner,
+          repo: this.#repoName,
+        },
+      );
+    } catch (error) {
+      if (isIssueDependencySummaryFieldError(error)) {
+        throw new TrackerError(
+          blockedRelationshipSupportMessage(this.#config.repo),
+          {
+            cause: error,
+          },
+        );
+      }
+      throw error;
+    }
+
+    const repository = response.repository;
+    if (repository === null) {
+      throw new TrackerError(
+        `GitHub repository ${this.#config.repo} was not found in GraphQL`,
+      );
+    }
+
+    const blockedStatusByIssueNumber = new Map<
+      number,
+      GitHubIssueBlockedStatus
+    >();
+    for (const issueNumber of normalizedIssueNumbers) {
+      const issue = repository[`issue_${issueNumber.toString()}`];
+      if (issue === null || issue === undefined) {
+        throw new TrackerError(
+          `GitHub issue ${this.#config.repo}#${issueNumber.toString()} was not found in GraphQL`,
+        );
+      }
+      if (issue.issueDependenciesSummary === null) {
+        throw new TrackerError(
+          `${blockedRelationshipSupportMessage(this.#config.repo)} GitHub issue ${this.#config.repo}#${issueNumber.toString()} returned no issue-dependency summary.`,
+        );
+      }
+
+      blockedStatusByIssueNumber.set(issueNumber, {
+        issueNumber,
+        isBlocked: issue.issueDependenciesSummary.blockedBy > 0,
+        openBlockerCount: issue.issueDependenciesSummary.blockedBy,
+      });
+    }
+
+    return blockedStatusByIssueNumber;
   }
 
   async updateIssue(
