@@ -78,7 +78,9 @@ describe("process test support", () => {
   });
 
   it("terminates detached subprocess descendants after the parent exits first", async () => {
-    const tempDir = await createTempDir("symphony-process-support-exited-parent-");
+    const tempDir = await createTempDir(
+      "symphony-process-support-exited-parent-",
+    );
     const pidFile = path.join(tempDir, "descendant.pid");
     createdPaths.add(tempDir);
 
