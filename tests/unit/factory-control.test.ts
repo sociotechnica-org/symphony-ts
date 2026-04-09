@@ -1368,6 +1368,106 @@ describe("startFactory", () => {
     expect(result.status.controlState).toBe("running");
   });
 
+  it("launches from the source checkout fallback when the runtime checkout is absent", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    const workerPid = 9101;
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+    const launched: Array<{
+      runtimeRoot: string;
+      launchCwd: string;
+      sessionName: string;
+      command: readonly string[];
+      env: NodeJS.ProcessEnv;
+    }> = [];
+
+    const result = await startFactory({
+      workflowPath: "/repo/WORKFLOW.md",
+      cwd: () => "/engine-checkout",
+      pathExists: async (targetPath) => targetPath === "/repo/WORKFLOW.md",
+      loadWorkflowInstancePaths: async () =>
+        deriveRuntimeInstancePaths({
+          workflowPath: "/repo/WORKFLOW.md",
+          workspaceRoot: "/repo/.tmp/workspaces",
+        }),
+      deriveSessionName: () => "symphony-factory",
+      readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (filePath.endsWith("startup.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (filePath === "/repo/.tmp/status.json" && currentSnapshot !== null) {
+          return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      listAvailableLocales: async () => ["en_US.UTF-8", "C"],
+      ensureDirectory: async () => {},
+      removeFile: async () => {},
+      launchScreenSession: async (options) => {
+        launched.push(options);
+        sessionsState.push({
+          id: "9001.symphony-factory",
+          pid: 9001,
+          name: options.sessionName,
+          state: "Detached",
+        });
+        processesState.push(
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          {
+            pid: 9002,
+            ppid: 9001,
+            command: "pnpm tsx /engine-checkout/bin/symphony.ts run",
+          },
+          {
+            pid: workerPid,
+            ppid: 9002,
+            command: "node /engine-checkout/bin/symphony.ts run",
+          },
+        );
+        currentSnapshot = createStatusSnapshot(workerPid, {
+          factoryState: "running",
+        });
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(launched).toEqual([
+      {
+        runtimeRoot: "/repo/.tmp/factory-main",
+        launchCwd: expectedFallbackLaunchCwd("/repo/WORKFLOW.md"),
+        sessionName: "symphony-factory",
+        command: createFactoryRunCommand("/repo/WORKFLOW.md"),
+        env: expect.objectContaining({
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          LC_CTYPE: "en_US.UTF-8",
+        }),
+      },
+    ]);
+    expect(result.kind).toBe("started");
+    expect(result.status.controlState).toBe("running");
+    expect(result.status.paths.workflowPath).toBe("/repo/WORKFLOW.md");
+  });
+
   it("launches a third-party instance from its runtime home with an explicit workflow path", async () => {
     const launched: Array<{
       runtimeRoot: string;
