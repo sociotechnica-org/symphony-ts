@@ -680,6 +680,7 @@ describe("operator loop workflow selection", () => {
         "Treat `SYMPHONY_OPERATOR_CONTROL_STATE` as the code-owned source of truth",
       );
       expect(prompt).toContain("pending plan-review and `/land` actions");
+      expect(prompt).toContain("docs/guides/operator-runbook.md");
       expect(prompt).toContain("SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT");
       expect(prompt).toContain(
         "Do not apply `symphony-ts` planning standards to an external repository",

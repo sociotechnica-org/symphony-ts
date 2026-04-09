@@ -18,6 +18,9 @@ this cycle's deterministic checkpoint ordering. It already summarizes:
 
 Use that artifact to decide what must happen first. Do not reconstruct the
 checkpoint order from memory or from older prompt wording.
+If the artifact is missing, stale, or unreadable, fall back to the checked-in
+operator runbook at `docs/guides/operator-runbook.md` before improvising any
+manual checkpoint commands.
 
 Repository and policy rules:
 

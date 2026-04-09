@@ -704,50 +704,35 @@ write_status() {
       CONTROL_STATE="$CONTROL_STATE" node -e '
 const fs = require("node:fs");
 const defaults = {
-  posture: "runtime-blocked",
-  summary: "Operator control state is unavailable.",
-  blockingCheckpoint: "",
-  nextActionSummary: "",
+  OPERATOR_CONTROL_POSTURE: "runtime-blocked",
+  OPERATOR_CONTROL_SUMMARY: "Operator control state is unavailable.",
+  OPERATOR_CONTROL_BLOCKING_CHECKPOINT: "",
+  OPERATOR_CONTROL_NEXT_ACTION_SUMMARY: "",
 };
 try {
   const raw = fs.readFileSync(process.env.CONTROL_STATE, "utf8");
   const parsed = JSON.parse(raw);
-  defaults.posture =
-    typeof parsed.posture === "string" ? parsed.posture : defaults.posture;
-  defaults.summary =
-    typeof parsed.summary === "string" ? parsed.summary : defaults.summary;
-  defaults.blockingCheckpoint =
+  defaults.OPERATOR_CONTROL_POSTURE =
+    typeof parsed.posture === "string"
+      ? parsed.posture
+      : defaults.OPERATOR_CONTROL_POSTURE;
+  defaults.OPERATOR_CONTROL_SUMMARY =
+    typeof parsed.summary === "string"
+      ? parsed.summary
+      : defaults.OPERATOR_CONTROL_SUMMARY;
+  defaults.OPERATOR_CONTROL_BLOCKING_CHECKPOINT =
     typeof parsed.blockingCheckpoint === "string"
       ? parsed.blockingCheckpoint
-      : defaults.blockingCheckpoint;
-  defaults.nextActionSummary =
+      : defaults.OPERATOR_CONTROL_BLOCKING_CHECKPOINT;
+  defaults.OPERATOR_CONTROL_NEXT_ACTION_SUMMARY =
     typeof parsed.nextActionSummary === "string"
       ? parsed.nextActionSummary
-      : defaults.nextActionSummary;
+      : defaults.OPERATOR_CONTROL_NEXT_ACTION_SUMMARY;
 } catch (error) {
-  defaults.summary = `Operator control state could not be read: ${error instanceof Error ? error.message : String(error)}`;
+  defaults.OPERATOR_CONTROL_SUMMARY = `Operator control state could not be read: ${error instanceof Error ? error.message : String(error)}`;
 }
 for (const [key, value] of Object.entries(defaults)) {
   console.log(`${key}=${JSON.stringify(value)}`);
-}
-' \
-        | node -e '
-const fs = require("node:fs");
-const lines = fs.readFileSync(0, "utf8").trim().split(/\n/u);
-for (const line of lines) {
-  if (!line) {
-    continue;
-  }
-  const index = line.indexOf("=");
-  const key = line.slice(0, index);
-  const value = JSON.parse(line.slice(index + 1));
-  const mapping = {
-    posture: "OPERATOR_CONTROL_POSTURE",
-    summary: "OPERATOR_CONTROL_SUMMARY",
-    blockingCheckpoint: "OPERATOR_CONTROL_BLOCKING_CHECKPOINT",
-    nextActionSummary: "OPERATOR_CONTROL_NEXT_ACTION_SUMMARY",
-  };
-  console.log(`${mapping[key]}=${JSON.stringify(value)}`);
 }
 '
     )"
@@ -1081,7 +1066,9 @@ run_cycle() {
   if ! run_ready_promotion_nonfatal; then
     :
   fi
-  refresh_operator_control_state
+  if ! refresh_operator_control_state; then
+    :
+  fi
 
   if [ "$exit_code" -eq 0 ]; then
     cycle_message="Operator cycle completed successfully"
