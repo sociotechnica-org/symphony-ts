@@ -96,25 +96,22 @@ function renderShellCommand(args: readonly string[]): string {
   return args.map((value) => `'${value.replace(/'/g, `'\\''`)}'`).join(" ");
 }
 
-function hasLiveTuiEvent(screen: string): boolean {
+function hasLiveRunnerTelemetry(screen: string): boolean {
   return (
-    screen.includes("reasoning update") ||
-    screen.includes("session started") ||
-    screen.includes("git status") ||
-    screen.includes("command completed") ||
-    screen.includes("Runner process spawned for turn 1")
+    screen.includes("turn 1/3") ||
+    screen.includes("generic-command") ||
+    screen.includes("Runner:")
   );
 }
 
 function hasAttachTuiSurface(screen: string): boolean {
   return (
-    (screen.includes("SYMPHONY STATUS") ||
-      (screen.includes("Factory tokens:") &&
-        screen.includes("Recovery posture") &&
-        screen.includes("Tickets") &&
-        screen.includes("Backoff queue"))) &&
-    screen.includes("Live TUI smoke issue") &&
-    hasLiveTuiEvent(screen)
+    screen.includes("Factory tokens:") &&
+    screen.includes("Dispatch:") &&
+    screen.includes("Recovery posture") &&
+    screen.includes("Tickets") &&
+    screen.includes("Backoff queue") &&
+    hasLiveRunnerTelemetry(screen)
   );
 }
 
@@ -291,8 +288,8 @@ describe("live TUI smoke tests", () => {
         },
       );
       expect(hasAttachTuiSurface(attachSnapshot.screen)).toBe(true);
-      expect(attachSnapshot.screen).toContain("Live TUI smoke issue");
-      expect(hasLiveTuiEvent(attachSnapshot.screen)).toBe(true);
+      expect(attachSnapshot.screen).toContain("#1");
+      expect(hasLiveRunnerTelemetry(attachSnapshot.screen)).toBe(true);
       traceLiveSmoke("attach snapshot ready");
 
       await tui.press("ctrl+c");

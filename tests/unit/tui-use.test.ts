@@ -193,6 +193,8 @@ describe("TuiUseHarness env", () => {
         homeDir: path.join(os.tmpdir(), "tui-use-test-home"),
         env: {
           PATH: "/usr/bin",
+          NODE_OPTIONS: "--require vitest/hooks",
+          VITEST_POOL_ID: "7",
           SYMPHONY_KEEP_ME: "present",
         },
       });
@@ -201,6 +203,8 @@ describe("TuiUseHarness env", () => {
 
       expect(EnvCapturingSession.lastEnv?.["PATH"]).toBe("/usr/bin");
       expect(EnvCapturingSession.lastEnv?.["SYMPHONY_KEEP_ME"]).toBe("present");
+      expect(EnvCapturingSession.lastEnv?.["NODE_OPTIONS"]).toBeUndefined();
+      expect(EnvCapturingSession.lastEnv?.["VITEST_POOL_ID"]).toBeUndefined();
       expect(EnvCapturingSession.lastEnv?.["SYMPHONY_REPO"]).toBeUndefined();
     } finally {
       if (originalRepo === undefined) {
