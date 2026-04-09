@@ -922,12 +922,14 @@ describe("runCli init", () => {
     }
   });
 
-  it("restores the target repository when publishing the operator playbook fails", async () => {
+  it("restores the workflow and preserves the existing operator playbook when publishing fails", async () => {
     const tempDir = await createTempDir("symphony-cli-init-restore-");
     const targetRepo = path.join(tempDir, "target-repo");
     const workflowPath = path.join(targetRepo, "WORKFLOW.md");
     const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
     await fs.mkdir(targetRepo, { recursive: true });
+    await fs.writeFile(workflowPath, "# Existing workflow\n", "utf8");
+    await fs.writeFile(operatorPlaybookPath, "# Existing operator playbook\n", "utf8");
 
     const originalRename = fs.rename.bind(fs);
     vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
@@ -943,11 +945,78 @@ describe("runCli init", () => {
           targetPath: targetRepo,
           trackerRepo: "acme/widgets",
           runnerKind: "codex",
-          force: false,
+          force: true,
         }),
       ).rejects.toThrow("operator rename failed");
-      await expect(fs.access(workflowPath)).rejects.toThrow();
-      await expect(fs.access(operatorPlaybookPath)).rejects.toThrow();
+      await expect(fs.readFile(workflowPath, "utf8")).resolves.toBe(
+        "# Existing workflow\n",
+      );
+      await expect(fs.readFile(operatorPlaybookPath, "utf8")).resolves.toBe(
+        "# Existing operator playbook\n",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves the publish failure when rollback or cleanup also fail", async () => {
+    const tempDir = await createTempDir("symphony-cli-init-cleanup-error-");
+    const targetRepo = path.join(tempDir, "target-repo");
+    const workflowPath = path.join(targetRepo, "WORKFLOW.md");
+    const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
+    const originalWriteFile: typeof fs.writeFile = fs.writeFile.bind(fs);
+    const originalRename = fs.rename.bind(fs);
+    const originalRm = fs.rm.bind(fs);
+    await fs.mkdir(targetRepo, { recursive: true });
+    await fs.writeFile(workflowPath, "# Existing workflow\n", "utf8");
+
+    vi.spyOn(fs, "writeFile").mockImplementation(async (...args) => {
+      const [filePath] = args;
+      if (String(filePath) === workflowPath) {
+        throw new Error("workflow restore failed");
+      }
+      return originalWriteFile(...args);
+    });
+    vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (String(to) === operatorPlaybookPath) {
+        throw new Error("operator rename failed");
+      }
+      await originalRename(from, to);
+    });
+    vi.spyOn(fs, "rm").mockImplementation(async (...args) => {
+      const [filePath] = args;
+      if (String(filePath).includes(".tmp-")) {
+        throw new Error("temp cleanup failed");
+      }
+      return originalRm(...args);
+    });
+
+    try {
+      await expect(
+        scaffoldWorkflow({
+          targetPath: targetRepo,
+          trackerRepo: "acme/widgets",
+          runnerKind: "codex",
+          force: true,
+        }),
+      ).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(AggregateError);
+        const aggregateError = error as AggregateError;
+        expect(aggregateError.message).toBe("operator rename failed");
+        expect(
+          aggregateError.errors.map((entry) =>
+            entry instanceof Error ? entry.message : String(entry),
+          ),
+        ).toEqual(
+          expect.arrayContaining([
+            "operator rename failed",
+            `Failed to restore ${workflowPath}: workflow restore failed`,
+            "Failed to clean up scaffold temp files: temp cleanup failed",
+          ]),
+        );
+        return true;
+      });
+      await expect(fs.readFile(operatorPlaybookPath, "utf8")).rejects.toThrow();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

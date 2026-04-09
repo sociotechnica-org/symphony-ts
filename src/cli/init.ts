@@ -51,7 +51,6 @@ export async function scaffoldWorkflow(
     workflowOverwritten,
     operatorPlaybookPath,
     operatorPlaybookTemplate,
-    operatorPlaybookOverwritten,
   });
 
   return {
@@ -176,18 +175,13 @@ async function publishScaffoldFiles(args: {
   readonly workflowOverwritten: boolean;
   readonly operatorPlaybookPath: string;
   readonly operatorPlaybookTemplate: string;
-  readonly operatorPlaybookOverwritten: boolean;
 }): Promise<void> {
   const workflowBackup = args.workflowOverwritten
     ? await fs.readFile(args.workflowPath, "utf8")
     : null;
-  const operatorPlaybookBackup = args.operatorPlaybookOverwritten
-    ? await fs.readFile(args.operatorPlaybookPath, "utf8")
-    : null;
   const workflowTempPath = `${args.workflowPath}.tmp-${process.pid}-${Date.now()}`;
   const operatorPlaybookTempPath = `${args.operatorPlaybookPath}.tmp-${process.pid}-${Date.now()}`;
   let workflowPublished = false;
-  let operatorPlaybookPublished = false;
 
   try {
     await fs.writeFile(workflowTempPath, args.workflowTemplate, "utf8");
@@ -199,22 +193,22 @@ async function publishScaffoldFiles(args: {
     await fs.rename(workflowTempPath, args.workflowPath);
     workflowPublished = true;
     await fs.rename(operatorPlaybookTempPath, args.operatorPlaybookPath);
-    operatorPlaybookPublished = true;
   } catch (error) {
-    if (workflowPublished) {
-      await restoreScaffoldFile(args.workflowPath, workflowBackup);
-    }
-    if (operatorPlaybookPublished) {
-      await restoreScaffoldFile(
-        args.operatorPlaybookPath,
-        operatorPlaybookBackup,
-      );
-    }
-    await cleanupScaffoldTempFiles([
-      workflowTempPath,
-      operatorPlaybookTempPath,
+    const recoveryErrors = await runScaffoldRecoverySteps([
+      workflowPublished
+        ? {
+            action: `restore ${args.workflowPath}`,
+            run: async () =>
+              restoreScaffoldFile(args.workflowPath, workflowBackup),
+          }
+        : null,
+      {
+        action: "clean up scaffold temp files",
+        run: async () =>
+          cleanupScaffoldTempFiles([workflowTempPath, operatorPlaybookTempPath]),
+      },
     ]);
-    throw error;
+    rethrowScaffoldPublishError(error, recoveryErrors);
   }
 }
 
@@ -232,9 +226,64 @@ async function restoreScaffoldFile(
 async function cleanupScaffoldTempFiles(
   tempPaths: readonly string[],
 ): Promise<void> {
-  await Promise.all(
+  const cleanupResults = await Promise.allSettled(
     tempPaths.map(async (tempPath) => {
       await fs.rm(tempPath, { force: true });
     }),
   );
+  const cleanupErrors = cleanupResults.flatMap((result) =>
+    result.status === "rejected" ? [normalizeScaffoldError(result.reason)] : [],
+  );
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      cleanupErrors,
+      cleanupErrors[0]!.message,
+    );
+  }
+}
+
+async function runScaffoldRecoverySteps(
+  steps: readonly ({
+    readonly action: string;
+    readonly run: () => Promise<void>;
+  } | null)[],
+): Promise<readonly Error[]> {
+  const recoveryErrors: Error[] = [];
+  for (const step of steps) {
+    if (step === null) {
+      continue;
+    }
+    try {
+      await step.run();
+    } catch (error) {
+      const normalizedError = normalizeScaffoldError(error);
+      recoveryErrors.push(
+        new Error(`Failed to ${step.action}: ${normalizedError.message}`, {
+          cause: normalizedError,
+        }),
+      );
+    }
+  }
+  return recoveryErrors;
+}
+
+function rethrowScaffoldPublishError(
+  publishError: unknown,
+  recoveryErrors: readonly Error[],
+): never {
+  if (recoveryErrors.length === 0) {
+    throw publishError;
+  }
+  const normalizedPublishError = normalizeScaffoldError(publishError);
+  throw new AggregateError(
+    [normalizedPublishError, ...recoveryErrors],
+    normalizedPublishError.message,
+  );
+}
+
+function normalizeScaffoldError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(String(error));
 }
