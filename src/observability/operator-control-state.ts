@@ -235,7 +235,6 @@ export async function refreshOperatorControlState(args: {
 
   const runtimeResult = await loadRuntimeCheckpoint({
     workflowPath,
-    operatorRepoRoot,
   });
   const instance = await loadWorkflowInstancePaths(workflowPath);
 
@@ -263,7 +262,6 @@ export async function refreshOperatorControlState(args: {
 
 async function loadRuntimeCheckpoint(args: {
   readonly workflowPath: string;
-  readonly operatorRepoRoot: string;
 }): Promise<{
   readonly checkpoint: OperatorControlRuntimeCheckpoint;
   readonly activeIssues: readonly FactoryActiveIssueSnapshot[];
@@ -272,15 +270,15 @@ async function loadRuntimeCheckpoint(args: {
     const status = await inspectFactoryControl({
       workflowPath: args.workflowPath,
     });
-    const engineRuntimeIdentity = await collectFactoryRuntimeIdentity(
-      args.operatorRepoRoot,
+    const currentRuntimeIdentity = await collectFactoryRuntimeIdentity(
+      status.paths.runtimeRoot,
     );
     const currentWorkflowIdentity = await collectFactoryWorkflowIdentity(
       status.paths.workflowPath,
     );
     const freshness = assessOperatorRuntimeFreshness({
       status,
-      engineRuntimeIdentity,
+      currentRuntimeIdentity,
       currentWorkflowIdentity,
     });
     return {

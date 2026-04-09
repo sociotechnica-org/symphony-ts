@@ -66,6 +66,14 @@ interface ResolvedFactoryPaths extends FactoryPaths {
   readonly sessionName: string;
 }
 
+export interface FactoryLaunchTarget {
+  readonly kind: "runtime-home" | "source-checkout-fallback";
+  readonly launchCwd: string;
+  readonly commandPrefix: readonly string[];
+  readonly entrypointPath: string;
+  readonly workflowPath: string;
+}
+
 export interface HostProcessSnapshot {
   readonly pid: number;
   readonly ppid: number;
@@ -277,9 +285,9 @@ export async function startFactory(
   const listAvailableLocales =
     deps.listAvailableLocales ?? defaultListAvailableLocales;
   const removeFile = deps.removeFile ?? defaultRemoveFile;
-  const ensureDirectory = deps.ensureDirectory ?? defaultEnsureDirectory;
   const sleep = deps.sleep ?? defaultSleep;
   const now = deps.now ?? (() => Date.now());
+  const launchTarget = await resolveFactoryLaunchTarget(paths, deps);
   const launchEnvironment = createFactoryLaunchEnvironment(
     environment(),
     await listAvailableLocales().catch((error) => {
@@ -290,15 +298,18 @@ export async function startFactory(
     }),
   );
 
-  await ensureDirectory(paths.runtimeRoot);
   await removeFile(paths.statusFilePath);
   await removeFile(paths.startupFilePath);
 
   await launchScreenSession({
     runtimeRoot: paths.runtimeRoot,
-    launchCwd: ENGINE_ROOT,
+    launchCwd: launchTarget.launchCwd,
     sessionName: paths.sessionName,
-    command: createFactoryRunCommand(paths.workflowPath),
+    command: createFactoryRunCommand(
+      launchTarget.workflowPath,
+      launchTarget.entrypointPath,
+      launchTarget.commandPrefix,
+    ),
     env: launchEnvironment,
   });
 
@@ -1141,10 +1152,6 @@ async function defaultRemoveFile(filePath: string): Promise<void> {
   await fs.rm(filePath, { force: true });
 }
 
-async function defaultEnsureDirectory(directoryPath: string): Promise<void> {
-  await fs.mkdir(directoryPath, { recursive: true });
-}
-
 function assessStartupSnapshot(
   snapshot: StartupSnapshot | null,
   options: {
@@ -1206,11 +1213,12 @@ function isMissingScreenSessionError(error: unknown): boolean {
 
 export function createFactoryRunCommand(
   workflowPath: string,
+  entrypointPath = path.join(ENGINE_ROOT, "bin", "symphony.ts"),
+  commandPrefix: readonly string[] = ["pnpm", "tsx"],
 ): readonly string[] {
   return [
-    "pnpm",
-    "tsx",
-    path.join(ENGINE_ROOT, "bin", "symphony.ts"),
+    ...commandPrefix,
+    entrypointPath,
     "run",
     "--workflow",
     workflowPath,
@@ -1223,6 +1231,64 @@ export function createFactoryScreenLaunchCommand(
   command: readonly string[],
 ): readonly string[] {
   return ["-U", "-dmS", sessionName, ...command];
+}
+
+export async function resolveFactoryLaunchTarget(
+  paths: FactoryPaths,
+  deps: Pick<FactoryControlDeps, "pathExists"> = {},
+): Promise<FactoryLaunchTarget> {
+  const pathExists = deps.pathExists ?? defaultPathExists;
+  const runtimeEntrypointPath = path.join(
+    paths.runtimeRoot,
+    "bin",
+    "symphony.ts",
+  );
+  const runtimeTsxCandidatePaths = [
+    path.join(paths.runtimeRoot, "node_modules", ".bin", "tsx"),
+    path.join(paths.runtimeRoot, "node_modules", ".bin", "tsx.cmd"),
+  ] as const;
+  const entrypointExists = await pathExists(runtimeEntrypointPath);
+  const runtimeTsxPath =
+    (await firstExistingPath(runtimeTsxCandidatePaths, pathExists)) ?? null;
+  if (entrypointExists && runtimeTsxPath !== null) {
+    return {
+      kind: "runtime-home",
+      launchCwd: paths.runtimeRoot,
+      commandPrefix: [runtimeTsxPath],
+      entrypointPath: runtimeEntrypointPath,
+      workflowPath: paths.workflowPath,
+    };
+  }
+  if (await pathExists(paths.runtimeRoot)) {
+    const missingLaunchRequirements = [
+      entrypointExists ? null : runtimeEntrypointPath,
+      runtimeTsxPath === null
+        ? "the local tsx launcher under node_modules/.bin"
+        : null,
+    ].filter((value): value is string => value !== null);
+    throw new Error(
+      `Detached runtime checkout at ${paths.runtimeRoot} is not launchable because ${missingLaunchRequirements.join(" and ")} ${missingLaunchRequirements.length === 1 ? "is" : "are"} missing. Refresh ${paths.runtimeRoot} from the selected instance main branch and install dependencies there before restarting the factory.`,
+    );
+  }
+  return {
+    kind: "source-checkout-fallback",
+    launchCwd: ENGINE_ROOT,
+    commandPrefix: ["pnpm", "tsx"],
+    entrypointPath: path.join(ENGINE_ROOT, "bin", "symphony.ts"),
+    workflowPath: paths.workflowPath,
+  };
+}
+
+async function firstExistingPath(
+  paths: readonly string[],
+  pathExists: (targetPath: string) => Promise<boolean>,
+): Promise<string | null> {
+  for (const candidatePath of paths) {
+    if (await pathExists(candidatePath)) {
+      return candidatePath;
+    }
+  }
+  return null;
 }
 
 function isUtf8Locale(locale: string): boolean {

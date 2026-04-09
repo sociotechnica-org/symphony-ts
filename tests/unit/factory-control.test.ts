@@ -19,6 +19,7 @@ import {
   pauseFactory,
   renderFactoryControlStatus,
   resumeFactory,
+  resolveFactoryLaunchTarget,
   resolveFactoryPaths,
   selectFactoryUtf8Locale,
   startFactory,
@@ -136,6 +137,14 @@ function createControlDeps(
     workflowPath: path.join(runtimeRoot, "WORKFLOW.md"),
     workspaceRoot: path.join(runtimeRoot, ".tmp", "workspaces"),
   });
+  const runtimeEntrypointPath = path.join(runtimeRoot, "bin", "symphony.ts");
+  const runtimeTsxPath = path.join(runtimeRoot, "node_modules", ".bin", "tsx");
+  const runtimeTsxCmdPath = path.join(
+    runtimeRoot,
+    "node_modules",
+    ".bin",
+    "tsx.cmd",
+  );
   const workflowPath = instancePaths.runtimeWorkflowPath;
   const statusFilePath = instancePaths.statusFilePath;
   const startupFilePath = instancePaths.startupFilePath;
@@ -155,6 +164,9 @@ function createControlDeps(
         repoRoot,
         instancePaths.tempRoot,
         runtimeRoot,
+        runtimeEntrypointPath,
+        runtimeTsxPath,
+        runtimeTsxCmdPath,
         workflowPath,
         path.dirname(statusFilePath),
         statusFilePath,
@@ -267,7 +279,7 @@ function createControlDeps(
   };
 }
 
-function expectedLaunchCwd(workflowPath: string): string {
+function expectedFallbackLaunchCwd(workflowPath: string): string {
   return path.dirname(path.dirname(createFactoryRunCommand(workflowPath)[2]!));
 }
 
@@ -1076,6 +1088,40 @@ describe("createFactoryRunCommand", () => {
     ]);
   });
 
+  it("uses an explicit runtime-home entrypoint when provided", () => {
+    expect(
+      createFactoryRunCommand(
+        "/tmp/target/WORKFLOW.md",
+        "/tmp/target/.tmp/factory-main/bin/symphony.ts",
+      ),
+    ).toEqual([
+      "pnpm",
+      "tsx",
+      "/tmp/target/.tmp/factory-main/bin/symphony.ts",
+      "run",
+      "--workflow",
+      "/tmp/target/WORKFLOW.md",
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    ]);
+  });
+
+  it("uses an explicit launcher command when provided", () => {
+    expect(
+      createFactoryRunCommand(
+        "/tmp/target/WORKFLOW.md",
+        "/tmp/target/.tmp/factory-main/bin/symphony.ts",
+        ["/tmp/target/.tmp/factory-main/node_modules/.bin/tsx"],
+      ),
+    ).toEqual([
+      "/tmp/target/.tmp/factory-main/node_modules/.bin/tsx",
+      "/tmp/target/.tmp/factory-main/bin/symphony.ts",
+      "run",
+      "--workflow",
+      "/tmp/target/WORKFLOW.md",
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    ]);
+  });
+
   it("builds the detached screen launch argv in UTF-8 mode", () => {
     expect(
       createFactoryScreenLaunchCommand(
@@ -1094,6 +1140,122 @@ describe("createFactoryRunCommand", () => {
       "/tmp/target/WORKFLOW.md",
       "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
     ]);
+  });
+});
+
+describe("resolveFactoryLaunchTarget", () => {
+  it("prefers the instance runtime checkout when it is launchable", async () => {
+    await expect(
+      resolveFactoryLaunchTarget(
+        {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/startup.json",
+        },
+        {
+          pathExists: async (targetPath) =>
+            targetPath === "/repo/.tmp/factory-main/bin/symphony.ts" ||
+            targetPath === "/repo/.tmp/factory-main/node_modules/.bin/tsx",
+        },
+      ),
+    ).resolves.toEqual({
+      kind: "runtime-home",
+      launchCwd: "/repo/.tmp/factory-main",
+      commandPrefix: ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
+      entrypointPath: "/repo/.tmp/factory-main/bin/symphony.ts",
+      workflowPath: "/repo/WORKFLOW.md",
+    });
+  });
+
+  it("accepts the Windows tsx shim when it is the installed launcher", async () => {
+    await expect(
+      resolveFactoryLaunchTarget(
+        {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/startup.json",
+        },
+        {
+          pathExists: async (targetPath) =>
+            targetPath === "/repo/.tmp/factory-main/bin/symphony.ts" ||
+            targetPath === "/repo/.tmp/factory-main/node_modules/.bin/tsx.cmd",
+        },
+      ),
+    ).resolves.toEqual({
+      kind: "runtime-home",
+      launchCwd: "/repo/.tmp/factory-main",
+      commandPrefix: ["/repo/.tmp/factory-main/node_modules/.bin/tsx.cmd"],
+      entrypointPath: "/repo/.tmp/factory-main/bin/symphony.ts",
+      workflowPath: "/repo/WORKFLOW.md",
+    });
+  });
+
+  it("uses the source checkout only as a bootstrap fallback when the runtime checkout is absent", async () => {
+    const target = await resolveFactoryLaunchTarget(
+      {
+        repoRoot: "/repo",
+        runtimeRoot: "/repo/.tmp/factory-main",
+        workflowPath: "/repo/WORKFLOW.md",
+        statusFilePath: "/repo/.tmp/status.json",
+        startupFilePath: "/repo/.tmp/startup.json",
+      },
+      {
+        pathExists: async (targetPath) => targetPath === "/repo/WORKFLOW.md",
+      },
+    );
+
+    expect(target.kind).toBe("source-checkout-fallback");
+    expect(target.launchCwd).toBe(
+      expectedFallbackLaunchCwd("/repo/WORKFLOW.md"),
+    );
+    expect(target.commandPrefix).toEqual(["pnpm", "tsx"]);
+    expect(target.workflowPath).toBe("/repo/WORKFLOW.md");
+    expect(target.entrypointPath).toMatch(/bin\/symphony\.ts$/u);
+  });
+
+  it("fails clearly when a present runtime checkout is incomplete", async () => {
+    await expect(
+      resolveFactoryLaunchTarget(
+        {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/startup.json",
+        },
+        {
+          pathExists: async (targetPath) =>
+            targetPath === "/repo/.tmp/factory-main",
+        },
+      ),
+    ).rejects.toThrow(
+      "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because /repo/.tmp/factory-main/bin/symphony.ts and the local tsx launcher under node_modules/.bin are missing.",
+    );
+  });
+
+  it("fails clearly when the runtime checkout is missing the local tsx binary", async () => {
+    await expect(
+      resolveFactoryLaunchTarget(
+        {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/startup.json",
+        },
+        {
+          pathExists: async (targetPath) =>
+            targetPath === "/repo/.tmp/factory-main" ||
+            targetPath === "/repo/.tmp/factory-main/bin/symphony.ts",
+        },
+      ),
+    ).rejects.toThrow(
+      "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because the local tsx launcher under node_modules/.bin is missing.",
+    );
   });
 });
 
@@ -1189,9 +1351,13 @@ describe("startFactory", () => {
     expect(launched).toHaveLength(1);
     expect(launched[0]).toEqual({
       runtimeRoot: "/repo/.tmp/factory-main",
-      launchCwd: expectedLaunchCwd("/repo/.tmp/factory-main/WORKFLOW.md"),
+      launchCwd: "/repo/.tmp/factory-main",
       sessionName: "symphony-factory",
-      command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
+      command: createFactoryRunCommand(
+        "/repo/.tmp/factory-main/WORKFLOW.md",
+        "/repo/.tmp/factory-main/bin/symphony.ts",
+        ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
+      ),
       env: expect.objectContaining({
         LANG: "en_US.UTF-8",
         LC_ALL: "en_US.UTF-8",
@@ -1202,7 +1368,107 @@ describe("startFactory", () => {
     expect(result.status.controlState).toBe("running");
   });
 
-  it("launches a third-party instance from the engine checkout with an explicit workflow path", async () => {
+  it("launches from the source checkout fallback when the runtime checkout is absent", async () => {
+    const sessionsState: ScreenSessionSnapshot[] = [];
+    const processesState: HostProcessSnapshot[] = [];
+    const workerPid = 9101;
+    let currentSnapshot: FactoryStatusSnapshot | null = null;
+    const launched: Array<{
+      runtimeRoot: string;
+      launchCwd: string;
+      sessionName: string;
+      command: readonly string[];
+      env: NodeJS.ProcessEnv;
+    }> = [];
+
+    const result = await startFactory({
+      workflowPath: "/repo/WORKFLOW.md",
+      cwd: () => "/engine-checkout",
+      pathExists: async (targetPath) => targetPath === "/repo/WORKFLOW.md",
+      loadWorkflowInstancePaths: async () =>
+        deriveRuntimeInstancePaths({
+          workflowPath: "/repo/WORKFLOW.md",
+          workspaceRoot: "/repo/.tmp/workspaces",
+        }),
+      deriveSessionName: () => "symphony-factory",
+      readFile: async (filePath) => {
+        if (filePath.endsWith("halt-state.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (filePath.endsWith("startup.json")) {
+          const error = new Error("missing") as NodeJS.ErrnoException;
+          error.code = "ENOENT";
+          throw error;
+        }
+        if (filePath === "/repo/.tmp/status.json" && currentSnapshot !== null) {
+          return `${JSON.stringify(currentSnapshot, null, 2)}\n`;
+        }
+        const error = new Error("missing") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+      listProcesses: async () => processesState,
+      listScreenSessions: async () => sessionsState,
+      listAvailableLocales: async () => ["en_US.UTF-8", "C"],
+      ensureDirectory: async () => {},
+      removeFile: async () => {},
+      launchScreenSession: async (options) => {
+        launched.push(options);
+        sessionsState.push({
+          id: "9001.symphony-factory",
+          pid: 9001,
+          name: options.sessionName,
+          state: "Detached",
+        });
+        processesState.push(
+          { pid: 9001, ppid: 1, command: "screen -dmS symphony-factory" },
+          {
+            pid: 9002,
+            ppid: 9001,
+            command: "pnpm tsx /engine-checkout/bin/symphony.ts run",
+          },
+          {
+            pid: workerPid,
+            ppid: 9002,
+            command: "node /engine-checkout/bin/symphony.ts run",
+          },
+        );
+        currentSnapshot = createStatusSnapshot(workerPid, {
+          factoryState: "running",
+        });
+      },
+      isProcessAlive: (pid) =>
+        processesState.some((processSnapshot) => processSnapshot.pid === pid),
+      now: (() => {
+        let now = 0;
+        return () => {
+          now += 100;
+          return now;
+        };
+      })(),
+    });
+
+    expect(launched).toEqual([
+      {
+        runtimeRoot: "/repo/.tmp/factory-main",
+        launchCwd: expectedFallbackLaunchCwd("/repo/WORKFLOW.md"),
+        sessionName: "symphony-factory",
+        command: createFactoryRunCommand("/repo/WORKFLOW.md"),
+        env: expect.objectContaining({
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          LC_CTYPE: "en_US.UTF-8",
+        }),
+      },
+    ]);
+    expect(result.kind).toBe("started");
+    expect(result.status.controlState).toBe("running");
+    expect(result.status.paths.workflowPath).toBe("/repo/WORKFLOW.md");
+  });
+
+  it("launches a third-party instance from its runtime home with an explicit workflow path", async () => {
     const launched: Array<{
       runtimeRoot: string;
       launchCwd: string;
@@ -1215,7 +1481,13 @@ describe("startFactory", () => {
     const result = await startFactory({
       workflowPath: "/target-project/WORKFLOW.md",
       cwd: () => "/engine-checkout",
-      pathExists: async () => true,
+      pathExists: async (targetPath) =>
+        [
+          "/target-project/.tmp/factory-main",
+          "/target-project/.tmp/factory-main/bin/symphony.ts",
+          "/target-project/.tmp/factory-main/node_modules/.bin/tsx",
+          "/target-project/WORKFLOW.md",
+        ].includes(targetPath),
       loadWorkflowInstancePaths: async () =>
         deriveRuntimeInstancePaths({
           workflowPath: "/target-project/WORKFLOW.md",
@@ -1280,9 +1552,13 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/target-project/.tmp/factory-main",
-        launchCwd: expectedLaunchCwd("/target-project/WORKFLOW.md"),
+        launchCwd: "/target-project/.tmp/factory-main",
         sessionName: "symphony-factory-target-project",
-        command: createFactoryRunCommand("/target-project/WORKFLOW.md"),
+        command: createFactoryRunCommand(
+          "/target-project/WORKFLOW.md",
+          "/target-project/.tmp/factory-main/bin/symphony.ts",
+          ["/target-project/.tmp/factory-main/node_modules/.bin/tsx"],
+        ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
           LC_ALL: "en_US.UTF-8",
@@ -1734,9 +2010,13 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/repo/.tmp/factory-main",
-        launchCwd: expectedLaunchCwd("/repo/.tmp/factory-main/WORKFLOW.md"),
+        launchCwd: "/repo/.tmp/factory-main",
         sessionName: "symphony-factory",
-        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
+        command: createFactoryRunCommand(
+          "/repo/.tmp/factory-main/WORKFLOW.md",
+          "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
+        ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
           LC_ALL: "en_US.UTF-8",
@@ -1777,9 +2057,13 @@ describe("startFactory", () => {
     expect(launched).toEqual([
       {
         runtimeRoot: "/repo/.tmp/factory-main",
-        launchCwd: expectedLaunchCwd("/repo/.tmp/factory-main/WORKFLOW.md"),
+        launchCwd: "/repo/.tmp/factory-main",
         sessionName: "symphony-factory",
-        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
+        command: createFactoryRunCommand(
+          "/repo/.tmp/factory-main/WORKFLOW.md",
+          "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
+        ),
         env: expect.objectContaining({
           TERM: "screen-256color",
           LANG: "en_US.UTF-8",
@@ -2317,7 +2601,11 @@ describe("factory restart launch contract", () => {
     expect(launches).toHaveLength(2);
     expect(launches).toEqual([
       expect.objectContaining({
-        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
+        command: createFactoryRunCommand(
+          "/repo/.tmp/factory-main/WORKFLOW.md",
+          "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
+        ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
           LC_ALL: "en_US.UTF-8",
@@ -2325,7 +2613,11 @@ describe("factory restart launch contract", () => {
         }),
       }),
       expect.objectContaining({
-        command: createFactoryRunCommand("/repo/.tmp/factory-main/WORKFLOW.md"),
+        command: createFactoryRunCommand(
+          "/repo/.tmp/factory-main/WORKFLOW.md",
+          "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
+        ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
           LC_ALL: "en_US.UTF-8",

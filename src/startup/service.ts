@@ -173,8 +173,9 @@ export async function runStartupPreparation(options: {
   const workerPid = options.workerPid ?? process.pid;
   const artifactPath = deriveStartupFilePath(instance);
   // The running process cwd identifies the code checkout that launched the
-  // current worker. This may differ from the repository that owns WORKFLOW.md
-  // when one shared engine checkout targets a separate project-local instance.
+  // current worker. Detached factory control sets the child cwd to the selected
+  // runtime home, while shared-engine invocations for external instances may
+  // still differ from the repository that owns WORKFLOW.md.
   const runtimeIdentity = await collectFactoryRuntimeIdentity(process.cwd());
   const workflowIdentity = await collectFactoryWorkflowIdentity(
     options.config.workflowPath,

@@ -34,7 +34,7 @@ function buildStatus(
       workerAlive: true,
       stale: false,
       runtimeIdentity: {
-        checkoutPath: "/tmp/repo",
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
         headSha: "runtime-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
@@ -117,8 +117,8 @@ describe("assessOperatorRuntimeFreshness", () => {
   it("reports fresh when runtime and engine heads match", () => {
     const result = assessOperatorRuntimeFreshness({
       status: buildStatus(),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
         headSha: "runtime-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
@@ -136,14 +136,15 @@ describe("assessOperatorRuntimeFreshness", () => {
 
     expect(result.kind).toBe("fresh");
     expect(result.shouldRestart).toBe(false);
+    expect(result.engineHeadSha).toBe("runtime-sha");
   });
 
   it("requests restart when runtime is stale and idle", () => {
     const result = assessOperatorRuntimeFreshness({
       status: buildStatus(),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
-        headSha: "engine-sha",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
+        headSha: "current-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
         source: "git",
@@ -196,9 +197,9 @@ describe("assessOperatorRuntimeFreshness", () => {
           ],
         },
       }),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
-        headSha: "engine-sha",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
+        headSha: "current-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
         source: "git",
@@ -221,8 +222,8 @@ describe("assessOperatorRuntimeFreshness", () => {
   it("requests restart when only the workflow contract changed and the instance is idle", () => {
     const result = assessOperatorRuntimeFreshness({
       status: buildStatus(),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
         headSha: "runtime-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
@@ -276,9 +277,9 @@ describe("assessOperatorRuntimeFreshness", () => {
           ],
         },
       }),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
-        headSha: "engine-sha",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
+        headSha: "current-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
         source: "git",
@@ -302,9 +303,9 @@ describe("assessOperatorRuntimeFreshness", () => {
       status: buildStatus({
         controlState: "stopped",
       }),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
-        headSha: "engine-sha",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
+        headSha: "current-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
         source: "git",
@@ -326,8 +327,8 @@ describe("assessOperatorRuntimeFreshness", () => {
   it("reports unavailable when the operator checkout head is unavailable", () => {
     const result = assessOperatorRuntimeFreshness({
       status: buildStatus(),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
         headSha: null,
         committedAt: null,
         isDirty: null,
@@ -346,7 +347,7 @@ describe("assessOperatorRuntimeFreshness", () => {
     expect(result.kind).toBe("unavailable");
     expect(result.shouldRestart).toBe(false);
     expect(result.unavailableReasons).toContain(
-      "current engine checkout head is unavailable; inspect the operator repo checkout",
+      "current runtime checkout head is unavailable; inspect the selected instance runtime checkout",
     );
   });
 
@@ -356,7 +357,7 @@ describe("assessOperatorRuntimeFreshness", () => {
         startup: {
           ...buildStatus().startup!,
           runtimeIdentity: {
-            checkoutPath: "/tmp/repo",
+            checkoutPath: "/tmp/repo/.tmp/factory-main",
             headSha: null,
             committedAt: null,
             isDirty: null,
@@ -365,9 +366,9 @@ describe("assessOperatorRuntimeFreshness", () => {
           },
         },
       }),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
-        headSha: "engine-sha",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
+        headSha: "current-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,
         source: "git",
@@ -392,8 +393,8 @@ describe("assessOperatorRuntimeFreshness", () => {
   it("reports unavailable instead of guessing when the current workflow cannot be read", () => {
     const result = assessOperatorRuntimeFreshness({
       status: buildStatus(),
-      engineRuntimeIdentity: {
-        checkoutPath: "/tmp/repo",
+      currentRuntimeIdentity: {
+        checkoutPath: "/tmp/repo/.tmp/factory-main",
         headSha: "runtime-sha",
         committedAt: "2026-03-30T00:00:00Z",
         isDirty: false,

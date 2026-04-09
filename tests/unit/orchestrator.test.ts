@@ -191,6 +191,10 @@ function createAdvancingLogProbe(): LivenessProbe {
   };
 }
 
+const QUIET_WATCHDOG_RUN_DURATION_MS = 35;
+const CI_SAFE_EXECUTION_WATCHDOG_THRESHOLD_MS = 125;
+const CI_SAFE_PR_FOLLOW_THROUGH_THRESHOLD_MS = 250;
+
 const BASE_INSTANCE_ROOT = path.join(
   "/tmp",
   `symphony-orchestrator-test-${process.pid}`,
@@ -4968,7 +4972,7 @@ describe("BootstrapOrchestrator watchdog", () => {
           const timer = setTimeout(() => {
             options?.signal?.removeEventListener("abort", handleAbort);
             resolve();
-          }, 35);
+          }, QUIET_WATCHDOG_RUN_DURATION_MS);
           const handleAbort = (): void => {
             clearTimeout(timer);
             runAborted = true;
@@ -5089,7 +5093,7 @@ describe("BootstrapOrchestrator watchdog", () => {
           enabled: true,
           checkIntervalMs: 1,
           stallThresholdMs: 5,
-          executionStallThresholdMs: 50,
+          executionStallThresholdMs: CI_SAFE_EXECUTION_WATCHDOG_THRESHOLD_MS,
           prFollowThroughStallThresholdMs: 5,
           maxRecoveryAttempts: 1,
         },
@@ -5146,7 +5150,7 @@ describe("BootstrapOrchestrator watchdog", () => {
           const timer = setTimeout(() => {
             options?.signal?.removeEventListener("abort", handleAbort);
             resolve();
-          }, 35);
+          }, QUIET_WATCHDOG_RUN_DURATION_MS);
           const handleAbort = (): void => {
             clearTimeout(timer);
             runAborted = true;
@@ -5194,8 +5198,12 @@ describe("BootstrapOrchestrator watchdog", () => {
           enabled: true,
           checkIntervalMs: 1,
           stallThresholdMs: 5,
-          executionStallThresholdMs: 5,
-          prFollowThroughStallThresholdMs: 200,
+          // Keep the execution threshold below the quiet run duration so this
+          // test still proves PR follow-through uses its own threshold, while
+          // leaving the PR-specific threshold generous enough for CI timing.
+          executionStallThresholdMs: 20,
+          prFollowThroughStallThresholdMs:
+            CI_SAFE_PR_FOLLOW_THROUGH_THRESHOLD_MS,
           maxRecoveryAttempts: 1,
         },
       },

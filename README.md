@@ -136,12 +136,20 @@ For the canonical detached-runtime operating procedure and failure rehearsals,
 see [Operator Runbook](docs/guides/operator-runbook.md) and
 [Failure Drills](docs/guides/failure-drills.md).
 
-These commands target the checked-out runtime under `<instance-root>/.tmp/factory-main`. Use
-`status` when you want the raw runtime snapshot for a specific workflow path,
-and use `factory status` when you want the detached runtime control state plus
-the embedded status snapshot. Operators should generally start with
-`factory status`, then use `factory watch` for continuous monitoring and
-`factory attach` when they need the full-screen TUI for a detached instance.
+These commands target the checked-out runtime under
+`<instance-root>/.tmp/factory-main` whenever that checkout is launchable.
+When it is absent during bootstrap, detached control falls back to the
+invoking source checkout instead of silently pretending the runtime checkout
+was current. Use `status` when you want the raw runtime snapshot for a
+specific workflow path, and use `factory status` when you want the detached
+runtime control state plus the embedded status snapshot. Operators should
+generally start with `factory status`, then use `factory watch` for continuous
+monitoring and `factory attach` when they need the full-screen TUI for a
+detached instance.
+For source-checkout factories, "launchable" means the runtime home contains
+both `bin/symphony.ts` and the installed local `tsx` launcher under
+`node_modules/.bin`; a checkout without dependencies fails clearly instead of
+falling back silently.
 
 The supported detached control path now normalizes the launched runtime to an
 installed UTF-8 locale and starts GNU Screen with `-U`. If the host does not
@@ -179,6 +187,10 @@ Status surfaces now also distinguish snapshot freshness explicitly:
 `fresh` for the live worker, `stale` for leftover historical snapshots, and
 `unavailable` while startup is still publishing a current snapshot or no
 readable snapshot exists.
+The detached runtime freshness probe follows the same rule: when
+`.tmp/factory-main` has not been prepared yet and detached control is still in
+bootstrap fallback mode, `bin/check-factory-runtime-freshness.ts` reports
+`unavailable` until the selected instance runtime checkout exists.
 
 For the repo's operator-assisted self-hosting loop, use the versioned operator
 entry point instead of any local `.ralph/` script:
