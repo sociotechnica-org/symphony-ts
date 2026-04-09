@@ -143,14 +143,14 @@ The refactor should make those stages explicit in modules and tests, but it must
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized config facts available | Expected decision |
-| --- | --- | --- | --- |
-| `WORKFLOW.md` cannot be read | workflow path only | none | fail in workflow-source loader with `WorkflowError`; no partial config resolution |
-| frontmatter is malformed YAML or not a mapping | raw file source available | none | fail in parsing module before section resolvers run |
-| a section field is invalid, such as `tracker.repo` or `agent.timeout_ms` | parsed raw frontmatter | section-local raw values | fail in the relevant section resolver with `ConfigError`; no prompt-builder involvement |
-| `SYMPHONY_REPO` overrides a GitHub-backed tracker repo | env + parsed tracker section | resolved tracker config | preserve existing override behavior and warnings through the resolution seam |
-| prompt template references an unknown variable/filter | `WorkflowDefinition` already resolved | redacted prompt-safe config + prompt inputs | fail in prompt-builder render path with `WorkflowError`; config resolution stays separate |
-| a caller only needs instance paths | workflow path + raw frontmatter workspace root | no full `ResolvedConfig` needed | use the dedicated instance-path loader without forcing prompt-builder creation or full config assembly |
+| Observed condition                                                       | Local facts available                          | Normalized config facts available           | Expected decision                                                                                      |
+| ------------------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `WORKFLOW.md` cannot be read                                             | workflow path only                             | none                                        | fail in workflow-source loader with `WorkflowError`; no partial config resolution                      |
+| frontmatter is malformed YAML or not a mapping                           | raw file source available                      | none                                        | fail in parsing module before section resolvers run                                                    |
+| a section field is invalid, such as `tracker.repo` or `agent.timeout_ms` | parsed raw frontmatter                         | section-local raw values                    | fail in the relevant section resolver with `ConfigError`; no prompt-builder involvement                |
+| `SYMPHONY_REPO` overrides a GitHub-backed tracker repo                   | env + parsed tracker section                   | resolved tracker config                     | preserve existing override behavior and warnings through the resolution seam                           |
+| prompt template references an unknown variable/filter                    | `WorkflowDefinition` already resolved          | redacted prompt-safe config + prompt inputs | fail in prompt-builder render path with `WorkflowError`; config resolution stays separate              |
+| a caller only needs instance paths                                       | workflow path + raw frontmatter workspace root | no full `ResolvedConfig` needed             | use the dedicated instance-path loader without forcing prompt-builder creation or full config assembly |
 
 ## Storage / Persistence Contract
 

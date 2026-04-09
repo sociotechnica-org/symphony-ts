@@ -120,8 +120,10 @@ mapping. It configures six top-level areas of factory behavior:
 - `agent`
 - `observability`
 
-Symphony parses the frontmatter at startup through
-[src/config/workflow.ts](../../src/config/workflow.ts).
+Symphony parses the frontmatter at startup through the public workflow loader
+at [src/config/workflow.ts](../../src/config/workflow.ts), which delegates the
+file-reading, typed resolution, and prompt-building stages to focused modules
+under `src/config/`.
 If parsing or validation fails, the factory does not start.
 
 ### 3.2 Template Rendering

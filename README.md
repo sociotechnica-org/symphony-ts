@@ -654,14 +654,14 @@ Integration tests use a mock Linear GraphQL server under `tests/support/mock-lin
 
 Symphony follows the [Symphony spec](https://github.com/openai/symphony/blob/main/SPEC.md) abstraction levels:
 
-| Spec Layer    | Implementation                                            | Swappable?                                         |
-| ------------- | --------------------------------------------------------- | -------------------------------------------------- |
-| Policy        | `WORKFLOW.md`, issue plans, repo guidance                 | Yes — edit the workflow file                       |
-| Configuration | `src/config/` — YAML + Liquid parsing                     | —                                                  |
-| Coordination  | `src/orchestrator/` — polling, retries, reconciliation    | —                                                  |
-| Execution     | `src/runner/` + `src/workspace/` — agent subprocess + git | Yes — change `agent.runner.kind` / `agent.command` |
-| Integration   | `src/tracker/` — GitHub and Linear adapters               | Yes — implement a new tracker adapter              |
-| Observability | `src/observability/` — structured logs + status           | —                                                  |
+| Spec Layer    | Implementation                                                              | Swappable?                                         |
+| ------------- | --------------------------------------------------------------------------- | -------------------------------------------------- |
+| Policy        | `WORKFLOW.md`, issue plans, repo guidance                                   | Yes — edit the workflow file                       |
+| Configuration | `src/config/` — workflow loading, typed config resolution, prompt rendering | —                                                  |
+| Coordination  | `src/orchestrator/` — polling, retries, reconciliation                      | —                                                  |
+| Execution     | `src/runner/` + `src/workspace/` — agent subprocess + git                   | Yes — change `agent.runner.kind` / `agent.command` |
+| Integration   | `src/tracker/` — GitHub and Linear adapters                                 | Yes — implement a new tracker adapter              |
+| Observability | `src/observability/` — structured logs + status                             | —                                                  |
 
 ### Repository Map
 
@@ -670,7 +670,7 @@ bin/
   symphony.ts                CLI entry point
 src/
   cli/                       CLI wiring
-  config/                    WORKFLOW.md parsing and prompt rendering
+  config/                    Workflow loading, typed config resolution, prompt rendering
   domain/                    Shared runtime types and errors
   observability/             Structured logging
   orchestrator/              Polling, retries, dispatch

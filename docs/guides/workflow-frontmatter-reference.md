@@ -9,10 +9,14 @@ Use it alongside:
 - [README](../../README.md) for quick-start setup and the most common config
   patterns
 
-This reference is written against the current parser contract in:
+This reference is written against the current workflow-config contract in:
 
-- [src/config/workflow.ts](../../src/config/workflow.ts)
-- [src/domain/workflow.ts](../../src/domain/workflow.ts)
+- [src/config/workflow.ts](../../src/config/workflow.ts) for the stable public
+  loader entrypoint
+- `src/config/workflow-source.ts` and `src/config/workflow-resolver.ts` for
+  the current frontmatter parsing and typed-resolution seams
+- [src/domain/workflow.ts](../../src/domain/workflow.ts) for the typed runtime
+  contract
 
 It is intentionally focused on YAML frontmatter only. The markdown body below
 the frontmatter is documented in the workflow guide.
