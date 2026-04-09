@@ -371,5 +371,11 @@ function applyProcessEnv(env: NodeJS.ProcessEnv): void {
       delete process.env[key];
     }
   }
-  Object.assign(process.env, env);
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) {
+      delete process.env[key];
+      continue;
+    }
+    process.env[key] = value;
+  }
 }

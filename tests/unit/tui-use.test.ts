@@ -261,4 +261,35 @@ describe("TuiUseHarness env", () => {
       }
     }
   });
+
+  it("does not stringify explicit undefined env values during session setup", async () => {
+    setTuiUseSessionConstructorForTests(EnvCapturingSession);
+    const originalUndefined = process.env["EXPLICIT_UNDEFINED_ENV"];
+
+    process.env["EXPLICIT_UNDEFINED_ENV"] = "parent-value";
+
+    try {
+      const harness = new TuiUseHarness({
+        cwd: os.tmpdir(),
+        homeDir: path.join(os.tmpdir(), "tui-use-test-home"),
+        env: {
+          PATH: "/usr/bin",
+          EXPLICIT_UNDEFINED_ENV: undefined,
+        },
+      });
+
+      await harness.start("fake-command");
+
+      expect(
+        EnvCapturingSession.lastEnv?.["EXPLICIT_UNDEFINED_ENV"],
+      ).toBeUndefined();
+      expect(process.env["EXPLICIT_UNDEFINED_ENV"]).toBe("parent-value");
+    } finally {
+      if (originalUndefined === undefined) {
+        delete process.env["EXPLICIT_UNDEFINED_ENV"];
+      } else {
+        process.env["EXPLICIT_UNDEFINED_ENV"] = originalUndefined;
+      }
+    }
+  });
 });
