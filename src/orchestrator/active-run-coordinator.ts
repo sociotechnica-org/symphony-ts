@@ -310,16 +310,15 @@ export async function runIssue(
       selectedWorkerHost.name,
     );
   }
+  let hostReservationHeld = selectedWorkerHost !== null;
+  const releaseReservedHost = (): void => {
+    if (!hostReservationHeld) {
+      return;
+    }
+    releaseHostForIssue(context.state.hostDispatch, issue.number);
+    hostReservationHeld = false;
+  };
   try {
-    let hostReservationHeld = selectedWorkerHost !== null;
-    const releaseReservedHost = (): void => {
-      if (!hostReservationHeld) {
-        return;
-      }
-      releaseHostForIssue(context.state.hostDispatch, issue.number);
-      hostReservationHeld = false;
-    };
-
     upsertActiveIssue(context.state.status, issue, {
       source,
       runSequence: attempt,
@@ -769,8 +768,6 @@ export async function runIssue(
       context.notifyDashboard();
     }
   } finally {
-    if (selectedWorkerHost !== null) {
-      releaseHostForIssue(context.state.hostDispatch, issue.number);
-    }
+    releaseReservedHost();
   }
 }
