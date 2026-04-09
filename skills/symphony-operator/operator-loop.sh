@@ -14,7 +14,7 @@ CONTROL_STATE_REFRESHER="$REPO_ROOT/bin/refresh-operator-control-state.ts"
 RELEASE_STATE_CHECKER="$REPO_ROOT/bin/check-operator-release-state.ts"
 READY_PROMOTER="$REPO_ROOT/bin/promote-operator-ready-issues.ts"
 WRITE_OPERATOR_STATUS="$REPO_ROOT/bin/write-operator-status.ts"
-UPDATE_OPERATOR_PROGRESS="$REPO_ROOT/bin/update-operator-progress.ts"
+UPDATE_OPERATOR_PROGRESS="${SYMPHONY_OPERATOR_PROGRESS_UPDATER_PATH:-$REPO_ROOT/bin/update-operator-progress.ts}"
 INSTANCE_KEY=""
 DETACHED_SESSION_NAME=""
 SELECTED_INSTANCE_ROOT=""
@@ -76,6 +76,7 @@ OPERATOR_CONTROL_POSTURE="runtime-blocked"
 OPERATOR_CONTROL_SUMMARY="Operator control state is unavailable."
 OPERATOR_CONTROL_BLOCKING_CHECKPOINT=""
 OPERATOR_CONTROL_NEXT_ACTION_SUMMARY=""
+PUBLISH_PROGRESS_ERROR=""
 
 usage() {
   cat <<'EOF'
@@ -406,8 +407,12 @@ record_cycle_failure_before_command() {
     printf 'failure=%s\n' "$failure_message"
   } >>"$log_file"
 
+  write_status "failed" "$cycle_message"
+  if ! publish_progress "cycle-failed" "$cycle_message"; then
+    handle_progress_publish_failure "cycle-failed" "$PUBLISH_PROGRESS_ERROR"
+    return 1
+  fi
   record_operator_cycle
-  publish_progress "cycle-failed" "$cycle_message"
   write_status "failed" "$cycle_message"
 }
 
@@ -840,16 +845,60 @@ try {
 '
 }
 
+handle_progress_publish_failure() {
+  local milestone="$1"
+  local error_message="$2"
+  local cycle_message="Operator cycle failed while publishing progress milestone ${milestone}: ${error_message:-unknown error}"
+
+  emit_terminal_trace "$cycle_message"
+  if [ -n "$LAST_LOG_FILE" ]; then
+    {
+      printf 'progress_publish_failure_at=%s\n' "$(now_utc)"
+      printf 'progress_publish_failure_milestone=%s\n' "$milestone"
+      printf 'progress_publish_failure=%s\n' "${error_message:-unknown error}"
+    } >>"$LAST_LOG_FILE"
+  fi
+
+  if [ -z "$LAST_CYCLE_FINISHED_AT" ]; then
+    LAST_CYCLE_FINISHED_AT="$(now_utc)"
+  fi
+  if [ -z "$LAST_CYCLE_EXIT_CODE" ] || [ "$LAST_CYCLE_EXIT_CODE" -eq 0 ]; then
+    LAST_CYCLE_EXIT_CODE="1"
+  fi
+
+  if [ -n "$LAST_CYCLE_STARTED_AT" ] && [ -n "$LAST_LOG_FILE" ]; then
+    record_operator_cycle
+  fi
+  write_status "failed" "$cycle_message"
+}
+
 publish_progress() {
   local milestone="$1"
   local summary="$2"
+  local publish_output publish_status
   shift 2
-  pnpm tsx "$UPDATE_OPERATOR_PROGRESS" \
-    --status-json "$STATUS_JSON" \
-    --status-md "$STATUS_MD" \
-    --milestone "$milestone" \
-    --summary "$summary" \
-    "$@" >/dev/null
+
+  PUBLISH_PROGRESS_ERROR=""
+  set +e
+  publish_output="$(
+    pnpm tsx "$UPDATE_OPERATOR_PROGRESS" \
+      --status-json "$STATUS_JSON" \
+      --status-md "$STATUS_MD" \
+      --milestone "$milestone" \
+      --summary "$summary" \
+      "$@" 2>&1 >/dev/null
+  )"
+  publish_status=$?
+  set -e
+
+  if [ "$publish_status" -ne 0 ]; then
+    publish_output="$(printf '%s' "$publish_output" | tr '\r\n' ' ' | tr -s ' ')"
+    PUBLISH_PROGRESS_ERROR="${publish_output:-unknown error}"
+    echo "operator-loop: failed to publish progress milestone ${milestone}: $PUBLISH_PROGRESS_ERROR" >&2
+    return "$publish_status"
+  fi
+
+  return 0
 }
 
 ensure_runtime_paths() {
@@ -991,7 +1040,10 @@ run_cycle() {
   write_cycle_log_header "$log_file"
   emit_terminal_trace "waking up (${OPERATOR_PROVIDER}${OPERATOR_MODEL:+/$OPERATOR_MODEL}; $(describe_cycle_terminal_mode))"
   write_status "acting" "Running operator wake-up cycle"
-  publish_progress "cycle-start" "Wake-up cycle started."
+  if ! publish_progress "cycle-start" "Wake-up cycle started."; then
+    handle_progress_publish_failure "cycle-start" "$PUBLISH_PROGRESS_ERROR"
+    return 1
+  fi
   if ! acquire_active_wake_up_lease; then
     record_cycle_failure_before_command \
       "$log_file" \
@@ -1045,7 +1097,6 @@ run_cycle() {
 
   LAST_CYCLE_FINISHED_AT="$(now_utc)"
   LAST_CYCLE_EXIT_CODE="$exit_code"
-  record_operator_cycle
   if ! refresh_release_state_nonfatal; then
     :
   fi
@@ -1058,14 +1109,24 @@ run_cycle() {
 
   if [ "$exit_code" -eq 0 ]; then
     cycle_message="Operator cycle completed successfully"
-    publish_progress "cycle-finished" "$cycle_message"
+    write_status "recording" "$cycle_message"
+    if ! publish_progress "cycle-finished" "$cycle_message"; then
+      handle_progress_publish_failure "cycle-finished" "$PUBLISH_PROGRESS_ERROR"
+      return 1
+    fi
+    record_operator_cycle
     write_status "recording" "$cycle_message"
     # Leave the post-cycle recording state visible briefly before callers
     # transition to the next wait state.
     sleep "$RECORDING_SETTLE_SECONDS"
   else
     cycle_message="Operator cycle failed with exit code $exit_code"
-    publish_progress "cycle-failed" "$cycle_message"
+    write_status "failed" "$cycle_message"
+    if ! publish_progress "cycle-failed" "$cycle_message"; then
+      handle_progress_publish_failure "cycle-failed" "$PUBLISH_PROGRESS_ERROR"
+      return 1
+    fi
+    record_operator_cycle
     write_status "failed" "$cycle_message"
   fi
 

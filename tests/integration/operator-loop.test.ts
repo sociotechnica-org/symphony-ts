@@ -983,6 +983,82 @@ exit 7
     }
   });
 
+  it("records a failed terminal status when progress publication breaks", async () => {
+    const tempDir = await createTempDir(
+      "symphony-operator-loop-progress-publish-fail-",
+    );
+    const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+    const commandPath = path.join(tempDir, "break-progress-publish.sh");
+    const failingUpdaterPath = path.join(
+      tempDir,
+      "failing-progress-updater.ts",
+    );
+
+    try {
+      await fs.writeFile(
+        failingUpdaterPath,
+        `const args = process.argv.slice(2);
+const milestoneIndex = args.indexOf("--milestone");
+const milestone = milestoneIndex === -1 ? null : args[milestoneIndex + 1] ?? null;
+if (milestone === "cycle-failed") {
+  process.stderr.write("synthetic terminal progress failure\\n");
+  process.exit(17);
+}
+process.exit(0);
+`,
+        { encoding: "utf8" },
+      );
+      await fs.writeFile(
+        commandPath,
+        `#!/usr/bin/env bash
+set -euo pipefail
+exit 7
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+
+      const failure = await runOperatorLoopExpectFailure(workflowPath, [], {
+        GH_TOKEN: "test-token",
+        SYMPHONY_OPERATOR_COMMAND: commandPath,
+        SYMPHONY_OPERATOR_PROGRESS_UPDATER_PATH: failingUpdaterPath,
+      });
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly message: string;
+        readonly progress: unknown;
+        readonly lastCycle: {
+          readonly exitCode: number | null;
+          readonly logFile: string | null;
+        };
+      };
+      const cycleLog = await fs.readFile(
+        statusJson.lastCycle.logFile ?? "",
+        "utf8",
+      );
+
+      expect(failure.exitCode).toBe(7);
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.message).toContain("finished one cycle with a failure");
+      expect(statusJson.progress).toBeNull();
+      expect(statusJson.lastCycle.exitCode).toBe(7);
+      expect(cycleLog).toContain(
+        "progress_publish_failure_milestone=cycle-failed",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a nested operator loop launched from inside a wake-up cycle", async () => {
     const parentDir = await createTempDir("symphony-operator-loop-parent-");
     const nestedDir = await createTempDir("symphony-operator-loop-nested-");

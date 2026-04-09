@@ -82,7 +82,7 @@ function createSnapshot(
 }
 
 describe("operator status helpers", () => {
-  it("advances progress sequence and preserves the previous milestone", () => {
+  it("advances progress sequence, preserves the previous milestone, and resets sequence at the next cycle start", () => {
     const first = advanceOperatorStatusProgress({
       current: null,
       update: {
@@ -100,6 +100,22 @@ describe("operator status helpers", () => {
         relatedIssueNumber: 344,
       },
     });
+    const terminal = advanceOperatorStatusProgress({
+      current: second,
+      update: {
+        milestone: "cycle-finished",
+        summary: "Operator cycle completed successfully.",
+        updatedAt: "2026-04-09T12:03:00Z",
+      },
+    });
+    const nextCycleStart = advanceOperatorStatusProgress({
+      current: terminal,
+      update: {
+        milestone: "cycle-start",
+        summary: "Next wake-up cycle started.",
+        updatedAt: "2026-04-09T12:10:00Z",
+      },
+    });
 
     expect(first.sequence).toBe(1);
     expect(first.previousMilestone).toBeNull();
@@ -107,6 +123,9 @@ describe("operator status helpers", () => {
     expect(second.previousMilestone).toBe("cycle-start");
     expect(second.previousSummary).toBe("Wake-up cycle started.");
     expect(second.relatedIssueNumber).toBe(344);
+    expect(terminal.sequence).toBe(3);
+    expect(nextCycleStart.sequence).toBe(1);
+    expect(nextCycleStart.previousMilestone).toBe("cycle-finished");
   });
 
   it("writes markdown progress lines and keeps previous checkpoint context on terminal completion", async () => {
@@ -171,6 +190,30 @@ describe("operator status helpers", () => {
       );
       expect(statusMd).toContain(
         "- Progress subject: sociotechnica-org/symphony-ts#344 / PR #512",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed partial status snapshots before rendering can reuse them", async () => {
+    const tempDir = await createTempDir("symphony-operator-status-invalid-");
+    const statusJsonPath = path.join(tempDir, "status.json");
+
+    try {
+      await fs.writeFile(
+        statusJsonPath,
+        JSON.stringify({
+          version: 1,
+          state: "acting",
+          message: "partial",
+          updatedAt: "2026-04-09T12:00:00Z",
+        }),
+        "utf8",
+      );
+
+      await expect(readOperatorStatusSnapshot(statusJsonPath)).rejects.toThrow(
+        /Malformed operatorControl in operator status snapshot/,
       );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
