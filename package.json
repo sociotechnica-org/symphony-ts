@@ -31,11 +31,18 @@
     "husky": "^9.1.7",
     "prettier": "^3.6.2",
     "tsx": "^4.20.5",
+    "tui-use": "0.1.17",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "engines": {
     "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "node-pty"
+    ]
   },
   "packageManager": "pnpm@10.20.0"
 }
