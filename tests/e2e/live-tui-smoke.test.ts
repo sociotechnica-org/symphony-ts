@@ -159,7 +159,7 @@ describe("live TUI smoke tests", () => {
   let tui: TuiUseHarness | null = null;
 
   afterEach(async () => {
-    await tui?.cleanup();
+    await tui?.cleanup().catch(() => undefined);
     tui = null;
 
     if (workflowPath !== null) {
