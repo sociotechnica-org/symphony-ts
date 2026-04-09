@@ -21,6 +21,16 @@ import {
 import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "./factory-attach-macos-helper-source.js";
 
 const LOCAL_DETACH_BYTES = new Set([0x03]);
+const FACTORY_ATTACH_DEFAULT_TERM = "xterm-256color";
+// Keep the passthrough cutoff conservative for older GNU Screen environments
+// that reject TERM values longer than 20 characters with "$TERM too long -
+// sorry."; newer builds may accept longer values, so factory attach normalizes
+// only terms above that limit.
+const FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH = 20;
+const FACTORY_ATTACH_TERM_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9+_.-]*$/u;
+const FACTORY_ATTACH_TERM_ALIASES = createFactoryAttachTermAliases({
+  "rxvt-unicode-256color": "rxvt-256color",
+} as const);
 
 export interface FactoryAttachTerminal {
   readonly stdin: {
@@ -81,6 +91,20 @@ export interface FactoryAttachDeps {
   readonly platform?: NodeJS.Platform;
   readonly spawnChildProcess?: typeof spawn;
   readonly buildMacOsAttachHelper?: () => Promise<string>;
+  readonly inheritedEnv?: NodeJS.ProcessEnv;
+}
+
+export interface FactoryAttachTermSelection {
+  readonly term: string;
+  readonly source: "passthrough" | "normalized" | "fallback";
+  readonly reason:
+    | "compatible"
+    | "trimmed"
+    | "missing"
+    | "invalid"
+    | "too-long"
+    | "alias";
+  readonly inheritedTerm: string | null;
 }
 
 export async function attachFactory(
@@ -101,15 +125,22 @@ export async function attachFactory(
   const signalProcess =
     deps.signalProcess ?? ((pid, signal) => process.kill(pid, signal));
   const platform = deps.platform ?? process.platform;
+  const inheritedEnv = deps.inheritedEnv ?? process.env;
+  const attachTermSelection = selectFactoryAttachTerm(inheritedEnv);
   const launchAttachChild =
     deps.launchAttachChild ??
     ((sessionId) => {
       const launchOptions: {
         readonly platform: NodeJS.Platform;
+        readonly env: NodeJS.ProcessEnv;
         readonly spawnChildProcess?: typeof spawn;
         readonly buildMacOsAttachHelper?: () => Promise<string>;
       } = {
         platform,
+        env: createFactoryAttachLaunchEnvironment(
+          inheritedEnv,
+          attachTermSelection,
+        ),
         ...(deps.spawnChildProcess === undefined
           ? {}
           : { spawnChildProcess: deps.spawnChildProcess }),
@@ -237,7 +268,7 @@ export async function attachFactory(
       return;
     }
     throw new Error(
-      `Factory attach ended unexpectedly${renderExitDetail(code, signal)}.`,
+      `Factory attach ended unexpectedly${renderExitDetail(code, signal)}${renderAttachTermSelectionDetail(attachTermSelection)}.`,
     );
   } finally {
     restoreTerminal();
@@ -265,6 +296,76 @@ export interface FactoryAttachLaunchSpec {
   readonly command: string;
   readonly args: readonly string[];
   readonly stdio: StdioOptions;
+}
+
+export function selectFactoryAttachTerm(
+  inheritedEnv: NodeJS.ProcessEnv,
+): FactoryAttachTermSelection {
+  const inheritedTerm = inheritedEnv["TERM"];
+  const normalizedTerm = normalizeFactoryAttachTerm(inheritedTerm);
+  if (normalizedTerm === null) {
+    return {
+      term: FACTORY_ATTACH_DEFAULT_TERM,
+      source: "fallback",
+      reason: "missing",
+      inheritedTerm: inheritedTerm ?? null,
+    };
+  }
+  const rawInheritedTerm = inheritedTerm!;
+
+  const alias = FACTORY_ATTACH_TERM_ALIASES.get(normalizedTerm.toLowerCase());
+  if (alias !== undefined) {
+    return {
+      term: alias,
+      source: "fallback",
+      reason: "alias",
+      inheritedTerm: rawInheritedTerm,
+    };
+  }
+
+  if (!FACTORY_ATTACH_TERM_NAME_PATTERN.test(normalizedTerm)) {
+    return {
+      term: selectFactoryAttachFallbackTerm(normalizedTerm),
+      source: "fallback",
+      reason: "invalid",
+      inheritedTerm: rawInheritedTerm,
+    };
+  }
+
+  if (normalizedTerm.length > FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH) {
+    return {
+      term: selectFactoryAttachFallbackTerm(normalizedTerm),
+      source: "fallback",
+      reason: "too-long",
+      inheritedTerm: rawInheritedTerm,
+    };
+  }
+
+  if (inheritedTerm !== undefined && normalizedTerm !== inheritedTerm) {
+    return {
+      term: normalizedTerm,
+      source: "normalized",
+      reason: "trimmed",
+      inheritedTerm: rawInheritedTerm,
+    };
+  }
+
+  return {
+    term: normalizedTerm,
+    source: "passthrough",
+    reason: "compatible",
+    inheritedTerm: rawInheritedTerm,
+  };
+}
+
+export function createFactoryAttachLaunchEnvironment(
+  inheritedEnv: NodeJS.ProcessEnv,
+  selection: FactoryAttachTermSelection = selectFactoryAttachTerm(inheritedEnv),
+): NodeJS.ProcessEnv {
+  return {
+    ...inheritedEnv,
+    TERM: selection.term,
+  };
 }
 
 export async function createFactoryAttachLaunchSpec(
@@ -339,6 +440,7 @@ async function defaultLaunchAttachChild(
   sessionId: string,
   options: {
     readonly platform: NodeJS.Platform;
+    readonly env: NodeJS.ProcessEnv;
     readonly spawnChildProcess?: typeof spawn;
     readonly buildMacOsAttachHelper?: () => Promise<string>;
   },
@@ -355,7 +457,7 @@ async function defaultLaunchAttachChild(
   try {
     child = spawnChildProcess(command, [...args], {
       stdio,
-      env: process.env,
+      env: options.env,
     });
   } catch (error) {
     throw wrapAttachLaunchError(error as Error, options.platform);
@@ -441,6 +543,8 @@ async function compileMacOsAttachHelper(
         ["-O2", "-Wall", "-Wextra", "-o", tempBinaryPath, sourcePath],
         {
           stdio: ["ignore", "ignore", "pipe"],
+          // The compiler runs before the attach child starts, so it should inherit
+          // the ambient operator environment rather than the attach-only TERM shim.
           env: process.env,
         },
       );
@@ -476,6 +580,40 @@ async function compileMacOsAttachHelper(
 
 function containsLocalDetachByte(chunk: Buffer): boolean {
   return [...chunk].some((byte) => LOCAL_DETACH_BYTES.has(byte));
+}
+
+function normalizeFactoryAttachTerm(term: string | undefined): string | null {
+  const normalized = term?.trim() ?? "";
+  return normalized === "" ? null : normalized;
+}
+
+function createFactoryAttachTermAliases<
+  const TAliases extends Record<string, string>,
+>(aliases: TAliases): ReadonlyMap<string, string> {
+  for (const key of Object.keys(aliases)) {
+    if (key !== key.toLowerCase()) {
+      throw new Error("Factory attach TERM alias keys must be lowercase.");
+    }
+  }
+  return new Map(Object.entries(aliases));
+}
+
+function selectFactoryAttachFallbackTerm(inheritedTerm: string): string {
+  const normalizedTerm = inheritedTerm.toLowerCase();
+  // Keep the specific capability suffixes ahead of the generic -color branch.
+  // For attach-only fallbacks, xterm-256color is the closest practical match for
+  // both modern 256-color terms and the rare 88-color variants we normalize.
+  if (
+    normalizedTerm.endsWith("256color") ||
+    normalizedTerm.endsWith("88color") ||
+    normalizedTerm.endsWith("direct")
+  ) {
+    return FACTORY_ATTACH_DEFAULT_TERM;
+  }
+  if (normalizedTerm.endsWith("color")) {
+    return "xterm-color";
+  }
+  return "xterm";
 }
 
 function takeForwardChunkBeforeDetach(chunk: Buffer): Buffer | null {
@@ -526,6 +664,28 @@ function wrapMacOsAttachHelperBuildError(error: Error): Error {
       cause: error,
     },
   );
+}
+
+function renderAttachTermSelectionDetail(
+  selection: FactoryAttachTermSelection,
+): string {
+  if (selection.source === "passthrough") {
+    return "";
+  }
+  if (selection.source === "normalized") {
+    return `. Attach TERM: ${selection.term} (normalized from TERM=${selection.inheritedTerm})`;
+  }
+  // Keep the non-missing null case defensive so future fallback reasons can omit
+  // inheritedTerm without changing the error rendering path.
+  const inheritedDetail =
+    selection.reason === "missing"
+      ? selection.inheritedTerm === null
+        ? "fallback from an empty or missing TERM"
+        : "fallback from an empty TERM"
+      : selection.inheritedTerm === null
+        ? "fallback from an empty or missing TERM"
+        : `fallback from TERM=${selection.inheritedTerm}`;
+  return `. Attach TERM: ${selection.term} (${inheritedDetail})`;
 }
 
 function renderExitDetail(

@@ -4,8 +4,10 @@ import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control
 import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "../../src/cli/factory-attach-macos-helper-source.js";
 import {
   attachFactory,
+  createFactoryAttachLaunchEnvironment,
   createFactoryAttachLaunchSpec,
   resolveAttachSession,
+  selectFactoryAttachTerm,
   type FactoryAttachChild,
   type FactoryAttachTerminal,
 } from "../../src/cli/factory-attach.js";
@@ -139,6 +141,28 @@ async function waitForAsyncSetup(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function createSpawnedChild(): EventEmitter & {
+  pid: number;
+  stdin: MockStream;
+  stdout: MockStream;
+  stderr: MockStream;
+  kill: (signal?: NodeJS.Signals) => void;
+} {
+  const child = new EventEmitter() as EventEmitter & {
+    pid: number;
+    stdin: MockStream;
+    stdout: MockStream;
+    stderr: MockStream;
+    kill: (signal?: NodeJS.Signals) => void;
+  };
+  child.pid = 4242;
+  child.stdin = new MockStream();
+  child.stdout = new MockStream();
+  child.stderr = new MockStream();
+  child.kill = vi.fn();
+  return child;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -182,6 +206,175 @@ describe("createFactoryAttachLaunchSpec", () => {
     await expect(
       createFactoryAttachLaunchSpec("1234.session", "win32"),
     ).rejects.toThrowError(/only supported on macOS and Linux/);
+  });
+});
+
+describe("selectFactoryAttachTerm", () => {
+  it("preserves a compatible inherited TERM", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "xterm-ghostty",
+      }),
+    ).toEqual({
+      term: "xterm-ghostty",
+      source: "passthrough",
+      reason: "compatible",
+      inheritedTerm: "xterm-ghostty",
+    });
+  });
+
+  it("normalizes surrounding TERM whitespace without treating the result as passthrough", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: " xterm-ghostty  ",
+      }),
+    ).toEqual({
+      term: "xterm-ghostty",
+      source: "normalized",
+      reason: "trimmed",
+      inheritedTerm: " xterm-ghostty  ",
+    });
+  });
+
+  it("uses a closer short-form alias for known long screen-incompatible terms", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "rxvt-unicode-256color",
+      }),
+    ).toEqual({
+      term: "rxvt-256color",
+      source: "fallback",
+      reason: "alias",
+      inheritedTerm: "rxvt-unicode-256color",
+    });
+  });
+
+  it("matches known TERM aliases case-insensitively", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "RXVT-UNICODE-256COLOR",
+      }),
+    ).toEqual({
+      term: "rxvt-256color",
+      source: "fallback",
+      reason: "alias",
+      inheritedTerm: "RXVT-UNICODE-256COLOR",
+    });
+  });
+
+  it("preserves the raw inherited TERM in fallback selections", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: " rxvt-unicode-256color ",
+      }),
+    ).toEqual({
+      term: "rxvt-256color",
+      source: "fallback",
+      reason: "alias",
+      inheritedTerm: " rxvt-unicode-256color ",
+    });
+  });
+
+  it("falls back to a generic 256-color terminal for other long 256-color terms", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "this-terminal-name-is-definitely-too-long-256color",
+      }),
+    ).toEqual({
+      term: "xterm-256color",
+      source: "fallback",
+      reason: "too-long",
+      inheritedTerm: "this-terminal-name-is-definitely-too-long-256color",
+    });
+  });
+
+  it("does not infer color capability from embedded words in long TERM names", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "no-color-direct-mode-extra",
+      }),
+    ).toEqual({
+      term: "xterm",
+      source: "fallback",
+      reason: "too-long",
+      inheritedTerm: "no-color-direct-mode-extra",
+    });
+  });
+
+  it("falls back when TERM is missing", () => {
+    expect(selectFactoryAttachTerm({})).toEqual({
+      term: "xterm-256color",
+      source: "fallback",
+      reason: "missing",
+      inheritedTerm: null,
+    });
+  });
+
+  it("treats whitespace-only TERM values as empty while preserving the raw metadata", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "   ",
+      }),
+    ).toEqual({
+      term: "xterm-256color",
+      source: "fallback",
+      reason: "missing",
+      inheritedTerm: "   ",
+    });
+  });
+
+  it("treats an empty TERM value as empty while preserving the raw metadata", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "",
+      }),
+    ).toEqual({
+      term: "xterm-256color",
+      source: "fallback",
+      reason: "missing",
+      inheritedTerm: "",
+    });
+  });
+
+  it("falls back when TERM contains invalid shell-unfriendly characters", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "broken term",
+      }),
+    ).toEqual({
+      term: "xterm",
+      source: "fallback",
+      reason: "invalid",
+      inheritedTerm: "broken term",
+    });
+  });
+});
+
+describe("createFactoryAttachLaunchEnvironment", () => {
+  it("overrides only TERM in the attach child environment", () => {
+    expect(
+      createFactoryAttachLaunchEnvironment({
+        TERM: "rxvt-unicode-256color",
+        LANG: "en_US.UTF-8",
+        CUSTOM_VALUE: "kept",
+      }),
+    ).toEqual({
+      TERM: "rxvt-256color",
+      LANG: "en_US.UTF-8",
+      CUSTOM_VALUE: "kept",
+    });
+  });
+
+  it("trims compatible TERM values before passing them to the attach child", () => {
+    expect(
+      createFactoryAttachLaunchEnvironment({
+        TERM: " xterm-ghostty  ",
+        LANG: "en_US.UTF-8",
+      }),
+    ).toEqual({
+      TERM: "xterm-ghostty",
+      LANG: "en_US.UTF-8",
+    });
   });
 });
 
@@ -484,5 +677,173 @@ describe("attachFactory", () => {
           spawnChildProcess as typeof import("node:child_process").spawn,
       }),
     ).rejects.toThrowError(/local 'script' terminal helper/);
+  });
+
+  it("forwards the normalized TERM to the Linux attach child only", async () => {
+    const { terminal } = createTerminal();
+    const child = createSpawnedChild();
+    const spawnChildProcess = vi.fn(
+      (
+        command: string,
+        args: readonly string[],
+        options?: { readonly env?: NodeJS.ProcessEnv },
+      ) => {
+        expect(command).toBe("script");
+        expect(args).toEqual([
+          "-q",
+          "-f",
+          "-e",
+          "-c",
+          "'screen' '-x' '1234.symphony-factory-instance'",
+          "/dev/null",
+        ]);
+        expect(options?.env).toMatchObject({
+          TERM: "rxvt-256color",
+          CUSTOM_VALUE: "kept",
+        });
+        expect(options?.env).not.toMatchObject({
+          TERM: "rxvt-unicode-256color",
+        });
+        return child;
+      },
+    );
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      platform: "linux",
+      inheritedEnv: {
+        TERM: "rxvt-unicode-256color",
+        CUSTOM_VALUE: "kept",
+      },
+      spawnChildProcess:
+        spawnChildProcess as unknown as typeof import("node:child_process").spawn,
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: vi.fn(),
+      offResize: vi.fn(),
+    });
+
+    await waitForAsyncSetup();
+    child.emit("exit", 0, null);
+    await attachPromise;
+    expect(spawnChildProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards the normalized TERM to the macOS attach helper", async () => {
+    const { terminal } = createTerminal();
+    const child = createSpawnedChild();
+    const spawnChildProcess = vi.fn(
+      (
+        command: string,
+        args: readonly string[],
+        options?: { readonly env?: NodeJS.ProcessEnv },
+      ) => {
+        expect(command).toBe("/tmp/factory-attach-helper");
+        expect(args).toEqual(["1234.symphony-factory-instance"]);
+        expect(options?.env).toMatchObject({
+          TERM: "xterm-256color",
+          CUSTOM_VALUE: "kept",
+        });
+        return child;
+      },
+    );
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      platform: "darwin",
+      inheritedEnv: {
+        TERM: "this-terminal-name-is-definitely-too-long-256color",
+        CUSTOM_VALUE: "kept",
+      },
+      buildMacOsAttachHelper: async () => "/tmp/factory-attach-helper",
+      spawnChildProcess:
+        spawnChildProcess as unknown as typeof import("node:child_process").spawn,
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: vi.fn(),
+      offResize: vi.fn(),
+    });
+
+    await waitForAsyncSetup();
+    child.emit("exit", 0, null);
+    await attachPromise;
+    expect(spawnChildProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes the attach TERM fallback in unexpected-exit errors", async () => {
+    const { terminal } = createTerminal();
+    const child = new MockAttachChild();
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      launchAttachChild: () => child,
+      inheritedEnv: {
+        TERM: "rxvt-unicode-256color",
+      },
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: vi.fn(),
+      offResize: vi.fn(),
+    });
+
+    await waitForAsyncSetup();
+    child.emit("exit", 1, null);
+
+    await expect(attachPromise).rejects.toThrowError(
+      /^Factory attach ended unexpectedly \(exit 1\)\. Attach TERM: rxvt-256color \(fallback from TERM=rxvt-unicode-256color\)\.$/,
+    );
+  });
+
+  it("describes whitespace-only TERM fallbacks as an empty TERM", async () => {
+    const { terminal } = createTerminal();
+    const child = new MockAttachChild();
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      launchAttachChild: () => child,
+      inheritedEnv: {
+        TERM: "   ",
+      },
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: vi.fn(),
+      offResize: vi.fn(),
+    });
+
+    await waitForAsyncSetup();
+    child.emit("exit", 1, null);
+
+    await expect(attachPromise).rejects.toThrowError(
+      /^Factory attach ended unexpectedly \(exit 1\)\. Attach TERM: xterm-256color \(fallback from an empty TERM\)\.$/,
+    );
+  });
+
+  it("describes empty-string TERM fallbacks as an empty TERM", async () => {
+    const { terminal } = createTerminal();
+    const child = new MockAttachChild();
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      launchAttachChild: () => child,
+      inheritedEnv: {
+        TERM: "",
+      },
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: vi.fn(),
+      offResize: vi.fn(),
+    });
+
+    await waitForAsyncSetup();
+    child.emit("exit", 1, null);
+
+    await expect(attachPromise).rejects.toThrowError(
+      /^Factory attach ended unexpectedly \(exit 1\)\. Attach TERM: xterm-256color \(fallback from an empty TERM\)\.$/,
+    );
   });
 });
