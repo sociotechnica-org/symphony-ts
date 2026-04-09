@@ -299,14 +299,14 @@ been published during the active cycle.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Expected decision |
-| --- | --- | --- |
-| Active cycle started but no in-cycle milestone has been emitted yet | coarse state is `acting`; progress milestone is `cycle-start` | show active cycle start with the initial timestamp; do not infer a hang yet |
-| Operator command emits a new milestone successfully | updater receives a valid milestone payload | atomically update `status.json` and `status.md` so both surfaces reflect the new checkpoint |
-| Operator command keeps running but milestone timestamp stops advancing | coarse state remains `acting`; last milestone timestamp is old | preserve the last known milestone and timestamp so operators can see "active, no new progress since ..." without auto-failing the cycle |
-| Progress update payload is malformed | helper rejects invalid milestone input | leave the last valid progress entry intact and fail the helper call clearly so the prompt/tooling can be corrected |
-| Operator command exits successfully without any mid-cycle update beyond start | coarse state transitions to `recording` then `idle` | still show final completion state; tests should cover that the surface remains valid even if the command emitted no extra milestones |
-| Operator command exits with failure after partial progress | last valid milestone exists; exit code is non-zero | preserve the last valid milestone, mark the cycle as `failed`, and attach a terminal failure milestone/summary |
+| Observed condition                                                            | Local facts available                                          | Expected decision                                                                                                                       |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Active cycle started but no in-cycle milestone has been emitted yet           | coarse state is `acting`; progress milestone is `cycle-start`  | show active cycle start with the initial timestamp; do not infer a hang yet                                                             |
+| Operator command emits a new milestone successfully                           | updater receives a valid milestone payload                     | atomically update `status.json` and `status.md` so both surfaces reflect the new checkpoint                                             |
+| Operator command keeps running but milestone timestamp stops advancing        | coarse state remains `acting`; last milestone timestamp is old | preserve the last known milestone and timestamp so operators can see "active, no new progress since ..." without auto-failing the cycle |
+| Progress update payload is malformed                                          | helper rejects invalid milestone input                         | leave the last valid progress entry intact and fail the helper call clearly so the prompt/tooling can be corrected                      |
+| Operator command exits successfully without any mid-cycle update beyond start | coarse state transitions to `recording` then `idle`            | still show final completion state; tests should cover that the surface remains valid even if the command emitted no extra milestones    |
+| Operator command exits with failure after partial progress                    | last valid milestone exists; exit code is non-zero             | preserve the last valid milestone, mark the cycle as `failed`, and attach a terminal failure milestone/summary                          |
 
 ## Storage Contract
 
