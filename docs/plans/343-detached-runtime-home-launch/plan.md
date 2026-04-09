@@ -29,7 +29,7 @@ This issue is specifically about restoring the runtime-home contract that detach
 ## Current Gaps
 
 1. [src/cli/factory-control.ts](../../../src/cli/factory-control.ts) still hardcodes detached launch through `pnpm tsx <ENGINE_ROOT>/bin/symphony.ts run`, so a refreshed `.tmp/factory-main` checkout has no effect on the next detached restart.
-2. [src/startup/service.ts](../../../src/startup/service.ts) records runtime identity from `process.cwd()`, so startup snapshots can report the operator checkout as the running runtime even when the instance runtime home is the intended authority.
+2. [src/startup/service.ts](../../../src/startup/service.ts) records runtime identity from `process.cwd()`, so detached launch must set the child `cwd` to the selected runtime home or startup snapshots will still report the operator checkout as the running runtime.
 3. [src/observability/operator-runtime-freshness.ts](../../../src/observability/operator-runtime-freshness.ts) and [bin/check-factory-runtime-freshness.ts](../../../bin/check-factory-runtime-freshness.ts) assume the running detached runtime identity is comparable to the current operator checkout identity, which breaks when detached control ignored the prepared runtime home.
 4. The checked-in docs describe `.tmp/factory-main` as the detached runtime checkout for the selected instance, but the launch path does not currently honor that contract.
 5. The issue thread explicitly calls out that the fix must hold for all factories, not only self-hosting `symphony-ts`, so the seam must remain instance-relative and work for `--workflow`-selected external repositories too.
@@ -39,6 +39,7 @@ This issue is specifically about restoring the runtime-home contract that detach
 - Restore the contract from [docs/plans/081-factory-control-cli/plan.md](../081-factory-control-cli/plan.md): detached control should launch "using the current checked-out `.tmp/factory-main`", not whichever checkout invoked the CLI.
 - Keep this issue narrowly on source-checkout runtime-home launch semantics. If detached control also needs to support installed packages or runtime-home staging without a checkout, that remains the broader seam in issue `#218`.
 - Treat a non-launchable runtime home as an explicit boundary condition. The implementation may support a narrow, typed source-checkout fallback where needed for bootstrap, but it should no longer silently prefer the operator checkout when a launchable runtime home already exists.
+- Keep startup runtime identity on the existing `process.cwd()` contract for this slice. The fix belongs in detached launch-target selection and child `cwd` wiring, not in a second startup-only runtime-root injection path.
 
 ## Spec Alignment By Abstraction Level
 
@@ -222,7 +223,7 @@ The affected behavior is a small but explicit state machine for detached launch-
 1. audit detached launch command construction in [src/cli/factory-control.ts](../../../src/cli/factory-control.ts) and introduce a focused helper that resolves the detached launch target from the selected instance runtime home instead of `ENGINE_ROOT`
 2. make the helper explicit about runtime-home launchability and any allowed source-checkout fallback/degraded behavior so start/restart semantics are inspectable rather than implicit
 3. update detached launch to execute `symphony run` from the chosen runtime-home target and use the selected runtime workflow path consistently
-4. update [src/startup/service.ts](../../../src/startup/service.ts) so runtime identity collection reflects the actual launched runtime root instead of the control caller's `cwd`
+4. make the startup/runtime-identity contract explicit: detached launch must set the worker `cwd` to the selected runtime home so [src/startup/service.ts](../../../src/startup/service.ts) records the actual launched runtime root instead of the control caller's checkout
 5. update runtime freshness/status plumbing as needed so the running-versus-current comparison uses the corrected startup identity without special-casing self-hosting
 6. extend unit tests around factory control, startup identity, and runtime freshness for:
    - refreshed runtime-home restart with stale operator checkout
