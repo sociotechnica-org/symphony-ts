@@ -6,12 +6,10 @@ import {
 import {
   OrchestratorError,
   RunnerAbortedError,
-  RunnerShutdownError,
 } from "../domain/errors.js";
 import { inspectFactoryHalt } from "../domain/factory-halt.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
-import { compareRuntimeIssuesByQueuePriority } from "../domain/queue-priority.js";
 import type { RetryClass, RetryState } from "../domain/retry.js";
 import type { RunSession, RunTurn, RunUpdateEvent } from "../domain/run.js";
 import type {
@@ -25,7 +23,6 @@ import { getPreparedWorkspacePathHint } from "../domain/workspace.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
-  SshWorkerHostConfig,
   WatchdogConfig,
 } from "../domain/workflow.js";
 import {
@@ -64,7 +61,6 @@ import type {
   FactoryIssueStatus,
   FactoryPullRequestStatus,
   FactoryStatusPublication,
-  FactoryRestartRecoveryIssueSnapshot,
   FactoryReviewStatus,
   FactoryStatusAction,
 } from "../observability/status.js";
@@ -92,13 +88,10 @@ import {
   createContinuationRunTurn,
   type RunSessionArtifactsState,
   summarizeMissingTargetFailure,
-  shouldContinueTurnLoop,
 } from "./continuation-turns.js";
-import {
-  clearLandingRuntimeState,
-  noteLandingAttempt,
-  shouldExecuteLanding,
-} from "./landing-state.js";
+import { type ActiveRunShutdownContext } from "./coordinator-types.js";
+import { type QueueEntry } from "./dispatch-queue.js";
+import { clearLandingRuntimeState } from "./landing-state.js";
 import {
   clearFollowUpRuntimeState,
   noteLifecycleObservation,
@@ -117,25 +110,11 @@ import {
   getActiveDispatchPressure,
 } from "./dispatch-pressure-state.js";
 import {
-  clearTerminalIssueReportingState,
-  enqueueTerminalIssueReporting,
-  isTerminalIssueReportingDue,
-  scheduleTerminalIssueReportingRetry,
-  seedTerminalIssueReportingBackoff,
-} from "./terminal-reporting-state.js";
-import {
-  bindHostReservationToRunSession,
-  claimHostForIssue,
   clearPreferredHost,
-  hasHostDispatchCapacity,
-  notePreferredHost,
   readPreferredHost,
-  releaseHostForIssue,
-  reserveHostForIssue,
 } from "./host-dispatch-state.js";
 import {
   countReservedLocalDispatches,
-  hasReservedLocalDispatch,
   listBackgroundDispatchTasks,
   listReservedLocalDispatches,
   noteBackgroundDispatchTask,
@@ -144,15 +123,11 @@ import {
 } from "./local-dispatch-state.js";
 import {
   clearRetryState,
-  collectDueRetries,
-  hasQueuedRetry,
-  listDueRetries,
   listQueuedRetries,
   resolveFailureRetryAttempt,
   scheduleRetry,
 } from "./retry-state.js";
 import {
-  createRunningEntry,
   integrateCodexUpdate,
   type CodexTokenState,
 } from "./running-entry.js";
@@ -177,16 +152,10 @@ import {
   noteStatusAction,
   noteTerminalIssue,
   noteWatchdogIssue,
-  setFactoryHaltState,
-  setReadyQueue,
-  setRestartRecoveryState,
-  setTrackerIssueCounts,
   upsertTerminalIssue,
   upsertActiveIssue,
 } from "./status-state.js";
-import { decideRestartRecovery } from "./restart-recovery.js";
 import {
-  clearActiveWatchdogEntry,
   clearWatchdogAbortReason,
   clearWatchdogIssueState,
   initWatchdogEntry,
@@ -194,18 +163,12 @@ import {
   readWatchdogAbortReason,
   recordWatchdogRecovery,
 } from "./watchdog-state.js";
-import { summarizeRunnerText } from "../runner/service.js";
 import {
   extractRateLimitsSnapshot,
   extractTransientFailureSignal,
 } from "../runner/transient-failure.js";
 import {
   deriveTerminalIssueReportingReceiptPaths,
-  listTerminalIssues,
-  readTerminalIssue,
-  readTerminalIssueReportingReceipt,
-  reconcileTerminalIssueReporting,
-  shouldReconcileTerminalIssue,
   type TerminalIssueReportingReceipt,
 } from "../observability/terminal-reporting.js";
 import {
@@ -218,6 +181,23 @@ import {
 } from "./workspace-retention.js";
 import { projectRecoveryPosture } from "./recovery-posture.js";
 import { classifyTransientFailure } from "./transient-failure-policy.js";
+import { runPollCycle } from "./poll-cycle-coordinator.js";
+import {
+  processClaimedIssue as processClaimedIssueWithContext,
+  processReadyIssue as processReadyIssueWithContext,
+  processRunningIssue as processRunningIssueWithContext,
+} from "./claimed-issue-coordinator.js";
+import { handleLandingLifecycle as handleLandingLifecycleWithContext } from "./landing-coordinator.js";
+import { runIssue as runIssueWithContext } from "./active-run-coordinator.js";
+import {
+  reconcileRunningIssueOwnership as reconcileRunningIssueOwnershipWithContext,
+  type RecoveredShutdownLease,
+} from "./restart-recovery-coordinator.js";
+import {
+  reconcileTerminalReportingBacklog,
+  runTerminalIssueReporting as runTerminalIssueReportingWithContext,
+  type UpsertTerminalReportingStatusInput,
+} from "./terminal-reporting-coordinator.js";
 
 export interface TuiRunningEntry {
   readonly issueNumber: number;
@@ -327,28 +307,6 @@ export interface Orchestrator {
   runLoop(signal?: AbortSignal): Promise<void>;
 }
 
-interface QueueEntry {
-  readonly issue: RuntimeIssue;
-  readonly attempt: number;
-  readonly source: "ready" | "running";
-}
-
-interface ActiveRunShutdownContext {
-  requestedAt: string | null;
-  gracefulDeadlineAt: string | null;
-  writePromise: Promise<void>;
-}
-
-interface RecoveredShutdownLease {
-  readonly issueNumber: number;
-  readonly lockDir: string;
-  readonly shutdownState: "shutdown-terminated" | "shutdown-forced";
-  readonly executionOwner: IssueLeaseSnapshot["executionOwner"];
-  readonly runnerPid: number | null;
-  readonly runnerAlive: boolean | null;
-  readonly runSessionId: string | null;
-}
-
 export class BootstrapOrchestrator implements Orchestrator {
   readonly #config: ResolvedConfig;
   readonly #promptBuilder: PromptBuilder;
@@ -414,6 +372,421 @@ export class BootstrapOrchestrator implements Orchestrator {
         // project-local instance.
         collectFactoryRuntimeIdentity(process.cwd()),
     );
+  }
+
+  #createPollCycleCoordinatorContext() {
+    return {
+      config: this.#config,
+      logger: this.#logger,
+      tracker: this.#tracker,
+      state: this.#state,
+      recoveredRunningLifecycles: this.#recoveredRunningLifecycles,
+      notifyDashboard: () => this.#notifyDashboard(),
+      persistStatusSnapshot: () => this.#persistStatusSnapshot(),
+      fetchFailedCandidatesForStatus: () => this.#fetchFailedCandidatesForStatus(),
+      pruneStaleActiveIssues: (
+        readyIssues: readonly RuntimeIssue[],
+        runningIssues: readonly RuntimeIssue[],
+      ) => this.#pruneStaleActiveIssues(readyIssues, runningIssues),
+      reconcileRunningIssueOwnership: (issues: readonly RuntimeIssue[]) =>
+        this.#reconcileRunningIssueOwnership(issues),
+      releaseExpiredDispatchPressure: () => this.#releaseExpiredDispatchPressure(),
+      resolveAttemptNumber: (
+        issueNumber: number,
+        retryAttempts: ReadonlyMap<number, number>,
+      ) => this.#resolveAttemptNumber(issueNumber, retryAttempts),
+      startDispatchTask: (entry: QueueEntry) => this.#startDispatchTask(entry),
+      reconcileTerminalIssueReporting: () =>
+        this.#reconcileTerminalIssueReporting(),
+    };
+  }
+
+  #createClaimedIssueCoordinatorContext() {
+    return {
+      logger: this.#logger,
+      tracker: this.#tracker,
+      leaseManager: this.#leaseManager,
+      state: this.#state,
+      recoveredRunningLifecycles: this.#recoveredRunningLifecycles,
+      persistStatusSnapshot: () => this.#persistStatusSnapshot(),
+      branchName: (issueNumber: number) => this.#branchName(issueNumber),
+      missingLifecycle: (issueNumber: number) => this.#missingLifecycle(issueNumber),
+      handleUnexpectedFailure: (
+        issue: RuntimeIssue,
+        attempt: number,
+        error: Error,
+      ) => this.#handleUnexpectedFailure(issue, attempt, error),
+      recordClaimedArtifact: async (
+        issue: RuntimeIssue,
+        attempt: number,
+        branchName: string,
+      ) => {
+        const observedAt = new Date().toISOString();
+        await this.#recordIssueArtifact({
+          issue: this.#createIssueArtifactUpdate(issue, {
+            observedAt,
+            outcome: "claimed",
+            summary: `Claimed ${issue.identifier}`,
+            branchName,
+            latestAttemptNumber: attempt,
+          }),
+          events: [
+            this.#createIssueEvent("claimed", issue, {
+              observedAt,
+              attemptNumber: attempt,
+              details: {
+                branch: branchName,
+              },
+            }),
+          ],
+        });
+      },
+      recordRunningInspectionArtifact: async (
+        issue: RuntimeIssue,
+        branchName: string,
+      ) => {
+        const observedAt = new Date().toISOString();
+        await this.#recordIssueArtifact({
+          issue: this.#createIssueArtifactUpdate(issue, {
+            observedAt,
+            outcome: "running",
+            summary: `Inspecting ${issue.identifier}`,
+            branchName,
+          }),
+        });
+      },
+      recordLifecycleObservation: async (
+        issue: RuntimeIssue,
+        attempt: number,
+        branchName: string,
+        lifecycle: HandoffLifecycle,
+      ) => {
+        await this.#recordIssueArtifact(
+          this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
+        );
+      },
+      completeIssue: (
+        issue: RuntimeIssue,
+        options: {
+          readonly branchName: string;
+          readonly lifecycle: HandoffLifecycle;
+        },
+      ) => this.#completeIssue(issue, options),
+      handleLandingLifecycle: (
+        issue: RuntimeIssue,
+        attempt: number,
+        source: "ready" | "running",
+        branchName: string,
+        lifecycle: HandoffLifecycle,
+      ) =>
+        this.#handleLandingLifecycle(
+          issue,
+          attempt,
+          source,
+          branchName,
+          lifecycle,
+        ),
+      runIssue: (
+        issue: RuntimeIssue,
+        attempt: number,
+        lockDir: string,
+        source: "ready" | "running",
+        lifecycle: HandoffLifecycle | null,
+      ) => this.#runIssue(issue, attempt, lockDir, source, lifecycle),
+      refreshLifecycle: (branchName: string) => this.#refreshLifecycle(branchName),
+    };
+  }
+
+  #createLandingCoordinatorContext() {
+    return {
+      logger: this.#logger,
+      tracker: this.#tracker,
+      state: this.#state,
+      normalizeFailure: (error: Error) => this.#normalizeFailure(error),
+      persistStatusSnapshot: () => this.#persistStatusSnapshot(),
+      recordLifecycleObservation: async (
+        issue: RuntimeIssue,
+        attempt: number,
+        branchName: string,
+        lifecycle: HandoffLifecycle,
+      ) => {
+        await this.#recordIssueArtifact(
+          this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
+        );
+      },
+      recordLandingObservation: async (
+        issue: RuntimeIssue,
+        attempt: number,
+        branchName: string,
+        lifecycle: HandoffLifecycle,
+        observedAt: string,
+        landingResult: LandingExecutionResult | null,
+        landingError: string | null,
+      ) => {
+        await this.#recordIssueArtifact(
+          this.#createLandingObservation(
+            issue,
+            attempt,
+            branchName,
+            lifecycle,
+            observedAt,
+            landingResult,
+            landingError,
+          ),
+        );
+      },
+      refreshLifecycle: (branchName: string) => this.#refreshLifecycle(branchName),
+      completeIssue: (
+        issue: RuntimeIssue,
+        options: {
+          readonly attemptNumber: number;
+          readonly branchName: string;
+          readonly finishedAt: string;
+          readonly lifecycle: HandoffLifecycle;
+        },
+      ) => this.#completeIssue(issue, options),
+    };
+  }
+
+  #createActiveRunCoordinatorContext() {
+    return {
+      config: this.#config,
+      promptBuilder: this.#promptBuilder,
+      workspaceManager: this.#workspaceManager,
+      runner: this.#runner,
+      tracker: this.#tracker,
+      logger: this.#logger,
+      state: this.#state,
+      instanceId: this.#instanceId,
+      shutdownSignal: this.#shutdownSignal,
+      leaseManager: this.#leaseManager,
+      notifyDashboard: () => this.#notifyDashboard(),
+      persistStatusSnapshot: () => this.#persistStatusSnapshot(),
+      branchName: (issueNumber: number) => this.#branchName(issueNumber),
+      createRunSession: (
+        issue: RuntimeIssue,
+        workspace: RunSession["workspace"],
+        prompt: string,
+        attempt: number,
+      ) => this.#createRunSession(issue, workspace, prompt, attempt),
+      createExecutionOwner: (
+        session: RunSession,
+        description: RunnerSessionDescription,
+      ) => this.#createExecutionOwner(session, description),
+      buildRunnerVisibility: (
+        description: RunnerSessionDescription,
+        options: {
+          readonly state:
+            | "starting"
+            | "running"
+            | "waiting"
+            | "completed"
+            | "failed";
+          readonly phase:
+            | "boot"
+            | "turn-execution"
+            | "turn-finished"
+            | "handoff-reconciliation"
+            | "awaiting-external";
+          readonly lastHeartbeatAt: string;
+          readonly lastActionAt: string;
+          readonly lastActionSummary: string;
+          readonly waitingReason?: string;
+          readonly stdoutSummary?: string | null;
+          readonly stderrSummary?: string | null;
+          readonly errorSummary?: string | null;
+        },
+      ) => this.#buildRunnerVisibility(description, options),
+      recordRunStartedObservation: async (
+        issue: RuntimeIssue,
+        attempt: number,
+        sessionState: RunSessionArtifactsState,
+        pullRequest: HandoffLifecycle | null,
+      ) => {
+        await this.#recordIssueArtifact(
+          this.#createRunStartedObservation(
+            issue,
+            attempt,
+            sessionState,
+            pullRequest,
+          ),
+        );
+      },
+      createRunTurn: (
+        initialPrompt: string,
+        issue: RuntimeIssue,
+        pullRequest: HandoffLifecycle | null,
+        turnNumber: number,
+      ) => this.#createRunTurn(initialPrompt, issue, pullRequest, turnNumber),
+      runRunnerTurn: (
+        session: RunSession,
+        liveRunnerSession: LiveRunnerSession | undefined,
+        turn: RunTurn,
+        lockDir: string,
+        signal: AbortSignal,
+        signalHandlers?: {
+          readonly onRateLimits?: (rateLimits: RateLimits) => void;
+          readonly onTransientFailureSignal?: (
+            signal: TransientFailureSignal,
+          ) => void;
+        },
+      ) =>
+        this.#runRunnerTurn(
+          session,
+          liveRunnerSession,
+          turn,
+          lockDir,
+          signal,
+          signalHandlers,
+        ),
+      captureLiveSessionState: (
+        sessionState: RunSessionArtifactsState,
+        liveRunnerSession: LiveRunnerSession | undefined,
+      ) => this.#captureLiveSessionState(sessionState, liveRunnerSession),
+      warnIfContinuationSessionUnavailable: (
+        issue: RuntimeIssue,
+        branchName: string,
+        session: RunSession,
+        liveRunnerSession: LiveRunnerSession | undefined,
+      ) =>
+        this.#warnIfContinuationSessionUnavailable(
+          issue,
+          branchName,
+          session,
+          liveRunnerSession,
+        ),
+      initWatchdogEntry: (issueNumber: number) => this.#initWatchdogEntry(issueNumber),
+      runWatchdogLoop: (issueNumber: number, signal: AbortSignal) =>
+        this.#runWatchdogLoop(issueNumber, signal),
+      setIssueRunnerVisibility: (
+        issueNumber: number,
+        visibility: RunnerVisibilitySnapshot,
+        observedAt?: string,
+      ) => this.#setIssueRunnerVisibility(issueNumber, visibility, observedAt),
+      setIssueFailureVisibility: (
+        issueNumber: number,
+        description: RunnerSessionDescription,
+        error: Error,
+        message: string,
+      ) => this.#setIssueFailureVisibility(issueNumber, description, error, message),
+      beginActiveRunShutdown: (
+        issue: RuntimeIssue,
+        attempt: number,
+        branchName: string,
+        session: RunSessionArtifactsState,
+        lockDir: string,
+        shutdownContext: ActiveRunShutdownContext,
+      ) =>
+        this.#beginActiveRunShutdown(
+          issue,
+          attempt,
+          branchName,
+          session,
+          lockDir,
+          shutdownContext,
+        ),
+      finalizeActiveRunShutdown: (
+        issue: RuntimeIssue,
+        attempt: number,
+        lockDir: string,
+        branchName: string,
+        session: RunSessionArtifactsState,
+        shutdownContext: ActiveRunShutdownContext,
+        finishedAt: string,
+        termination: "shutdown-forced" | "shutdown-terminated",
+        reason: string,
+      ) =>
+        this.#finalizeActiveRunShutdown(
+          issue,
+          attempt,
+          lockDir,
+          branchName,
+          session,
+          shutdownContext,
+          finishedAt,
+          termination,
+          reason,
+        ),
+      handleFailure: (
+        session: RunSessionArtifactsState,
+        attempt: number,
+        failure: ClassifiedTransientFailure,
+        finishedAt?: string,
+      ) => this.#handleFailure(session, attempt, failure, finishedAt),
+      classifyFailure: (
+        message: string,
+        signal: TransientFailureSignal | null,
+        observedAt: string,
+        retryClass?: RetryClass,
+      ) => this.#classifyFailure(message, signal, observedAt, retryClass),
+      resolveRunFailureMessage: (issueNumber: number, error: Error) =>
+        this.#resolveRunFailureMessage(issueNumber, error),
+      resolveRetryClass: (issueNumber: number, error: Error) =>
+        this.#resolveRetryClass(issueNumber, error),
+      completeIssue: (
+        issue: RuntimeIssue,
+        options: {
+          readonly attemptNumber: number;
+          readonly branchName: string;
+          readonly workspace: PreparedWorkspace;
+          readonly session: RunSessionArtifactsState;
+          readonly finishedAt: string;
+          readonly lifecycle: HandoffLifecycle;
+        },
+      ) => this.#completeIssue(issue, options),
+      handleTurnLifecycleExit: (
+        issue: RuntimeIssue,
+        attempt: number,
+        source: "ready" | "running",
+        branchName: string,
+        lifecycle: HandoffLifecycle,
+        session: RunSessionArtifactsState,
+        finishedAt: string,
+      ) =>
+        this.#handleTurnLifecycleExit(
+          issue,
+          attempt,
+          source,
+          branchName,
+          lifecycle,
+          session,
+          finishedAt,
+        ),
+    };
+  }
+
+  #createRestartRecoveryCoordinatorContext() {
+    return {
+      logger: this.#logger,
+      state: this.#state,
+      leaseManager: this.#leaseManager,
+      startupRecoveryCompleted: () => this.#startupRecoveryCompleted,
+      markStartupRecoveryCompleted: () => {
+        this.#startupRecoveryCompleted = true;
+      },
+      recoveredRunningLifecycles: this.#recoveredRunningLifecycles,
+      persistStatusSnapshot: () => this.#persistStatusSnapshot(),
+      refreshLifecycle: (branchName: string) => this.#refreshLifecycle(branchName),
+      branchName: (issueNumber: number) => this.#branchName(issueNumber),
+      asRecoveredShutdownLease: (snapshot: IssueLeaseSnapshot) =>
+        this.#asRecoveredShutdownLease(snapshot),
+      consumeRecoveredShutdownLease: (recoveredShutdown: RecoveredShutdownLease) =>
+        this.#consumeRecoveredShutdownLease(recoveredShutdown),
+    };
+  }
+
+  #createTerminalReportingCoordinatorContext() {
+    return {
+      config: this.#config,
+      logger: this.#logger,
+      state: this.#state,
+      branchName: (issueNumber: number) => this.#branchName(issueNumber),
+      persistStatusSnapshot: () => this.#persistStatusSnapshot(),
+      upsertTerminalReportingStatus: (
+        issue: Pick<RuntimeIssue, "number" | "identifier" | "title">,
+        options: UpsertTerminalReportingStatusInput,
+      ) => this.#upsertTerminalReportingStatus(issue, options),
+    };
   }
 
   setDashboardNotify(notify: (() => void) | null): void {
@@ -632,135 +1005,7 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async #runOnceInner(): Promise<readonly Promise<void>[]> {
-    this.#state.polling.checkingNow = true;
-    this.#recoveredRunningLifecycles.clear();
-    this.#notifyDashboard();
-
-    let readyCandidates: readonly RuntimeIssue[];
-    let runningCandidates: readonly RuntimeIssue[];
-    let failedCandidates: readonly RuntimeIssue[];
-    let queue: readonly QueueEntry[];
-    let availableSlots: number;
-    let dispatchPressure: DispatchPressureStateSnapshot | null;
-    let factoryHalt: Awaited<ReturnType<typeof inspectFactoryHalt>>;
-
-    try {
-      noteStatusAction(this.#state.status, {
-        kind: "poll-started",
-        summary: "Polling tracker for ready and running issues",
-        issueNumber: null,
-      });
-      await this.#persistStatusSnapshot();
-      await this.#tracker.ensureLabels();
-      this.#logger.info("Poll started");
-      [readyCandidates, runningCandidates, failedCandidates] =
-        await Promise.all([
-          this.#tracker.fetchReadyIssues(),
-          this.#tracker.fetchRunningIssues(),
-          this.#fetchFailedCandidatesForStatus(),
-        ]);
-      setTrackerIssueCounts(this.#state.status, {
-        ready: readyCandidates.length,
-        running: runningCandidates.length,
-        failed: failedCandidates.length,
-      });
-      factoryHalt = await inspectFactoryHalt(
-        getConfigInstancePaths(this.#config),
-      );
-      setFactoryHaltState(this.#state.status, factoryHalt);
-      this.#pruneStaleActiveIssues(readyCandidates, runningCandidates);
-      runningCandidates =
-        await this.#reconcileRunningIssueOwnership(runningCandidates);
-      dispatchPressure = this.#releaseExpiredDispatchPressure();
-      const dueRetries =
-        dispatchPressure === null && factoryHalt.state === "clear"
-          ? collectDueRetries(this.#state.retries)
-          : listDueRetries(this.#state.retries);
-      const orderedReadyQueue = this.#orderReadyCandidates(
-        readyCandidates,
-        runningCandidates,
-        dueRetries,
-      );
-      setReadyQueue(this.#state.status, orderedReadyQueue);
-      queue = this.#mergeQueue(
-        dispatchPressure === null && factoryHalt.state === "clear"
-          ? orderedReadyQueue
-          : [],
-        runningCandidates,
-        factoryHalt.state === "clear" ? dueRetries : [],
-      );
-      availableSlots =
-        this.#config.polling.maxConcurrentRuns -
-        countReservedLocalDispatches(this.#state.localDispatch);
-      this.#logger.info("Poll candidates fetched", {
-        readyCount: readyCandidates.length,
-        runningCount: runningCandidates.length,
-        failedCount: failedCandidates.length,
-        candidateCount: queue.length,
-        availableSlots,
-        factoryHalt,
-        dispatchPressure:
-          dispatchPressure === null
-            ? null
-            : {
-                retryClass: dispatchPressure.retryClass,
-                resumeAt: dispatchPressure.resumeAt,
-              },
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "poll-fetched",
-        summary:
-          factoryHalt.state === "halted"
-            ? `Factory halted since ${factoryHalt.haltedAt}; ${runningCandidates.length.toString()} running issues still inspected, new dispatch blocked until explicit resume`
-            : factoryHalt.state === "degraded"
-              ? `Factory halt state degraded: ${factoryHalt.detail ?? "unreadable halt state"}`
-              : dispatchPressure === null
-                ? `Found ${readyCandidates.length.toString()} ready, ${runningCandidates.length.toString()} running, ${failedCandidates.length.toString()} failed issues`
-                : `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}; ${runningCandidates.length.toString()} running issues still inspected`,
-        issueNumber: null,
-      });
-    } catch (err) {
-      this.#state.polling.checkingNow = false;
-      try {
-        this.#notifyDashboard();
-      } catch {
-        /* don't mask the original error */
-      }
-      throw err;
-    }
-    this.#state.polling.checkingNow = false;
-    this.#notifyDashboard();
-    await this.#persistStatusSnapshot();
-    await this.#reconcileTerminalIssueReporting();
-
-    if (availableSlots <= 0) {
-      return [];
-    }
-
-    const startedDispatchTasks: Promise<void>[] = [];
-    let startedDispatches = 0;
-    for (const entry of queue) {
-      if (startedDispatches >= availableSlots) {
-        break;
-      }
-      if (
-        hasReservedLocalDispatch(this.#state.localDispatch, entry.issue.number)
-      ) {
-        continue;
-      }
-      const task = this.#startDispatchTask(entry);
-      if (task !== null) {
-        startedDispatches += 1;
-        startedDispatchTasks.push(task);
-      }
-    }
-
-    if (startedDispatches > 0) {
-      this.#notifyDashboard();
-      await this.#persistStatusSnapshot();
-    }
-
-    return startedDispatchTasks;
+    return await runPollCycle(this.#createPollCycleCoordinatorContext());
   }
 
   #startDispatchTask(entry: QueueEntry): Promise<void> | null {
@@ -826,204 +1071,9 @@ export class BootstrapOrchestrator implements Orchestrator {
   }
 
   async #reconcileTerminalIssueReporting(): Promise<void> {
-    const instance = getConfigInstancePaths(this.#config);
-    const archiveRoot = this.#config.observability.issueReports.archiveRoot;
-
-    if (!this.#state.terminalIssueReporting.backlogScanned) {
-      const terminalIssues = await listTerminalIssues(instance);
-      for (const issue of terminalIssues) {
-        const receipt = await readTerminalIssueReportingReceipt(
-          instance,
-          issue.issueNumber,
-        );
-        if (
-          shouldReconcileTerminalIssue({
-            issue,
-            receipt,
-            archiveRoot,
-          })
-        ) {
-          if (receipt?.state === "blocked") {
-            seedTerminalIssueReportingBackoff(
-              this.#state.terminalIssueReporting,
-              {
-                issueNumber: issue.issueNumber,
-                updatedAt: receipt.updatedAt,
-                baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
-              },
-            );
-          } else {
-            enqueueTerminalIssueReporting(
-              this.#state.terminalIssueReporting,
-              issue.issueNumber,
-            );
-          }
-          continue;
-        }
-
-        const existingTerminal = this.#state.status.terminalIssues.find(
-          (entry) => entry.issueNumber === issue.issueNumber,
-        );
-        this.#upsertTerminalReportingStatus(
-          {
-            number: issue.issueNumber,
-            identifier: issue.issueIdentifier,
-            title: issue.title,
-          },
-          {
-            branchName:
-              existingTerminal?.branchName ??
-              this.#branchName(issue.issueNumber),
-            terminalOutcome:
-              issue.currentOutcome === "succeeded" ? "success" : "failure",
-            observedAt: issue.lastUpdatedAt,
-            workspaceRetentionState:
-              existingTerminal?.workspaceRetention.state ?? "unknown",
-            summary:
-              existingTerminal?.summary ??
-              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
-            receipt,
-          },
-        );
-      }
-      this.#state.terminalIssueReporting.backlogScanned = true;
-      if (terminalIssues.length > 0) {
-        await this.#persistStatusSnapshot();
-      }
-    }
-
-    if (this.#state.terminalIssueReporting.queuedIssueNumbers.size === 0) {
-      return;
-    }
-
-    let statusChanged = false;
-    for (const issueNumber of [
-      ...this.#state.terminalIssueReporting.queuedIssueNumbers,
-    ]) {
-      if (
-        !isTerminalIssueReportingDue(
-          this.#state.terminalIssueReporting,
-          issueNumber,
-        )
-      ) {
-        continue;
-      }
-
-      const issue = await readTerminalIssue(instance, issueNumber);
-      if (issue === null) {
-        clearTerminalIssueReportingState(
-          this.#state.terminalIssueReporting,
-          issueNumber,
-        );
-        continue;
-      }
-
-      try {
-        const result = await reconcileTerminalIssueReporting({
-          instance,
-          issue,
-          archiveRoot,
-        });
-        const existingTerminal = this.#state.status.terminalIssues.find(
-          (entry) => entry.issueNumber === issue.issueNumber,
-        );
-        this.#upsertTerminalReportingStatus(
-          {
-            number: issue.issueNumber,
-            identifier: issue.issueIdentifier,
-            title: issue.title,
-          },
-          {
-            branchName:
-              existingTerminal?.branchName ??
-              this.#branchName(issue.issueNumber),
-            terminalOutcome:
-              issue.currentOutcome === "succeeded" ? "success" : "failure",
-            observedAt: issue.lastUpdatedAt,
-            workspaceRetentionState:
-              existingTerminal?.workspaceRetention.state ?? "unknown",
-            summary:
-              existingTerminal?.summary ??
-              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
-            receipt: result.receipt,
-          },
-        );
-        if (
-          shouldReconcileTerminalIssue({
-            issue,
-            receipt: result.receipt,
-            archiveRoot,
-          })
-        ) {
-          if (result.receipt.state === "blocked") {
-            scheduleTerminalIssueReportingRetry(
-              this.#state.terminalIssueReporting,
-              {
-                issueNumber: issue.issueNumber,
-                baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
-                maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
-              },
-            );
-          } else {
-            enqueueTerminalIssueReporting(
-              this.#state.terminalIssueReporting,
-              issue.issueNumber,
-            );
-          }
-        } else {
-          clearTerminalIssueReportingState(
-            this.#state.terminalIssueReporting,
-            issue.issueNumber,
-          );
-        }
-        statusChanged = statusChanged || result.changed;
-      } catch (error) {
-        const normalizedError = this.#normalizeFailure(error as Error);
-        this.#logger.error("Terminal issue reporting reconciliation failed", {
-          issueNumber: issue.issueNumber,
-          error: normalizedError,
-        });
-        const existingTerminal = this.#state.status.terminalIssues.find(
-          (entry) => entry.issueNumber === issue.issueNumber,
-        );
-        this.#upsertTerminalReportingStatus(
-          {
-            number: issue.issueNumber,
-            identifier: issue.issueIdentifier,
-            title: issue.title,
-          },
-          {
-            branchName:
-              existingTerminal?.branchName ??
-              this.#branchName(issue.issueNumber),
-            terminalOutcome:
-              issue.currentOutcome === "succeeded" ? "success" : "failure",
-            observedAt: issue.lastUpdatedAt,
-            workspaceRetentionState:
-              existingTerminal?.workspaceRetention.state ?? "unknown",
-            summary:
-              existingTerminal?.summary ??
-              `Terminal issue state recorded for ${issue.issueIdentifier}.`,
-            receipt: null,
-            fallbackReportingSummary: normalizedError,
-            fallbackBlockedStage: "report-generation",
-          },
-        );
-        scheduleTerminalIssueReportingRetry(
-          this.#state.terminalIssueReporting,
-          {
-            issueNumber: issue.issueNumber,
-            baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
-            maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
-          },
-        );
-        statusChanged = true;
-      }
-    }
-
-    if (statusChanged) {
-      await this.#persistStatusSnapshot();
-    }
+    await reconcileTerminalReportingBacklog(
+      this.#createTerminalReportingCoordinatorContext(),
+    );
   }
 
   async runLoop(signal?: AbortSignal): Promise<void> {
@@ -1061,79 +1111,6 @@ export class BootstrapOrchestrator implements Orchestrator {
     }
   }
 
-  #mergeQueue(
-    readyCandidates: readonly RuntimeIssue[],
-    runningCandidates: readonly RuntimeIssue[],
-    dueRetries: readonly RetryState[],
-  ): readonly QueueEntry[] {
-    const retryAttempts = new Map<number, number>();
-    for (const retry of dueRetries) {
-      retryAttempts.set(retry.issue.number, retry.nextAttempt);
-    }
-
-    const running: QueueEntry[] = [];
-    for (const issue of [...runningCandidates].sort(
-      (left, right) => left.number - right.number,
-    )) {
-      if (
-        !retryAttempts.has(issue.number) &&
-        hasQueuedRetry(this.#state.retries, issue.number)
-      ) {
-        continue;
-      }
-      running.push({
-        issue,
-        attempt: this.#resolveAttemptNumber(issue.number, retryAttempts),
-        source: "running",
-      });
-    }
-
-    const runningIssueNumbers = new Set(
-      running.map((entry) => entry.issue.number),
-    );
-    const ready: QueueEntry[] = [];
-    for (const issue of readyCandidates) {
-      if (runningIssueNumbers.has(issue.number)) {
-        continue;
-      }
-      ready.push({
-        issue,
-        attempt: this.#resolveAttemptNumber(issue.number, retryAttempts),
-        source: "ready",
-      });
-    }
-
-    return [...running, ...ready];
-  }
-
-  #orderReadyCandidates(
-    readyCandidates: readonly RuntimeIssue[],
-    runningCandidates: readonly RuntimeIssue[],
-    dueRetries: readonly RetryState[],
-  ): readonly RuntimeIssue[] {
-    const dueRetryIssueNumbers = new Set(
-      dueRetries.map((retry) => retry.issue.number),
-    );
-    const runningIssueNumbers = new Set(
-      runningCandidates.map((issue) => issue.number),
-    );
-
-    return [...readyCandidates]
-      .filter((issue) => {
-        if (runningIssueNumbers.has(issue.number)) {
-          return false;
-        }
-        if (
-          !dueRetryIssueNumbers.has(issue.number) &&
-          hasQueuedRetry(this.#state.retries, issue.number)
-        ) {
-          return false;
-        }
-        return true;
-      })
-      .sort(compareRuntimeIssuesByQueuePriority);
-  }
-
   #resolveAttemptNumber(
     issueNumber: number,
     retryAttempts: ReadonlyMap<number, number>,
@@ -1145,131 +1122,22 @@ export class BootstrapOrchestrator implements Orchestrator {
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
-    await this.#withIssueLease(issue, attempt, async (lockDir) => {
-      const claimed = await this.#tracker.claimIssue(issue.number);
-      if (claimed === null) {
-        this.#logger.info("Issue was no longer claimable", {
-          issueNumber: issue.number,
-        });
-        noteStatusAction(this.#state.status, {
-          kind: "claim-skipped",
-          summary: `Issue #${issue.number.toString()} was no longer claimable`,
-          issueNumber: issue.number,
-        });
-        await this.#persistStatusSnapshot();
-        return false;
-      }
-      upsertActiveIssue(this.#state.status, claimed, {
-        source: "ready",
-        runSequence: attempt,
-        branchName: this.#branchName(claimed.number),
-        status: "queued",
-        summary: `Claimed ${claimed.identifier}`,
-        executionOwner: null,
-        ownerPid: process.pid,
-      });
-      adjustTrackerIssueCounts(this.#state.status, {
-        ready: -1,
-        running: 1,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "issue-claimed",
-        summary: `Claimed ${claimed.identifier}`,
-        issueNumber: claimed.number,
-      });
-      await this.#persistStatusSnapshot();
-      const observedAt = new Date().toISOString();
-      await this.#recordIssueArtifact({
-        issue: this.#createIssueArtifactUpdate(claimed, {
-          observedAt,
-          outcome: "claimed",
-          summary: `Claimed ${claimed.identifier}`,
-          branchName: this.#branchName(claimed.number),
-          latestAttemptNumber: attempt,
-        }),
-        events: [
-          this.#createIssueEvent("claimed", claimed, {
-            observedAt,
-            attemptNumber: attempt,
-            details: {
-              branch: this.#branchName(claimed.number),
-            },
-          }),
-        ],
-      });
-      return await this.#processClaimedIssue(
-        claimed,
-        attempt,
-        lockDir,
-        this.#missingLifecycle(claimed.number),
-        "ready",
-      );
-    });
+    await processReadyIssueWithContext(
+      this.#createClaimedIssueCoordinatorContext(),
+      issue,
+      attempt,
+    );
   }
 
   async #processRunningIssue(
     issue: RuntimeIssue,
     attempt: number,
   ): Promise<void> {
-    await this.#withIssueLease(issue, attempt, async (lockDir) => {
-      const initialLifecycle = this.#recoveredRunningLifecycles.get(
-        issue.number,
-      );
-      this.#recoveredRunningLifecycles.delete(issue.number);
-      upsertActiveIssue(this.#state.status, issue, {
-        source: "running",
-        runSequence: attempt,
-        branchName: this.#branchName(issue.number),
-        status: "queued",
-        summary: `Inspecting ${issue.identifier}`,
-        executionOwner: null,
-        ownerPid: process.pid,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "issue-resumed",
-        summary: `Inspecting running issue ${issue.identifier}`,
-        issueNumber: issue.number,
-      });
-      await this.#persistStatusSnapshot();
-      const observedAt = new Date().toISOString();
-      await this.#recordIssueArtifact({
-        issue: this.#createIssueArtifactUpdate(issue, {
-          observedAt,
-          outcome: "running",
-          summary: `Inspecting ${issue.identifier}`,
-          branchName: this.#branchName(issue.number),
-        }),
-      });
-      return await this.#processClaimedIssue(
-        issue,
-        attempt,
-        lockDir,
-        initialLifecycle,
-        "running",
-      );
-    });
-  }
-
-  async #withIssueLease(
-    issue: RuntimeIssue,
-    attempt: number,
-    work: (lockDir: string) => Promise<boolean>,
-  ): Promise<void> {
-    const lease = await this.#leaseManager.acquire(issue.number);
-    if (!lease) {
-      return;
-    }
-    let preserveLease = false;
-    try {
-      preserveLease = await work(lease);
-    } catch (error) {
-      await this.#handleUnexpectedFailure(issue, attempt, error as Error);
-    } finally {
-      if (!preserveLease) {
-        await this.#leaseManager.release(lease);
-      }
-      await this.#persistStatusSnapshot();
-    }
+    await processRunningIssueWithContext(
+      this.#createClaimedIssueCoordinatorContext(),
+      issue,
+      attempt,
+    );
   }
 
   async #processClaimedIssue(
@@ -1279,77 +1147,13 @@ export class BootstrapOrchestrator implements Orchestrator {
     initialLifecycle?: HandoffLifecycle,
     issueSourceOverride?: "ready" | "running",
   ): Promise<boolean> {
-    const branchName = this.#branchName(issue.number);
-    const issueSource =
-      issueSourceOverride ??
-      (initialLifecycle !== undefined ? "ready" : "running");
-    const lifecycle =
-      initialLifecycle ?? (await this.#refreshLifecycle(branchName));
-
-    if (lifecycle.kind === "handoff-ready") {
-      clearLandingRuntimeState(this.#state.landing, issue.number);
-      await this.#completeIssue(issue, {
-        branchName,
-        lifecycle,
-      });
-      return false;
-    }
-
-    if (
-      lifecycle.kind === "awaiting-system-checks" ||
-      lifecycle.kind === "awaiting-human-handoff" ||
-      lifecycle.kind === "awaiting-human-review" ||
-      lifecycle.kind === "degraded-review-infrastructure" ||
-      lifecycle.kind === "awaiting-landing-command"
-    ) {
-      clearLandingRuntimeState(this.#state.landing, issue.number);
-      noteLifecycleForIssue(
-        this.#state.status,
-        issue,
-        issueSource,
-        attempt,
-        branchName,
-        lifecycle,
-      );
-      this.#logger.info("Issue remains in handoff review", {
-        issueNumber: issue.number,
-        summary: lifecycle.summary,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: lifecycle.kind,
-        summary: lifecycle.summary,
-        issueNumber: issue.number,
-      });
-      await this.#persistStatusSnapshot();
-      await this.#recordIssueArtifact(
-        this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
-      );
-      return false;
-    }
-
-    if (lifecycle.kind === "awaiting-landing") {
-      await this.#handleLandingLifecycle(
-        issue,
-        attempt,
-        issueSource,
-        branchName,
-        lifecycle,
-      );
-      return false;
-    }
-
-    if (lifecycle.kind === "rework-required") {
-      await this.#recordIssueArtifact(
-        this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
-      );
-    }
-
-    return await this.#runIssue(
+    return await processClaimedIssueWithContext(
+      this.#createClaimedIssueCoordinatorContext(),
       issue,
       attempt,
       lockDir,
-      issueSource,
-      lifecycle,
+      initialLifecycle,
+      issueSourceOverride,
     );
   }
 
@@ -1360,163 +1164,14 @@ export class BootstrapOrchestrator implements Orchestrator {
     branchName: string,
     lifecycle: HandoffLifecycle,
   ): Promise<void> {
-    const headSha = lifecycle.pullRequest?.headSha ?? null;
-    if (shouldExecuteLanding(this.#state.landing, issue.number, headSha)) {
-      await this.#executeLanding(issue, attempt, source, branchName, lifecycle);
-      return;
-    }
-
-    noteLifecycleForIssue(
-      this.#state.status,
+    await handleLandingLifecycleWithContext(
+      this.#createLandingCoordinatorContext(),
       issue,
-      source,
       attempt,
+      source,
       branchName,
       lifecycle,
     );
-    noteStatusAction(this.#state.status, {
-      kind: lifecycle.kind,
-      summary: lifecycle.summary,
-      issueNumber: issue.number,
-    });
-    await this.#persistStatusSnapshot();
-    await this.#recordIssueArtifact(
-      this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
-    );
-  }
-
-  async #executeLanding(
-    issue: RuntimeIssue,
-    attempt: number,
-    source: "ready" | "running",
-    branchName: string,
-    lifecycle: HandoffLifecycle,
-  ): Promise<void> {
-    const observedAt = new Date().toISOString();
-    noteStatusAction(this.#state.status, {
-      kind: "landing-started",
-      summary: `Executing landing for ${issue.identifier}`,
-      issueNumber: issue.number,
-    });
-    noteLifecycleForIssue(
-      this.#state.status,
-      issue,
-      source,
-      attempt,
-      branchName,
-      lifecycle,
-    );
-    await this.#persistStatusSnapshot();
-
-    let landingError: string | null = null;
-    let landingResult: LandingExecutionResult | null = null;
-    try {
-      noteLandingAttempt(
-        this.#state.landing,
-        issue.number,
-        lifecycle.pullRequest?.headSha ?? null,
-      );
-      if (lifecycle.pullRequest === null) {
-        throw new Error("Cannot execute landing without a pull request handle");
-      }
-      landingResult = await this.#tracker.executeLanding(lifecycle.pullRequest);
-      if (landingResult.kind === "blocked") {
-        this.#logger.info("Landing blocked by guard", {
-          issueNumber: issue.number,
-          branchName,
-          pullRequestNumber: lifecycle.pullRequest.number,
-          reason: landingResult.reason,
-          lifecycleKind: landingResult.lifecycleKind,
-          summary: landingResult.summary,
-        });
-      }
-    } catch (error) {
-      landingError = this.#normalizeFailure(error as Error);
-      this.#logger.warn("Landing execution failed", {
-        issueNumber: issue.number,
-        branchName,
-        pullRequestNumber: lifecycle.pullRequest?.number ?? null,
-        error: landingError,
-      });
-    }
-    await this.#recordIssueArtifact(
-      this.#createLandingObservation(
-        issue,
-        attempt,
-        branchName,
-        lifecycle,
-        observedAt,
-        landingResult,
-        landingError,
-      ),
-    );
-
-    const refreshedLifecycle = await this.#refreshLifecycle(branchName);
-    if (refreshedLifecycle.kind === "handoff-ready") {
-      clearLandingRuntimeState(this.#state.landing, issue.number);
-      await this.#completeIssue(issue, {
-        attemptNumber: attempt,
-        branchName,
-        finishedAt: new Date().toISOString(),
-        lifecycle: refreshedLifecycle,
-      });
-      return;
-    }
-
-    if (
-      landingResult?.kind === "blocked" ||
-      refreshedLifecycle.kind !== "awaiting-landing"
-    ) {
-      clearLandingRuntimeState(this.#state.landing, issue.number);
-    }
-
-    // Intentionally record the post-request lifecycle after the landing event.
-    // The landing artifact captures that the merge command was issued; this
-    // follow-up observation captures the tracker-visible state after refresh.
-    noteLifecycleForIssue(
-      this.#state.status,
-      issue,
-      source,
-      attempt,
-      branchName,
-      refreshedLifecycle,
-    );
-    if (landingResult?.kind === "blocked") {
-      upsertActiveIssue(this.#state.status, issue, {
-        source,
-        runSequence: attempt,
-        branchName,
-        status: landingResult.lifecycleKind,
-        summary: landingResult.summary,
-        blockedReason: landingResult.summary,
-      });
-    }
-    noteStatusAction(this.#state.status, {
-      kind:
-        landingError !== null
-          ? "landing-failed"
-          : landingResult?.kind === "blocked"
-            ? "landing-blocked"
-            : refreshedLifecycle.kind,
-      summary:
-        landingError !== null
-          ? `Landing request failed for ${issue.identifier}: ${landingError}`
-          : landingResult?.kind === "blocked"
-            ? landingResult.summary
-            : refreshedLifecycle.summary,
-      issueNumber: issue.number,
-    });
-    await this.#persistStatusSnapshot();
-    if (landingError === null) {
-      await this.#recordIssueArtifact(
-        this.#createLifecycleObservation(
-          issue,
-          attempt,
-          branchName,
-          refreshedLifecycle,
-        ),
-      );
-    }
   }
 
   async #runIssue(
@@ -1526,563 +1181,14 @@ export class BootstrapOrchestrator implements Orchestrator {
     source: "ready" | "running",
     pullRequest: HandoffLifecycle | null,
   ): Promise<boolean> {
-    const factoryHalt = this.#state.status.factoryHalt;
-    if (factoryHalt.state !== "clear") {
-      const summary =
-        factoryHalt.state === "halted"
-          ? `Factory halted since ${factoryHalt.haltedAt}; explicit resume is required before new dispatch`
-          : `Factory halt state degraded: ${factoryHalt.detail ?? "unreadable halt state"}`;
-      upsertActiveIssue(this.#state.status, issue, {
-        source,
-        runSequence: attempt,
-        branchName: this.#branchName(issue.number),
-        status: "queued",
-        summary,
-        executionOwner: null,
-        ownerPid: process.pid,
-        blockedReason:
-          factoryHalt.state === "halted"
-            ? factoryHalt.reason
-            : factoryHalt.detail,
-      });
-      noteStatusAction(this.#state.status, {
-        kind:
-          factoryHalt.state === "halted"
-            ? "factory-halted"
-            : "factory-halt-degraded",
-        summary,
-        issueNumber: issue.number,
-      });
-      await this.#persistStatusSnapshot();
-      return false;
-    }
-    let selectedWorkerHost: SshWorkerHostConfig | null = null;
-    const dispatchPressure = getActiveDispatchPressure(
-      this.#state.dispatchPressure,
+    return await runIssueWithContext(
+      this.#createActiveRunCoordinatorContext(),
+      issue,
+      attempt,
+      lockDir,
+      source,
+      pullRequest,
     );
-    if (dispatchPressure !== null) {
-      const summary = `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}`;
-      upsertActiveIssue(this.#state.status, issue, {
-        source,
-        runSequence: attempt,
-        branchName: this.#branchName(issue.number),
-        status: "queued",
-        summary,
-        executionOwner: null,
-        ownerPid: process.pid,
-        blockedReason: dispatchPressure.reason,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "dispatch-paused",
-        summary,
-        issueNumber: issue.number,
-      });
-      await this.#persistStatusSnapshot();
-      return false;
-    }
-    if (hasHostDispatchCapacity(this.#state.hostDispatch)) {
-      const reservation = reserveHostForIssue(
-        this.#state.hostDispatch,
-        issue.number,
-      );
-      if (reservation.kind === "blocked") {
-        const occupiedHosts =
-          reservation.occupiedHosts.length === 0
-            ? "none"
-            : reservation.occupiedHosts.join(", ");
-        const continuity =
-          reservation.preferredHost === null
-            ? ""
-            : ` preferred host=${reservation.preferredHost}.`;
-        const summary = `No remote worker host is currently available for ${issue.identifier}; occupied hosts: ${occupiedHosts}.${continuity}`;
-        upsertActiveIssue(this.#state.status, issue, {
-          source,
-          runSequence: attempt,
-          branchName: this.#branchName(issue.number),
-          status: "queued",
-          summary,
-          executionOwner: null,
-          ownerPid: process.pid,
-          blockedReason: summary,
-        });
-        noteStatusAction(this.#state.status, {
-          kind: "dispatch-blocked-no-host",
-          summary,
-          issueNumber: issue.number,
-        });
-        await this.#persistStatusSnapshot();
-        return false;
-      }
-      selectedWorkerHost = reservation.workerHost;
-      notePreferredHost(
-        this.#state.hostDispatch,
-        issue.number,
-        selectedWorkerHost.name,
-      );
-    }
-    try {
-      let hostReservationHeld = selectedWorkerHost !== null;
-      const releaseReservedHost = (): void => {
-        if (!hostReservationHeld) {
-          return;
-        }
-        releaseHostForIssue(this.#state.hostDispatch, issue.number);
-        hostReservationHeld = false;
-      };
-
-      upsertActiveIssue(this.#state.status, issue, {
-        source,
-        runSequence: attempt,
-        branchName: this.#branchName(issue.number),
-        status: "preparing",
-        summary:
-          selectedWorkerHost === null
-            ? `Preparing workspace for ${issue.identifier}`
-            : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
-        executionOwner: null,
-        ownerPid: process.pid,
-        runnerPid: null,
-        blockedReason: null,
-        runnerVisibility: null,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "run-preparing",
-        summary:
-          selectedWorkerHost === null
-            ? `Preparing workspace for ${issue.identifier}`
-            : `Preparing workspace for ${issue.identifier} on ${selectedWorkerHost.name}`,
-        issueNumber: issue.number,
-      });
-      await this.#persistStatusSnapshot();
-      const workspace = await this.#workspaceManager.prepareWorkspace({
-        issue,
-        workerHost: selectedWorkerHost,
-      });
-      const initialPrompt = await this.#promptBuilder.build({
-        issue,
-        attempt: attempt > 1 ? attempt : null,
-        pullRequest,
-      });
-      const session = this.#createRunSession(
-        issue,
-        workspace,
-        initialPrompt,
-        attempt,
-      );
-      if (selectedWorkerHost !== null) {
-        bindHostReservationToRunSession(
-          this.#state.hostDispatch,
-          selectedWorkerHost.name,
-          issue.number,
-          session.id,
-        );
-      }
-      let sessionState: RunSessionArtifactsState = {
-        runSession: session,
-        description: this.#runner.describeSession(session),
-        latestTurnNumber: null,
-        accounting: createRunnerAccountingSnapshot(),
-      };
-      const initialExecutionOwner = this.#createExecutionOwner(
-        session,
-        sessionState.description,
-      );
-      upsertActiveIssue(this.#state.status, issue, {
-        source,
-        runSequence: attempt,
-        branchName: workspace.branchName,
-        status: "running",
-        summary: `Running ${issue.identifier}`,
-        workspacePath: getPreparedWorkspacePathHint(workspace),
-        runSessionId: session.id,
-        executionOwner: initialExecutionOwner,
-        ownerPid: process.pid,
-        runnerPid: null,
-        startedAt: new Date().toISOString(),
-        pullRequest:
-          pullRequest?.pullRequest === undefined ||
-          pullRequest.pullRequest === null
-            ? null
-            : {
-                number: pullRequest.pullRequest.number,
-                url: pullRequest.pullRequest.url,
-                headSha: pullRequest.pullRequest.headSha,
-                latestCommitAt: pullRequest.pullRequest.latestCommitAt,
-              },
-        checks: {
-          pendingNames: pullRequest?.pendingCheckNames ?? [],
-          failingNames: pullRequest?.failingCheckNames ?? [],
-        },
-        review: {
-          actionableCount: pullRequest?.actionableReviewFeedback.length ?? 0,
-          unresolvedThreadCount: pullRequest?.unresolvedThreadIds.length ?? 0,
-        },
-        blockedReason: null,
-        runnerAccounting: sessionState.accounting,
-        runnerVisibility: this.#buildRunnerVisibility(
-          sessionState.description,
-          {
-            state: "starting",
-            phase: "boot",
-            lastHeartbeatAt: session.startedAt,
-            lastActionAt: session.startedAt,
-            lastActionSummary: "Runner session created",
-          },
-        ),
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "run-started",
-        summary: `Started agent run for ${issue.identifier}`,
-        issueNumber: issue.number,
-      });
-      await this.#persistStatusSnapshot();
-      await this.#recordIssueArtifact(
-        this.#createRunStartedObservation(
-          issue,
-          attempt,
-          sessionState,
-          pullRequest,
-        ),
-      );
-      await this.#leaseManager.recordRun(
-        lockDir,
-        session,
-        sessionState.description,
-        {
-          factoryInstanceId: this.#instanceId,
-          factoryPid: process.pid,
-        },
-      );
-      const abortController = new AbortController();
-      const shutdownSignal = this.#shutdownSignal;
-      const shutdownContext: ActiveRunShutdownContext = {
-        requestedAt: null,
-        gracefulDeadlineAt: null,
-        writePromise: Promise.resolve(),
-      };
-      let liveRunnerSession: LiveRunnerSession | undefined;
-      const currentSessionState = (): RunSessionArtifactsState =>
-        this.#captureLiveSessionState(sessionState, liveRunnerSession);
-      const handleShutdown = (): void => {
-        this.#beginActiveRunShutdown(
-          issue,
-          attempt,
-          workspace.branchName,
-          currentSessionState(),
-          lockDir,
-          shutdownContext,
-        );
-        abortController.abort();
-      };
-      if (shutdownSignal?.aborted) {
-        handleShutdown();
-      } else if (shutdownSignal) {
-        shutdownSignal.addEventListener("abort", handleShutdown, {
-          once: true,
-        });
-      }
-      this.#state.runAbortControllers.set(issue.number, abortController);
-      this.#initWatchdogEntry(issue.number);
-      let transientFailureSignal: TransientFailureSignal | null = null;
-
-      const watchdogStop = new AbortController();
-      const watchdogPromise = this.#runWatchdogLoop(
-        issue.number,
-        watchdogStop.signal,
-      );
-      let watchdogStopped = false;
-      const stopWatchdog = async (): Promise<void> => {
-        if (watchdogStopped) {
-          return;
-        }
-        watchdogStopped = true;
-        watchdogStop.abort();
-        await watchdogPromise;
-      };
-      const runEntry = createRunningEntry(
-        issue.number,
-        issue.identifier,
-        issue.state,
-        attempt,
-      );
-      this.#state.runningEntries.set(issue.number, runEntry);
-      this.#notifyDashboard();
-
-      try {
-        liveRunnerSession = await this.#runner.startSession?.(session);
-        sessionState = currentSessionState();
-        this.#warnIfContinuationSessionUnavailable(
-          issue,
-          workspace.branchName,
-          session,
-          liveRunnerSession,
-        );
-        let currentLifecycle =
-          pullRequest?.kind === "missing-target" ? null : pullRequest;
-        let turnNumber = 1;
-
-        while (true) {
-          transientFailureSignal = null;
-          const turn = await this.#createRunTurn(
-            session.prompt,
-            issue,
-            currentLifecycle,
-            turnNumber,
-          );
-          this.#setIssueRunnerVisibility(
-            issue.number,
-            this.#buildRunnerVisibility(sessionState.description, {
-              state: "running",
-              phase: "turn-execution",
-              lastHeartbeatAt: new Date().toISOString(),
-              lastActionAt: new Date().toISOString(),
-              lastActionSummary: `Starting turn ${turn.turnNumber.toString()}`,
-            }),
-          );
-          await this.#persistStatusSnapshot();
-          const result = await this.#runRunnerTurn(
-            session,
-            liveRunnerSession,
-            turn,
-            lockDir,
-            abortController.signal,
-            {
-              onRateLimits: (rateLimits) => {
-                this.#state.rateLimits = rateLimits;
-              },
-              onTransientFailureSignal: (signal) => {
-                transientFailureSignal = signal;
-              },
-            },
-          );
-          sessionState = {
-            runSession: session,
-            description: result.session,
-            latestTurnNumber: turn.turnNumber,
-            accounting:
-              this.#state.runningEntries.get(issue.number)?.accounting ??
-              sessionState.accounting,
-          };
-
-          if (result.exitCode !== 0) {
-            await stopWatchdog();
-            this.#setIssueRunnerVisibility(
-              issue.number,
-              this.#buildRunnerVisibility(result.session, {
-                state: "failed",
-                phase: "turn-finished",
-                lastHeartbeatAt: result.finishedAt,
-                lastActionAt: result.finishedAt,
-                lastActionSummary: `Turn ${turn.turnNumber.toString()} failed`,
-                stdoutSummary: summarizeRunnerText(result.stdout),
-                stderrSummary: summarizeRunnerText(result.stderr),
-                errorSummary: summarizeRunnerText(
-                  `Runner exited with ${result.exitCode}\n${result.stderr}`,
-                ),
-              }),
-            );
-            await this.#handleFailure(
-              sessionState,
-              attempt,
-              this.#classifyFailure(
-                `Runner exited with ${result.exitCode}\n${result.stderr}`,
-                transientFailureSignal,
-                result.finishedAt,
-              ),
-              result.finishedAt,
-            );
-            return false;
-          }
-          transientFailureSignal = null;
-
-          this.#setIssueRunnerVisibility(
-            issue.number,
-            this.#buildRunnerVisibility(result.session, {
-              state: "completed",
-              phase: "turn-finished",
-              lastHeartbeatAt: result.finishedAt,
-              lastActionAt: result.finishedAt,
-              lastActionSummary: `Turn ${turn.turnNumber.toString()} completed`,
-              stdoutSummary: summarizeRunnerText(result.stdout),
-              stderrSummary: summarizeRunnerText(result.stderr),
-            }),
-          );
-
-          this.#setIssueRunnerVisibility(
-            issue.number,
-            this.#buildRunnerVisibility(result.session, {
-              state: "waiting",
-              phase: "handoff-reconciliation",
-              lastHeartbeatAt: result.finishedAt,
-              lastActionAt: result.finishedAt,
-              lastActionSummary: `Reconciling handoff after turn ${turn.turnNumber.toString()}`,
-              waitingReason: "Waiting for tracker reconciliation",
-              stdoutSummary: summarizeRunnerText(result.stdout),
-              stderrSummary: summarizeRunnerText(result.stderr),
-            }),
-            result.finishedAt,
-          );
-          await this.#persistStatusSnapshot();
-          if (shutdownContext.requestedAt !== null) {
-            await stopWatchdog();
-            await this.#finalizeActiveRunShutdown(
-              issue,
-              attempt,
-              lockDir,
-              workspace.branchName,
-              currentSessionState(),
-              shutdownContext,
-              result.finishedAt,
-              "shutdown-terminated",
-              "Runner exited during coordinated shutdown",
-            );
-            return true;
-          }
-          const nextLifecycle = await this.#tracker.reconcileSuccessfulRun(
-            workspace.branchName,
-            currentLifecycle,
-          );
-
-          if (nextLifecycle.kind === "handoff-ready") {
-            await stopWatchdog();
-            await this.#completeIssue(issue, {
-              attemptNumber: attempt,
-              branchName: workspace.branchName,
-              workspace,
-              session: sessionState,
-              finishedAt: result.finishedAt,
-              lifecycle: nextLifecycle,
-            });
-            return false;
-          }
-
-          if (
-            shouldContinueTurnLoop(
-              nextLifecycle,
-              turn.turnNumber,
-              this.#config.agent.maxTurns,
-            )
-          ) {
-            upsertActiveIssue(this.#state.status, issue, {
-              source,
-              runSequence: attempt,
-              branchName: workspace.branchName,
-              status: "running",
-              summary: `Running ${issue.identifier}`,
-              pullRequest:
-                nextLifecycle.pullRequest === null
-                  ? null
-                  : {
-                      number: nextLifecycle.pullRequest.number,
-                      url: nextLifecycle.pullRequest.url,
-                      headSha: nextLifecycle.pullRequest.headSha,
-                      latestCommitAt: nextLifecycle.pullRequest.latestCommitAt,
-                    },
-              checks: {
-                pendingNames: nextLifecycle.pendingCheckNames,
-                failingNames: nextLifecycle.failingCheckNames,
-              },
-              review: {
-                actionableCount: nextLifecycle.actionableReviewFeedback.length,
-                unresolvedThreadCount: nextLifecycle.unresolvedThreadIds.length,
-              },
-              blockedReason: null,
-            });
-            await this.#persistStatusSnapshot();
-            this.#logger.info("Continuing agent turn on live session", {
-              issueNumber: issue.number,
-              branchName: workspace.branchName,
-              runSessionId: session.id,
-              backendSessionId: result.session.backendSessionId,
-              lifecycle: nextLifecycle.kind,
-              turnNumber: turn.turnNumber + 1,
-              maxTurns: this.#config.agent.maxTurns,
-            });
-            currentLifecycle = nextLifecycle;
-            turnNumber += 1;
-            continue;
-          }
-
-          await stopWatchdog();
-          await this.#handleTurnLifecycleExit(
-            issue,
-            attempt,
-            source,
-            workspace.branchName,
-            nextLifecycle,
-            sessionState,
-            result.finishedAt,
-          );
-          return false;
-        }
-      } catch (error) {
-        await stopWatchdog();
-        if (
-          error instanceof RunnerShutdownError &&
-          shutdownContext.requestedAt !== null
-        ) {
-          await this.#finalizeActiveRunShutdown(
-            issue,
-            attempt,
-            lockDir,
-            workspace.branchName,
-            currentSessionState(),
-            shutdownContext,
-            new Date().toISOString(),
-            error.termination === "forced"
-              ? "shutdown-forced"
-              : "shutdown-terminated",
-            error.message,
-          );
-          return true;
-        }
-        const normalizedFailure = this.#resolveRunFailureMessage(
-          sessionState.runSession.issue.number,
-          error as Error,
-        );
-        this.#setIssueFailureVisibility(
-          sessionState.runSession.issue.number,
-          sessionState.description,
-          error as Error,
-          normalizedFailure,
-        );
-        await this.#handleFailure(
-          sessionState,
-          attempt,
-          this.#classifyFailure(
-            normalizedFailure,
-            transientFailureSignal,
-            new Date().toISOString(),
-            this.#resolveRetryClass(
-              sessionState.runSession.issue.number,
-              error as Error,
-            ),
-          ),
-          new Date().toISOString(),
-        );
-        return false;
-      } finally {
-        await liveRunnerSession?.close().catch((error) => {
-          this.#logger.warn("Failed to close live runner session cleanly", {
-            issueNumber: issue.number,
-            branchName: workspace.branchName,
-            runSessionId: session.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-        await stopWatchdog();
-        shutdownSignal?.removeEventListener("abort", handleShutdown);
-        this.#state.runAbortControllers.delete(issue.number);
-        releaseReservedHost();
-        clearActiveWatchdogEntry(this.#state.watchdog, issue.number);
-        this.#state.runningEntries.delete(issue.number);
-        this.#notifyDashboard();
-      }
-    } finally {
-      if (selectedWorkerHost !== null) {
-        releaseHostForIssue(this.#state.hostDispatch, issue.number);
-      }
-    }
   }
 
   async #createRunTurn(
@@ -2418,250 +1524,10 @@ export class BootstrapOrchestrator implements Orchestrator {
   async #reconcileRunningIssueOwnership(
     issues: readonly RuntimeIssue[],
   ): Promise<readonly RuntimeIssue[]> {
-    if (!this.#startupRecoveryCompleted) {
-      setRestartRecoveryState(this.#state.status, {
-        state: "reconciling",
-        startedAt: new Date().toISOString(),
-        completedAt: null,
-        summary: `Reconciling ${issues.length.toString()} inherited running issue${issues.length === 1 ? "" : "s"} before dispatch.`,
-        issues: [],
-      });
-      await this.#persistStatusSnapshot();
-    }
-
-    const runnable: RuntimeIssue[] = [];
-    const observedIssues: FactoryRestartRecoveryIssueSnapshot[] = [];
-    let degraded = false;
-
-    for (const issue of issues) {
-      const observedAt = new Date().toISOString();
-      const branchName = this.#branchName(issue.number);
-      try {
-        const snapshot = await this.#leaseManager.inspect(issue.number);
-        const lifecycle =
-          snapshot.kind === "active" ||
-          snapshot.kind === "shutdown-terminated" ||
-          snapshot.kind === "shutdown-forced"
-            ? null
-            : await this.#refreshLifecycle(
-                snapshot.record?.branchName ?? branchName,
-              );
-        const decision = decideRestartRecovery({
-          issue,
-          branchName: snapshot.record?.branchName ?? branchName,
-          snapshot,
-          lifecycle,
-        });
-
-        observedIssues.push({
-          issueNumber: issue.number,
-          issueIdentifier: issue.identifier,
-          branchName: decision.branchName,
-          decision: decision.decision,
-          leaseState: decision.leaseState,
-          lifecycleKind: decision.lifecycleKind,
-          executionOwner: snapshot.executionOwner,
-          ownerPid: snapshot.ownerPid,
-          ownerAlive: snapshot.ownerAlive,
-          runnerPid: snapshot.runnerPid,
-          runnerAlive: snapshot.runnerAlive,
-          summary: decision.summary,
-          observedAt,
-        });
-
-        await this.#applyRestartRecoveryDecision(
-          issue,
-          snapshot,
-          lifecycle,
-          decision,
-        );
-        if (decision.shouldDispatch && lifecycle !== null) {
-          this.#recoveredRunningLifecycles.set(issue.number, lifecycle);
-        }
-        if (decision.shouldDispatch) {
-          runnable.push(issue);
-        }
-        if (decision.decision === "degraded") {
-          degraded = true;
-        }
-      } catch (error) {
-        degraded = true;
-        const normalizedError =
-          error instanceof Error ? error : new Error(String(error));
-        this.#logger.error("Failed to reconcile running issue ownership", {
-          issueNumber: issue.number,
-          error: this.#normalizeFailure(normalizedError),
-        });
-        observedIssues.push({
-          issueNumber: issue.number,
-          issueIdentifier: issue.identifier,
-          branchName,
-          decision: "degraded",
-          leaseState: "missing",
-          lifecycleKind: null,
-          executionOwner: null,
-          ownerPid: null,
-          ownerAlive: null,
-          runnerPid: null,
-          runnerAlive: null,
-          summary: `Restart recovery failed for ${issue.identifier}: ${normalizedError.message}`,
-          observedAt,
-        });
-      }
-    }
-
-    setRestartRecoveryState(this.#state.status, {
-      state: degraded ? "degraded" : "ready",
-      startedAt: this.#state.status.restartRecovery.startedAt,
-      completedAt: new Date().toISOString(),
-      summary: degraded
-        ? "Restart recovery completed with degraded inherited-state decisions."
-        : "Restart recovery completed successfully.",
-      issues: observedIssues,
-    });
-    this.#startupRecoveryCompleted = true;
-    await this.#persistStatusSnapshot();
-    return runnable;
-  }
-
-  async #applyRestartRecoveryDecision(
-    issue: RuntimeIssue,
-    snapshot: IssueLeaseSnapshot,
-    lifecycle: HandoffLifecycle | null,
-    decision: ReturnType<typeof decideRestartRecovery>,
-  ): Promise<void> {
-    if (decision.decision === "adopted") {
-      const adoptedRemoteHost =
-        snapshot.executionOwner?.endpoint.workspaceHost ?? null;
-      if (adoptedRemoteHost !== null) {
-        notePreferredHost(
-          this.#state.hostDispatch,
-          issue.number,
-          adoptedRemoteHost,
-        );
-        const hostClaim = claimHostForIssue(
-          this.#state.hostDispatch,
-          adoptedRemoteHost,
-          issue.number,
-          snapshot.executionOwner?.runSessionId ??
-            snapshot.record?.runSessionId ??
-            null,
-        );
-        if (hostClaim.kind === "unknown-host") {
-          this.#logger.warn(
-            "Inherited remote run uses an unconfigured worker host",
-            {
-              issueNumber: issue.number,
-              workerHost: adoptedRemoteHost,
-              runSessionId:
-                snapshot.executionOwner?.runSessionId ??
-                snapshot.record?.runSessionId ??
-                null,
-            },
-          );
-        } else if (hostClaim.kind === "occupied") {
-          this.#logger.warn(
-            "Inherited remote run could not reclaim occupied worker host",
-            {
-              issueNumber: issue.number,
-              workerHost: adoptedRemoteHost,
-              occupiedByIssueNumber: hostClaim.occupiedByIssueNumber,
-              runSessionId:
-                snapshot.executionOwner?.runSessionId ??
-                snapshot.record?.runSessionId ??
-                null,
-            },
-          );
-        }
-      }
-      this.#logger.info("Adopted healthy inherited ownership", {
-        issueNumber: issue.number,
-        ownershipState: snapshot.kind,
-        executionOwner: snapshot.executionOwner,
-        ownerPid: snapshot.ownerPid,
-        runnerPid: snapshot.runnerPid,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "ownership-adopted",
-        summary: decision.summary,
-        issueNumber: issue.number,
-      });
-      return;
-    }
-
-    if (decision.decision === "recovered-shutdown") {
-      const recoveredShutdown = this.#asRecoveredShutdownLease(snapshot);
-      if (recoveredShutdown !== null) {
-        this.#logger.info("Recovered intentional shutdown posture", {
-          issueNumber: issue.number,
-          shutdownState: recoveredShutdown.shutdownState,
-          executionOwner: recoveredShutdown.executionOwner,
-          runnerPid: recoveredShutdown.runnerPid,
-          runnerAlive: recoveredShutdown.runnerAlive,
-          runSessionId: recoveredShutdown.runSessionId,
-        });
-        await this.#consumeRecoveredShutdownLease(recoveredShutdown);
-      }
-      noteStatusAction(this.#state.status, {
-        kind: "shutdown-recovered",
-        summary: decision.summary,
-        issueNumber: issue.number,
-      });
-      return;
-    }
-
-    if (decision.decision === "requeued") {
-      if (snapshot.kind !== "missing") {
-        await this.#leaseManager.reconcile(issue.number, {
-          preserveShutdown: false,
-        });
-      }
-      this.#logger.warn("Recovered stale local run ownership", {
-        issueNumber: issue.number,
-        ownershipState: snapshot.kind,
-        executionOwner: snapshot.executionOwner,
-        ownerPid: snapshot.ownerPid,
-        runnerPid: snapshot.runnerPid,
-        runSessionId: snapshot.record?.runSessionId ?? null,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "ownership-recovered",
-        summary: decision.summary,
-        issueNumber: issue.number,
-      });
-      return;
-    }
-
-    if (decision.decision === "suppressed-terminal" && lifecycle !== null) {
-      if (snapshot.kind !== "missing") {
-        await this.#leaseManager.reconcile(issue.number, {
-          preserveShutdown: false,
-        });
-      }
-      this.#logger.info("Suppressed restart rerun for inherited issue", {
-        issueNumber: issue.number,
-        ownershipState: snapshot.kind,
-        lifecycleKind: lifecycle.kind,
-      });
-      noteStatusAction(this.#state.status, {
-        kind: "restart-recovery-suppressed",
-        summary: decision.summary,
-        issueNumber: issue.number,
-      });
-      return;
-    }
-
-    this.#logger.error("Restart recovery remained degraded", {
-      issueNumber: issue.number,
-      ownershipState: snapshot.kind,
-      lifecycleKind: lifecycle?.kind ?? null,
-      summary: decision.summary,
-    });
-    noteStatusAction(this.#state.status, {
-      kind: "restart-recovery-degraded",
-      summary: decision.summary,
-      issueNumber: issue.number,
-    });
+    return await reconcileRunningIssueOwnershipWithContext(
+      this.#createRestartRecoveryCoordinatorContext(),
+      issues,
+    );
   }
 
   #pruneStaleActiveIssues(
@@ -3056,99 +1922,10 @@ export class BootstrapOrchestrator implements Orchestrator {
       readonly summary: string;
     },
   ): Promise<void> {
-    try {
-      const { receipt } = await reconcileTerminalIssueReporting({
-        instance: getConfigInstancePaths(this.#config),
-        issue: {
-          issueNumber: issue.number,
-          issueIdentifier: issue.identifier,
-          title: issue.title,
-          currentOutcome:
-            options.terminalOutcome === "success" ? "succeeded" : "failed",
-          lastUpdatedAt: options.observedAt,
-        },
-        archiveRoot: this.#config.observability.issueReports.archiveRoot,
-      });
-      this.#upsertTerminalReportingStatus(issue, {
-        branchName: options.branchName,
-        terminalOutcome: options.terminalOutcome,
-        observedAt: options.observedAt,
-        workspaceRetentionState: options.workspaceRetention.state,
-        summary: options.summary,
-        receipt,
-      });
-      if (
-        shouldReconcileTerminalIssue({
-          issue: {
-            issueNumber: issue.number,
-            issueIdentifier: issue.identifier,
-            title: issue.title,
-            currentOutcome:
-              options.terminalOutcome === "success" ? "succeeded" : "failed",
-            lastUpdatedAt: options.observedAt,
-          },
-          receipt,
-          archiveRoot: this.#config.observability.issueReports.archiveRoot,
-        })
-      ) {
-        if (receipt.state === "blocked") {
-          scheduleTerminalIssueReportingRetry(
-            this.#state.terminalIssueReporting,
-            {
-              issueNumber: issue.number,
-              baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
-              maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
-            },
-          );
-        } else {
-          enqueueTerminalIssueReporting(
-            this.#state.terminalIssueReporting,
-            issue.number,
-          );
-        }
-      } else {
-        clearTerminalIssueReportingState(
-          this.#state.terminalIssueReporting,
-          issue.number,
-        );
-      }
-      await this.#persistStatusSnapshot();
-    } catch (error) {
-      const normalizedError = this.#normalizeFailure(error as Error);
-      this.#logger.error("Terminal issue reporting failed", {
-        issueNumber: issue.number,
-        error: normalizedError,
-      });
-      this.#upsertTerminalReportingStatus(issue, {
-        branchName: options.branchName,
-        terminalOutcome: options.terminalOutcome,
-        observedAt: options.observedAt,
-        workspaceRetentionState: options.workspaceRetention.state,
-        summary: options.summary,
-        receipt: null,
-        fallbackReportingSummary: normalizedError,
-        fallbackBlockedStage: "report-generation",
-      });
-      scheduleTerminalIssueReportingRetry(this.#state.terminalIssueReporting, {
-        issueNumber: issue.number,
-        baseBackoffMs: this.#terminalIssueReportingBaseBackoffMs(),
-        maxBackoffMs: this.#terminalIssueReportingMaxBackoffMs(),
-      });
-      await this.#persistStatusSnapshot();
-    }
-  }
-
-  #terminalIssueReportingBaseBackoffMs(): number {
-    return Math.max(
-      this.#config.polling.intervalMs * 2,
-      this.#config.polling.retry.backoffMs,
-    );
-  }
-
-  #terminalIssueReportingMaxBackoffMs(): number {
-    return Math.max(
-      this.#terminalIssueReportingBaseBackoffMs(),
-      this.#config.polling.intervalMs * 16,
+    await runTerminalIssueReportingWithContext(
+      this.#createTerminalReportingCoordinatorContext(),
+      issue,
+      options,
     );
   }
 
