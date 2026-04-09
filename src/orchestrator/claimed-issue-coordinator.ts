@@ -122,7 +122,9 @@ export async function processRunningIssue(
   attempt: number,
 ): Promise<void> {
   await withIssueLease(context, issue, attempt, async (lockDir) => {
-    const initialLifecycle = context.recoveredRunningLifecycles.get(issue.number);
+    const initialLifecycle = context.recoveredRunningLifecycles.get(
+      issue.number,
+    );
     context.recoveredRunningLifecycles.delete(issue.number);
     upsertActiveIssue(context.state.status, issue, {
       source: "running",
@@ -227,7 +229,12 @@ export async function processClaimedIssue(
       issueNumber: issue.number,
     });
     await context.persistStatusSnapshot();
-    await context.recordLifecycleObservation(issue, attempt, branchName, lifecycle);
+    await context.recordLifecycleObservation(
+      issue,
+      attempt,
+      branchName,
+      lifecycle,
+    );
     return false;
   }
 
@@ -243,7 +250,12 @@ export async function processClaimedIssue(
   }
 
   if (lifecycle.kind === "rework-required") {
-    await context.recordLifecycleObservation(issue, attempt, branchName, lifecycle);
+    await context.recordLifecycleObservation(
+      issue,
+      attempt,
+      branchName,
+      lifecycle,
+    );
   }
 
   return await context.runIssue(

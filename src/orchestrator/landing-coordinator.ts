@@ -8,7 +8,11 @@ import {
   shouldExecuteLanding,
 } from "./landing-state.js";
 import type { OrchestratorState } from "./state.js";
-import { noteLifecycleForIssue, noteStatusAction, upsertActiveIssue } from "./status-state.js";
+import {
+  noteLifecycleForIssue,
+  noteStatusAction,
+  upsertActiveIssue,
+} from "./status-state.js";
 
 export interface LandingCoordinatorContext {
   readonly logger: Logger;
@@ -78,7 +82,12 @@ export async function handleLandingLifecycle(
     issueNumber: issue.number,
   });
   await context.persistStatusSnapshot();
-  await context.recordLifecycleObservation(issue, attempt, branchName, lifecycle);
+  await context.recordLifecycleObservation(
+    issue,
+    attempt,
+    branchName,
+    lifecycle,
+  );
 }
 
 export async function executeLanding(

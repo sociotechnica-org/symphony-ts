@@ -66,7 +66,8 @@ describe("dispatch queue helpers", () => {
       [running],
       [createRetryState(dueRetry, { nextAttempt: 2 })],
       {
-        hasQueuedRetry: (issueNumber) => issueNumber === suppressedQueuedRetry.number,
+        hasQueuedRetry: (issueNumber) =>
+          issueNumber === suppressedQueuedRetry.number,
       },
     );
 

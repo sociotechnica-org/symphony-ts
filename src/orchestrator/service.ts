@@ -3,10 +3,7 @@ import {
   createActiveRunExecutionOwner,
   currentHostName,
 } from "../domain/execution-owner.js";
-import {
-  OrchestratorError,
-  RunnerAbortedError,
-} from "../domain/errors.js";
+import { OrchestratorError, RunnerAbortedError } from "../domain/errors.js";
 import { inspectFactoryHalt } from "../domain/factory-halt.js";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
@@ -127,10 +124,7 @@ import {
   resolveFailureRetryAttempt,
   scheduleRetry,
 } from "./retry-state.js";
-import {
-  integrateCodexUpdate,
-  type CodexTokenState,
-} from "./running-entry.js";
+import { integrateCodexUpdate, type CodexTokenState } from "./running-entry.js";
 import {
   type LivenessSource,
   type StallReason,
@@ -383,14 +377,16 @@ export class BootstrapOrchestrator implements Orchestrator {
       recoveredRunningLifecycles: this.#recoveredRunningLifecycles,
       notifyDashboard: () => this.#notifyDashboard(),
       persistStatusSnapshot: () => this.#persistStatusSnapshot(),
-      fetchFailedCandidatesForStatus: () => this.#fetchFailedCandidatesForStatus(),
+      fetchFailedCandidatesForStatus: () =>
+        this.#fetchFailedCandidatesForStatus(),
       pruneStaleActiveIssues: (
         readyIssues: readonly RuntimeIssue[],
         runningIssues: readonly RuntimeIssue[],
       ) => this.#pruneStaleActiveIssues(readyIssues, runningIssues),
       reconcileRunningIssueOwnership: (issues: readonly RuntimeIssue[]) =>
         this.#reconcileRunningIssueOwnership(issues),
-      releaseExpiredDispatchPressure: () => this.#releaseExpiredDispatchPressure(),
+      releaseExpiredDispatchPressure: () =>
+        this.#releaseExpiredDispatchPressure(),
       resolveAttemptNumber: (
         issueNumber: number,
         retryAttempts: ReadonlyMap<number, number>,
@@ -410,7 +406,8 @@ export class BootstrapOrchestrator implements Orchestrator {
       recoveredRunningLifecycles: this.#recoveredRunningLifecycles,
       persistStatusSnapshot: () => this.#persistStatusSnapshot(),
       branchName: (issueNumber: number) => this.#branchName(issueNumber),
-      missingLifecycle: (issueNumber: number) => this.#missingLifecycle(issueNumber),
+      missingLifecycle: (issueNumber: number) =>
+        this.#missingLifecycle(issueNumber),
       handleUnexpectedFailure: (
         issue: RuntimeIssue,
         attempt: number,
@@ -462,7 +459,12 @@ export class BootstrapOrchestrator implements Orchestrator {
         lifecycle: HandoffLifecycle,
       ) => {
         await this.#recordIssueArtifact(
-          this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
+          this.#createLifecycleObservation(
+            issue,
+            attempt,
+            branchName,
+            lifecycle,
+          ),
         );
       },
       completeIssue: (
@@ -493,7 +495,8 @@ export class BootstrapOrchestrator implements Orchestrator {
         source: "ready" | "running",
         lifecycle: HandoffLifecycle | null,
       ) => this.#runIssue(issue, attempt, lockDir, source, lifecycle),
-      refreshLifecycle: (branchName: string) => this.#refreshLifecycle(branchName),
+      refreshLifecycle: (branchName: string) =>
+        this.#refreshLifecycle(branchName),
     };
   }
 
@@ -511,7 +514,12 @@ export class BootstrapOrchestrator implements Orchestrator {
         lifecycle: HandoffLifecycle,
       ) => {
         await this.#recordIssueArtifact(
-          this.#createLifecycleObservation(issue, attempt, branchName, lifecycle),
+          this.#createLifecycleObservation(
+            issue,
+            attempt,
+            branchName,
+            lifecycle,
+          ),
         );
       },
       recordLandingObservation: async (
@@ -535,7 +543,8 @@ export class BootstrapOrchestrator implements Orchestrator {
           ),
         );
       },
-      refreshLifecycle: (branchName: string) => this.#refreshLifecycle(branchName),
+      refreshLifecycle: (branchName: string) =>
+        this.#refreshLifecycle(branchName),
       completeIssue: (
         issue: RuntimeIssue,
         options: {
@@ -655,7 +664,8 @@ export class BootstrapOrchestrator implements Orchestrator {
           session,
           liveRunnerSession,
         ),
-      initWatchdogEntry: (issueNumber: number) => this.#initWatchdogEntry(issueNumber),
+      initWatchdogEntry: (issueNumber: number) =>
+        this.#initWatchdogEntry(issueNumber),
       runWatchdogLoop: (issueNumber: number, signal: AbortSignal) =>
         this.#runWatchdogLoop(issueNumber, signal),
       setIssueRunnerVisibility: (
@@ -668,7 +678,13 @@ export class BootstrapOrchestrator implements Orchestrator {
         description: RunnerSessionDescription,
         error: Error,
         message: string,
-      ) => this.#setIssueFailureVisibility(issueNumber, description, error, message),
+      ) =>
+        this.#setIssueFailureVisibility(
+          issueNumber,
+          description,
+          error,
+          message,
+        ),
       beginActiveRunShutdown: (
         issue: RuntimeIssue,
         attempt: number,
@@ -766,12 +782,14 @@ export class BootstrapOrchestrator implements Orchestrator {
       },
       recoveredRunningLifecycles: this.#recoveredRunningLifecycles,
       persistStatusSnapshot: () => this.#persistStatusSnapshot(),
-      refreshLifecycle: (branchName: string) => this.#refreshLifecycle(branchName),
+      refreshLifecycle: (branchName: string) =>
+        this.#refreshLifecycle(branchName),
       branchName: (issueNumber: number) => this.#branchName(issueNumber),
       asRecoveredShutdownLease: (snapshot: IssueLeaseSnapshot) =>
         this.#asRecoveredShutdownLease(snapshot),
-      consumeRecoveredShutdownLease: (recoveredShutdown: RecoveredShutdownLease) =>
-        this.#consumeRecoveredShutdownLease(recoveredShutdown),
+      consumeRecoveredShutdownLease: (
+        recoveredShutdown: RecoveredShutdownLease,
+      ) => this.#consumeRecoveredShutdownLease(recoveredShutdown),
     };
   }
 

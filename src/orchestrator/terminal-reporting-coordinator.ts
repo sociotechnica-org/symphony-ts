@@ -32,7 +32,9 @@ export interface UpsertTerminalReportingStatusInput {
   readonly branchName: string;
   readonly terminalOutcome: "success" | "failure";
   readonly observedAt: string;
-  readonly workspaceRetentionState: WorkspaceRetentionOutcome["state"] | "unknown";
+  readonly workspaceRetentionState:
+    | WorkspaceRetentionOutcome["state"]
+    | "unknown";
   readonly summary: string;
   readonly receipt: TerminalIssueReportingReceipt | null;
   readonly fallbackReportingSummary?: string;
@@ -100,11 +102,16 @@ export async function reconcileTerminalReportingBacklog(
         })
       ) {
         if (receipt?.state === "blocked") {
-          seedTerminalIssueReportingBackoff(context.state.terminalIssueReporting, {
-            issueNumber: issue.issueNumber,
-            updatedAt: receipt.updatedAt,
-            baseBackoffMs: terminalIssueReportingBaseBackoffMs(context.config),
-          });
+          seedTerminalIssueReportingBackoff(
+            context.state.terminalIssueReporting,
+            {
+              issueNumber: issue.issueNumber,
+              updatedAt: receipt.updatedAt,
+              baseBackoffMs: terminalIssueReportingBaseBackoffMs(
+                context.config,
+              ),
+            },
+          );
         } else {
           enqueueTerminalIssueReporting(
             context.state.terminalIssueReporting,
@@ -125,7 +132,8 @@ export async function reconcileTerminalReportingBacklog(
         },
         {
           branchName:
-            existingTerminal?.branchName ?? context.branchName(issue.issueNumber),
+            existingTerminal?.branchName ??
+            context.branchName(issue.issueNumber),
           terminalOutcome:
             issue.currentOutcome === "succeeded" ? "success" : "failure",
           observedAt: issue.lastUpdatedAt,
@@ -187,7 +195,8 @@ export async function reconcileTerminalReportingBacklog(
         },
         {
           branchName:
-            existingTerminal?.branchName ?? context.branchName(issue.issueNumber),
+            existingTerminal?.branchName ??
+            context.branchName(issue.issueNumber),
           terminalOutcome:
             issue.currentOutcome === "succeeded" ? "success" : "failure",
           observedAt: issue.lastUpdatedAt,
@@ -207,11 +216,16 @@ export async function reconcileTerminalReportingBacklog(
         })
       ) {
         if (result.receipt.state === "blocked") {
-          scheduleTerminalIssueReportingRetry(context.state.terminalIssueReporting, {
-            issueNumber: issue.issueNumber,
-            baseBackoffMs: terminalIssueReportingBaseBackoffMs(context.config),
-            maxBackoffMs: terminalIssueReportingMaxBackoffMs(context.config),
-          });
+          scheduleTerminalIssueReportingRetry(
+            context.state.terminalIssueReporting,
+            {
+              issueNumber: issue.issueNumber,
+              baseBackoffMs: terminalIssueReportingBaseBackoffMs(
+                context.config,
+              ),
+              maxBackoffMs: terminalIssueReportingMaxBackoffMs(context.config),
+            },
+          );
         } else {
           enqueueTerminalIssueReporting(
             context.state.terminalIssueReporting,
@@ -243,7 +257,8 @@ export async function reconcileTerminalReportingBacklog(
         },
         {
           branchName:
-            existingTerminal?.branchName ?? context.branchName(issue.issueNumber),
+            existingTerminal?.branchName ??
+            context.branchName(issue.issueNumber),
           terminalOutcome:
             issue.currentOutcome === "succeeded" ? "success" : "failure",
           observedAt: issue.lastUpdatedAt,
@@ -257,11 +272,14 @@ export async function reconcileTerminalReportingBacklog(
           fallbackBlockedStage: "report-generation",
         },
       );
-      scheduleTerminalIssueReportingRetry(context.state.terminalIssueReporting, {
-        issueNumber: issue.issueNumber,
-        baseBackoffMs: terminalIssueReportingBaseBackoffMs(context.config),
-        maxBackoffMs: terminalIssueReportingMaxBackoffMs(context.config),
-      });
+      scheduleTerminalIssueReportingRetry(
+        context.state.terminalIssueReporting,
+        {
+          issueNumber: issue.issueNumber,
+          baseBackoffMs: terminalIssueReportingBaseBackoffMs(context.config),
+          maxBackoffMs: terminalIssueReportingMaxBackoffMs(context.config),
+        },
+      );
       statusChanged = true;
     }
   }
@@ -310,11 +328,14 @@ export async function runTerminalIssueReporting(
       })
     ) {
       if (receipt.state === "blocked") {
-        scheduleTerminalIssueReportingRetry(context.state.terminalIssueReporting, {
-          issueNumber: issue.number,
-          baseBackoffMs: terminalIssueReportingBaseBackoffMs(context.config),
-          maxBackoffMs: terminalIssueReportingMaxBackoffMs(context.config),
-        });
+        scheduleTerminalIssueReportingRetry(
+          context.state.terminalIssueReporting,
+          {
+            issueNumber: issue.number,
+            baseBackoffMs: terminalIssueReportingBaseBackoffMs(context.config),
+            maxBackoffMs: terminalIssueReportingMaxBackoffMs(context.config),
+          },
+        );
       } else {
         enqueueTerminalIssueReporting(
           context.state.terminalIssueReporting,

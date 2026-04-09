@@ -2,11 +2,11 @@ import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { RuntimeIssue } from "../domain/issue.js";
 import type { Logger } from "../observability/logger.js";
 import type { FactoryRestartRecoveryIssueSnapshot } from "../observability/status.js";
+import { claimHostForIssue, notePreferredHost } from "./host-dispatch-state.js";
 import {
-  claimHostForIssue,
-  notePreferredHost,
-} from "./host-dispatch-state.js";
-import { type IssueLeaseSnapshot, type LocalIssueLeaseManager } from "./issue-lease.js";
+  type IssueLeaseSnapshot,
+  type LocalIssueLeaseManager,
+} from "./issue-lease.js";
 import { decideRestartRecovery } from "./restart-recovery.js";
 import type { OrchestratorState } from "./state.js";
 import { noteStatusAction, setRestartRecoveryState } from "./status-state.js";
@@ -68,7 +68,9 @@ export async function reconcileRunningIssueOwnership(
         snapshot.kind === "shutdown-terminated" ||
         snapshot.kind === "shutdown-forced"
           ? null
-          : await context.refreshLifecycle(snapshot.record?.branchName ?? branchName);
+          : await context.refreshLifecycle(
+              snapshot.record?.branchName ?? branchName,
+            );
       const decision = decideRestartRecovery({
         issue,
         branchName: snapshot.record?.branchName ?? branchName,
@@ -159,7 +161,11 @@ export async function applyRestartRecoveryDecision(
     const adoptedRemoteHost =
       snapshot.executionOwner?.endpoint.workspaceHost ?? null;
     if (adoptedRemoteHost !== null) {
-      notePreferredHost(context.state.hostDispatch, issue.number, adoptedRemoteHost);
+      notePreferredHost(
+        context.state.hostDispatch,
+        issue.number,
+        adoptedRemoteHost,
+      );
       const hostClaim = claimHostForIssue(
         context.state.hostDispatch,
         adoptedRemoteHost,
@@ -169,14 +175,17 @@ export async function applyRestartRecoveryDecision(
           null,
       );
       if (hostClaim.kind === "unknown-host") {
-        context.logger.warn("Inherited remote run uses an unconfigured worker host", {
-          issueNumber: issue.number,
-          workerHost: adoptedRemoteHost,
-          runSessionId:
-            snapshot.executionOwner?.runSessionId ??
-            snapshot.record?.runSessionId ??
-            null,
-        });
+        context.logger.warn(
+          "Inherited remote run uses an unconfigured worker host",
+          {
+            issueNumber: issue.number,
+            workerHost: adoptedRemoteHost,
+            runSessionId:
+              snapshot.executionOwner?.runSessionId ??
+              snapshot.record?.runSessionId ??
+              null,
+          },
+        );
       } else if (hostClaim.kind === "occupied") {
         context.logger.warn(
           "Inherited remote run could not reclaim occupied worker host",

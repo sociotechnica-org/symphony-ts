@@ -23,18 +23,14 @@ import type {
   RunnerTurnResult,
   RunnerVisibilitySnapshot,
 } from "../runner/service.js";
-import {
-  createRunnerAccountingSnapshot,
-} from "../runner/accounting.js";
+import { createRunnerAccountingSnapshot } from "../runner/accounting.js";
 import type { WorkspaceManager } from "../workspace/service.js";
 import {
   shouldContinueTurnLoop,
   type RunSessionArtifactsState,
 } from "./continuation-turns.js";
 import type { ActiveRunShutdownContext } from "./coordinator-types.js";
-import {
-  getActiveDispatchPressure,
-} from "./dispatch-pressure-state.js";
+import { getActiveDispatchPressure } from "./dispatch-pressure-state.js";
 import {
   bindHostReservationToRunSession,
   hasHostDispatchCapacity,
@@ -76,7 +72,12 @@ export interface ActiveRunCoordinatorContext {
   readonly buildRunnerVisibility: (
     description: RunnerSessionDescription,
     options: {
-      readonly state: "starting" | "running" | "waiting" | "completed" | "failed";
+      readonly state:
+        | "starting"
+        | "running"
+        | "waiting"
+        | "completed"
+        | "failed";
       readonly phase:
         | "boot"
         | "turn-execution"
@@ -246,7 +247,9 @@ export async function runIssue(
     return false;
   }
   let selectedWorkerHost: SshWorkerHostConfig | null = null;
-  const dispatchPressure = getActiveDispatchPressure(context.state.dispatchPressure);
+  const dispatchPressure = getActiveDispatchPressure(
+    context.state.dispatchPressure,
+  );
   if (dispatchPressure !== null) {
     const summary = `Dispatch paused for ${dispatchPressure.retryClass} until ${dispatchPressure.resumeAt}`;
     upsertActiveIssue(context.state.status, issue, {
@@ -268,7 +271,10 @@ export async function runIssue(
     return false;
   }
   if (hasHostDispatchCapacity(context.state.hostDispatch)) {
-    const reservation = reserveHostForIssue(context.state.hostDispatch, issue.number);
+    const reservation = reserveHostForIssue(
+      context.state.hostDispatch,
+      issue.number,
+    );
     if (reservation.kind === "blocked") {
       const occupiedHosts =
         reservation.occupiedHosts.length === 0
@@ -384,7 +390,8 @@ export async function runIssue(
       runnerPid: null,
       startedAt: new Date().toISOString(),
       pullRequest:
-        pullRequest?.pullRequest === undefined || pullRequest.pullRequest === null
+        pullRequest?.pullRequest === undefined ||
+        pullRequest.pullRequest === null
           ? null
           : {
               number: pullRequest.pullRequest.number,
@@ -402,13 +409,16 @@ export async function runIssue(
       },
       blockedReason: null,
       runnerAccounting: sessionState.accounting,
-      runnerVisibility: context.buildRunnerVisibility(sessionState.description, {
-        state: "starting",
-        phase: "boot",
-        lastHeartbeatAt: session.startedAt,
-        lastActionAt: session.startedAt,
-        lastActionSummary: "Runner session created",
-      }),
+      runnerVisibility: context.buildRunnerVisibility(
+        sessionState.description,
+        {
+          state: "starting",
+          phase: "boot",
+          lastHeartbeatAt: session.startedAt,
+          lastActionAt: session.startedAt,
+          lastActionSummary: "Runner session created",
+        },
+      ),
     });
     noteStatusAction(context.state.status, {
       kind: "run-started",
@@ -416,11 +426,21 @@ export async function runIssue(
       issueNumber: issue.number,
     });
     await context.persistStatusSnapshot();
-    await context.recordRunStartedObservation(issue, attempt, sessionState, pullRequest);
-    await context.leaseManager.recordRun(lockDir, session, sessionState.description, {
-      factoryInstanceId: context.instanceId,
-      factoryPid: process.pid,
-    });
+    await context.recordRunStartedObservation(
+      issue,
+      attempt,
+      sessionState,
+      pullRequest,
+    );
+    await context.leaseManager.recordRun(
+      lockDir,
+      session,
+      sessionState.description,
+      {
+        factoryInstanceId: context.instanceId,
+        factoryPid: process.pid,
+      },
+    );
     const abortController = new AbortController();
     const shutdownSignal = context.shutdownSignal;
     const shutdownContext: ActiveRunShutdownContext = {

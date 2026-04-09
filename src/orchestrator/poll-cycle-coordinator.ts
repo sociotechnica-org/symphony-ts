@@ -18,7 +18,11 @@ import {
   setReadyQueue,
   setTrackerIssueCounts,
 } from "./status-state.js";
-import { mergeDispatchQueue, orderReadyCandidates, type QueueEntry } from "./dispatch-queue.js";
+import {
+  mergeDispatchQueue,
+  orderReadyCandidates,
+  type QueueEntry,
+} from "./dispatch-queue.js";
 
 export interface PollCycleCoordinatorContext {
   readonly config: ResolvedConfig;
@@ -28,7 +32,9 @@ export interface PollCycleCoordinatorContext {
   readonly recoveredRunningLifecycles: Map<number, HandoffLifecycle>;
   readonly notifyDashboard: () => void;
   readonly persistStatusSnapshot: () => Promise<void>;
-  readonly fetchFailedCandidatesForStatus: () => Promise<readonly RuntimeIssue[]>;
+  readonly fetchFailedCandidatesForStatus: () => Promise<
+    readonly RuntimeIssue[]
+  >;
   readonly pruneStaleActiveIssues: (
     readyIssues: readonly RuntimeIssue[],
     runningIssues: readonly RuntimeIssue[],
@@ -79,7 +85,9 @@ export async function runPollCycle(
       running: runningCandidates.length,
       failed: failedCandidates.length,
     });
-    factoryHalt = await inspectFactoryHalt(getConfigInstancePaths(context.config));
+    factoryHalt = await inspectFactoryHalt(
+      getConfigInstancePaths(context.config),
+    );
     setFactoryHaltState(context.state.status, factoryHalt);
     context.pruneStaleActiveIssues(readyCandidates, runningCandidates);
     runningCandidates =
@@ -165,7 +173,9 @@ export async function runPollCycle(
     if (startedDispatches >= availableSlots) {
       break;
     }
-    if (hasReservedLocalDispatch(context.state.localDispatch, entry.issue.number)) {
+    if (
+      hasReservedLocalDispatch(context.state.localDispatch, entry.issue.number)
+    ) {
       continue;
     }
     const task = context.startDispatchTask(entry);
