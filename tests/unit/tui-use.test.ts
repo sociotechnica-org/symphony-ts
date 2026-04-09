@@ -250,7 +250,9 @@ describe("TuiUseHarness env", () => {
       await harness.start("fake-command");
 
       expect(process.env["SESSION_CONSTRUCTOR_LEAK"]).toBeUndefined();
-      expect(EnvCapturingSession.lastEnv?.["SESSION_CONSTRUCTOR_LEAK"]).toBeUndefined();
+      expect(
+        EnvCapturingSession.lastEnv?.["SESSION_CONSTRUCTOR_LEAK"],
+      ).toBeUndefined();
     } finally {
       if (originalLeak === undefined) {
         delete process.env["SESSION_CONSTRUCTOR_LEAK"];
