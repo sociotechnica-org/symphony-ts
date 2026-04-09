@@ -150,7 +150,7 @@ Belongs here:
 
 1. reusable operator method and checkpoint ordering
 2. control-surface rules for `factory status`, `factory watch`, `factory
-   attach`, and the operator loop
+attach`, and the operator loop
 3. the rule that selected-instance checked-in docs are authoritative when they
    exist
 
@@ -280,14 +280,14 @@ selected instance and how init scaffolds the repo-owned contract.
 
 ## Failure-Class Matrix
 
-| Observed condition                                                                   | Local facts available                                  | Repo-owned facts available                    | Expected decision                                                                                 |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Selected instance has `OPERATOR.md`                                                  | selected instance root, file path                      | playbook content                              | read `OPERATOR.md` as the primary repo-specific operator-policy source                            |
-| Selected instance lacks `OPERATOR.md`                                                | selected instance root                                 | `WORKFLOW.md`, `AGENTS.md`, `README.md`, docs | continue with the checked-in docs that exist and the generic engine-global operator method        |
-| Self-hosting `symphony-ts` instance is selected                                      | selected instance root equals repo root                | checked-in root `OPERATOR.md`                 | preserve self-hosting behavior, but source repo-specific operator policy from root `OPERATOR.md`  |
-| `symphony init` targets an empty repository                                          | target path, no existing workflow/playbook             | scaffold inputs                               | write both `WORKFLOW.md` and `OPERATOR.md`, then print next-step guidance                         |
-| Target repository already has `WORKFLOW.md` or `OPERATOR.md` and `--force` is unset | target path, existing file paths                       | scaffold inputs                               | fail clearly without partial overwrite                                                            |
-| Operator prompt/skill still carries `symphony-ts`-specific policy after extraction   | prompt/skill text                                      | selected instance may have `OPERATOR.md`      | invalid implementation for this issue; repo-specific policy must live in the selected repository  |
+| Observed condition                                                                  | Local facts available                      | Repo-owned facts available                    | Expected decision                                                                                |
+| ----------------------------------------------------------------------------------- | ------------------------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Selected instance has `OPERATOR.md`                                                 | selected instance root, file path          | playbook content                              | read `OPERATOR.md` as the primary repo-specific operator-policy source                           |
+| Selected instance lacks `OPERATOR.md`                                               | selected instance root                     | `WORKFLOW.md`, `AGENTS.md`, `README.md`, docs | continue with the checked-in docs that exist and the generic engine-global operator method       |
+| Self-hosting `symphony-ts` instance is selected                                     | selected instance root equals repo root    | checked-in root `OPERATOR.md`                 | preserve self-hosting behavior, but source repo-specific operator policy from root `OPERATOR.md` |
+| `symphony init` targets an empty repository                                         | target path, no existing workflow/playbook | scaffold inputs                               | write both `WORKFLOW.md` and `OPERATOR.md`, then print next-step guidance                        |
+| Target repository already has `WORKFLOW.md` or `OPERATOR.md` and `--force` is unset | target path, existing file paths           | scaffold inputs                               | fail clearly without partial overwrite                                                           |
+| Operator prompt/skill still carries `symphony-ts`-specific policy after extraction  | prompt/skill text                          | selected instance may have `OPERATOR.md`      | invalid implementation for this issue; repo-specific policy must live in the selected repository |
 
 ## Storage / Persistence Contract
 
@@ -318,7 +318,7 @@ selected instance and how init scaffolds the repo-owned contract.
 2. Add a focused starter `OPERATOR.md` template for third-party repositories,
    alongside the existing starter workflow template assets.
 3. Extend `src/cli/init.ts` and any supporting template helpers so `symphony
-   init`:
+init`:
    - resolves the target instance root
    - validates overwrite behavior across both files
    - writes both `WORKFLOW.md` and `OPERATOR.md`
@@ -371,7 +371,7 @@ selected instance and how init scaffolds the repo-owned contract.
 ### End-to-end / User-visible Contract
 
 1. given an empty target repository, when an operator runs `pnpm tsx
-   bin/symphony.ts init ../target-repo --tracker-repo your-org/your-repo`, then
+bin/symphony.ts init ../target-repo --tracker-repo your-org/your-repo`, then
    the target repo receives both `WORKFLOW.md` and `OPERATOR.md`
 2. given a selected external instance with a checked-in `OPERATOR.md`, when the
    operator loop runs against `--workflow <target>/WORKFLOW.md`, then the

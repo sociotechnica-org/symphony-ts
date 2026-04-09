@@ -1,6 +1,12 @@
 # Operator Runbook
 
-This is the canonical day-to-day operating guide for the local detached Symphony factory in this repository. Use it with [`README.md`](../../README.md), [`AGENTS.md`](../../AGENTS.md), and [`skills/symphony-operator/SKILL.md`](../../skills/symphony-operator/SKILL.md).
+This is the canonical day-to-day operating guide for the local detached
+Symphony factory in this repository. Use it with
+[`README.md`](../../README.md), [`AGENTS.md`](../../AGENTS.md),
+[`OPERATOR.md`](../../OPERATOR.md), and
+[`skills/symphony-operator/SKILL.md`](../../skills/symphony-operator/SKILL.md).
+Repo-specific operator policy belongs in `OPERATOR.md`; this runbook covers the
+supported commands and checkpoint method.
 
 ## Supported Surfaces
 
@@ -66,16 +72,18 @@ pnpm tsx bin/symphony.ts init ../target-repo --tracker-repo your-org/your-repo
 ```
 
 Then review `../target-repo/WORKFLOW.md`, customize its prompt and repo policy,
-and use the factory commands in this runbook with `--workflow
+review `../target-repo/OPERATOR.md`, customize its operator policy, and use
+the factory commands in this runbook with `--workflow
 ../target-repo/WORKFLOW.md` whenever your shell is not already inside that
 instance root.
 
 For operator plan review, the selected instance repository is the authority.
 The operator checkout provides the loop, tooling, and local `.ralph/` state,
-but a third-party plan must be judged against that repository's own
-`WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist.
-Do not apply `symphony-ts` planning standards to an external repository unless
-that repository's checked-in instructions explicitly say to do so.
+but a third-party plan and repo-specific operator action must be judged against
+that repository's own `OPERATOR.md`, `WORKFLOW.md`, `AGENTS.md`, `README.md`,
+and relevant docs when they exist. Do not apply `symphony-ts` planning
+standards to an external repository unless that repository's checked-in
+instructions explicitly say to do so.
 
 Normal path rules:
 

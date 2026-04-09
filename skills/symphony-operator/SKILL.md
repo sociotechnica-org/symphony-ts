@@ -30,6 +30,8 @@ carries `operator-session.json`, the typed record of the compatible reusable
 provider session for that instance. The same root now also carries
 `control-state.json`, the code-owned checkpoint snapshot for one wake-up
 cycle.
+Selected-instance repo-specific operator policy belongs in
+`<instance-root>/OPERATOR.md` when that file exists.
 
 ## Scope
 
@@ -80,6 +82,7 @@ normal PR flow.
 - Treat `docs/guides/operator-runbook.md` as the canonical daily-use procedure and keep this skill focused on operator policy, checkpoints, and escalation.
 - Treat the factory-control surface as the primary local runtime contract; use ad hoc `screen`, `ps`, or `pkill` inspection only when the control command is unavailable or inconsistent.
 - Treat the operator checkout as tooling, not automatically as policy authority. For plan review and repo-owned rules, the selected instance repository is the source of truth.
+- Treat `<selected-instance-root>/OPERATOR.md` as the primary repo-specific operator-policy source when it exists. If it does not, fall back to the selected repository's `WORKFLOW.md`, `AGENTS.md`, `README.md`, and other checked-in docs that do exist.
 - In a wake-up cycle, favor short, bounded inspection commands over long-running watchers. If a secondary GitHub or watch-surface probe is slow or non-terminal, stop and continue from the latest successful control-surface read instead of waiting indefinitely.
 - Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh` from inside an active wake-up shell. Use the supported factory-control and status commands instead of nesting the operator loop.
 - Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring and `pnpm tsx bin/symphony.ts factory attach` when you need the full-screen TUI; do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can kill the worker.
@@ -95,7 +98,7 @@ normal PR flow.
 - Keep release dependency truth in the typed `release-state.json` artifact, not only in markdown notes. Standing context may explain release sequencing, but prerequisite failure gating must remain inspectable through the typed artifact.
 - Treat plan review as a required operator checkpoint:
   - read the selected workflow's `tracker.plan_review` config first,
-  - read the selected instance repository's `WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist,
+  - read the selected instance repository's `OPERATOR.md`, `WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist,
   - if the plan is sound, post that workflow's approval marker,
   - if revisions are needed, post that workflow's changes-requested marker with concrete guidance,
   - if explicitly bypassing review, post that workflow's waiver marker and record why.

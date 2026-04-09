@@ -683,6 +683,12 @@ describe("operator loop workflow selection", () => {
       expect(prompt).toContain("docs/guides/operator-runbook.md");
       expect(prompt).toContain("SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT");
       expect(prompt).toContain(
+        "SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT/OPERATOR.md",
+      );
+      expect(prompt).toContain(
+        "treat it as the primary source for repo-specific operator policy",
+      );
+      expect(prompt).toContain(
         "Do not apply `symphony-ts` planning standards to an external repository",
       );
       expect(prompt).toContain(

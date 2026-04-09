@@ -4,6 +4,7 @@ import {
   renderThirdPartyWorkflowTemplate,
   type StarterRunnerKind,
 } from "../templates/third-party-workflow.js";
+import { renderThirdPartyOperatorPlaybookTemplate } from "../templates/third-party-operator-playbook.js";
 
 export interface ScaffoldWorkflowArgs {
   readonly targetPath: string;
@@ -14,37 +15,46 @@ export interface ScaffoldWorkflowArgs {
 
 export interface ScaffoldWorkflowResult {
   readonly workflowPath: string;
+  readonly operatorPlaybookPath: string;
   readonly trackerRepo: string;
   readonly runnerKind: StarterRunnerKind;
-  readonly overwritten: boolean;
+  readonly workflowOverwritten: boolean;
+  readonly operatorPlaybookOverwritten: boolean;
 }
 
 export async function scaffoldWorkflow(
   args: ScaffoldWorkflowArgs,
 ): Promise<ScaffoldWorkflowResult> {
   const trackerRepo = normalizeTrackerRepo(args.trackerRepo);
-  const workflowPath = resolveWorkflowPath(args.targetPath);
-  const targetDirectory = path.dirname(workflowPath);
+  const { workflowPath, operatorPlaybookPath, targetDirectory } =
+    resolveScaffoldPaths(args.targetPath);
   await ensureWritableTargetDirectory(args.targetPath, targetDirectory);
 
-  const overwritten = await pathExists(workflowPath);
-  if (overwritten && !args.force) {
-    throw new Error(
-      `Refusing to overwrite existing workflow at ${workflowPath}. Re-run with --force to replace it.`,
-    );
+  const workflowOverwritten = await pathExists(workflowPath);
+  const operatorPlaybookOverwritten = await pathExists(operatorPlaybookPath);
+  const existingPaths = [
+    workflowOverwritten ? workflowPath : null,
+    operatorPlaybookOverwritten ? operatorPlaybookPath : null,
+  ].filter((value): value is string => value !== null);
+  if (existingPaths.length > 0 && !args.force) {
+    throw new Error(renderExistingScaffoldConflict(existingPaths));
   }
 
-  const template = renderThirdPartyWorkflowTemplate({
+  const workflowTemplate = renderThirdPartyWorkflowTemplate({
     trackerRepo,
     runnerKind: args.runnerKind,
   });
-  await fs.writeFile(workflowPath, template, "utf8");
+  const operatorPlaybookTemplate = renderThirdPartyOperatorPlaybookTemplate();
+  await fs.writeFile(workflowPath, workflowTemplate, "utf8");
+  await fs.writeFile(operatorPlaybookPath, operatorPlaybookTemplate, "utf8");
 
   return {
     workflowPath,
+    operatorPlaybookPath,
     trackerRepo,
     runnerKind: args.runnerKind,
-    overwritten,
+    workflowOverwritten,
+    operatorPlaybookOverwritten,
   };
 }
 
@@ -52,12 +62,13 @@ export function renderScaffoldWorkflowResult(
   result: ScaffoldWorkflowResult,
 ): string {
   const quotedWorkflowPath = JSON.stringify(result.workflowPath);
-  const action = result.overwritten ? "Updated" : "Created";
   return [
-    `${action} ${result.workflowPath}`,
+    `${result.workflowOverwritten ? "Updated" : "Created"} ${result.workflowPath}`,
+    `${result.operatorPlaybookOverwritten ? "Updated" : "Created"} ${result.operatorPlaybookPath}`,
     "",
     "Next steps from the Symphony engine checkout:",
-    `- Review and customize ${result.workflowPath} for this repository's policies and prompt contract.`,
+    `- Review and customize ${result.workflowPath} for this repository's runtime contract, policies, and prompt contract.`,
+    `- Review and customize ${result.operatorPlaybookPath} for this repository's operator policy.`,
     `- Run one cycle: pnpm tsx bin/symphony.ts run --once --workflow ${quotedWorkflowPath} --i-understand-that-this-will-be-running-without-the-usual-guardrails`,
     `- Start the detached runtime: pnpm tsx bin/symphony.ts factory start --workflow ${quotedWorkflowPath}`,
     `- Inspect the detached runtime: pnpm tsx bin/symphony.ts factory status --workflow ${quotedWorkflowPath}`,
@@ -80,6 +91,29 @@ function resolveWorkflowPath(targetPath: string): string {
   return path.basename(resolvedTargetPath) === "WORKFLOW.md"
     ? resolvedTargetPath
     : path.join(resolvedTargetPath, "WORKFLOW.md");
+}
+
+function resolveScaffoldPaths(targetPath: string): {
+  readonly workflowPath: string;
+  readonly operatorPlaybookPath: string;
+  readonly targetDirectory: string;
+} {
+  const workflowPath = resolveWorkflowPath(targetPath);
+  const targetDirectory = path.dirname(workflowPath);
+  return {
+    workflowPath,
+    operatorPlaybookPath: path.join(targetDirectory, "OPERATOR.md"),
+    targetDirectory,
+  };
+}
+
+function renderExistingScaffoldConflict(
+  existingPaths: readonly string[],
+): string {
+  if (existingPaths.length === 1) {
+    return `Refusing to overwrite existing scaffold file at ${existingPaths[0]}. Re-run with --force to replace both WORKFLOW.md and OPERATOR.md.`;
+  }
+  return `Refusing to overwrite existing scaffold files at ${existingPaths.join(", ")}. Re-run with --force to replace both WORKFLOW.md and OPERATOR.md.`;
 }
 
 async function ensureWritableTargetDirectory(

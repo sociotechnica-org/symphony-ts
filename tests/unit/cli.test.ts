@@ -771,7 +771,12 @@ describe("runCli init", () => {
       ]);
 
       const workflowPath = path.join(targetRepo, "WORKFLOW.md");
+      const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
       const workflowBody = await fs.readFile(workflowPath, "utf8");
+      const operatorPlaybookBody = await fs.readFile(
+        operatorPlaybookPath,
+        "utf8",
+      );
       const workflow = await withEnvVarUnset("SYMPHONY_REPO", () =>
         loadWorkflow(workflowPath),
       );
@@ -781,6 +786,12 @@ describe("runCli init", () => {
       expect(workflowBody).toContain(
         "Read `AGENTS.md`, `README.md`, and the relevant docs before making changes.",
       );
+      expect(operatorPlaybookBody).toContain(
+        "This file is the repository-owned operator policy companion to `WORKFLOW.md` and `AGENTS.md`.",
+      );
+      expect(operatorPlaybookBody).toContain(
+        "when the operator should post `/land` by default and when landing stays manual",
+      );
       expect(workflow.config.workflowPath).toBe(workflowPath);
       expect(workflow.config.instance.instanceRoot).toBe(targetRepo);
       expect(workflow.config.instance.runtimeRoot).toBe(
@@ -789,6 +800,10 @@ describe("runCli init", () => {
 
       const output = chunks.join("");
       expect(output).toContain(`Created ${workflowPath}`);
+      expect(output).toContain(`Created ${operatorPlaybookPath}`);
+      expect(output).toContain(
+        `Review and customize ${operatorPlaybookPath} for this repository's operator policy.`,
+      );
       expect(output).toContain(
         `pnpm tsx bin/symphony.ts factory start --workflow ${JSON.stringify(workflowPath)}`,
       );
@@ -814,11 +829,46 @@ describe("runCli init", () => {
           "acme/widgets",
         ]),
       ).rejects.toThrowError(
-        `Refusing to overwrite existing workflow at ${workflowPath}. Re-run with --force to replace it.`,
+        `Refusing to overwrite existing scaffold file at ${workflowPath}. Re-run with --force to replace both WORKFLOW.md and OPERATOR.md.`,
       );
       expect(await fs.readFile(workflowPath, "utf8")).toContain(
         "repo: sociotechnica-org/symphony-ts",
       );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to overwrite an existing operator playbook without --force", async () => {
+    const tempDir = await createTempDir("symphony-cli-init-existing-operator-");
+    const targetRepo = path.join(tempDir, "target-repo");
+    const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
+    await fs.mkdir(targetRepo, { recursive: true });
+    await fs.writeFile(
+      operatorPlaybookPath,
+      "# Existing operator playbook\n",
+      "utf8",
+    );
+
+    try {
+      await expect(
+        runCli([
+          "node",
+          "symphony",
+          "init",
+          targetRepo,
+          "--tracker-repo",
+          "acme/widgets",
+        ]),
+      ).rejects.toThrowError(
+        `Refusing to overwrite existing scaffold file at ${operatorPlaybookPath}. Re-run with --force to replace both WORKFLOW.md and OPERATOR.md.`,
+      );
+      expect(await fs.readFile(operatorPlaybookPath, "utf8")).toContain(
+        "# Existing operator playbook",
+      );
+      await expect(
+        fs.access(path.join(targetRepo, "WORKFLOW.md")),
+      ).rejects.toThrow();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -829,6 +879,12 @@ describe("runCli init", () => {
     const targetRepo = path.join(tempDir, "target-repo");
     await fs.mkdir(targetRepo, { recursive: true });
     const workflowPath = await writeWorkflow(targetRepo);
+    const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
+    await fs.writeFile(
+      operatorPlaybookPath,
+      "# Old operator playbook\n",
+      "utf8",
+    );
     vi.spyOn(process.stdout, "write").mockImplementation(
       (() => true) as typeof process.stdout.write,
     );
@@ -847,11 +903,19 @@ describe("runCli init", () => {
       ]);
 
       const workflowBody = await fs.readFile(workflowPath, "utf8");
+      const operatorPlaybookBody = await fs.readFile(
+        operatorPlaybookPath,
+        "utf8",
+      );
       expect(workflowBody).toContain("repo: acme/widgets");
       expect(workflowBody).toContain("kind: claude-code");
       expect(workflowBody).toContain(
         "command: claude -p --output-format json --permission-mode bypassPermissions --model sonnet",
       );
+      expect(operatorPlaybookBody).toContain(
+        "This file is the repository-owned operator policy companion to `WORKFLOW.md` and `AGENTS.md`.",
+      );
+      expect(operatorPlaybookBody).not.toContain("# Old operator playbook");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
