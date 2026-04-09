@@ -410,32 +410,6 @@ printf '{"type":"result","session_id":"%s","modelUsage":{"%s":{"inputTokens":1,"
   return executablePath;
 }
 
-async function createLeaseFailingMkdirExecutable(
-  directory: string,
-): Promise<void> {
-  const executablePath = path.join(directory, "mkdir");
-  const script = `#!/usr/bin/env bash
-set -euo pipefail
-SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-PATH="\${PATH#"$SELF_DIR:"}"
-
-target="\${1:-}"
-if [[ "\${SYMPHONY_TEST_FORCE_ACTIVE_WAKE_UP_LEASE_FAILURE:-}" = "1" && -n "$target" && "$target" = "\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LOCK_DIR:-}" ]]; then
-  mkdir -p "$target"
-  cat >"$target/owner" <<EOF
-pid=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_FAIL_PID:-$$}
-operator_repo_root=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_REPO_ROOT:-/tmp/owner-repo}
-selected_instance_root=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_INSTANCE_ROOT:-/tmp/owner-instance}
-workflow_path=\${SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_WORKFLOW:-/tmp/owner-instance/WORKFLOW.md}
-EOF
-  exit 1
-fi
-
-exec mkdir "$@"
-`;
-  await fs.writeFile(executablePath, script, { encoding: "utf8", mode: 0o755 });
-}
-
 async function createAlternateOperatorCheckout(rootDir: string): Promise<void> {
   await fs.mkdir(rootDir, { recursive: true });
   const symlinkEntries = [
@@ -1307,7 +1281,6 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
       name: "claude",
       logPath: commandLog,
     });
-    await createLeaseFailingMkdirExecutable(fakeBinDir);
 
     try {
       const failure = await runOperatorLoopExpectFailure(
@@ -1375,6 +1348,108 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
       await expect(
         fs.readFile(coordinationPaths.activeWakeUpOwnerFile, "utf8"),
       ).resolves.toContain(`pid=${process.pid.toString()}`);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a continuous loop alive when success recording fails after command exit", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-recording-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const fakeBinDir = path.join(tempDir, "bin");
+    const executablePath = path.join(fakeBinDir, "claude");
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey: deriveSymphonyInstanceKey(path.dirname(workflowPath)),
+    });
+
+    await fs.mkdir(fakeBinDir, { recursive: true });
+    await fs.writeFile(
+      executablePath,
+      `#!/usr/bin/env bash
+set -euo pipefail
+cat >/dev/null
+rm -f "$SYMPHONY_OPERATOR_SESSION_STATE"
+mkdir -p "$SYMPHONY_OPERATOR_SESSION_STATE"
+printf '{"type":"result","session_id":"claude-session-recording","modelUsage":{"claude-default":{"inputTokens":1,"outputTokens":1}}}\\n'
+`,
+      { encoding: "utf8", mode: 0o755 },
+    );
+
+    try {
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const stderr = await new Promise<string>((resolve, reject) => {
+        const child = spawn(
+          "bash",
+          [
+            path.join("skills", "symphony-operator", "operator-loop.sh"),
+            "--interval-seconds",
+            "60",
+            "--workflow",
+            workflowPath,
+            "--provider",
+            "claude",
+            "--resume-session",
+          ],
+          {
+            cwd: repoRoot,
+            detached: true,
+            env: buildTopLevelOperatorLoopEnv({
+              GH_TOKEN: "test-token",
+              PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+            }),
+          },
+        );
+
+        let collectedStderr = "";
+        let shutdownRequested = false;
+        let timedOut = false;
+        let timeout: NodeJS.Timeout;
+        let shutdownPromise: Promise<void> | null = null;
+        const requestShutdown = () => {
+          if (shutdownRequested) {
+            return;
+          }
+          shutdownRequested = true;
+          shutdownPromise = terminateChildProcess(child);
+          void shutdownPromise.catch(reject);
+        };
+        timeout = setTimeout(() => {
+          timedOut = true;
+          requestShutdown();
+        }, 10000);
+
+        child.stderr.setEncoding("utf8");
+        child.stderr.on("data", (chunk: string) => {
+          collectedStderr += chunk;
+          if (collectedStderr.includes("cycle failed; sleeping until")) {
+            requestShutdown();
+          }
+        });
+        child.on("error", reject);
+        child.on("close", () => {
+          clearTimeout(timeout);
+          const settle = shutdownPromise ?? terminateChildProcess(child);
+          void settle.then(() => {
+            if (timedOut) {
+              reject(
+                new Error(
+                  "Timed out waiting for the continuous operator loop to enter retry sleep",
+                ),
+              );
+              return;
+            }
+            resolve(collectedStderr);
+          }, reject);
+        });
+      });
+
+      expect(stderr).toContain("cycle failed; sleeping until");
+      expect(stderr).not.toContain(
+        "invalid runtime state transition recording-success -> retrying",
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -1980,6 +2055,102 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
         "operator-loop: going to sleep until the first wake-up cycle",
       );
       expect(stderr).toContain("operator-loop: waking up");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stops an in-flight wake-up cycle without recording an invalid transition", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-stop-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const markerPath = path.join(tempDir, "operator-command-started");
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+
+    try {
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(
+          "bash",
+          [
+            path.join("skills", "symphony-operator", "operator-loop.sh"),
+            "--interval-seconds",
+            "60",
+            "--workflow",
+            workflowPath,
+          ],
+          {
+            cwd: repoRoot,
+            detached: true,
+            env: buildTopLevelOperatorLoopEnv({
+              GH_TOKEN: "test-token",
+              SYMPHONY_OPERATOR_COMMAND: `touch ${JSON.stringify(markerPath)}; trap 'exit 0' TERM; while true; do sleep 1; done`,
+            }),
+          },
+        );
+
+        let timedOut = false;
+        let timeout: NodeJS.Timeout;
+        let shutdownPromise: Promise<void> | null = null;
+        timeout = setTimeout(() => {
+          timedOut = true;
+          void terminateChildProcess(child).finally(() => {
+            reject(
+              new Error(
+                "Timed out waiting for the operator command to start before stopping the loop",
+              ),
+            );
+          });
+        }, 10000);
+
+        void waitForPathExists(markerPath)
+          .then(async () => {
+            shutdownPromise = terminateChildProcess(child);
+            await shutdownPromise;
+          })
+          .catch(reject);
+
+        child.on("error", reject);
+        child.on("close", () => {
+          clearTimeout(timeout);
+          void (shutdownPromise ?? terminateChildProcess(child)).then(() => {
+            if (timedOut) {
+              return;
+            }
+            resolve();
+          }, reject);
+        });
+      });
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly message: string;
+        readonly lastCycle: {
+          readonly logFile: string | null;
+        };
+      };
+
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.message).toBe("Operator loop stopped");
+
+      const logFile = statusJson.lastCycle.logFile;
+      if (logFile === null) {
+        throw new Error("Expected an interrupted cycle log file");
+      }
+      createdPaths.add(logFile);
+
+      const logContents = await fs.readFile(logFile, "utf8");
+      expect(logContents).toContain("interrupted=stop-requested");
+      expect(logContents).not.toContain(
+        "invalid runtime state transition stopping -> post-cycle-refresh",
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

@@ -171,7 +171,6 @@ export async function acquireActiveWakeUpLease(args: {
   await fs.mkdir(args.coordinationRoot, { recursive: true });
 
   while (true) {
-    await maybeInjectTestActiveWakeUpLeaseFailure(args);
     try {
       await fs.mkdir(args.lockDir);
       await writeCoordinationOwner(args.ownerFile, {
@@ -198,6 +197,10 @@ export async function acquireActiveWakeUpLease(args: {
     }
 
     const inspection = await inspectCoordinationArtifact(args);
+    if (inspection.state === "absent") {
+      await delay(STALE_COORDINATION_RETRY_DELAY_MS);
+      continue;
+    }
     if (inspection.state === "held-stale") {
       args.reporter(
         `operator-loop: clearing stale active wake-up lease for pid ${renderPid(
@@ -222,32 +225,6 @@ export async function acquireActiveWakeUpLease(args: {
       ok: false,
     };
   }
-}
-
-async function maybeInjectTestActiveWakeUpLeaseFailure(args: {
-  readonly lockDir: string;
-  readonly ownerFile: string;
-}): Promise<void> {
-  if (process.env.SYMPHONY_TEST_FORCE_ACTIVE_WAKE_UP_LEASE_FAILURE !== "1") {
-    return;
-  }
-  if (process.env.SYMPHONY_TEST_ACTIVE_WAKE_UP_LOCK_DIR !== args.lockDir) {
-    return;
-  }
-
-  await fs.mkdir(args.lockDir, { recursive: true });
-  await writeCoordinationOwner(args.ownerFile, {
-    pid: process.env.SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_FAIL_PID ?? "",
-    operator_repo_root:
-      process.env.SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_REPO_ROOT ??
-      "/tmp/owner-repo",
-    selected_instance_root:
-      process.env.SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_INSTANCE_ROOT ??
-      "/tmp/owner-instance",
-    workflow_path:
-      process.env.SYMPHONY_TEST_ACTIVE_WAKE_UP_LEASE_OWNER_WORKFLOW ??
-      "/tmp/owner-instance/WORKFLOW.md",
-  });
 }
 
 export async function releaseOwnedCoordinationArtifact(

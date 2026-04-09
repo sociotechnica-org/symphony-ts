@@ -62,10 +62,17 @@ interface CurrentCycleState {
   readonly startedAt: string;
 }
 
+export interface OperatorRuntimeHooks {
+  readonly beforeAcquireActiveWakeUpLease?:
+    | ((context: OperatorRuntimeContext) => Promise<void>)
+    | undefined;
+}
+
 export async function runOperatorLoop(
   context: OperatorRuntimeContext,
+  hooks: OperatorRuntimeHooks = {},
 ): Promise<number> {
-  const runtime = new OperatorLoopRuntime(context);
+  const runtime = new OperatorLoopRuntime(context, hooks);
   return await runtime.run();
 }
 
@@ -107,7 +114,10 @@ class OperatorLoopRuntime {
 
   private nextWakeAt: string | null = null;
 
-  constructor(private readonly context: OperatorRuntimeContext) {
+  constructor(
+    private readonly context: OperatorRuntimeContext,
+    private readonly hooks: OperatorRuntimeHooks,
+  ) {
     this.preparedSession = {
       ...this.preparedSession,
       effectiveCommand: context.baseCommand,
@@ -140,6 +150,14 @@ class OperatorLoopRuntime {
 
       if (this.context.runOnce) {
         const exitCode = await this.runCycle();
+        if (this.shouldStop()) {
+          if (this.runtimeState !== "stopping") {
+            this.moveTo("stopping");
+          }
+          await this.writeStatus("idle", "Operator loop stopped");
+          this.moveTo("stopped");
+          return this.lastCycle.exitCode ?? exitCode;
+        }
         if (exitCode === 0) {
           await this.writeStatus("idle", "Operator loop finished one cycle");
           this.moveTo("stopped");
@@ -211,10 +229,25 @@ class OperatorLoopRuntime {
 
     try {
       await this.refreshReleaseStateNonfatal();
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
       await this.runReadyPromotionNonfatal();
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
       await this.prepareSession();
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
       await this.refreshControlState();
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
       await this.writeCycleLogHeader(cycle.logFile);
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
 
       this.emitTerminalTrace(
         `waking up (${this.context.provider}${
@@ -222,6 +255,9 @@ class OperatorLoopRuntime {
         }; ${this.describeCycleTerminalMode()})`,
       );
       await this.writeStatus("acting", "Running operator wake-up cycle");
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
       if (
         !(await this.publishProgress({
           milestone: "cycle-start",
@@ -234,8 +270,12 @@ class OperatorLoopRuntime {
         );
         return 1;
       }
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
 
       this.moveTo("acquiring-active-lease");
+      await this.hooks.beforeAcquireActiveWakeUpLease?.(this.context);
       const lease = await acquireActiveWakeUpLease({
         coordinationRoot: this.context.operatorCoordinationRoot,
         lockDir: this.context.activeWakeUpLockDir,
@@ -260,16 +300,27 @@ class OperatorLoopRuntime {
       }
 
       this.activeWakeUpLease = lease.artifact;
+      if (await this.stopCycleIfRequested(cycle)) {
+        await releaseOwnedCoordinationArtifact(this.activeWakeUpLease);
+        this.activeWakeUpLease = null;
+        return 1;
+      }
       this.moveTo("running-command");
       const exitCode = await this.executeOperatorCommand(cycle.logFile);
       await releaseOwnedCoordinationArtifact(this.activeWakeUpLease);
       this.activeWakeUpLease = null;
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
 
       this.moveTo("post-cycle-refresh");
       this.finishCycle(exitCode);
       await this.refreshReleaseStateNonfatal();
       await this.runReadyPromotionNonfatal();
       await this.refreshControlStateNonfatal();
+      if (await this.stopCycleIfRequested(cycle)) {
+        return 1;
+      }
 
       if (exitCode === 0) {
         this.moveTo("recording-success");
@@ -632,7 +683,8 @@ class OperatorLoopRuntime {
     if (
       this.runtimeState === "preparing-cycle" ||
       this.runtimeState === "acquiring-active-lease" ||
-      this.runtimeState === "post-cycle-refresh"
+      this.runtimeState === "post-cycle-refresh" ||
+      this.runtimeState === "recording-success"
     ) {
       this.moveTo("recording-failure");
     }
@@ -658,6 +710,36 @@ class OperatorLoopRuntime {
       await this.writeStatus("failed", cycleMessage);
     } catch {
       // Prefer the original cycle failure over a secondary recording error.
+    }
+  }
+
+  private async stopCycleIfRequested(
+    cycle: CurrentCycleState,
+  ): Promise<boolean> {
+    if (!this.shouldStop()) {
+      return false;
+    }
+
+    await this.recordInterruptedCycle(cycle);
+    return true;
+  }
+
+  private async recordInterruptedCycle(
+    cycle: CurrentCycleState,
+  ): Promise<void> {
+    this.finishCycle(1);
+    await fs.appendFile(
+      cycle.logFile,
+      [
+        `interrupted_at=${this.lastCycle.finishedAt ?? this.nowUtc()}`,
+        "interrupted=stop-requested",
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    try {
+      await this.recordCycle();
+    } catch {
+      // Best effort only while stopping.
     }
   }
 
@@ -971,10 +1053,6 @@ class OperatorLoopRuntime {
 
     if (this.activeCommand !== null && this.activeCommand.exitCode === null) {
       this.activeCommand.kill(signal);
-    }
-
-    if (this.runtimeState !== "stopping" && this.runtimeState !== "stopped") {
-      this.moveTo("stopping");
     }
 
     try {

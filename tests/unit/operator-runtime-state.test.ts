@@ -53,6 +53,12 @@ describe("operator runtime state machine", () => {
   it("allows the failure and stop paths called out in the plan", () => {
     expect(
       canTransitionOperatorRuntimeState({
+        from: "recording-success",
+        to: "recording-failure",
+      }),
+    ).toBe(true);
+    expect(
+      canTransitionOperatorRuntimeState({
         from: "acquiring-active-lease",
         to: "recording-failure",
       }),

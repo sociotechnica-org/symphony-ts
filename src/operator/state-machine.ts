@@ -30,7 +30,7 @@ const allowedTransitions: Readonly<
   ],
   "running-command": ["post-cycle-refresh", "stopping"],
   "post-cycle-refresh": ["recording-success", "recording-failure", "stopping"],
-  "recording-success": ["sleeping", "stopped", "stopping"],
+  "recording-success": ["recording-failure", "sleeping", "stopped", "stopping"],
   "recording-failure": ["retrying", "stopped", "stopping"],
   retrying: ["preparing-cycle", "stopping"],
   stopping: ["stopped"],

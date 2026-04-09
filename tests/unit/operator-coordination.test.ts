@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireActiveWakeUpLease,
   acquireLoopLock,
@@ -19,6 +19,7 @@ async function createTempRoot(): Promise<string> {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const root of createdRoots) {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -113,6 +114,43 @@ describe("operator coordination artifacts", () => {
         "owner_repo_root=/tmp/other-repo; " +
         "owner_selected_instance_root=/tmp/other-instance; " +
         "owner_workflow=/tmp/other-instance/WORKFLOW.md",
+    );
+  });
+
+  it("retries the active wake-up lease when the lock disappears after EEXIST", async () => {
+    const root = await createTempRoot();
+    const lockDir = path.join(root, "active-wake-up.lock");
+    const ownerFile = path.join(lockDir, "owner");
+    const originalMkdir = fs.mkdir.bind(fs);
+    let injectedRace = false;
+
+    vi.spyOn(fs, "mkdir").mockImplementation(async (...args) => {
+      const [target] = args;
+      if (!injectedRace && target === lockDir) {
+        injectedRace = true;
+        const error = new Error("already exists") as NodeJS.ErrnoException;
+        error.code = "EEXIST";
+        throw error;
+      }
+      return await originalMkdir(...args);
+    });
+
+    const result = await acquireActiveWakeUpLease({
+      coordinationRoot: root,
+      lockDir,
+      ownerFile,
+      ownerPid: process.pid,
+      selectedInstanceRoot: "/tmp/requested-instance",
+      operatorRepoRoot: "/tmp/requested-repo",
+      workflowPath: "/tmp/requested-instance/WORKFLOW.md",
+      instanceKey: "requested-instance",
+      startedAt: "2026-04-09T00:00:00Z",
+      reporter: () => {},
+    });
+
+    expect(result.ok).toBe(true);
+    await expect(fs.readFile(ownerFile, "utf8")).resolves.toContain(
+      `pid=${process.pid.toString()}`,
     );
   });
 
