@@ -27,7 +27,9 @@ loop lock files under `.ralph/instances/<instance-key>/`. Release dependency
 metadata and the current release advancement posture also live there in
 `release-state.json`. When resumable mode is enabled, that same root also
 carries `operator-session.json`, the typed record of the compatible reusable
-provider session for that instance.
+provider session for that instance. The same root now also carries
+`control-state.json`, the code-owned checkpoint snapshot for one wake-up
+cycle.
 
 ## Scope
 
@@ -41,36 +43,35 @@ provider session for that instance.
   - `.ralph/instances/<instance-key>/wake-up-log.md` for append-only wake-up history
   - `.ralph/instances/<instance-key>/release-state.json` for typed release dependency metadata and blocked/clear advancement posture
 
-## Wake-Up Workflow
+## Control Surface
 
-1. Read the selected instance's standing context first, then read the wake-up log so durable guidance and recent history both survive session loss.
-2. Inspect the current repo state, open ready/running issues, open PRs, CI, and review comments.
-3. Use `pnpm tsx bin/symphony.ts factory status --json` as the primary factory-health check and determine whether the detached runtime is healthy, degraded, stopped, stuck, crashed, or misconfigured.
-4. Immediately after the factory-health read, run `pnpm tsx bin/check-factory-runtime-freshness.ts --operator-repo-root <operator-repo-root> --json` for the selected instance, and append `--workflow <selected-workflow>` when operating on a non-default instance.
-5. If the freshness check reports any stale `*-idle` state, refresh the checkout that actually drifted, restart the detached factory before ordinary queue work, and record whether the restart was caused by runtime drift, workflow drift, or both. If it reports any stale `*-busy` state, record that fact in the wake-up log and defer restart until the next idle or post-merge checkpoint. If it reports `fresh`, do not restart just because a repository merge happened.
-6. Before any ordinary queue-advancement work after the freshness check is clear, run `pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-repo-root> --json` for the selected instance and treat any `report-ready` or `review-blocked` entry as the first operator checkpoint after the factory-health read.
-7. For each pending completed-run report review:
-   - read the generated report under `.var/reports/issues/<issue-number>/`
-   - decide whether the report yields no tracked follow-up, a concrete follow-up issue, or a blocked review state
-   - persist the decision through `symphony-report review-record` or `symphony-report review-follow-up`
-   - and record what the report taught the factory in standing context or in the append-only wake-up log as appropriate
-8. Before any downstream release advancement work after completed-run report review is clear, run `pnpm tsx bin/check-operator-release-state.ts --operator-repo-root <operator-repo-root> --json` for the selected instance.
-9. Treat `.ralph/instances/<instance-key>/release-state.json` as the canonical operator-local release artifact. The operator loop now runs `pnpm tsx bin/promote-operator-ready-issues.ts` after that checkpoint so the stored `promotion` section records the latest eligible downstream set plus any `symphony:ready` labels added or removed.
-10. If the release-state artifact reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, or if ready promotion reports `sync-failed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure, metadata gap, or label-sync failure is resolved.
-11. Use bounded, one-shot probes during the wake-up cycle. Avoid long-running `watch`, follow, or sleep-heavy commands in the critical wake-up path; if extra inspection is needed, prefer short single reads and proceed from the latest successful control snapshot instead of waiting indefinitely for secondary surfaces.
-12. Compare the supported live watch/TUI surface against `factory status --json` whenever practical, but only with bounded probes. Treat `factory status --json` as source of truth and treat meaningful TUI mismatches as bugs to fix or track.
-13. Before moving on, explicitly check for operator-gated work that the factory cannot clear by itself:
-    - any active issue waiting in `plan-ready` / `awaiting-human-handoff`
-    - any PR or active issue waiting in `awaiting-landing-command`
-14. If the factory is unhealthy, fix the concrete problem and restart it.
-15. If a PR has actionable CI or review feedback, fix it on the PR branch, rerun local QA, push, and continue watching.
-16. AGENTS.md and WORKFLOW.md treat checks that remain non-terminal for more than 30 minutes as blocked infrastructure by default. For operator wake-ups, use this narrower carve-out: if the same stuck-check behavior is locally reproducible, treat it as active operator-owned work instead of passive infrastructure waiting, and continue debugging until the PR is actually green or the remaining blocker is clearly external.
-17. If an active issue is waiting in `plan-ready`, inspect the selected workflow's configured `tracker.plan_review` markers, then review the plan against the selected instance root at `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT`. Read that repository's `WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist; if the selected instance differs from the operator checkout, do not import `symphony-ts` planning standards into that external repository. Post an explicit review decision comment using the selected workflow's protocol. When no override is configured, the defaults remain `Plan review: approved`, `Plan review: changes-requested`, and `Plan review: waived`.
+The operator loop refreshes `control-state.json` before the operator command
+runs. Treat that artifact as the code-owned source of truth for deterministic
+wake-up ordering.
 
-18. If a PR is green, review-clean, and waiting in `awaiting-landing-command`, post `/land` on the PR as part of the wake-up cycle unless the user has explicitly told you not to land work automatically.
-19. After posting a review decision or `/land`, verify the factory acknowledges it and transitions correctly.
-20. When a `/land` completes and the PR actually merges, fast-forward the selected instance root checkout to the latest `origin/main`, rerun the freshness check, and restart the detached factory only when it reports a stale `*-idle` state. Self-hosting merges should normally surface runtime drift; external instances should not restart when the merge left both the runtime engine and selected `WORKFLOW.md` unchanged.
-21. Only seed or relabel the next issue when the queue is empty or the factory would otherwise be idle.
+`control-state.json` summarizes, in fixed order:
+
+1. factory health and runtime freshness
+2. completed-run report-review backlog
+3. release-state and ready-promotion gates
+4. pending plan-review or landing actions
+
+The prompt should consume that artifact rather than restating the full
+checkpoint algorithm. When the checked-in prompt and `control-state.json`
+disagree, trust the generated artifact and fix the prompt or code through the
+normal PR flow.
+
+## Wake-Up Expectations
+
+1. Read the selected instance's standing context first, then the wake-up log.
+2. Read `control-state.json` and follow its highest-priority blocked or pending checkpoint before ordinary queue work.
+3. If the runtime checkpoint is blocked, repair the concrete runtime or freshness problem first. Stale `*-idle` means restart before queue work; stale `*-busy` means record the drift and defer restart until the next safe checkpoint.
+4. If completed-run report review is blocked, read the generated report evidence, persist a review decision with `symphony-report review-record` or `symphony-report review-follow-up`, and record durable lessons in the right notebook surface.
+5. If the release checkpoint is blocked, do not promote downstream tickets or post `/land` for blocked release work until the prerequisite failure, metadata gap, or label-sync failure is resolved.
+6. If operator-gated actions are pending and earlier checkpoints are clear, handle `awaiting-human-handoff` plan review and `awaiting-landing-command` `/land` work during the cycle.
+7. After posting a plan-review decision or `/land`, verify the factory observes it and transitions correctly.
+8. After a merge, fast-forward the selected instance root to `origin/main`, rerun the freshness checkpoint, and restart only when the runtime engine or selected `WORKFLOW.md` is actually stale.
+9. Use bounded, one-shot probes during the wake-up cycle. Prefer short reads over long-running watchers in the critical path.
 
 ## Operational Rules
 

@@ -47,6 +47,9 @@ When resumable mode is enabled, the operator state root also carries
 `operator-session.json`, and `status.json` / `status.md` expose the resolved
 provider, model, command source, effective command, session mode, and any
 automatic reset reason.
+Each wake-up also refreshes `control-state.json`, the code-owned checkpoint
+snapshot that summarizes runtime health, report-review backlog, release gates,
+and pending plan-review or landing actions for that cycle.
 
 Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh`
 from inside an active wake-up shell. Use the supported factory-control and
@@ -87,39 +90,40 @@ Normal path rules:
 
 Run this sequence at the start of each operator pass:
 
-1. Inspect `pnpm tsx bin/symphony.ts factory status --json`, appending `--workflow <path>` whenever the operator checkout is not the target instance root.
-2. Before ordinary queue work, inspect completed-run report review state with:
+1. Read `.ralph/instances/<instance-key>/control-state.json` first. Treat it as the code-owned checkpoint ordering for the cycle, not just as a hint.
+2. Inspect `pnpm tsx bin/symphony.ts factory status --json` when you need the underlying factory-health evidence behind the runtime checkpoint, appending `--workflow <path>` whenever the operator checkout is not the target instance root.
+3. Before ordinary queue work, inspect completed-run report review state with:
 
 ```bash
 pnpm tsx bin/symphony-report.ts review-pending --operator-repo-root <operator-checkout> --json
 pnpm tsx bin/symphony-report.ts review-pending --workflow ../target-repo/WORKFLOW.md --operator-repo-root <operator-checkout> --json
 ```
 
-3. If `review-pending` reports any `report-ready` or `review-blocked` entries, handle those completed-run reports first:
+4. If `review-pending` reports any `report-ready` or `review-blocked` entries, handle those completed-run reports first:
    - read the generated evidence under `.var/reports/issues/<issue-number>/`
    - record a no-follow-up decision with `symphony-report.ts review-record`
    - or create a tracked follow-up issue with `symphony-report.ts review-follow-up`
    - and record durable guidance in standing context plus per-cycle findings in the wake-up log
-4. Before downstream release advancement work, inspect release dependency state with:
+5. Before downstream release advancement work, inspect release dependency state with:
 
 ```bash
 pnpm tsx bin/check-operator-release-state.ts --operator-repo-root <operator-checkout> --json
 pnpm tsx bin/check-operator-release-state.ts --workflow ../target-repo/WORKFLOW.md --operator-repo-root <operator-checkout> --json
 ```
 
-5. Treat `.ralph/instances/<instance-key>/release-state.json` as the canonical operator-local release artifact. If it reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure or metadata gap is resolved.
-6. The operator loop now runs `pnpm tsx bin/promote-operator-ready-issues.ts` immediately after that checkpoint. Read the stored `promotion` section in `release-state.json` when you need the latest eligible downstream issues or the exact `symphony:ready` labels that were added or removed.
-7. If ready promotion reports `sync-failed`, treat that as a release-advancement blocker alongside `blocked-by-prerequisite-failure` and `blocked-review-needed` until the label-sync failure is repaired.
-8. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
-9. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
-10. Check for operator-gated work the factory cannot clear by itself:
+6. Treat `.ralph/instances/<instance-key>/release-state.json` as the canonical operator-local release artifact. If it reports `blocked-by-prerequisite-failure` or `blocked-review-needed`, do not promote downstream tickets or post `/land` for downstream PRs in that release until the blocking prerequisite failure or metadata gap is resolved.
+7. The operator loop now runs `pnpm tsx bin/promote-operator-ready-issues.ts` immediately after that checkpoint. Read the stored `promotion` section in `release-state.json` when you need the latest eligible downstream issues or the exact `symphony:ready` labels that were added or removed.
+8. If ready promotion reports `sync-failed`, treat that as a release-advancement blocker alongside `blocked-by-prerequisite-failure` and `blocked-review-needed` until the label-sync failure is repaired.
+9. If useful, compare the live watch surface with `pnpm tsx bin/symphony.ts factory watch`, using the same explicit workflow selector.
+10. Use `pnpm tsx bin/symphony.ts factory attach` only when you need the real full-screen TUI for deeper live inspection; `Ctrl-C` exits the attach client only.
+11. Check for operator-gated work the factory cannot clear by itself:
 
 - active issues in `awaiting-human-handoff`
 - active issues or PRs in `awaiting-landing-command`
 
-11. If the detached runtime is stopped or degraded, repair that first.
-12. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. Do not do that for work the release-state artifact says is blocked by a failed prerequisite, unresolved dependency metadata, or a ready-promotion sync failure. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
-13. After a merge, fast-forward the instance root checkout to `origin/main`, rerun `bin/check-factory-runtime-freshness.ts`, and restart the detached factory only when the assessment reports that the runtime engine or selected `WORKFLOW.md` is stale. Self-hosting merges should normally produce runtime drift; external instances should stay up when the merge changed unrelated repository files only.
+12. If the detached runtime is stopped or degraded, repair that first.
+13. If a PR is green, review-clean, and required approved bot review has been observed on the current head, post `/land`. Do not do that for work the release-state artifact says is blocked by a failed prerequisite, unresolved dependency metadata, or a ready-promotion sync failure. If expected reviewer-app output is still missing after checks settle, treat that as degraded infrastructure instead of a normal wait.
+14. After a merge, fast-forward the instance root checkout to `origin/main`, rerun `bin/check-factory-runtime-freshness.ts`, and restart the detached factory only when the assessment reports that the runtime engine or selected `WORKFLOW.md` is stale. Self-hosting merges should normally produce runtime drift; external instances should stay up when the merge changed unrelated repository files only.
 
 Do not act as a second scheduler. If the factory is healthy, let it own dispatch, retries, and PR follow-up.
 
@@ -251,6 +255,8 @@ Operator-loop generated state is separate from that runtime surface. It stays
 under the operator checkout's `.ralph/instances/<instance-key>/` tree so two
 operator loops targeting different instances do not overwrite each other's
 standing context, wake-up log, status, logs, or lock files.
+`control-state.json` lives there as the cycle-local checkpoint surface that the
+prompt should read before any queue or landing work.
 Completed-run report review state also lives there in
 `report-review-state.json`; this is the machine-readable ledger for which
 generated reports are pending review, reviewed, or blocked, and which follow-up

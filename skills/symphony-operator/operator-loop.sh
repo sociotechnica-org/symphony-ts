@@ -10,6 +10,7 @@ INSTANCE_STATE_RESOLVER="$REPO_ROOT/bin/resolve-operator-instance.ts"
 OPERATOR_CONFIG_RESOLVER="$REPO_ROOT/bin/resolve-operator-loop-config.ts"
 PREPARE_OPERATOR_CYCLE="$REPO_ROOT/bin/prepare-operator-loop-cycle.ts"
 RECORD_OPERATOR_CYCLE="$REPO_ROOT/bin/record-operator-loop-cycle.ts"
+CONTROL_STATE_REFRESHER="$REPO_ROOT/bin/refresh-operator-control-state.ts"
 RELEASE_STATE_CHECKER="$REPO_ROOT/bin/check-operator-release-state.ts"
 READY_PROMOTER="$REPO_ROOT/bin/promote-operator-ready-issues.ts"
 INSTANCE_KEY=""
@@ -21,6 +22,7 @@ LOCK_DIR=""
 LOCK_INFO_FILE=""
 STATUS_JSON=""
 STATUS_MD=""
+CONTROL_STATE=""
 STANDING_CONTEXT=""
 WAKE_UP_LOG=""
 LEGACY_SCRATCHPAD=""
@@ -68,6 +70,10 @@ READY_PROMOTION_ELIGIBLE_ISSUES=""
 READY_PROMOTION_ADDED=""
 READY_PROMOTION_REMOVED=""
 ACTIVE_WAKE_UP_LEASE_HELD=0
+OPERATOR_CONTROL_POSTURE="runtime-blocked"
+OPERATOR_CONTROL_SUMMARY="Operator control state is unavailable."
+OPERATOR_CONTROL_BLOCKING_CHECKPOINT=""
+OPERATOR_CONTROL_NEXT_ACTION_SUMMARY=""
 
 usage() {
   cat <<'EOF'
@@ -185,6 +191,7 @@ const data = JSON.parse(fs.readFileSync(0, "utf8"));
   lockInfoFile: "LOCK_INFO_FILE",
   statusJsonPath: "STATUS_JSON",
   statusMdPath: "STATUS_MD",
+  controlStatePath: "CONTROL_STATE",
   standingContextPath: "STANDING_CONTEXT",
   wakeUpLogPath: "WAKE_UP_LOG",
   legacyScratchpadPath: "LEGACY_SCRATCHPAD",
@@ -325,6 +332,36 @@ for (const [jsonKey, shellKey] of Object.entries(mappings)) {
   eval "$recorded_exports"
 }
 
+refresh_operator_control_state() {
+  local control_json control_exports
+  control_json="$(
+    pnpm tsx "$CONTROL_STATE_REFRESHER" \
+      --workflow "$WORKFLOW_PATH" \
+      --operator-repo-root "$REPO_ROOT" \
+      --json
+  )"
+  control_exports="$(
+    printf '%s' "$control_json" | node -e '
+const fs = require("node:fs");
+const data = JSON.parse(fs.readFileSync(0, "utf8"));
+const mapping = {
+  posture: "OPERATOR_CONTROL_POSTURE",
+  summary: "OPERATOR_CONTROL_SUMMARY",
+  blockingCheckpoint: "OPERATOR_CONTROL_BLOCKING_CHECKPOINT",
+  nextActionSummary: "OPERATOR_CONTROL_NEXT_ACTION_SUMMARY",
+};
+for (const [jsonKey, shellKey] of Object.entries(mapping)) {
+  const value = data[jsonKey];
+  if (value !== null && typeof value !== "string") {
+    throw new Error(`Expected string|null for ${jsonKey}`);
+  }
+  console.log(`${shellKey}=${JSON.stringify(value ?? "")}`);
+}
+'
+  )"
+  eval "$control_exports"
+}
+
 write_cycle_log_header() {
   local log_file="$1"
 
@@ -337,6 +374,9 @@ write_cycle_log_header() {
     printf 'selected_instance_root=%s\n' "$SELECTED_INSTANCE_ROOT"
     printf 'operator_state_root=%s\n' "$INSTANCE_STATE_ROOT"
     printf 'selected_workflow=%s\n' "${WORKFLOW_PATH:-}"
+    printf 'control_state=%s\n' "$CONTROL_STATE"
+    printf 'control_posture=%s\n' "$OPERATOR_CONTROL_POSTURE"
+    printf 'control_summary=%s\n' "$OPERATOR_CONTROL_SUMMARY"
     printf 'provider=%s\n' "$OPERATOR_PROVIDER"
     printf 'model=%s\n' "${OPERATOR_MODEL:-}"
     printf 'command_source=%s\n' "$OPERATOR_COMMAND_SOURCE"
@@ -658,6 +698,66 @@ write_status() {
   local updated_at
   updated_at="$(now_utc)"
   load_release_state_snapshot
+  if [ -f "$CONTROL_STATE" ]; then
+    local control_state_exports
+    control_state_exports="$(
+      CONTROL_STATE="$CONTROL_STATE" node -e '
+const fs = require("node:fs");
+const defaults = {
+  posture: "runtime-blocked",
+  summary: "Operator control state is unavailable.",
+  blockingCheckpoint: "",
+  nextActionSummary: "",
+};
+try {
+  const raw = fs.readFileSync(process.env.CONTROL_STATE, "utf8");
+  const parsed = JSON.parse(raw);
+  defaults.posture =
+    typeof parsed.posture === "string" ? parsed.posture : defaults.posture;
+  defaults.summary =
+    typeof parsed.summary === "string" ? parsed.summary : defaults.summary;
+  defaults.blockingCheckpoint =
+    typeof parsed.blockingCheckpoint === "string"
+      ? parsed.blockingCheckpoint
+      : defaults.blockingCheckpoint;
+  defaults.nextActionSummary =
+    typeof parsed.nextActionSummary === "string"
+      ? parsed.nextActionSummary
+      : defaults.nextActionSummary;
+} catch (error) {
+  defaults.summary = `Operator control state could not be read: ${error instanceof Error ? error.message : String(error)}`;
+}
+for (const [key, value] of Object.entries(defaults)) {
+  console.log(`${key}=${JSON.stringify(value)}`);
+}
+' \
+        | node -e '
+const fs = require("node:fs");
+const lines = fs.readFileSync(0, "utf8").trim().split(/\n/u);
+for (const line of lines) {
+  if (!line) {
+    continue;
+  }
+  const index = line.indexOf("=");
+  const key = line.slice(0, index);
+  const value = JSON.parse(line.slice(index + 1));
+  const mapping = {
+    posture: "OPERATOR_CONTROL_POSTURE",
+    summary: "OPERATOR_CONTROL_SUMMARY",
+    blockingCheckpoint: "OPERATOR_CONTROL_BLOCKING_CHECKPOINT",
+    nextActionSummary: "OPERATOR_CONTROL_NEXT_ACTION_SUMMARY",
+  };
+  console.log(`${mapping[key]}=${JSON.stringify(value)}`);
+}
+'
+    )"
+    eval "$control_state_exports"
+  else
+    OPERATOR_CONTROL_POSTURE="runtime-blocked"
+    OPERATOR_CONTROL_SUMMARY="Operator control state has not been generated yet."
+    OPERATOR_CONTROL_BLOCKING_CHECKPOINT=""
+    OPERATOR_CONTROL_NEXT_ACTION_SUMMARY=""
+  fi
   if [ -n "$RELEASE_STATE_REFRESH_ERROR" ]; then
     RELEASE_ADVANCEMENT_STATE="unavailable"
     RELEASE_STATE_SUMMARY="$RELEASE_STATE_REFRESH_ERROR"
@@ -686,6 +786,13 @@ write_status() {
   "command": "$(json_escape "$BASE_OPERATOR_COMMAND")",
   "effectiveCommand": "$(json_escape "$EFFECTIVE_OPERATOR_COMMAND")",
   "promptFile": "$(json_escape "$PROMPT_FILE")",
+  "operatorControl": {
+    "path": "$(json_escape "$CONTROL_STATE")",
+    "posture": "$(json_escape "$OPERATOR_CONTROL_POSTURE")",
+    "summary": "$(json_escape "$OPERATOR_CONTROL_SUMMARY")",
+    "blockingCheckpoint": $(if [ -n "$OPERATOR_CONTROL_BLOCKING_CHECKPOINT" ]; then printf '"%s"' "$(json_escape "$OPERATOR_CONTROL_BLOCKING_CHECKPOINT")"; else printf 'null'; fi),
+    "nextActionSummary": $(if [ -n "$OPERATOR_CONTROL_NEXT_ACTION_SUMMARY" ]; then printf '"%s"' "$(json_escape "$OPERATOR_CONTROL_NEXT_ACTION_SUMMARY")"; else printf 'null'; fi)
+  },
   "standingContext": "$(json_escape "$STANDING_CONTEXT")",
   "wakeUpLog": "$(json_escape "$WAKE_UP_LOG")",
   "operatorSession": {
@@ -763,6 +870,11 @@ EOF
 - Ready promotion removed: ${READY_PROMOTION_REMOVED:-none}
 - Report review state: $REPORT_REVIEW_STATE
 - Prompt: $PROMPT_FILE
+- Operator control state: $CONTROL_STATE
+- Operator control posture: $OPERATOR_CONTROL_POSTURE
+- Operator control summary: $OPERATOR_CONTROL_SUMMARY
+- Operator control blocking checkpoint: ${OPERATOR_CONTROL_BLOCKING_CHECKPOINT:-none}
+- Operator control next action: ${OPERATOR_CONTROL_NEXT_ACTION_SUMMARY:-n/a}
 - Last cycle started: ${LAST_CYCLE_STARTED_AT:-n/a}
 - Last cycle finished: ${LAST_CYCLE_FINISHED_AT:-n/a}
 - Last cycle exit code: ${LAST_CYCLE_EXIT_CODE:-n/a}
@@ -906,6 +1018,7 @@ run_cycle() {
     :
   fi
   prepare_operator_cycle
+  refresh_operator_control_state
   write_cycle_log_header "$log_file"
   emit_terminal_trace "waking up (${OPERATOR_PROVIDER}${OPERATOR_MODEL:+/$OPERATOR_MODEL}; $(describe_cycle_terminal_mode))"
   write_status "acting" "Running operator wake-up cycle"
@@ -934,6 +1047,9 @@ run_cycle() {
     export SYMPHONY_OPERATOR_STANDING_CONTEXT="$STANDING_CONTEXT"
     export SYMPHONY_OPERATOR_WAKE_UP_LOG="$WAKE_UP_LOG"
     export SYMPHONY_OPERATOR_LEGACY_SCRATCHPAD="$LEGACY_SCRATCHPAD"
+    export SYMPHONY_OPERATOR_CONTROL_STATE="$CONTROL_STATE"
+    export SYMPHONY_OPERATOR_CONTROL_POSTURE="$OPERATOR_CONTROL_POSTURE"
+    export SYMPHONY_OPERATOR_CONTROL_SUMMARY="$OPERATOR_CONTROL_SUMMARY"
     export SYMPHONY_OPERATOR_RELEASE_STATE="$RELEASE_STATE"
     export SYMPHONY_OPERATOR_STATUS_JSON="$STATUS_JSON"
     export SYMPHONY_OPERATOR_STATUS_MD="$STATUS_MD"
@@ -965,6 +1081,7 @@ run_cycle() {
   if ! run_ready_promotion_nonfatal; then
     :
   fi
+  refresh_operator_control_state
 
   if [ "$exit_code" -eq 0 ]; then
     cycle_message="Operator cycle completed successfully"
@@ -1009,6 +1126,11 @@ fi
 
 if [ ! -f "$RECORD_OPERATOR_CYCLE" ]; then
   echo "operator-loop: operator cycle recorder not found: $RECORD_OPERATOR_CYCLE" >&2
+  exit 1
+fi
+
+if [ ! -f "$CONTROL_STATE_REFRESHER" ]; then
+  echo "operator-loop: operator control-state refresher not found: $CONTROL_STATE_REFRESHER" >&2
   exit 1
 fi
 

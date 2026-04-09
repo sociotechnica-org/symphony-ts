@@ -2,7 +2,7 @@
 
 ## Status
 
-- plan-ready
+- approved
 
 ## Goal
 
@@ -301,16 +301,16 @@ operator-loop-local checkpoint posture model for one wake-up cycle.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker / artifact facts available | Expected decision |
-| --- | --- | --- | --- |
-| Detached runtime is stopped, degraded, or unreadable | `factory status --json` control state | current active issue state may be stale | classify `runtime-blocked`; repair runtime before ordinary queue work |
-| Freshness reports stale `*-idle` | runtime-freshness result and selected instance paths | merge or workflow drift facts | classify `runtime-blocked`; restart before queue advancement |
-| Freshness reports stale `*-busy` | runtime-freshness result | live worker still active | record stale-but-busy; do not restart immediately; keep ordinary queue work blocked until the current run reaches a safe checkpoint |
-| Completed-run reports are `report-ready` or `review-blocked` | operator review ledger plus report artifacts | no tracker mutation required yet | classify `report-review-blocked`; review reports before plan review or landing |
-| Release state is `blocked-by-prerequisite-failure`, `blocked-review-needed`, or promotion is `sync-failed` | `release-state.json` and promotion result | downstream issue/PR metadata | classify `release-blocked`; do not promote or `/land` blocked release work |
-| Active issue is `awaiting-human-handoff` and earlier blockers are clear | factory status plus selected instance docs | normalized plan-review lifecycle | classify `action-required`; prompt should review the plan using repo-owned policy |
-| PR or active issue is `awaiting-landing-command` and earlier blockers are clear | factory status plus review/check summaries | normalized landing-ready lifecycle | classify `action-required`; prompt should consider posting `/land` if the guard conditions are satisfied |
-| No blockers and no operator-gated action remain | all checkpoint inputs clear | no pending handoff work | classify `clear`; operator should record the cycle and stop |
+| Observed condition                                                                                         | Local facts available                                | Normalized tracker / artifact facts available | Expected decision                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Detached runtime is stopped, degraded, or unreadable                                                       | `factory status --json` control state                | current active issue state may be stale       | classify `runtime-blocked`; repair runtime before ordinary queue work                                                               |
+| Freshness reports stale `*-idle`                                                                           | runtime-freshness result and selected instance paths | merge or workflow drift facts                 | classify `runtime-blocked`; restart before queue advancement                                                                        |
+| Freshness reports stale `*-busy`                                                                           | runtime-freshness result                             | live worker still active                      | record stale-but-busy; do not restart immediately; keep ordinary queue work blocked until the current run reaches a safe checkpoint |
+| Completed-run reports are `report-ready` or `review-blocked`                                               | operator review ledger plus report artifacts         | no tracker mutation required yet              | classify `report-review-blocked`; review reports before plan review or landing                                                      |
+| Release state is `blocked-by-prerequisite-failure`, `blocked-review-needed`, or promotion is `sync-failed` | `release-state.json` and promotion result            | downstream issue/PR metadata                  | classify `release-blocked`; do not promote or `/land` blocked release work                                                          |
+| Active issue is `awaiting-human-handoff` and earlier blockers are clear                                    | factory status plus selected instance docs           | normalized plan-review lifecycle              | classify `action-required`; prompt should review the plan using repo-owned policy                                                   |
+| PR or active issue is `awaiting-landing-command` and earlier blockers are clear                            | factory status plus review/check summaries           | normalized landing-ready lifecycle            | classify `action-required`; prompt should consider posting `/land` if the guard conditions are satisfied                            |
+| No blockers and no operator-gated action remain                                                            | all checkpoint inputs clear                          | no pending handoff work                       | classify `clear`; operator should record the cycle and stop                                                                         |
 
 ## Storage / Persistence Contract
 
@@ -399,8 +399,8 @@ operator-loop-local checkpoint posture model for one wake-up cycle.
    - release blocked
    - plan-review required
    - landing required
-   through the generated control-state artifact without changing tracker
-   lifecycle kinds
+     through the generated control-state artifact without changing tracker
+     lifecycle kinds
 
 ## Exit Criteria
 

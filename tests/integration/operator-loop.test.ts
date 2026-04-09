@@ -92,6 +92,7 @@ async function runOperatorLoop(workflowPath: string): Promise<{
   readonly stateRoot: string;
   readonly statusJsonPath: string;
   readonly statusMdPath: string;
+  readonly controlStatePath: string;
   readonly standingContextPath: string;
   readonly wakeUpLogPath: string;
   readonly legacyScratchpadPath: string;
@@ -114,6 +115,7 @@ async function runOperatorLoopWithOptions(
   readonly stateRoot: string;
   readonly statusJsonPath: string;
   readonly statusMdPath: string;
+  readonly controlStatePath: string;
   readonly standingContextPath: string;
   readonly wakeUpLogPath: string;
   readonly legacyScratchpadPath: string;
@@ -159,6 +161,7 @@ async function runOperatorLoopWithOptions(
     stateRoot: paths.operatorStateRoot,
     statusJsonPath: paths.statusJsonPath,
     statusMdPath: paths.statusMdPath,
+    controlStatePath: paths.controlStatePath,
     standingContextPath: paths.standingContextPath,
     wakeUpLogPath: paths.wakeUpLogPath,
     legacyScratchpadPath: paths.legacyScratchpadPath,
@@ -500,6 +503,10 @@ describe("operator loop workflow selection", () => {
         readonly selectedWorkflowPath: string | null;
         readonly selectedInstanceRoot: string;
         readonly operatorStateRoot: string;
+        readonly operatorControl: {
+          readonly path: string;
+          readonly posture: string;
+        };
         readonly standingContext: string;
         readonly wakeUpLog: string;
         readonly releaseState: {
@@ -517,6 +524,8 @@ describe("operator loop workflow selection", () => {
       expect(statusJson.selectedWorkflowPath).toBe(workflowPath);
       expect(statusJson.selectedInstanceRoot).toBe(path.dirname(workflowPath));
       expect(statusJson.operatorStateRoot).toBe(run.stateRoot);
+      expect(statusJson.operatorControl.path).toBe(run.controlStatePath);
+      expect(statusJson.operatorControl.posture).toBe("runtime-blocked");
       expect(statusJson.standingContext).toBe(run.standingContextPath);
       expect(statusJson.wakeUpLog).toBe(run.wakeUpLogPath);
       expect(statusJson.releaseState.path).toBe(run.releaseStatePath);
@@ -635,7 +644,7 @@ describe("operator loop workflow selection", () => {
     }
   });
 
-  it("prompts the operator to read the notebook first and review completed-run reports before other queue work", async () => {
+  it("prompts the operator to read the generated control state instead of restating the full checkpoint loop", async () => {
     const tempDir = await createTempDir("symphony-operator-loop-prompt-");
     const workflowPath = await writeWorkflow(tempDir);
     const promptCapture = path.join(tempDir, "operator-prompt.txt");
@@ -647,16 +656,9 @@ describe("operator loop workflow selection", () => {
       );
       createdPaths.add(tempDir);
       const prompt = await fs.readFile(promptCapture, "utf8");
-      const freshnessIndex = prompt.indexOf(
-        "bin/check-factory-runtime-freshness.ts",
+      const controlStateIndex = prompt.indexOf(
+        "SYMPHONY_OPERATOR_CONTROL_STATE",
       );
-      const reportReviewIndex = prompt.indexOf(
-        "bin/symphony-report.ts review-pending",
-      );
-      const releaseStateIndex = prompt.indexOf(
-        "bin/check-operator-release-state.ts",
-      );
-      const queueWorkIndex = prompt.indexOf("review any active `plan-ready`");
       const standingContextIndex = prompt.indexOf(
         "SYMPHONY_OPERATOR_STANDING_CONTEXT",
       );
@@ -664,40 +666,30 @@ describe("operator loop workflow selection", () => {
       const nestedLoopIndex = prompt.indexOf(
         "Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh`",
       );
-      const appendIndex = prompt.indexOf(
-        "append a new timestamped journal entry",
-      );
+      const appendIndex = prompt.indexOf("Append a timestamped entry");
 
-      expect(freshnessIndex).toBeGreaterThanOrEqual(0);
-      expect(reportReviewIndex).toBeGreaterThanOrEqual(0);
-      expect(releaseStateIndex).toBeGreaterThanOrEqual(0);
-      expect(queueWorkIndex).toBeGreaterThanOrEqual(0);
+      expect(controlStateIndex).toBeGreaterThanOrEqual(0);
       expect(standingContextIndex).toBeGreaterThanOrEqual(0);
       expect(wakeUpLogIndex).toBeGreaterThanOrEqual(0);
       expect(nestedLoopIndex).toBeGreaterThanOrEqual(0);
       expect(appendIndex).toBeGreaterThanOrEqual(0);
-      expect(freshnessIndex).toBeLessThan(reportReviewIndex);
-      expect(reportReviewIndex).toBeLessThan(releaseStateIndex);
-      expect(releaseStateIndex).toBeLessThan(queueWorkIndex);
-      expect(prompt).toContain("bin/check-factory-runtime-freshness.ts");
-      expect(prompt).toContain("stale `*-idle` state");
-      expect(prompt).toContain(
-        "external instances, do not restart when only unrelated repository files changed",
-      );
-      expect(prompt).toContain(
-        "For self-hosting merges, that should normally surface as runtime drift",
-      );
+      expect(controlStateIndex).toBeGreaterThan(standingContextIndex);
       expect(standingContextIndex).toBeLessThan(appendIndex);
-      expect(prompt).toContain("bin/symphony-report.ts review-pending");
-      expect(prompt).toContain("bin/check-operator-release-state.ts");
-      expect(prompt).toContain("Read the instance-scoped standing context");
+      expect(prompt).toContain("Read `SYMPHONY_OPERATOR_STANDING_CONTEXT`");
+      expect(prompt).toContain(
+        "Treat `SYMPHONY_OPERATOR_CONTROL_STATE` as the code-owned source of truth",
+      );
+      expect(prompt).toContain("pending plan-review and `/land` actions");
       expect(prompt).toContain("SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT");
       expect(prompt).toContain(
-        "selected instance root if they exist, and do not apply `symphony-ts` planning standards",
+        "Do not apply `symphony-ts` planning standards to an external repository",
       );
       expect(prompt).toContain(
         "Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh`",
       );
+      expect(prompt).not.toContain("bin/check-factory-runtime-freshness.ts");
+      expect(prompt).not.toContain("bin/symphony-report.ts review-pending");
+      expect(prompt).not.toContain("bin/check-operator-release-state.ts");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
@@ -718,6 +710,57 @@ describe("operator loop workflow selection", () => {
       expect(await fs.readFile(capturePath, "utf8")).toBe(
         path.dirname(workflowPath),
       );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes and exports the operator control-state artifact", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-control-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const capturePath = path.join(tempDir, "control-state-path.txt");
+
+    try {
+      const run = await runOperatorLoopWithOptions(workflowPath, {
+        env: {
+          SYMPHONY_OPERATOR_COMMAND: `node -e ${JSON.stringify(`require("node:fs").writeFileSync(${JSON.stringify(capturePath)}, process.env.SYMPHONY_OPERATOR_CONTROL_STATE ?? "")`)}`,
+        },
+      });
+      createdPaths.add(tempDir);
+      createdPaths.add(run.stateRoot);
+      if (run.logFile !== null) {
+        createdPaths.add(run.logFile);
+      }
+
+      const exportedPath = await fs.readFile(capturePath, "utf8");
+      const controlState = JSON.parse(
+        await fs.readFile(run.controlStatePath, "utf8"),
+      ) as {
+        readonly posture: string;
+        readonly summary: string;
+        readonly actions: {
+          readonly state: string;
+        };
+      };
+      const statusJson = JSON.parse(
+        await fs.readFile(run.statusJsonPath, "utf8"),
+      ) as {
+        readonly operatorControl: {
+          readonly path: string;
+          readonly posture: string;
+          readonly summary: string;
+        };
+      };
+
+      expect(exportedPath).toBe(run.controlStatePath);
+      expect(controlState.posture).toBe("runtime-blocked");
+      expect(controlState.summary).toContain(
+        "Factory is not currently running",
+      );
+      expect(controlState.actions.state).toBe("clear");
+      expect(statusJson.operatorControl.path).toBe(run.controlStatePath);
+      expect(statusJson.operatorControl.posture).toBe("runtime-blocked");
+      expect(statusJson.operatorControl.summary).toBe(controlState.summary);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

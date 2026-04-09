@@ -187,6 +187,9 @@ local/generated-only for per-instance standing context, append-only wake-up
 history, loop status, logs, and lock files under
 `.ralph/instances/<instance-key>/`, including the
 machine-readable completed-run review ledger `report-review-state.json`.
+The same state root now also carries `control-state.json`, the generated
+checkpoint snapshot that the operator prompt reads instead of restating the
+entire wake-up algorithm.
 The same operator state root now also carries `release-state.json`, the typed
 record of configured release dependencies plus the current blocked or clear
 release-advancement posture for that instance.
