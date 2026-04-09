@@ -1,7 +1,7 @@
 import { Liquid } from "liquidjs";
 import type { HandoffLifecycle } from "../domain/handoff.js";
 import type { PromptIssueContext } from "../domain/prompt-context.js";
-import { WorkflowError } from "../domain/errors.js";
+import { ConfigError, WorkflowError } from "../domain/errors.js";
 import type {
   PromptBuilder,
   ResolvedConfig,
@@ -130,5 +130,7 @@ function renderContinuationPrompt(
 }
 
 function exhaustiveTrackerConfig(tracker: never): never {
-  throw new Error(`Unsupported tracker config '${JSON.stringify(tracker)}'`);
+  throw new ConfigError(
+    `Unsupported tracker config '${JSON.stringify(tracker)}'`,
+  );
 }

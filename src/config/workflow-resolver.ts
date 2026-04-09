@@ -103,7 +103,7 @@ export function resolveConfig(
     agent: resolveAgentConfig({
       agent,
       repo,
-      workerHosts: resolvedWorkspace.workerHosts ?? {},
+      workerHosts: resolvedWorkspace.workerHosts,
     }),
     observability: resolveObservabilityConfig(observabilityRaw, instanceRoot),
   };

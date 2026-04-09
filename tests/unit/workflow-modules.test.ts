@@ -2,11 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  createPromptBuilder,
   loadWorkflow,
   loadWorkflowInstancePaths,
 } from "../../src/config/workflow.js";
-import { createPromptBuilder } from "../../src/config/workflow-prompt-builder.js";
-import { readParsedWorkflow } from "../../src/config/workflow-source.js";
 import { createTempDir } from "../support/git.js";
 
 function buildWorkflow(
@@ -43,23 +42,29 @@ agent:
 }
 
 describe("workflow module seams", () => {
-  it("parses workflow frontmatter and trims the prompt body in the source loader", async () => {
-    const dir = await createTempDir("workflow-source-");
+  it("loads workflow definitions through the public facade and trims the prompt body", async () => {
+    const dir = await createTempDir("workflow-loader-");
     const workflowPath = path.join(dir, "WORKFLOW.md");
     await fs.writeFile(
       workflowPath,
       buildWorkflow(
-        `workspace:
-  root: ./.tmp/ws`,
+        `tracker:
+  repo: sociotechnica-org/symphony-ts
+  api_url: https://api.github.com
+  ready_label: symphony:ready
+  running_label: symphony:running
+  failed_label: symphony:failed
+  success_comment: done
+${buildSharedWorkflowSections()}`,
         "\nPrompt body from source loader\n\n",
       ),
       "utf8",
     );
 
-    const parsed = await readParsedWorkflow(workflowPath);
+    const workflow = await loadWorkflow(workflowPath);
 
-    expect(parsed.frontMatter.workspace).toEqual({ root: "./.tmp/ws" });
-    expect(parsed.body).toBe("Prompt body from source loader");
+    expect(workflow.promptTemplate).toBe("Prompt body from source loader");
+    expect(workflow.config.workspace.root).toBe(path.join(dir, ".tmp", "ws"));
   });
 
   it("loads instance paths without requiring the full workflow config to resolve", async () => {

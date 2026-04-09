@@ -16,7 +16,7 @@ export interface ParsedWorkflow {
   readonly body: string;
 }
 
-export function parseFrontMatter(raw: string): ParsedWorkflow {
+function parseFrontMatter(raw: string): ParsedWorkflow {
   if (!raw.startsWith("---")) {
     throw new WorkflowError(
       "WORKFLOW.md must start with YAML front matter delimited by ---",
@@ -47,9 +47,7 @@ export function parseFrontMatter(raw: string): ParsedWorkflow {
   };
 }
 
-export async function readWorkflowSource(
-  workflowPath: string,
-): Promise<string> {
+async function readWorkflowSource(workflowPath: string): Promise<string> {
   try {
     return await fs.readFile(workflowPath, "utf8");
   } catch (error) {

@@ -19,13 +19,17 @@ const DEFAULT_WORKSPACE_RETENTION = {
   onFailure: "retain",
 } as const satisfies Record<string, WorkspaceRetentionMode>;
 
+export interface ResolvedWorkspaceConfig extends WorkspaceConfig {
+  readonly workerHosts: Readonly<Record<string, SshWorkerHostConfig>>;
+}
+
 export function resolveWorkspaceConfig(args: {
   readonly workspace: Readonly<Record<string, unknown>>;
   readonly instanceRoot: string;
   readonly workflowRoot: string;
   readonly derivedRepoUrl: string | undefined;
   readonly repoOverrideActive: boolean;
-}): WorkspaceConfig {
+}): ResolvedWorkspaceConfig {
   const root = path.resolve(
     args.instanceRoot,
     requireString(args.workspace["root"], "workspace.root"),
