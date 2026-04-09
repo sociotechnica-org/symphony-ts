@@ -322,6 +322,9 @@ describe("GitHubTracker", () => {
 
     expect(claimed?.labels).toContain("symphony:running");
     expect(claimed?.blockedBy).toEqual([]);
+    expect(server.countRequests("GET issues/7/dependencies/blocked_by")).toBe(
+      1,
+    );
   });
 
   it("fails closed when GitHub blocked-status data cannot be read", async () => {

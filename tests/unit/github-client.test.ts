@@ -435,7 +435,7 @@ describe("GitHubClient", () => {
     }
   });
 
-  it("hydrates normalized blocker references on GitHub issue reads", async () => {
+  it("hydrates normalized blocker references on GitHub issue reads when requested", async () => {
     const server = new MockGitHubServer();
     await server.start();
     try {
@@ -475,7 +475,7 @@ describe("GitHubClient", () => {
         createLoggerSpy(),
       );
 
-      const issue = await client.getIssue(7);
+      const issue = await client.getIssue(7, { blockedBy: "best-effort" });
 
       expect(issue.blockedBy).toEqual([
         {
@@ -574,7 +574,7 @@ describe("GitHubClient", () => {
     }
   });
 
-  it("defaults to best-effort blocker hydration even when blocked enforcement is enabled", async () => {
+  it("skips blocker hydration by default on single-issue reads", async () => {
     const server = new MockGitHubServer();
     await server.start();
     try {
@@ -611,11 +611,9 @@ describe("GitHubClient", () => {
           blockedBy: [],
         }),
       );
-      expect(logger.warn).toHaveBeenCalledWith(
-        "Skipping GitHub dependency hydration",
-        expect.objectContaining({
-          repo: "sociotechnica-org/symphony-ts",
-        }),
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(server.countRequests("GET issues/7/dependencies/blocked_by")).toBe(
+        0,
       );
     } finally {
       await server.stop();

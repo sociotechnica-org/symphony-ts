@@ -149,13 +149,15 @@ export class GitHubTracker implements Tracker {
         labels: nextLabels,
       },
       {
-        blockedBy: this.#config.respectBlockedRelationships
-          ? "require"
-          : "skip",
+        blockedBy: "skip",
+        includeQueuePriority: false,
       },
     );
     this.#logger.info("Claimed GitHub issue", { issueNumber });
-    return updated;
+    return {
+      ...updated,
+      blockedBy: issue.blockedBy,
+    };
   }
 
   async inspectIssueHandoff(branchName: string): Promise<HandoffLifecycle> {

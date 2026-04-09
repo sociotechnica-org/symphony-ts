@@ -667,16 +667,23 @@ export class GitHubClient {
     return this.#repoName;
   }
 
-  #resolveIssueHydrationOptions(options?: {
-    readonly blockedBy?: "require" | "best-effort" | "skip";
-    readonly includeQueuePriority?: boolean;
-  }): {
+  #resolveIssueHydrationOptions(
+    options?: {
+      readonly blockedBy?: "require" | "best-effort" | "skip";
+      readonly includeQueuePriority?: boolean;
+    },
+    defaults?: {
+      readonly blockedBy?: "require" | "best-effort" | "skip";
+      readonly includeQueuePriority?: boolean;
+    },
+  ): {
     readonly blockedBy: "require" | "best-effort" | "skip";
     readonly includeQueuePriority: boolean;
   } {
     return {
-      blockedBy: options?.blockedBy ?? "best-effort",
-      includeQueuePriority: options?.includeQueuePriority ?? true,
+      blockedBy: options?.blockedBy ?? defaults?.blockedBy ?? "best-effort",
+      includeQueuePriority:
+        options?.includeQueuePriority ?? defaults?.includeQueuePriority ?? true,
     };
   }
 
@@ -725,7 +732,10 @@ export class GitHubClient {
     );
     return this.#toRuntimeIssues(
       issues,
-      this.#resolveIssueHydrationOptions(options),
+      this.#resolveIssueHydrationOptions(options, {
+        blockedBy: "best-effort",
+        includeQueuePriority: true,
+      }),
     );
   }
 
@@ -742,7 +752,10 @@ export class GitHubClient {
     );
     return await this.#toRuntimeIssue(
       issue,
-      this.#resolveIssueHydrationOptions(options),
+      this.#resolveIssueHydrationOptions(options, {
+        blockedBy: "skip",
+        includeQueuePriority: true,
+      }),
     );
   }
 
@@ -761,7 +774,10 @@ export class GitHubClient {
     );
     return await this.#toRuntimeIssue(
       issue,
-      this.#resolveIssueHydrationOptions(options),
+      this.#resolveIssueHydrationOptions(options, {
+        blockedBy: "skip",
+        includeQueuePriority: true,
+      }),
     );
   }
 
