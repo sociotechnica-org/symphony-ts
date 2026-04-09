@@ -1316,7 +1316,7 @@ describe("startFactory", () => {
     expect(result.status.controlState).toBe("running");
   });
 
-  it("launches a third-party instance from the engine checkout with an explicit workflow path", async () => {
+  it("launches a third-party instance from its runtime home with an explicit workflow path", async () => {
     const launched: Array<{
       runtimeRoot: string;
       launchCwd: string;

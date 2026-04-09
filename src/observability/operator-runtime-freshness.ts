@@ -23,6 +23,7 @@ export interface OperatorRuntimeFreshnessSnapshot {
   readonly currentRuntimeIdentity: FactoryRuntimeIdentity | null;
   readonly runtimeHeadSha: string | null;
   readonly currentRuntimeHeadSha: string | null;
+  // Deprecated compatibility alias for older JSON consumers.
   readonly engineHeadSha: string | null;
   readonly runningWorkflowIdentity: FactoryWorkflowIdentity | null;
   readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
@@ -157,6 +158,8 @@ function collectUnavailableReasons(args: {
 }): string[] {
   const reasons: string[] = [];
   if (args.currentRuntimeHeadSha === null) {
+    // Bootstrap fallback has no prepared runtime checkout yet, so freshness
+    // stays unavailable until the selected instance runtime home exists.
     reasons.push(
       "current runtime checkout head is unavailable; inspect the selected instance runtime checkout",
     );

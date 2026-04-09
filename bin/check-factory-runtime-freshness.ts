@@ -76,6 +76,8 @@ async function main(): Promise<void> {
   });
 
   if (args.json) {
+    // Keep the deprecated engineHeadSha alias in the serialized snapshot for
+    // older operator consumers that still read that field.
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
