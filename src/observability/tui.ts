@@ -507,10 +507,12 @@ function snapshotFingerprint(snapshot: TuiSnapshot): string {
               session: {
                 provider: entry.runnerVisibility.session.provider,
                 model: entry.runnerVisibility.session.model,
-                backendSessionId: entry.runnerVisibility.session.backendSessionId,
+                backendSessionId:
+                  entry.runnerVisibility.session.backendSessionId,
                 backendThreadId: entry.runnerVisibility.session.backendThreadId,
                 latestTurnId: entry.runnerVisibility.session.latestTurnId,
-                latestTurnNumber: entry.runnerVisibility.session.latestTurnNumber,
+                latestTurnNumber:
+                  entry.runnerVisibility.session.latestTurnNumber,
               },
               lastActionSummary: entry.runnerVisibility.lastActionSummary,
               waitingReason: entry.runnerVisibility.waitingReason,

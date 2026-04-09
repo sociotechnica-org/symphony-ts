@@ -105,7 +105,7 @@ bug that must be fixed as part of the split.
     or human wording for operator surfaces
 - Execution Layer
   - belongs: local terminal/process behavior for `factory watch`, `factory
-    attach`, and the live TUI dashboard loop after they consume prepared render
+attach`, and the live TUI dashboard loop after they consume prepared render
     output
   - does not belong: status freshness policy or snapshot normalization rules
 - Integration Layer
@@ -266,14 +266,14 @@ that owns them.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Canonical semantic facts available | Expected decision |
-| --- | --- | --- | --- |
-| Status file missing or unreadable | file path, read error, control/runtime liveness facts | none yet | parsing layer reports unavailable/degraded input; renderer and transport consume a typed error path instead of improvising |
-| Snapshot exists but worker is offline or no live runtime owns it | typed snapshot plus liveness/runtime-ownership facts | freshness classifier can mark stale/unavailable explicitly | semantic layer classifies freshness once; all renderers surface the same stale/unavailable meaning |
-| Optional snapshot substructures are absent | typed partial snapshot fields | normalized defaults for publication, restart recovery, recovery posture, host dispatch, etc. | semantics layer supplies one canonical defaulted view; renderers stop duplicating fallback objects |
-| `factory watch` hits a transient inspect/read failure | poll loop, interrupt state, current iteration | typed degraded/unavailable control result | watch transport keeps retrying and reuses the shared renderer/error view instead of embedding bespoke wording logic |
-| attach transport fails while runtime is otherwise healthy | TTY facts, helper availability, child exit status | existing snapshot semantics remain unchanged | attach transport reports a local transport failure only; it does not alter snapshot or renderer policy |
-| TUI frame formatting regresses without any transport failure | typed `TuiSnapshot`, width, token samples | renderer-only inputs are available | pure renderer tests fail independently of PTY or watch/attach transport harnesses |
+| Observed condition                                               | Local facts available                                 | Canonical semantic facts available                                                           | Expected decision                                                                                                          |
+| ---------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Status file missing or unreadable                                | file path, read error, control/runtime liveness facts | none yet                                                                                     | parsing layer reports unavailable/degraded input; renderer and transport consume a typed error path instead of improvising |
+| Snapshot exists but worker is offline or no live runtime owns it | typed snapshot plus liveness/runtime-ownership facts  | freshness classifier can mark stale/unavailable explicitly                                   | semantic layer classifies freshness once; all renderers surface the same stale/unavailable meaning                         |
+| Optional snapshot substructures are absent                       | typed partial snapshot fields                         | normalized defaults for publication, restart recovery, recovery posture, host dispatch, etc. | semantics layer supplies one canonical defaulted view; renderers stop duplicating fallback objects                         |
+| `factory watch` hits a transient inspect/read failure            | poll loop, interrupt state, current iteration         | typed degraded/unavailable control result                                                    | watch transport keeps retrying and reuses the shared renderer/error view instead of embedding bespoke wording logic        |
+| attach transport fails while runtime is otherwise healthy        | TTY facts, helper availability, child exit status     | existing snapshot semantics remain unchanged                                                 | attach transport reports a local transport failure only; it does not alter snapshot or renderer policy                     |
+| TUI frame formatting regresses without any transport failure     | typed `TuiSnapshot`, width, token samples             | renderer-only inputs are available                                                           | pure renderer tests fail independently of PTY or watch/attach transport harnesses                                          |
 
 ## Storage / Persistence Contract
 
@@ -342,7 +342,7 @@ that owns them.
 - existing detached control/status integration tests still prove the control
   surface renders the same canonical status facts after the split
 - existing live TUI smoke coverage still proves `factory watch` and `factory
-  attach` behave correctly through real PTY boundaries after transport/render
+attach` behave correctly through real PTY boundaries after transport/render
   extraction
 
 ### Acceptance scenarios
