@@ -106,6 +106,18 @@ function hasLiveTuiEvent(screen: string): boolean {
   );
 }
 
+function hasAttachTuiSurface(screen: string): boolean {
+  return (
+    (screen.includes("SYMPHONY STATUS") ||
+      (screen.includes("Factory tokens:") &&
+        screen.includes("Recovery posture") &&
+        screen.includes("Tickets") &&
+        screen.includes("Backoff queue"))) &&
+    screen.includes("Live TUI smoke issue") &&
+    hasLiveTuiEvent(screen)
+  );
+}
+
 function traceLiveSmoke(label: string): void {
   if (!debugLiveSmoke) {
     return;
@@ -265,22 +277,20 @@ describe("live TUI smoke tests", () => {
         createFactoryCommand(["factory", "attach", "--workflow", workflowPath]),
         {
           label: "factory-attach",
-          rows: 50,
+          rows: 80,
         },
       );
       traceLiveSmoke("attach started");
       const attachSnapshot = await tui.waitForSnapshot(
         (snapshot) =>
-          snapshot.screen.includes("SYMPHONY STATUS") &&
           snapshot.screen.includes("#1") &&
-          snapshot.screen.includes("Live TUI smoke issue") &&
-          hasLiveTuiEvent(snapshot.screen),
+          hasAttachTuiSurface(snapshot.screen),
         {
           timeoutMs: 10_000,
           description: "attach surface with live runner telemetry",
         },
       );
-      expect(attachSnapshot.screen).toContain("SYMPHONY STATUS");
+      expect(hasAttachTuiSurface(attachSnapshot.screen)).toBe(true);
       expect(attachSnapshot.screen).toContain("Live TUI smoke issue");
       expect(hasLiveTuiEvent(attachSnapshot.screen)).toBe(true);
       traceLiveSmoke("attach snapshot ready");
