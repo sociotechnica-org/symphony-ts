@@ -2223,6 +2223,113 @@ printf '{"type":"result","session_id":"claude-session-recording","modelUsage":{"
     }
   });
 
+  it("re-signals the active operator command when repeated stop signals arrive", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-repeat-stop-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const markerPath = path.join(tempDir, "operator-command-started");
+    const termCountPath = path.join(tempDir, "operator-command-term-count");
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+
+    try {
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(
+          "bash",
+          [
+            path.join("skills", "symphony-operator", "operator-loop.sh"),
+            "--interval-seconds",
+            "60",
+            "--workflow",
+            workflowPath,
+          ],
+          {
+            cwd: repoRoot,
+            detached: true,
+            env: buildTopLevelOperatorLoopEnv({
+              GH_TOKEN: "test-token",
+              SYMPHONY_OPERATOR_COMMAND: `touch ${JSON.stringify(markerPath)}; trap 'count=$(cat ${JSON.stringify(termCountPath)} 2>/dev/null || printf 0); count=$((count + 1)); printf \"%s\\n\" \"$count\" > ${JSON.stringify(termCountPath)}; if [ \"$count\" -ge 2 ]; then exit 0; fi' TERM; while true; do sleep 1; done`,
+            }),
+          },
+        );
+
+        let timedOut = false;
+        let timeout: NodeJS.Timeout;
+        let shutdownPromise: Promise<void> | null = null;
+        timeout = setTimeout(() => {
+          timedOut = true;
+          void terminateChildProcess(child).finally(() => {
+            reject(
+              new Error(
+                "Timed out waiting for repeated stop signals to end the operator loop",
+              ),
+            );
+          });
+        }, 10000);
+
+        void waitForPathExists(markerPath)
+          .then(async () => {
+            if (child.pid === undefined) {
+              throw new Error(
+                "Expected operator loop child to expose a process-group pid",
+              );
+            }
+            process.kill(-child.pid, "SIGTERM");
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+            process.kill(-child.pid, "SIGTERM");
+            shutdownPromise = terminateChildProcess(child);
+            await shutdownPromise;
+          })
+          .catch(reject);
+
+        child.on("error", reject);
+        child.on("close", () => {
+          clearTimeout(timeout);
+          void (shutdownPromise ?? terminateChildProcess(child)).then(() => {
+            if (timedOut) {
+              return;
+            }
+            resolve();
+          }, reject);
+        });
+      });
+
+      expect(await fs.readFile(termCountPath, "utf8")).toBe("2\n");
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly message: string;
+        readonly lastCycle: {
+          readonly logFile: string | null;
+        };
+      };
+
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.message).toBe("Operator loop stopped");
+
+      const logFile = statusJson.lastCycle.logFile;
+      if (logFile === null) {
+        throw new Error("Expected an interrupted cycle log file");
+      }
+      createdPaths.add(logFile);
+
+      const logContents = await fs.readFile(logFile, "utf8");
+      expect(logContents).toContain("interrupted=stop-requested");
+      expect(logContents).not.toContain(
+        "invalid runtime state transition stopping -> post-cycle-refresh",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("clears a stored claude session when the selected model changes", async () => {
     const tempDir = await createTempDir("symphony-operator-loop-model-reset-");
     const workflowPath = await writeWorkflow(tempDir);

@@ -1044,10 +1044,7 @@ class OperatorLoopRuntime {
   }
 
   private async handleSignal(signal: NodeJS.Signals): Promise<void> {
-    if (this.stopRequested) {
-      return;
-    }
-
+    const firstStopRequest = !this.stopRequested;
     this.stopRequested = true;
     if (this.sleepTimer !== null) {
       clearTimeout(this.sleepTimer);
@@ -1058,6 +1055,10 @@ class OperatorLoopRuntime {
 
     if (this.activeCommand !== null && this.activeCommand.exitCode === null) {
       this.activeCommand.kill(signal);
+    }
+
+    if (!firstStopRequest) {
+      return;
     }
 
     try {
