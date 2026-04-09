@@ -310,6 +310,19 @@ describe("selectFactoryAttachTerm", () => {
     });
   });
 
+  it("treats whitespace-only TERM values as empty while preserving the raw metadata", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "   ",
+      }),
+    ).toEqual({
+      term: "xterm-256color",
+      source: "fallback",
+      reason: "missing",
+      inheritedTerm: "   ",
+    });
+  });
+
   it("falls back when TERM contains invalid shell-unfriendly characters", () => {
     expect(
       selectFactoryAttachTerm({
@@ -768,6 +781,31 @@ describe("attachFactory", () => {
 
     await expect(attachPromise).rejects.toThrowError(
       /^Factory attach ended unexpectedly \(exit 1\)\. Attach TERM: rxvt-256color \(fallback from TERM=rxvt-unicode-256color\)\.$/,
+    );
+  });
+
+  it("describes whitespace-only TERM fallbacks as an empty TERM", async () => {
+    const { terminal } = createTerminal();
+    const child = new MockAttachChild();
+
+    const attachPromise = attachFactory({
+      inspectFactoryControl: async () => createSnapshot(),
+      terminal,
+      launchAttachChild: () => child,
+      inheritedEnv: {
+        TERM: "   ",
+      },
+      onSignal: vi.fn(),
+      offSignal: vi.fn(),
+      onResize: vi.fn(),
+      offResize: vi.fn(),
+    });
+
+    await waitForAsyncSetup();
+    child.emit("exit", 1, null);
+
+    await expect(attachPromise).rejects.toThrowError(
+      /^Factory attach ended unexpectedly \(exit 1\)\. Attach TERM: xterm-256color \(fallback from an empty TERM\)\.$/,
     );
   });
 });

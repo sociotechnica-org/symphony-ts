@@ -308,10 +308,10 @@ export function selectFactoryAttachTerm(
       term: FACTORY_ATTACH_DEFAULT_TERM,
       source: "fallback",
       reason: "missing",
-      inheritedTerm: null,
+      inheritedTerm: inheritedTerm ?? null,
     };
   }
-  const rawInheritedTerm = inheritedTerm ?? normalizedTerm;
+  const rawInheritedTerm = inheritedTerm!;
 
   const alias = FACTORY_ATTACH_TERM_ALIASES.get(normalizedTerm.toLowerCase());
   if (alias !== undefined) {
@@ -671,9 +671,13 @@ function renderAttachTermSelectionDetail(
     return `. Attach TERM: ${selection.term} (normalized from TERM=${selection.inheritedTerm})`;
   }
   const inheritedDetail =
-    selection.inheritedTerm === null
-      ? "fallback from an empty or missing TERM"
-      : `fallback from TERM=${selection.inheritedTerm}`;
+    selection.reason === "missing"
+      ? selection.inheritedTerm === null
+        ? "fallback from an empty or missing TERM"
+        : "fallback from an empty TERM"
+      : selection.inheritedTerm === null
+        ? "fallback from an empty or missing TERM"
+        : `fallback from TERM=${selection.inheritedTerm}`;
   return `. Attach TERM: ${selection.term} (${inheritedDetail})`;
 }
 
