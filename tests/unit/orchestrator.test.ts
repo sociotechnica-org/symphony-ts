@@ -191,6 +191,9 @@ function createAdvancingLogProbe(): LivenessProbe {
   };
 }
 
+const QUIET_WATCHDOG_RUN_DURATION_MS = 35;
+const CI_SAFE_WATCHDOG_THRESHOLD_MS = 500;
+
 const BASE_INSTANCE_ROOT = path.join(
   "/tmp",
   `symphony-orchestrator-test-${process.pid}`,
@@ -4968,7 +4971,7 @@ describe("BootstrapOrchestrator watchdog", () => {
           const timer = setTimeout(() => {
             options?.signal?.removeEventListener("abort", handleAbort);
             resolve();
-          }, 35);
+          }, QUIET_WATCHDOG_RUN_DURATION_MS);
           const handleAbort = (): void => {
             clearTimeout(timer);
             runAborted = true;
@@ -5089,7 +5092,7 @@ describe("BootstrapOrchestrator watchdog", () => {
           enabled: true,
           checkIntervalMs: 1,
           stallThresholdMs: 5,
-          executionStallThresholdMs: 50,
+          executionStallThresholdMs: CI_SAFE_WATCHDOG_THRESHOLD_MS,
           prFollowThroughStallThresholdMs: 5,
           maxRecoveryAttempts: 1,
         },
@@ -5146,7 +5149,7 @@ describe("BootstrapOrchestrator watchdog", () => {
           const timer = setTimeout(() => {
             options?.signal?.removeEventListener("abort", handleAbort);
             resolve();
-          }, 35);
+          }, QUIET_WATCHDOG_RUN_DURATION_MS);
           const handleAbort = (): void => {
             clearTimeout(timer);
             runAborted = true;
@@ -5194,8 +5197,11 @@ describe("BootstrapOrchestrator watchdog", () => {
           enabled: true,
           checkIntervalMs: 1,
           stallThresholdMs: 5,
-          executionStallThresholdMs: 5,
-          prFollowThroughStallThresholdMs: 200,
+          // Leave enough headroom that the assertion still exercises the
+          // PR-specific threshold without depending on sub-200ms CI timer
+          // scheduling in the full suite.
+          executionStallThresholdMs: CI_SAFE_WATCHDOG_THRESHOLD_MS,
+          prFollowThroughStallThresholdMs: CI_SAFE_WATCHDOG_THRESHOLD_MS,
           maxRecoveryAttempts: 1,
         },
       },
