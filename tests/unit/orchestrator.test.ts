@@ -5197,10 +5197,10 @@ describe("BootstrapOrchestrator watchdog", () => {
           enabled: true,
           checkIntervalMs: 1,
           stallThresholdMs: 5,
-          // Leave enough headroom that the assertion still exercises the
-          // PR-specific threshold without depending on sub-200ms CI timer
-          // scheduling in the full suite.
-          executionStallThresholdMs: CI_SAFE_WATCHDOG_THRESHOLD_MS,
+          // Keep the execution threshold below the quiet run duration so this
+          // test still proves PR follow-through uses its own threshold, while
+          // leaving the PR-specific threshold generous enough for CI timing.
+          executionStallThresholdMs: 20,
           prFollowThroughStallThresholdMs: CI_SAFE_WATCHDOG_THRESHOLD_MS,
           maxRecoveryAttempts: 1,
         },
