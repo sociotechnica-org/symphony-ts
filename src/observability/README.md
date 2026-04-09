@@ -31,7 +31,43 @@ after making TUI changes.
 
 Compare output against the Elixir reference screenshot in issue #98.
 
-### Live smoke test against a real GitHub repo
+### Automated live smoke test with `tui-use`
+
+The repo now carries a PTY-aware end-to-end smoke test that exercises the real
+detached runtime plus both operator-facing terminal surfaces:
+
+```bash
+pnpm test -- tests/e2e/live-tui-smoke.test.ts
+```
+
+What it covers:
+
+- starts a real detached factory runtime against the existing mock GitHub
+  fixture stack
+- opens `symphony factory watch` in a PTY and asserts the live watch surface
+- opens `symphony factory attach` in a PTY and asserts the full-screen TUI
+- sends local detach input to `factory attach` and proves the detached runtime
+  stays alive afterward
+
+Host requirements:
+
+- macOS or Linux
+- GNU Screen installed as `screen`
+- a Unix `script` helper installed as `script`
+- on macOS, a local `cc` compiler for the attach broker helper
+
+The harness uses the checked-in `tui-use` dependency directly from the test
+process and isolates its terminal environment under a test-owned `HOME`, so
+repeated Vitest runs do not share operator state.
+
+If your package-manager policy skips native package install scripts, rebuild the
+native PTY pieces before running the smoke test:
+
+```bash
+pnpm rebuild tui-use node-pty
+```
+
+### Manual live smoke test against a real GitHub repo
 
 Prerequisites:
 
