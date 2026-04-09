@@ -262,6 +262,19 @@ describe("selectFactoryAttachTerm", () => {
     });
   });
 
+  it("preserves the raw inherited TERM in fallback selections", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: " rxvt-unicode-256color ",
+      }),
+    ).toEqual({
+      term: "rxvt-256color",
+      source: "fallback",
+      reason: "alias",
+      inheritedTerm: " rxvt-unicode-256color ",
+    });
+  });
+
   it("falls back to a generic 256-color terminal for other long 256-color terms", () => {
     expect(
       selectFactoryAttachTerm({
@@ -272,6 +285,19 @@ describe("selectFactoryAttachTerm", () => {
       source: "fallback",
       reason: "too-long",
       inheritedTerm: "this-terminal-name-is-definitely-too-long-256color",
+    });
+  });
+
+  it("does not infer color capability from embedded words in long TERM names", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "no-color-direct-mode-extra",
+      }),
+    ).toEqual({
+      term: "xterm",
+      source: "fallback",
+      reason: "too-long",
+      inheritedTerm: "no-color-direct-mode-extra",
     });
   });
 

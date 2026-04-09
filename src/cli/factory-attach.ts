@@ -311,6 +311,7 @@ export function selectFactoryAttachTerm(
       inheritedTerm: null,
     };
   }
+  const rawInheritedTerm = inheritedTerm ?? normalizedTerm;
 
   const alias = FACTORY_ATTACH_TERM_ALIASES.get(normalizedTerm.toLowerCase());
   if (alias !== undefined) {
@@ -318,7 +319,7 @@ export function selectFactoryAttachTerm(
       term: alias,
       source: "fallback",
       reason: "alias",
-      inheritedTerm: normalizedTerm,
+      inheritedTerm: rawInheritedTerm,
     };
   }
 
@@ -327,7 +328,7 @@ export function selectFactoryAttachTerm(
       term: selectFactoryAttachFallbackTerm(normalizedTerm),
       source: "fallback",
       reason: "invalid",
-      inheritedTerm: normalizedTerm,
+      inheritedTerm: rawInheritedTerm,
     };
   }
 
@@ -336,7 +337,7 @@ export function selectFactoryAttachTerm(
       term: selectFactoryAttachFallbackTerm(normalizedTerm),
       source: "fallback",
       reason: "too-long",
-      inheritedTerm: normalizedTerm,
+      inheritedTerm: rawInheritedTerm,
     };
   }
 
@@ -345,7 +346,7 @@ export function selectFactoryAttachTerm(
       term: normalizedTerm,
       source: "normalized",
       reason: "trimmed",
-      inheritedTerm,
+      inheritedTerm: rawInheritedTerm,
     };
   }
 
@@ -353,7 +354,7 @@ export function selectFactoryAttachTerm(
     term: normalizedTerm,
     source: "passthrough",
     reason: "compatible",
-    inheritedTerm: normalizedTerm,
+    inheritedTerm: rawInheritedTerm,
   };
 }
 
@@ -598,13 +599,13 @@ function createFactoryAttachTermAliases<
 function selectFactoryAttachFallbackTerm(inheritedTerm: string): string {
   const normalizedTerm = inheritedTerm.toLowerCase();
   if (
-    normalizedTerm.includes("256color") ||
-    normalizedTerm.includes("88color") ||
-    normalizedTerm.includes("direct")
+    normalizedTerm.endsWith("256color") ||
+    normalizedTerm.endsWith("88color") ||
+    normalizedTerm.endsWith("direct")
   ) {
     return FACTORY_ATTACH_DEFAULT_TERM;
   }
-  if (normalizedTerm.includes("color")) {
+  if (normalizedTerm.endsWith("color")) {
     return "xterm-color";
   }
   return "xterm";
