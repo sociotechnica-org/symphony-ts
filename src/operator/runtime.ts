@@ -677,17 +677,7 @@ class OperatorLoopRuntime {
     cycle: CurrentCycleState,
     error: unknown,
   ): Promise<void> {
-    if (this.runtimeState === "running-command") {
-      this.moveTo("post-cycle-refresh");
-    }
-    if (
-      this.runtimeState === "preparing-cycle" ||
-      this.runtimeState === "acquiring-active-lease" ||
-      this.runtimeState === "post-cycle-refresh" ||
-      this.runtimeState === "recording-success"
-    ) {
-      this.moveTo("recording-failure");
-    }
+    this.moveToFailureRecordingStateIfNeeded();
 
     this.finishCycle(1);
     const errorMessage = this.normalizeErrorOutput(error);
@@ -880,6 +870,20 @@ class OperatorLoopRuntime {
     return this.progressPublishError || "unknown error";
   }
 
+  private moveToFailureRecordingStateIfNeeded(): void {
+    if (this.runtimeState === "running-command") {
+      this.moveTo("post-cycle-refresh");
+    }
+    if (
+      this.runtimeState === "preparing-cycle" ||
+      this.runtimeState === "acquiring-active-lease" ||
+      this.runtimeState === "post-cycle-refresh" ||
+      this.runtimeState === "recording-success"
+    ) {
+      this.moveTo("recording-failure");
+    }
+  }
+
   private async handleProgressPublishFailure(
     milestone: OperatorProgressMilestone,
     errorMessage: string,
@@ -910,6 +914,7 @@ class OperatorLoopRuntime {
         exitCode: 1,
       };
     }
+    this.moveToFailureRecordingStateIfNeeded();
 
     if (
       this.lastCycle.startedAt !== null &&

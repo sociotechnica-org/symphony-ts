@@ -1035,6 +1035,73 @@ exit 7
     }
   });
 
+  it("keeps once mode in the failure-recording path when cycle-start progress publication breaks", async () => {
+    const tempDir = await createTempDir(
+      "symphony-operator-loop-cycle-start-progress-fail-",
+    );
+    const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+    const failingUpdaterPath = path.join(
+      tempDir,
+      "failing-progress-updater.ts",
+    );
+
+    try {
+      await fs.writeFile(
+        failingUpdaterPath,
+        `const args = process.argv.slice(2);
+const milestoneIndex = args.indexOf("--milestone");
+const milestone = milestoneIndex === -1 ? null : args[milestoneIndex + 1] ?? null;
+if (milestone === "cycle-start") {
+  process.stderr.write("synthetic cycle-start progress failure\\n");
+  process.exit(17);
+}
+process.exit(0);
+`,
+        { encoding: "utf8" },
+      );
+
+      const failure = await runOperatorLoopExpectFailure(workflowPath, [], {
+        GH_TOKEN: "test-token",
+        SYMPHONY_OPERATOR_PROGRESS_UPDATER_PATH: failingUpdaterPath,
+      });
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly message: string;
+        readonly lastCycle: {
+          readonly exitCode: number | null;
+          readonly logFile: string | null;
+        };
+      };
+      const cycleLog = await fs.readFile(
+        statusJson.lastCycle.logFile ?? "",
+        "utf8",
+      );
+
+      expect(failure.exitCode).toBe(1);
+      expect(failure.stderr).not.toContain(
+        "invalid runtime state transition preparing-cycle -> stopped",
+      );
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.message).toContain("finished one cycle with a failure");
+      expect(statusJson.lastCycle.exitCode).toBe(1);
+      expect(cycleLog).toContain(
+        "progress_publish_failure_milestone=cycle-start",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a nested operator loop launched from inside a wake-up cycle", async () => {
     const parentDir = await createTempDir("symphony-operator-loop-parent-");
     const nestedDir = await createTempDir("symphony-operator-loop-nested-");
@@ -1455,7 +1522,7 @@ printf '{"type":"result","session_id":"claude-session-recording","modelUsage":{"
     }
   });
 
-  it("keeps the existing same-instance lock rejection for separate top-level launches", async () => {
+  it("rejects a separate top-level same-instance launch while the first loop is active", async () => {
     const tempDir = await createTempDir("symphony-operator-loop-lock-");
     const workflowPath = await writeWorkflow(tempDir);
 
@@ -1524,8 +1591,8 @@ printf '{"type":"result","session_id":"claude-session-recording","modelUsage":{"
 
       const failure = await runOperatorLoopExpectFailure(workflowPath);
       expect(failure.exitCode).toBe(1);
-      expect(failure.stderr).toContain(
-        "operator-loop: another loop is already running with pid",
+      expect(failure.stderr).toMatch(
+        /operator-loop: another loop is already running with pid|operator-loop: operator loop launch rejected while another wake-up cycle is active for this instance; reason=live-active-wake-up-lease/,
       );
     } finally {
       const childProcess = childHolder.current;
