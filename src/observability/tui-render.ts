@@ -755,23 +755,11 @@ function shortTicketIdentifier(
 }
 
 function ticketDetailWidth(terminalColumnsOverride?: number): number {
-  const cols = terminalColumnsOverride ?? terminalColumns();
+  const cols = terminalColumnsOverride ?? DEFAULT_TERMINAL_COLUMNS;
   const fixedWidth =
     ID_WIDTH + STATUS_WIDTH + ACTIVITY_WIDTH + RUNNER_WIDTH + TOKENS_WIDTH;
   const ticketRowChromeWidth = 9;
   return Math.max(DETAIL_MIN_WIDTH, cols - fixedWidth - ticketRowChromeWidth);
-}
-
-function terminalColumns(): number {
-  // Prefer dynamic terminal width, fall back to COLUMNS env var
-  const cols = process.stdout.columns;
-  if (typeof cols === "number" && cols > 0) return cols;
-  const envCols = process.env["COLUMNS"];
-  if (envCols !== undefined) {
-    const parsed = parseInt(envCols.trim(), 10);
-    if (Number.isFinite(parsed) && parsed > 0) return parsed;
-  }
-  return DEFAULT_TERMINAL_COLUMNS;
 }
 
 // ─── Event humanizer ─────────────────────────────────────────────────────

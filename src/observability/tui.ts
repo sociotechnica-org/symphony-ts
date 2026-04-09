@@ -226,7 +226,7 @@ export class StatusDashboard {
     const content = formatSnapshotContent(
       snapshot,
       tps,
-      undefined,
+      resolveTerminalColumnsOverride(),
       sparkline,
       nowMs,
     );
@@ -291,6 +291,17 @@ function renderToTerminal(content: string): void {
 
 function isTerminalEnabled(): boolean {
   return process.env["NODE_ENV"] !== "test" && process.stdout.isTTY === true;
+}
+
+function resolveTerminalColumnsOverride(): number | undefined {
+  const cols = process.stdout.columns;
+  if (typeof cols === "number" && cols > 0) return cols;
+  const envCols = process.env["COLUMNS"];
+  if (envCols !== undefined) {
+    const parsed = parseInt(envCols.trim(), 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
 }
 
 export { formatSnapshotContent, humanizeEvent } from "./tui-render.js";

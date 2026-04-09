@@ -405,6 +405,79 @@ describe("formatSnapshotContent", () => {
     expect(output).toContain("session abcd");
   });
 
+  it("does not read terminal width from process state when no override is provided", () => {
+    const snapshot = makeSnapshot({
+      running: [
+        {
+          issueNumber: 1,
+          identifier: "sociotechnica-org/symphony-ts#1",
+          issueState: "In Progress",
+          startedAt: new Date("2026-04-09T10:00:00.000Z"),
+          retryAttempt: 1,
+          sessionId: "abcdef1234567890",
+          turnCount: 3,
+          codexTokenState: "observed",
+          codexTotalTokens: 4521,
+          codexInputTokens: 2000,
+          codexOutputTokens: 2521,
+          codexAppServerPid: 12345,
+          lastCodexEvent: "turn/completed",
+          lastCodexMessage: {
+            method: "turn_completed",
+            params: {
+              usage: {
+                inputTokens: 2000,
+                outputTokens: 2521,
+                totalTokens: 4521,
+              },
+            },
+          },
+          lastCodexTimestamp: null,
+          runnerVisibility: null,
+        },
+      ],
+    });
+    const stdoutColumnsDescriptor = Object.getOwnPropertyDescriptor(
+      process.stdout,
+      "columns",
+    );
+    const previousEnvColumns = process.env["COLUMNS"];
+
+    try {
+      Object.defineProperty(process.stdout, "columns", {
+        configurable: true,
+        value: undefined,
+      });
+      process.env["COLUMNS"] = "240";
+
+      const defaultWidthOutput = formatSnapshotContent(snapshot, 0);
+      const explicitDefaultWidthOutput = formatSnapshotContent(
+        snapshot,
+        0,
+        115,
+      );
+
+      expect(stripAnsi(defaultWidthOutput)).toBe(
+        stripAnsi(explicitDefaultWidthOutput),
+      );
+    } finally {
+      if (stdoutColumnsDescriptor === undefined) {
+        Reflect.deleteProperty(process.stdout, "columns");
+      } else {
+        Object.defineProperty(
+          process.stdout,
+          "columns",
+          stdoutColumnsDescriptor,
+        );
+      }
+      if (previousEnvColumns === undefined) {
+        Reflect.deleteProperty(process.env, "COLUMNS");
+      } else {
+        process.env["COLUMNS"] = previousEnvColumns;
+      }
+    }
+  });
+
   it("renders pending token semantics for live Codex activity before token-bearing events", () => {
     const output = formatSnapshotContent(
       makeSnapshot({

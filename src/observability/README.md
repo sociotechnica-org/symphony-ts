@@ -157,9 +157,12 @@ When QA'ing the TUI (either via the dump script or live):
 ## Architecture
 
 - `tui-render.ts` — owns pure frame rendering helpers such as
-  `formatSnapshotContent()`, `humanizeEvent()`, and the offline frame.
-- `tui.ts` — owns the `StatusDashboard` loop, snapshot fingerprint dedup, TPS
-  sampling, sparkline buckets, and render throttling.
+  `formatSnapshotContent()`, `humanizeEvent()`, and the offline frame. It
+  consumes an explicit terminal-width override when callers want width-aware
+  layout and otherwise uses the fixed default frame width.
+- `tui.ts` — owns the `StatusDashboard` loop, terminal-width detection,
+  snapshot fingerprint dedup, TPS sampling, sparkline buckets, and render
+  throttling.
 - `factory-status-snapshot.ts`, `factory-status-semantics.ts`, and
   `factory-status-render.ts` split the persisted factory-status contract,
   defaulting/freshness semantics, and human-readable status rendering.
