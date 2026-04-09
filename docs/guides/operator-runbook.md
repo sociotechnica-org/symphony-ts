@@ -45,6 +45,11 @@ pnpm operator -- --provider claude
 pnpm operator -- --provider codex --model gpt-5.4-mini --resume-session
 ```
 
+That checked-in shell entrypoint is now a thin wrapper around the typed
+runtime at `bin/operator-loop.ts`; wake-up coordination, status sequencing,
+and command execution control live in TypeScript runtime services instead of
+shell branches.
+
 Use `--provider` and `--model` for the normal checked-in harness-selection
 path. `--resume-session` and `--infinite-session` are aliases for the same
 instance-scoped resumable-session mode. `--operator-command` and

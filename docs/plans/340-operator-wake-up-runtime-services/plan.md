@@ -378,18 +378,18 @@ Transitions:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized decision |
-| --- | --- | --- |
-| Loop lock directory exists and owner pid is live | lock path, owner pid, selected instance key | reject second top-level loop launch and leave the current owner untouched |
-| Loop lock directory exists and owner pid is dead | lock path, dead pid, same instance key | clear stale lock and retry acquisition |
-| Active wake-up lease exists and owner pid is live | lease path, owner pid, owner workflow/instance metadata | fail the current cycle before command execution, record the failure, keep the outer loop alive |
-| Active wake-up lease exists and owner pid is dead | lease path, dead pid | clear stale lease and retry acquisition |
-| Nested operator launch inherits parent-loop env | inherited parent env markers | fail fast before any lock or lease acquisition |
-| Release-state refresh fails | checker error, existing release-state path | continue the cycle, but publish degraded release status and preserve the error in status/log surfaces |
-| Ready promotion fails | promoter error, existing release-state path | continue the cycle, but mark release advancement unavailable or sync-failed in typed status |
-| Operator command exits non-zero | exit code, cycle log path, session mode | record failed cycle, clear incompatible stored session when required, and sleep for retry in continuous mode |
-| Status/progress publication fails mid-cycle | write error, current cycle metadata | fail the cycle, preserve log evidence, and prefer a terminal failed status over silent drift |
-| Signal arrives during sleep or active cycle | signal name, held lock/lease facts | mark stopping, interrupt sleeper if needed, release owned coordination artifacts, and write terminal status |
+| Observed condition                                | Local facts available                                   | Normalized decision                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Loop lock directory exists and owner pid is live  | lock path, owner pid, selected instance key             | reject second top-level loop launch and leave the current owner untouched                                    |
+| Loop lock directory exists and owner pid is dead  | lock path, dead pid, same instance key                  | clear stale lock and retry acquisition                                                                       |
+| Active wake-up lease exists and owner pid is live | lease path, owner pid, owner workflow/instance metadata | fail the current cycle before command execution, record the failure, keep the outer loop alive               |
+| Active wake-up lease exists and owner pid is dead | lease path, dead pid                                    | clear stale lease and retry acquisition                                                                      |
+| Nested operator launch inherits parent-loop env   | inherited parent env markers                            | fail fast before any lock or lease acquisition                                                               |
+| Release-state refresh fails                       | checker error, existing release-state path              | continue the cycle, but publish degraded release status and preserve the error in status/log surfaces        |
+| Ready promotion fails                             | promoter error, existing release-state path             | continue the cycle, but mark release advancement unavailable or sync-failed in typed status                  |
+| Operator command exits non-zero                   | exit code, cycle log path, session mode                 | record failed cycle, clear incompatible stored session when required, and sleep for retry in continuous mode |
+| Status/progress publication fails mid-cycle       | write error, current cycle metadata                     | fail the cycle, preserve log evidence, and prefer a terminal failed status over silent drift                 |
+| Signal arrives during sleep or active cycle       | signal name, held lock/lease facts                      | mark stopping, interrupt sleeper if needed, release owned coordination artifacts, and write terminal status  |
 
 ## Storage And Persistence Contract
 
