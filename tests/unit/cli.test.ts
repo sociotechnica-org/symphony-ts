@@ -929,7 +929,11 @@ describe("runCli init", () => {
     const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
     await fs.mkdir(targetRepo, { recursive: true });
     await fs.writeFile(workflowPath, "# Existing workflow\n", "utf8");
-    await fs.writeFile(operatorPlaybookPath, "# Existing operator playbook\n", "utf8");
+    await fs.writeFile(
+      operatorPlaybookPath,
+      "# Existing operator playbook\n",
+      "utf8",
+    );
 
     const originalRename = fs.rename.bind(fs);
     vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {

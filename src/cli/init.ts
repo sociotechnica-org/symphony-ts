@@ -205,7 +205,10 @@ async function publishScaffoldFiles(args: {
       {
         action: "clean up scaffold temp files",
         run: async () =>
-          cleanupScaffoldTempFiles([workflowTempPath, operatorPlaybookTempPath]),
+          cleanupScaffoldTempFiles([
+            workflowTempPath,
+            operatorPlaybookTempPath,
+          ]),
       },
     ]);
     rethrowScaffoldPublishError(error, recoveryErrors);
@@ -235,10 +238,7 @@ async function cleanupScaffoldTempFiles(
     result.status === "rejected" ? [normalizeScaffoldError(result.reason)] : [],
   );
   if (cleanupErrors.length > 0) {
-    throw new AggregateError(
-      cleanupErrors,
-      cleanupErrors[0]!.message,
-    );
+    throw new AggregateError(cleanupErrors, cleanupErrors[0]!.message);
   }
 }
 
