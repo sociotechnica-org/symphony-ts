@@ -1,6 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
 import fs from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -17,17 +16,12 @@ import { MockGitHubServer } from "../support/mock-github-server.js";
 import { createTuiUseHarness, type TuiUseHarness } from "../support/tui-use.js";
 
 const execFile = promisify(execFileCallback);
-const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
 );
-const tsxCliPath = path.join(
-  path.dirname(require.resolve("tsx/package.json")),
-  "dist",
-  "cli.mjs",
-);
+const tsxBinPath = path.join(repoRoot, "node_modules", ".bin", "tsx");
 const symphonyCliPath = path.join(repoRoot, "bin", "symphony.ts");
 const fixturePath = path.join(repoRoot, "tests", "fixtures");
 const liveSmokeTest = process.platform === "win32" ? it.skip : it;
@@ -95,12 +89,7 @@ async function assertCommandAvailable(command: string): Promise<void> {
 }
 
 function createFactoryCommand(args: readonly string[]): string {
-  return renderShellCommand([
-    process.execPath,
-    tsxCliPath,
-    symphonyCliPath,
-    ...args,
-  ]);
+  return renderShellCommand([tsxBinPath, symphonyCliPath, ...args]);
 }
 
 function renderShellCommand(args: readonly string[]): string {
