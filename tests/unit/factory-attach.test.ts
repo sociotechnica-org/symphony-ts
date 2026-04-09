@@ -223,6 +223,19 @@ describe("selectFactoryAttachTerm", () => {
     });
   });
 
+  it("normalizes surrounding TERM whitespace without treating the result as passthrough", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: " xterm-ghostty  ",
+      }),
+    ).toEqual({
+      term: "xterm-ghostty",
+      source: "normalized",
+      reason: "trimmed",
+      inheritedTerm: " xterm-ghostty  ",
+    });
+  });
+
   it("uses a closer short-form alias for known long screen-incompatible terms", () => {
     expect(
       selectFactoryAttachTerm({
@@ -233,6 +246,19 @@ describe("selectFactoryAttachTerm", () => {
       source: "fallback",
       reason: "alias",
       inheritedTerm: "rxvt-unicode-256color",
+    });
+  });
+
+  it("matches known TERM aliases case-insensitively", () => {
+    expect(
+      selectFactoryAttachTerm({
+        TERM: "RXVT-UNICODE-256COLOR",
+      }),
+    ).toEqual({
+      term: "rxvt-256color",
+      source: "fallback",
+      reason: "alias",
+      inheritedTerm: "RXVT-UNICODE-256COLOR",
     });
   });
 
@@ -284,6 +310,18 @@ describe("createFactoryAttachLaunchEnvironment", () => {
       TERM: "rxvt-256color",
       LANG: "en_US.UTF-8",
       CUSTOM_VALUE: "kept",
+    });
+  });
+
+  it("trims compatible TERM values before passing them to the attach child", () => {
+    expect(
+      createFactoryAttachLaunchEnvironment({
+        TERM: " xterm-ghostty  ",
+        LANG: "en_US.UTF-8",
+      }),
+    ).toEqual({
+      TERM: "xterm-ghostty",
+      LANG: "en_US.UTF-8",
     });
   });
 });

@@ -28,10 +28,9 @@ const FACTORY_ATTACH_DEFAULT_TERM = "xterm-256color";
 // only terms above that limit.
 const FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH = 20;
 const FACTORY_ATTACH_TERM_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9+_.-]*$/u;
-// Alias keys must stay lowercase because lookups normalize inherited TERM first.
-const FACTORY_ATTACH_TERM_ALIASES = new Map<string, string>([
-  ["rxvt-unicode-256color", "rxvt-256color"],
-]);
+const FACTORY_ATTACH_TERM_ALIASES = createFactoryAttachTermAliases({
+  "rxvt-unicode-256color": "rxvt-256color",
+} as const);
 
 export interface FactoryAttachTerminal {
   readonly stdin: {
@@ -97,8 +96,14 @@ export interface FactoryAttachDeps {
 
 export interface FactoryAttachTermSelection {
   readonly term: string;
-  readonly source: "passthrough" | "fallback";
-  readonly reason: "compatible" | "missing" | "invalid" | "too-long" | "alias";
+  readonly source: "passthrough" | "normalized" | "fallback";
+  readonly reason:
+    | "compatible"
+    | "trimmed"
+    | "missing"
+    | "invalid"
+    | "too-long"
+    | "alias";
   readonly inheritedTerm: string | null;
 }
 
@@ -122,10 +127,6 @@ export async function attachFactory(
   const platform = deps.platform ?? process.platform;
   const inheritedEnv = deps.inheritedEnv ?? process.env;
   const attachTermSelection = selectFactoryAttachTerm(inheritedEnv);
-  const attachChildEnv = createFactoryAttachLaunchEnvironment(
-    inheritedEnv,
-    attachTermSelection,
-  );
   const launchAttachChild =
     deps.launchAttachChild ??
     ((sessionId) => {
@@ -136,7 +137,10 @@ export async function attachFactory(
         readonly buildMacOsAttachHelper?: () => Promise<string>;
       } = {
         platform,
-        env: attachChildEnv,
+        env: createFactoryAttachLaunchEnvironment(
+          inheritedEnv,
+          attachTermSelection,
+        ),
         ...(deps.spawnChildProcess === undefined
           ? {}
           : { spawnChildProcess: deps.spawnChildProcess }),
@@ -297,8 +301,9 @@ export interface FactoryAttachLaunchSpec {
 export function selectFactoryAttachTerm(
   inheritedEnv: NodeJS.ProcessEnv,
 ): FactoryAttachTermSelection {
-  const inheritedTerm = normalizeFactoryAttachTerm(inheritedEnv["TERM"]);
-  if (inheritedTerm === null) {
+  const inheritedTerm = inheritedEnv["TERM"];
+  const normalizedTerm = normalizeFactoryAttachTerm(inheritedTerm);
+  if (normalizedTerm === null) {
     return {
       term: FACTORY_ATTACH_DEFAULT_TERM,
       source: "fallback",
@@ -307,39 +312,48 @@ export function selectFactoryAttachTerm(
     };
   }
 
-  const alias = FACTORY_ATTACH_TERM_ALIASES.get(inheritedTerm.toLowerCase());
+  const alias = FACTORY_ATTACH_TERM_ALIASES.get(normalizedTerm.toLowerCase());
   if (alias !== undefined) {
     return {
       term: alias,
       source: "fallback",
       reason: "alias",
-      inheritedTerm,
+      inheritedTerm: normalizedTerm,
     };
   }
 
-  if (!FACTORY_ATTACH_TERM_NAME_PATTERN.test(inheritedTerm)) {
+  if (!FACTORY_ATTACH_TERM_NAME_PATTERN.test(normalizedTerm)) {
     return {
-      term: selectFactoryAttachFallbackTerm(inheritedTerm),
+      term: selectFactoryAttachFallbackTerm(normalizedTerm),
       source: "fallback",
       reason: "invalid",
-      inheritedTerm,
+      inheritedTerm: normalizedTerm,
     };
   }
 
-  if (inheritedTerm.length > FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH) {
+  if (normalizedTerm.length > FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH) {
     return {
-      term: selectFactoryAttachFallbackTerm(inheritedTerm),
+      term: selectFactoryAttachFallbackTerm(normalizedTerm),
       source: "fallback",
       reason: "too-long",
+      inheritedTerm: normalizedTerm,
+    };
+  }
+
+  if (inheritedTerm !== undefined && normalizedTerm !== inheritedTerm) {
+    return {
+      term: normalizedTerm,
+      source: "normalized",
+      reason: "trimmed",
       inheritedTerm,
     };
   }
 
   return {
-    term: inheritedTerm,
+    term: normalizedTerm,
     source: "passthrough",
     reason: "compatible",
-    inheritedTerm,
+    inheritedTerm: normalizedTerm,
   };
 }
 
@@ -570,6 +584,17 @@ function normalizeFactoryAttachTerm(term: string | undefined): string | null {
   return normalized === "" ? null : normalized;
 }
 
+function createFactoryAttachTermAliases<
+  const TAliases extends Record<string, string>,
+>(aliases: TAliases): ReadonlyMap<string, string> {
+  for (const key of Object.keys(aliases)) {
+    if (key !== key.toLowerCase()) {
+      throw new Error("Factory attach TERM alias keys must be lowercase.");
+    }
+  }
+  return new Map(Object.entries(aliases));
+}
+
 function selectFactoryAttachFallbackTerm(inheritedTerm: string): string {
   const normalizedTerm = inheritedTerm.toLowerCase();
   if (
@@ -640,6 +665,9 @@ function renderAttachTermSelectionDetail(
 ): string {
   if (selection.source === "passthrough") {
     return "";
+  }
+  if (selection.source === "normalized") {
+    return `. Attach TERM: ${selection.term} (normalized from TERM=${selection.inheritedTerm})`;
   }
   const inheritedDetail =
     selection.inheritedTerm === null
