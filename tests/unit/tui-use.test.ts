@@ -112,6 +112,22 @@ class EnvCapturingSession {
   }
 }
 
+class EnvMutatingSession extends EnvCapturingSession {
+  constructor(
+    id: string,
+    command: string,
+    options: {
+      readonly cwd?: string;
+      readonly label?: string;
+      readonly cols?: number;
+      readonly rows?: number;
+    },
+  ) {
+    super(id, command, options);
+    process.env["SESSION_CONSTRUCTOR_LEAK"] = "leaked";
+  }
+}
+
 afterEach(() => {
   resetTuiUseStateForTests();
   EnvCapturingSession.lastEnv = null;
@@ -211,6 +227,35 @@ describe("TuiUseHarness env", () => {
         delete process.env["SYMPHONY_REPO"];
       } else {
         process.env["SYMPHONY_REPO"] = originalRepo;
+      }
+    }
+  });
+
+  it("restores the original process env after session construction mutates it", async () => {
+    setTuiUseSessionConstructorForTests(EnvMutatingSession);
+    const originalLeak = process.env["SESSION_CONSTRUCTOR_LEAK"];
+
+    delete process.env["SESSION_CONSTRUCTOR_LEAK"];
+
+    try {
+      const harness = new TuiUseHarness({
+        cwd: os.tmpdir(),
+        homeDir: path.join(os.tmpdir(), "tui-use-test-home"),
+        env: {
+          PATH: "/usr/bin",
+          SYMPHONY_KEEP_ME: "present",
+        },
+      });
+
+      await harness.start("fake-command");
+
+      expect(process.env["SESSION_CONSTRUCTOR_LEAK"]).toBeUndefined();
+      expect(EnvCapturingSession.lastEnv?.["SESSION_CONSTRUCTOR_LEAK"]).toBeUndefined();
+    } finally {
+      if (originalLeak === undefined) {
+        delete process.env["SESSION_CONSTRUCTOR_LEAK"];
+      } else {
+        process.env["SESSION_CONSTRUCTOR_LEAK"] = originalLeak;
       }
     }
   });

@@ -355,27 +355,21 @@ function buildWaitForSnapshotTimeoutError(
 }
 
 function withOverriddenEnv<T>(env: NodeJS.ProcessEnv, fn: () => T): T {
-  const originalEntries = new Map<string, string | undefined>();
-  const nextKeys = new Set(Object.keys(env));
-  for (const key of nextKeys) {
-    originalEntries.set(key, process.env[key]);
+  const originalEnv = { ...process.env };
+  applyProcessEnv(env);
+  try {
+    return fn();
+  } finally {
+    applyProcessEnv(originalEnv);
   }
+}
+
+function applyProcessEnv(env: NodeJS.ProcessEnv): void {
+  const nextKeys = new Set(Object.keys(env));
   for (const key of Object.keys(process.env)) {
     if (!nextKeys.has(key)) {
-      originalEntries.set(key, process.env[key]);
       delete process.env[key];
     }
   }
   Object.assign(process.env, env);
-  try {
-    return fn();
-  } finally {
-    for (const [key, value] of originalEntries.entries()) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
 }
