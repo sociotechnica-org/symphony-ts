@@ -7,6 +7,13 @@ export interface QueuePriority {
   readonly label: string | null;
 }
 
+export interface RuntimeIssueBlocker {
+  readonly id: string | null;
+  readonly identifier: string | null;
+  readonly title: string | null;
+  readonly state: string | null;
+}
+
 export interface RuntimeIssue {
   readonly id: string;
   readonly identifier: string;
@@ -20,4 +27,5 @@ export interface RuntimeIssue {
   readonly updatedAt: string;
   readonly closedAt?: string | null;
   readonly queuePriority: QueuePriority | null;
+  readonly blockedBy: readonly RuntimeIssueBlocker[];
 }

@@ -27,6 +27,7 @@ function createSession(issueNumber: number, workspacePath: string): RunSession {
       createdAt: timestamp,
       updatedAt: timestamp,
       queuePriority: null,
+      blockedBy: [],
     },
     workspace: {
       key: `sociotechnica-org_symphony-ts_${issueNumber}`,

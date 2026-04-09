@@ -147,9 +147,16 @@ async function createPromotionResult(args: {
       if (trackerIssue === undefined) {
         continue;
       }
-      await client.updateIssue(issue.issueNumber, {
-        labels: [...trackerIssue.labels, tracker.readyLabel],
-      });
+      await client.updateIssue(
+        issue.issueNumber,
+        {
+          labels: [...trackerIssue.labels, tracker.readyLabel],
+        },
+        {
+          blockedBy: "skip",
+          includeQueuePriority: false,
+        },
+      );
       readyLabelsAdded.push(issue);
     }
     for (const issue of decision.removeReadyLabelFrom) {
@@ -157,11 +164,18 @@ async function createPromotionResult(args: {
       if (trackerIssue === undefined) {
         continue;
       }
-      await client.updateIssue(issue.issueNumber, {
-        labels: trackerIssue.labels.filter(
-          (label) => label !== tracker.readyLabel,
-        ),
-      });
+      await client.updateIssue(
+        issue.issueNumber,
+        {
+          labels: trackerIssue.labels.filter(
+            (label) => label !== tracker.readyLabel,
+          ),
+        },
+        {
+          blockedBy: "skip",
+          includeQueuePriority: false,
+        },
+      );
       readyLabelsRemoved.push(issue);
     }
   } catch (error) {
@@ -221,7 +235,10 @@ async function getIssueOrNull(
   issueNumber: number,
 ): Promise<RuntimeIssue | null> {
   try {
-    return await client.getIssue(issueNumber);
+    return await client.getIssue(issueNumber, {
+      blockedBy: "skip",
+      includeQueuePriority: false,
+    });
   } catch (error) {
     if (
       error instanceof TrackerError &&

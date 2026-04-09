@@ -219,16 +219,36 @@ describe("GitHubTracker", () => {
   });
 
   it("preserves label-only ready reads when blocked-relationship enforcement is disabled", async () => {
-    server.setIssueBlockedByCount(7, 1);
+    server.seedIssue({
+      number: 8,
+      title: "Upstream blocker",
+      body: "",
+      labels: [],
+    });
+    server.setIssueBlockedBy(7, [8]);
     const tracker = createTracker(server);
 
     const ready = await tracker.fetchReadyIssues();
 
     expect(ready.map((issue) => issue.number)).toEqual([7]);
+    expect(ready[0]?.blockedBy).toEqual([
+      {
+        id: "8",
+        identifier: "sociotechnica-org/symphony-ts#8",
+        title: "Upstream blocker",
+        state: "open",
+      },
+    ]);
   });
 
   it("filters blocked ready issues when blocked-relationship enforcement is enabled", async () => {
-    server.setIssueBlockedByCount(7, 1);
+    server.seedIssue({
+      number: 8,
+      title: "Upstream blocker",
+      body: "",
+      labels: [],
+    });
+    server.setIssueBlockedBy(7, [8]);
     const tracker = createTracker(
       server,
       undefined,
@@ -244,7 +264,6 @@ describe("GitHubTracker", () => {
   });
 
   it("returns unblocked ready issues when blocked-relationship enforcement is enabled", async () => {
-    server.setIssueBlockedByCount(7, 0);
     const tracker = createTracker(
       server,
       undefined,
@@ -257,6 +276,7 @@ describe("GitHubTracker", () => {
     const ready = await tracker.fetchReadyIssues();
 
     expect(ready.map((issue) => issue.number)).toEqual([7]);
+    expect(ready[0]?.blockedBy).toEqual([]);
   });
 
   it("rejects a claim when the issue becomes blocked after the ready read", async () => {
@@ -272,7 +292,13 @@ describe("GitHubTracker", () => {
     const ready = await tracker.fetchReadyIssues();
     expect(ready.map((issue) => issue.number)).toEqual([7]);
 
-    server.setIssueBlockedByCount(7, 1);
+    server.seedIssue({
+      number: 8,
+      title: "Upstream blocker",
+      body: "",
+      labels: [],
+    });
+    server.setIssueBlockedBy(7, [8]);
 
     const claimed = await tracker.claimIssue(7);
 
@@ -295,6 +321,10 @@ describe("GitHubTracker", () => {
     const claimed = await tracker.claimIssue(7);
 
     expect(claimed?.labels).toContain("symphony:running");
+    expect(claimed?.blockedBy).toEqual([]);
+    expect(server.countRequests("GET issues/7/dependencies/blocked_by")).toBe(
+      1,
+    );
   });
 
   it("fails closed when GitHub blocked-status data cannot be read", async () => {
@@ -316,6 +346,128 @@ describe("GitHubTracker", () => {
     await expect(tracker.claimIssue(7)).rejects.toThrow(
       /Issue dependency summary unavailable/,
     );
+  });
+
+  it("preserves label-only reads when GitHub dependency data is unsupported and blocked enforcement is disabled", async () => {
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+    const tracker = createTracker(server);
+
+    await expect(tracker.fetchReadyIssues()).resolves.toEqual([
+      expect.objectContaining({
+        number: 7,
+        blockedBy: [],
+      }),
+    ]);
+
+    const claimed = await tracker.claimIssue(7);
+
+    expect(claimed?.labels).toContain("symphony:running");
+    expect(server.getIssue(7).labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+  });
+
+  it("preserves non-ready issue reads when blocked enforcement is enabled but dependency data is unsupported", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Running task",
+      body: "",
+      labels: ["symphony:running"],
+    });
+    server.seedIssue({
+      number: 9,
+      title: "Failed task",
+      body: "",
+      labels: ["symphony:failed"],
+    });
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    await expect(tracker.getIssue(8)).resolves.toEqual(
+      expect.objectContaining({
+        number: 8,
+        blockedBy: [],
+      }),
+    );
+    await expect(tracker.fetchRunningIssues()).resolves.toEqual([
+      expect.objectContaining({
+        number: 8,
+        blockedBy: [],
+      }),
+    ]);
+    await expect(tracker.fetchFailedIssues()).resolves.toEqual([
+      expect.objectContaining({
+        number: 9,
+        blockedBy: [],
+      }),
+    ]);
+  });
+
+  it("keeps retry scheduling on label-only reads when blocked enforcement is enabled", async () => {
+    server.setIssueLabels(7, ["symphony:running"]);
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    await expect(
+      tracker.recordRetry(7, "retry later"),
+    ).resolves.toBeUndefined();
+    expect(server.getIssue(7).labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+    expect(server.getIssue(7).comments).toContain(
+      "Retry scheduled by Symphony: retry later",
+    );
+  });
+
+  it("inspects merged handoff without dependency hydration when blocked enforcement is enabled", async () => {
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.mergePullRequest("symphony/7");
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.summary).toMatch(/has merged/i);
   });
 
   it("reports awaiting-human-handoff when the latest issue handoff is plan-ready", async () => {

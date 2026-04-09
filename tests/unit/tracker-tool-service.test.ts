@@ -24,6 +24,7 @@ function createIssue(): RuntimeIssue {
     createdAt: "2026-03-19T00:00:00.000Z",
     updatedAt: "2026-03-19T00:00:00.000Z",
     queuePriority: null,
+    blockedBy: [],
   };
 }
 

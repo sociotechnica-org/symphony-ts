@@ -99,7 +99,7 @@ interface MockIssue {
   closed_at: string | null;
   labels: Array<{ name: string }>;
   comments: MockIssueComment[];
-  blockedByCount: number;
+  blockedByIssueNumbers: number[];
 }
 
 interface MockIssueComment {
@@ -167,7 +167,10 @@ export class MockGitHubServer {
   readonly #projects = new Map<number, MockProjectItem[]>();
   readonly #requestCounts = new Map<string, number>();
   readonly #branchCommitTimes = new Map<string, string>();
-  #issueDependencyQueryFailureMessage: string | null = null;
+  #issueDependencyFailure: {
+    readonly statusCode: number;
+    readonly message: string;
+  } | null = null;
   #repositoryMergeConfig: MockRepositoryMergeConfig = {
     allowMergeCommit: true,
     allowSquashMerge: true,
@@ -225,7 +228,7 @@ export class MockGitHubServer {
       closed_at: input.state === "closed" ? now : null,
       labels: input.labels.map((name) => ({ name })),
       comments: [],
-      blockedByCount: 0,
+      blockedByIssueNumbers: [],
     });
   }
 
@@ -276,17 +279,34 @@ export class MockGitHubServer {
     issue.updated_at = new Date().toISOString();
   }
 
-  setIssueBlockedByCount(number: number, blockedByCount: number): void {
+  setIssueBlockedBy(
+    number: number,
+    blockedByIssueNumbers: readonly number[],
+  ): void {
     const issue = this.#issues.get(number);
     if (!issue) {
       throw new Error(`Issue ${number} not found`);
     }
-    issue.blockedByCount = blockedByCount;
+    for (const blockerIssueNumber of blockedByIssueNumbers) {
+      if (!this.#issues.has(blockerIssueNumber)) {
+        throw new Error(`Issue ${blockerIssueNumber} not found`);
+      }
+    }
+    issue.blockedByIssueNumbers = [...blockedByIssueNumbers];
     issue.updated_at = new Date().toISOString();
   }
 
-  setIssueDependencyQueryFailure(message: string | null): void {
-    this.#issueDependencyQueryFailureMessage = message;
+  setIssueDependencyQueryFailure(
+    message: string | null,
+    statusCode = 500,
+  ): void {
+    this.#issueDependencyFailure =
+      message === null
+        ? null
+        : {
+            statusCode,
+            message,
+          };
   }
 
   addIssueToProject(input: {
@@ -659,6 +679,10 @@ export class MockGitHubServer {
     }
 
     if (method === "POST" && url.pathname === "/graphql") {
+      this.#requestCounts.set(
+        "POST /graphql",
+        (this.#requestCounts.get("POST /graphql") ?? 0) + 1,
+      );
       const body = (await readJson(request)) as {
         query: string;
         variables: Record<string, unknown>;
@@ -762,10 +786,43 @@ export class MockGitHubServer {
         closed_at: null,
         labels: [],
         comments: [],
-        blockedByCount: 0,
+        blockedByIssueNumbers: [],
       };
       this.#issues.set(number, issue);
       json(response, 201, issue);
+      return;
+    }
+
+    const issueBlockedByMatch = suffix.match(
+      /^issues\/(\d+)\/dependencies\/blocked_by$/,
+    );
+    if (issueBlockedByMatch && method === "GET") {
+      if (this.#issueDependencyFailure !== null) {
+        json(response, this.#issueDependencyFailure.statusCode, {
+          message: this.#issueDependencyFailure.message,
+        });
+        return;
+      }
+
+      const issueNumber = Number(issueBlockedByMatch[1]);
+      const issue = this.#issues.get(issueNumber);
+      if (!issue) {
+        json(response, 404, { message: "issue not found" });
+        return;
+      }
+
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const perPage = Number(url.searchParams.get("per_page") ?? "100");
+      const blockers = issue.blockedByIssueNumbers.map((blockerIssueNumber) => {
+        const blockerIssue = this.#issues.get(blockerIssueNumber);
+        if (!blockerIssue) {
+          throw new Error(`Issue ${blockerIssueNumber} not found`);
+        }
+        return blockerIssue;
+      });
+      const start = (page - 1) * perPage;
+      const end = start + perPage;
+      json(response, 200, blockers.slice(start, end));
       return;
     }
 
@@ -993,6 +1050,70 @@ export class MockGitHubServer {
     body: { query: string; variables: Record<string, unknown> },
     response: ServerResponse,
   ): Promise<void> {
+    if (body.query.includes("IssueBlockers")) {
+      if (this.#issueDependencyFailure !== null) {
+        if (
+          this.#issueDependencyFailure.statusCode === 404 ||
+          this.#issueDependencyFailure.statusCode === 410
+        ) {
+          json(response, 200, {
+            errors: [
+              {
+                message: `Cannot query field "blockedBy" on type "Issue". ${this.#issueDependencyFailure.message}`,
+              },
+            ],
+          });
+          return;
+        }
+
+        json(response, this.#issueDependencyFailure.statusCode, {
+          errors: [{ message: this.#issueDependencyFailure.message }],
+        });
+        return;
+      }
+
+      const repository: Record<string, unknown> = {};
+      for (const match of body.query.matchAll(
+        /issue_(\d+): issue\(number: \1\)/g,
+      )) {
+        const issueNumber = Number(match[1]);
+        const issue = this.#issues.get(issueNumber);
+        repository[`issue_${issueNumber.toString()}`] =
+          issue === undefined
+            ? null
+            : {
+                number: issue.number,
+                blockedBy: {
+                  nodes: issue.blockedByIssueNumbers.map(
+                    (blockerIssueNumber) => {
+                      const blockerIssue = this.#issues.get(blockerIssueNumber);
+                      if (!blockerIssue) {
+                        throw new Error(
+                          `Issue ${blockerIssueNumber} not found`,
+                        );
+                      }
+                      return {
+                        number: blockerIssue.number,
+                        title: blockerIssue.title,
+                        state: blockerIssue.state,
+                      };
+                    },
+                  ),
+                  pageInfo: {
+                    hasNextPage: false,
+                  },
+                },
+              };
+      }
+
+      json(response, 200, {
+        data: {
+          repository,
+        },
+      });
+      return;
+    }
+
     if (body.query.includes("ProjectQueuePriorityFieldValues")) {
       const projectNumber = Number(body.variables["projectNumber"]);
       const fieldName = String(body.variables["fieldName"]);
@@ -1037,50 +1158,6 @@ export class MockGitHubServer {
               },
             },
           },
-        },
-      });
-      return;
-    }
-
-    if (body.query.includes("IssueBlockedStatus")) {
-      if (this.#issueDependencyQueryFailureMessage !== null) {
-        json(response, 200, {
-          errors: [{ message: this.#issueDependencyQueryFailureMessage }],
-        });
-        return;
-      }
-
-      const issues: Record<
-        string,
-        {
-          readonly number: number;
-          readonly issueDependenciesSummary: {
-            readonly blockedBy: number;
-          };
-        } | null
-      > = {};
-      const issueAliasPattern = /issue_(\d+):\s*issue\(number:\s*(\d+)\)/g;
-      for (const match of body.query.matchAll(issueAliasPattern)) {
-        const aliasIssueNumber = Number(match[1]);
-        const requestedIssueNumber = Number(match[2]);
-        if (aliasIssueNumber !== requestedIssueNumber) {
-          continue;
-        }
-        const issue = this.#issues.get(requestedIssueNumber);
-        issues[`issue_${requestedIssueNumber.toString()}`] =
-          issue === undefined
-            ? null
-            : {
-                number: requestedIssueNumber,
-                issueDependenciesSummary: {
-                  blockedBy: issue.blockedByCount,
-                },
-              };
-      }
-
-      json(response, 200, {
-        data: {
-          repository: issues,
         },
       });
       return;

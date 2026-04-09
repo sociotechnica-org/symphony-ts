@@ -20,6 +20,7 @@ const issue: RuntimeIssue = {
   createdAt: "2026-03-06T11:00:00.000Z",
   updatedAt: "2026-03-06T11:00:00.000Z",
   queuePriority: null,
+  blockedBy: [],
 };
 
 describe("upsertActiveIssue", () => {

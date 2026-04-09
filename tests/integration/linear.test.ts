@@ -175,6 +175,37 @@ describe("LinearTracker", () => {
     expect(disabledReady[0]?.queuePriority).toBeNull();
   });
 
+  it("returns normalized blocker references on runtime issues", async () => {
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 1,
+      title: "Upstream blocker",
+      stateName: "In Progress",
+      assigneeEmail: "worker@example.test",
+    });
+    server.seedIssue({
+      projectSlug: "symphony-linear",
+      number: 2,
+      title: "Blocked issue",
+      stateName: "Todo",
+      assigneeEmail: "worker@example.test",
+      inverseRelations: [{ type: "blocks", issueNumber: 1 }],
+    });
+
+    const tracker = new LinearTracker(createConfig(server), new JsonLogger());
+    const ready = await tracker.fetchReadyIssues();
+    const blocked = ready.find((issue) => issue.number === 2);
+
+    expect(blocked?.blockedBy).toEqual([
+      {
+        id: expect.any(String),
+        identifier: "SYMPHONY-LINEAR-1",
+        title: "Upstream blocker",
+        state: "In Progress",
+      },
+    ]);
+  });
+
   it("filters ready issues by normalized assignee routing instead of GraphQL query parameters", async () => {
     server.seedIssue({
       projectSlug: "symphony-linear",

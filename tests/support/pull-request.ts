@@ -21,6 +21,7 @@ export function createIssue(
     createdAt: timestamp,
     updatedAt: timestamp,
     queuePriority: null,
+    blockedBy: [],
   };
 }
 

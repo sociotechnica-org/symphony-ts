@@ -447,10 +447,11 @@ guard. When enabled, Symphony keeps using the ready label as the coarse gate,
 but it also asks GitHub whether the issue currently has any open blocking
 relationships and excludes blocked issues from dispatch. Claiming re-checks the
 same fact to catch fetch/claim races. The default is `false`, which preserves
-today's label-only behavior. Enabled mode fails closed if GitHub cannot return
-the blocked-status fact. Older or feature-limited GitHub instances that do not
-expose `issueDependenciesSummary` through GraphQL will also fail closed with a
-message that points back to this toggle.
+today's label-only behavior; when dependency reads are available, Symphony
+still normalizes blocker references onto returned issues, and older or
+feature-limited GitHub instances fall back to empty blocker lists instead of
+failing ordinary label-only reads. Enabled mode fails closed if GitHub cannot
+return blocker data and surfaces a message that points back to this toggle.
 
 When multiple remote Codex worker hosts are configured, Symphony selects a host
 at dispatch time, keeps continuation turns on that same host, and prefers the

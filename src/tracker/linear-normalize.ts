@@ -233,6 +233,7 @@ export function normalizeLinearIssueSnapshot(
       priority,
       options.queuePriority,
     ),
+    blockedBy,
   };
 
   return {
