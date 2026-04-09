@@ -41,8 +41,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "node-pty",
-      "tui-use"
+      "node-pty"
     ]
   },
   "packageManager": "pnpm@10.20.0"

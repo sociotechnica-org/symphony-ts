@@ -60,10 +60,10 @@ The harness uses the checked-in `tui-use` dependency directly from the test
 process and isolates its terminal environment under a test-owned `HOME`, so
 repeated Vitest runs do not share operator state.
 
-This repo approves the required native build-script packages for pnpm, so a
-normal `pnpm install` should build the PTY support automatically. If your local
-package-manager policy still skips those install scripts, approve or rebuild the
-native PTY pieces before running the smoke test:
+This repo approves the pnpm build scripts needed for the PTY dependency, so a
+normal `pnpm install` should build the required native support automatically.
+If your local package-manager policy still skips those install scripts, approve
+or rebuild `node-pty` before running the smoke test:
 
 ```bash
 pnpm approve-builds
