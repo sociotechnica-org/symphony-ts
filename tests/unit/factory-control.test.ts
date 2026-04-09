@@ -1105,6 +1105,23 @@ describe("createFactoryRunCommand", () => {
     ]);
   });
 
+  it("uses an explicit launcher command when provided", () => {
+    expect(
+      createFactoryRunCommand(
+        "/tmp/target/WORKFLOW.md",
+        "/tmp/target/.tmp/factory-main/bin/symphony.ts",
+        ["/tmp/target/.tmp/factory-main/node_modules/.bin/tsx"],
+      ),
+    ).toEqual([
+      "/tmp/target/.tmp/factory-main/node_modules/.bin/tsx",
+      "/tmp/target/.tmp/factory-main/bin/symphony.ts",
+      "run",
+      "--workflow",
+      "/tmp/target/WORKFLOW.md",
+      "--i-understand-that-this-will-be-running-without-the-usual-guardrails",
+    ]);
+  });
+
   it("builds the detached screen launch argv in UTF-8 mode", () => {
     expect(
       createFactoryScreenLaunchCommand(
@@ -1146,6 +1163,7 @@ describe("resolveFactoryLaunchTarget", () => {
     ).resolves.toEqual({
       kind: "runtime-home",
       launchCwd: "/repo/.tmp/factory-main",
+      commandPrefix: ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
       entrypointPath: "/repo/.tmp/factory-main/bin/symphony.ts",
       workflowPath: "/repo/WORKFLOW.md",
     });
@@ -1170,6 +1188,7 @@ describe("resolveFactoryLaunchTarget", () => {
     ).resolves.toEqual({
       kind: "runtime-home",
       launchCwd: "/repo/.tmp/factory-main",
+      commandPrefix: ["/repo/.tmp/factory-main/node_modules/.bin/tsx.cmd"],
       entrypointPath: "/repo/.tmp/factory-main/bin/symphony.ts",
       workflowPath: "/repo/WORKFLOW.md",
     });
@@ -1193,6 +1212,7 @@ describe("resolveFactoryLaunchTarget", () => {
     expect(target.launchCwd).toBe(
       expectedFallbackLaunchCwd("/repo/WORKFLOW.md"),
     );
+    expect(target.commandPrefix).toEqual(["pnpm", "tsx"]);
     expect(target.workflowPath).toBe("/repo/WORKFLOW.md");
     expect(target.entrypointPath).toMatch(/bin\/symphony\.ts$/u);
   });
@@ -1336,6 +1356,7 @@ describe("startFactory", () => {
       command: createFactoryRunCommand(
         "/repo/.tmp/factory-main/WORKFLOW.md",
         "/repo/.tmp/factory-main/bin/symphony.ts",
+        ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
       ),
       env: expect.objectContaining({
         LANG: "en_US.UTF-8",
@@ -1360,7 +1381,13 @@ describe("startFactory", () => {
     const result = await startFactory({
       workflowPath: "/target-project/WORKFLOW.md",
       cwd: () => "/engine-checkout",
-      pathExists: async () => true,
+      pathExists: async (targetPath) =>
+        [
+          "/target-project/.tmp/factory-main",
+          "/target-project/.tmp/factory-main/bin/symphony.ts",
+          "/target-project/.tmp/factory-main/node_modules/.bin/tsx",
+          "/target-project/WORKFLOW.md",
+        ].includes(targetPath),
       loadWorkflowInstancePaths: async () =>
         deriveRuntimeInstancePaths({
           workflowPath: "/target-project/WORKFLOW.md",
@@ -1430,6 +1457,7 @@ describe("startFactory", () => {
         command: createFactoryRunCommand(
           "/target-project/WORKFLOW.md",
           "/target-project/.tmp/factory-main/bin/symphony.ts",
+          ["/target-project/.tmp/factory-main/node_modules/.bin/tsx"],
         ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
@@ -1887,6 +1915,7 @@ describe("startFactory", () => {
         command: createFactoryRunCommand(
           "/repo/.tmp/factory-main/WORKFLOW.md",
           "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
         ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
@@ -1933,6 +1962,7 @@ describe("startFactory", () => {
         command: createFactoryRunCommand(
           "/repo/.tmp/factory-main/WORKFLOW.md",
           "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
         ),
         env: expect.objectContaining({
           TERM: "screen-256color",
@@ -2474,6 +2504,7 @@ describe("factory restart launch contract", () => {
         command: createFactoryRunCommand(
           "/repo/.tmp/factory-main/WORKFLOW.md",
           "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
         ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",
@@ -2485,6 +2516,7 @@ describe("factory restart launch contract", () => {
         command: createFactoryRunCommand(
           "/repo/.tmp/factory-main/WORKFLOW.md",
           "/repo/.tmp/factory-main/bin/symphony.ts",
+          ["/repo/.tmp/factory-main/node_modules/.bin/tsx"],
         ),
         env: expect.objectContaining({
           LANG: "en_US.UTF-8",

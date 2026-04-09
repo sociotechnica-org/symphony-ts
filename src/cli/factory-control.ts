@@ -69,6 +69,7 @@ interface ResolvedFactoryPaths extends FactoryPaths {
 export interface FactoryLaunchTarget {
   readonly kind: "runtime-home" | "source-checkout-fallback";
   readonly launchCwd: string;
+  readonly commandPrefix: readonly string[];
   readonly entrypointPath: string;
   readonly workflowPath: string;
 }
@@ -307,6 +308,7 @@ export async function startFactory(
     command: createFactoryRunCommand(
       launchTarget.workflowPath,
       launchTarget.entrypointPath,
+      launchTarget.commandPrefix,
     ),
     env: launchEnvironment,
   });
@@ -1212,10 +1214,10 @@ function isMissingScreenSessionError(error: unknown): boolean {
 export function createFactoryRunCommand(
   workflowPath: string,
   entrypointPath = path.join(ENGINE_ROOT, "bin", "symphony.ts"),
+  commandPrefix: readonly string[] = ["pnpm", "tsx"],
 ): readonly string[] {
   return [
-    "pnpm",
-    "tsx",
+    ...commandPrefix,
     entrypointPath,
     "run",
     "--workflow",
@@ -1252,6 +1254,7 @@ export async function resolveFactoryLaunchTarget(
     return {
       kind: "runtime-home",
       launchCwd: paths.runtimeRoot,
+      commandPrefix: [runtimeTsxPath],
       entrypointPath: runtimeEntrypointPath,
       workflowPath: paths.workflowPath,
     };
@@ -1267,6 +1270,7 @@ export async function resolveFactoryLaunchTarget(
   return {
     kind: "source-checkout-fallback",
     launchCwd: ENGINE_ROOT,
+    commandPrefix: ["pnpm", "tsx"],
     entrypointPath: path.join(ENGINE_ROOT, "bin", "symphony.ts"),
     workflowPath: paths.workflowPath,
   };
