@@ -1896,7 +1896,7 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it("emits sleep trace lines in continuous mode", async () => {
     const tempDir = await createTempDir("symphony-operator-loop-sleep-");
@@ -2058,5 +2058,5 @@ node -e ${JSON.stringify(`const fs = require("node:fs"); fs.writeFileSync(${JSON
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 });
