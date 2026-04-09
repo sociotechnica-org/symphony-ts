@@ -543,6 +543,8 @@ async function compileMacOsAttachHelper(
         ["-O2", "-Wall", "-Wextra", "-o", tempBinaryPath, sourcePath],
         {
           stdio: ["ignore", "ignore", "pipe"],
+          // The compiler runs before the attach child starts, so it should inherit
+          // the ambient operator environment rather than the attach-only TERM shim.
           env: process.env,
         },
       );
@@ -598,6 +600,9 @@ function createFactoryAttachTermAliases<
 
 function selectFactoryAttachFallbackTerm(inheritedTerm: string): string {
   const normalizedTerm = inheritedTerm.toLowerCase();
+  // Keep the specific capability suffixes ahead of the generic -color branch.
+  // For attach-only fallbacks, xterm-256color is the closest practical match for
+  // both modern 256-color terms and the rare 88-color variants we normalize.
   if (
     normalizedTerm.endsWith("256color") ||
     normalizedTerm.endsWith("88color") ||
@@ -670,6 +675,8 @@ function renderAttachTermSelectionDetail(
   if (selection.source === "normalized") {
     return `. Attach TERM: ${selection.term} (normalized from TERM=${selection.inheritedTerm})`;
   }
+  // Keep the non-missing null case defensive so future fallback reasons can omit
+  // inheritedTerm without changing the error rendering path.
   const inheritedDetail =
     selection.reason === "missing"
       ? selection.inheritedTerm === null
