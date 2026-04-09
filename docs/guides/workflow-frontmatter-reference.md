@@ -244,10 +244,9 @@ GitHub-only dispatch guard. When enabled, Symphony still requires the ready
 label, but it also reads GitHub issue relationship data and treats any issue
 with one or more open blockers as non-dispatchable. `fetchReadyIssues()` and
 `claimIssue()` both honor this flag. Enabled mode fails closed if the blocked
-status cannot be read from GitHub. GitHub instances that do not expose
-`issueDependenciesSummary` through GraphQL are treated as unsupported for this
-toggle and fail with an explicit configuration hint instead of silently
-dispatching blocked work.
+status cannot be read from GitHub. GitHub instances that do not expose issue
+dependency reads are treated as unsupported for this toggle and fail with an
+explicit configuration hint instead of silently dispatching blocked work.
 
 ##### `tracker.plan_review`
 

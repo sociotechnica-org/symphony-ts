@@ -1,7 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { TrackerError } from "../domain/errors.js";
-import type { QueuePriority, RuntimeIssue } from "../domain/issue.js";
+import type {
+  QueuePriority,
+  RuntimeIssue,
+  RuntimeIssueBlocker,
+} from "../domain/issue.js";
 import type {
   PullRequestCheck,
   PullRequestCheckStatus,
@@ -99,28 +103,8 @@ interface GraphQlResponse<T> {
   readonly errors?: ReadonlyArray<{ readonly message: string }>;
 }
 
-interface IssueBlockedStatusGraphQlIssueResponse {
-  readonly number: number;
-  readonly issueDependenciesSummary: {
-    readonly blockedBy: number;
-  } | null;
-}
-
-interface IssueBlockedStatusGraphQlResponse {
-  readonly repository: Readonly<
-    Record<string, IssueBlockedStatusGraphQlIssueResponse | null>
-  > | null;
-}
-
 function blockedRelationshipSupportMessage(repo: string): string {
-  return `GitHub blocked-relationship enforcement for ${repo} requires GraphQL issue dependency summary support; disable tracker.respect_blocked_relationships or use a GitHub instance that exposes issueDependenciesSummary.`;
-}
-
-function isIssueDependencySummaryFieldError(error: unknown): boolean {
-  return (
-    error instanceof TrackerError &&
-    error.message.includes("issueDependenciesSummary")
-  );
+  return `GitHub issue dependency reads for ${repo} require issue dependency API support on the connected GitHub instance.`;
 }
 
 interface ProjectQueuePriorityFieldPageResponse {
@@ -289,12 +273,6 @@ export interface GitHubMergeRequestAcceptedResult {
 export type GitHubMergeRequestResult =
   | GitHubMergeRequestBlockedResult
   | GitHubMergeRequestAcceptedResult;
-
-export interface GitHubIssueBlockedStatus {
-  readonly issueNumber: number;
-  readonly isBlocked: boolean;
-  readonly openBlockerCount: number;
-}
 
 const NULL_LOGGER: Logger = {
   info() {},
@@ -483,29 +461,6 @@ const PROJECT_QUEUE_PRIORITY_FIELD_QUERY = `
   }
 `;
 
-function buildIssueBlockedStatusQuery(issueNumbers: readonly number[]): string {
-  const selections = issueNumbers
-    .map(
-      (
-        issueNumber,
-      ) => `      issue_${issueNumber.toString()}: issue(number: ${issueNumber.toString()}) {
-        number
-        issueDependenciesSummary {
-          blockedBy
-        }
-      }`,
-    )
-    .join("\n");
-
-  return `
-  query IssueBlockedStatus($owner: String!, $repo: String!) {
-    repository(owner: $owner, name: $repo) {
-${selections}
-    }
-  }
-`;
-}
-
 function paginationInfo(
   pageInfo:
     | {
@@ -591,7 +546,10 @@ async function resolveToken(): Promise<string> {
 export function toRuntimeIssue(
   issue: GitHubIssueResponse,
   repo: string,
-  queuePriority: QueuePriority | null = null,
+  options: {
+    readonly queuePriority?: QueuePriority | null;
+    readonly blockedBy?: readonly RuntimeIssueBlocker[];
+  } = {},
 ): RuntimeIssue {
   return {
     id: String(issue.number),
@@ -605,7 +563,20 @@ export function toRuntimeIssue(
     createdAt: issue.created_at,
     updatedAt: issue.updated_at,
     closedAt: issue.closed_at ?? null,
-    queuePriority,
+    queuePriority: options.queuePriority ?? null,
+    blockedBy: options.blockedBy ?? [],
+  };
+}
+
+function toRuntimeIssueBlocker(
+  issue: GitHubIssueResponse,
+  repo: string,
+): RuntimeIssueBlocker {
+  return {
+    id: String(issue.number),
+    identifier: `${repo}#${issue.number}`,
+    title: issue.title,
+    state: issue.state,
   };
 }
 
@@ -679,71 +650,6 @@ export class GitHubClient {
       this.#issuePath(`issues/${issueNumber}`),
     );
     return await this.#toRuntimeIssue(issue);
-  }
-
-  async getIssueBlockedStatusByIssueNumber(
-    issueNumbers: readonly number[],
-  ): Promise<ReadonlyMap<number, GitHubIssueBlockedStatus>> {
-    const normalizedIssueNumbers = [...new Set(issueNumbers)].sort(
-      (left, right) => left - right,
-    );
-    if (normalizedIssueNumbers.length === 0) {
-      return new Map<number, GitHubIssueBlockedStatus>();
-    }
-
-    let response: IssueBlockedStatusGraphQlResponse;
-    try {
-      response = await this.#graphqlRequest<IssueBlockedStatusGraphQlResponse>(
-        buildIssueBlockedStatusQuery(normalizedIssueNumbers),
-        {
-          owner: this.#repoOwner,
-          repo: this.#repoName,
-        },
-      );
-    } catch (error) {
-      if (isIssueDependencySummaryFieldError(error)) {
-        throw new TrackerError(
-          blockedRelationshipSupportMessage(this.#config.repo),
-          {
-            cause: error,
-          },
-        );
-      }
-      throw error;
-    }
-
-    const repository = response.repository;
-    if (repository === null) {
-      throw new TrackerError(
-        `GitHub repository ${this.#config.repo} was not found in GraphQL`,
-      );
-    }
-
-    const blockedStatusByIssueNumber = new Map<
-      number,
-      GitHubIssueBlockedStatus
-    >();
-    for (const issueNumber of normalizedIssueNumbers) {
-      const issue = repository[`issue_${issueNumber.toString()}`];
-      if (issue === null || issue === undefined) {
-        throw new TrackerError(
-          `GitHub issue ${this.#config.repo}#${issueNumber.toString()} was not found in GraphQL`,
-        );
-      }
-      if (issue.issueDependenciesSummary === null) {
-        throw new TrackerError(
-          `${blockedRelationshipSupportMessage(this.#config.repo)} GitHub issue ${this.#config.repo}#${issueNumber.toString()} returned no issue-dependency summary.`,
-        );
-      }
-
-      blockedStatusByIssueNumber.set(issueNumber, {
-        issueNumber,
-        isBlocked: issue.issueDependenciesSummary.blockedBy > 0,
-        openBlockerCount: issue.issueDependenciesSummary.blockedBy,
-      });
-    }
-
-    return blockedStatusByIssueNumber;
   }
 
   async updateIssue(
@@ -1041,25 +947,86 @@ export class GitHubClient {
   async #toRuntimeIssues(
     issues: readonly GitHubIssueResponse[],
   ): Promise<readonly RuntimeIssue[]> {
-    const queuePriorityByIssueNumber =
-      await this.#getQueuePriorityByIssueNumber();
+    const [queuePriorityByIssueNumber, blockersByIssueNumber] =
+      await Promise.all([
+        this.#getQueuePriorityByIssueNumber(),
+        this.#getBlockedByByIssueNumber(issues.map((issue) => issue.number)),
+      ]);
     return issues.map((issue) =>
-      toRuntimeIssue(
-        issue,
-        this.#config.repo,
-        queuePriorityByIssueNumber.get(issue.number) ?? null,
-      ),
+      toRuntimeIssue(issue, this.#config.repo, {
+        queuePriority: queuePriorityByIssueNumber.get(issue.number) ?? null,
+        blockedBy: blockersByIssueNumber.get(issue.number) ?? [],
+      }),
     );
   }
 
   async #toRuntimeIssue(issue: GitHubIssueResponse): Promise<RuntimeIssue> {
-    const queuePriorityByIssueNumber =
-      await this.#getQueuePriorityByIssueNumber();
-    return toRuntimeIssue(
-      issue,
-      this.#config.repo,
-      queuePriorityByIssueNumber.get(issue.number) ?? null,
+    const [queuePriorityByIssueNumber, blockersByIssueNumber] =
+      await Promise.all([
+        this.#getQueuePriorityByIssueNumber(),
+        this.#getBlockedByByIssueNumber([issue.number]),
+      ]);
+    return toRuntimeIssue(issue, this.#config.repo, {
+      queuePriority: queuePriorityByIssueNumber.get(issue.number) ?? null,
+      blockedBy: blockersByIssueNumber.get(issue.number) ?? [],
+    });
+  }
+
+  async #getBlockedByByIssueNumber(
+    issueNumbers: readonly number[],
+  ): Promise<ReadonlyMap<number, readonly RuntimeIssueBlocker[]>> {
+    const normalizedIssueNumbers = [...new Set(issueNumbers)].sort(
+      (left, right) => left - right,
     );
+    const blockerEntries = await Promise.all(
+      normalizedIssueNumbers.map(
+        async (issueNumber) =>
+          [issueNumber, await this.#listIssueBlockers(issueNumber)] as const,
+      ),
+    );
+    return new Map<number, readonly RuntimeIssueBlocker[]>(blockerEntries);
+  }
+
+  async #listIssueBlockers(
+    issueNumber: number,
+  ): Promise<readonly RuntimeIssueBlocker[]> {
+    const blockers: RuntimeIssueBlocker[] = [];
+    let page = 1;
+
+    for (;;) {
+      const path = this.#issuePath(
+        `issues/${issueNumber.toString()}/dependencies/blocked_by?per_page=100&page=${page.toString()}`,
+      );
+      const response = await this.#requestDetailed<GitHubIssueResponse[]>(
+        "GET",
+        path,
+      );
+      if (response.status === 404 || response.status === 410) {
+        throw new TrackerError(
+          blockedRelationshipSupportMessage(this.#config.repo),
+        );
+      }
+      if (response.status < 200 || response.status >= 300) {
+        throw new TrackerError(
+          `GitHub API GET ${path} failed with ${response.status}: ${response.text}`,
+        );
+      }
+      if (response.payload === null) {
+        throw new TrackerError(
+          `GitHub API GET ${path} returned no JSON payload (body: ${JSON.stringify(response.text.slice(0, 200))})`,
+        );
+      }
+
+      blockers.push(
+        ...response.payload.map((issue) =>
+          toRuntimeIssueBlocker(issue, this.#config.repo),
+        ),
+      );
+      if (response.payload.length < 100) {
+        return blockers;
+      }
+      page += 1;
+    }
   }
 
   async #getQueuePriorityByIssueNumber(): Promise<

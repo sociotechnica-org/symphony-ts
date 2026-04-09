@@ -435,7 +435,7 @@ describe("GitHubClient", () => {
     }
   });
 
-  it("normalizes GitHub blocked-status facts from issue dependency summaries", async () => {
+  it("hydrates normalized blocker references on GitHub issue reads", async () => {
     const server = new MockGitHubServer();
     await server.start();
     try {
@@ -447,12 +447,18 @@ describe("GitHubClient", () => {
       });
       server.seedIssue({
         number: 8,
-        title: "Unblocked issue",
+        title: "Dependency one",
         body: "",
         labels: ["symphony:ready"],
       });
-      server.setIssueBlockedByCount(7, 2);
-      server.setIssueBlockedByCount(8, 0);
+      server.seedIssue({
+        number: 9,
+        title: "Dependency two",
+        body: "",
+        labels: ["symphony:ready"],
+        state: "closed",
+      });
+      server.setIssueBlockedBy(7, [8, 9]);
 
       const client = new GitHubClient(
         {
@@ -469,24 +475,28 @@ describe("GitHubClient", () => {
         createLoggerSpy(),
       );
 
-      const statuses = await client.getIssueBlockedStatusByIssueNumber([8, 7]);
+      const issue = await client.getIssue(7);
 
-      expect(statuses.get(7)).toEqual({
-        issueNumber: 7,
-        isBlocked: true,
-        openBlockerCount: 2,
-      });
-      expect(statuses.get(8)).toEqual({
-        issueNumber: 8,
-        isBlocked: false,
-        openBlockerCount: 0,
-      });
+      expect(issue.blockedBy).toEqual([
+        {
+          id: "8",
+          identifier: "sociotechnica-org/symphony-ts#8",
+          title: "Dependency one",
+          state: "open",
+        },
+        {
+          id: "9",
+          identifier: "sociotechnica-org/symphony-ts#9",
+          title: "Dependency two",
+          state: "closed",
+        },
+      ]);
     } finally {
       await server.stop();
     }
   });
 
-  it("throws when GitHub blocked-status data is unavailable", async () => {
+  it("throws when GitHub blocker reads are unavailable", async () => {
     const server = new MockGitHubServer();
     await server.start();
     try {
@@ -515,15 +525,15 @@ describe("GitHubClient", () => {
         createLoggerSpy(),
       );
 
-      await expect(
-        client.getIssueBlockedStatusByIssueNumber([7]),
-      ).rejects.toThrow(/Issue dependency summary unavailable/);
+      await expect(client.getIssue(7)).rejects.toThrow(
+        /Issue dependency summary unavailable/,
+      );
     } finally {
       await server.stop();
     }
   });
 
-  it("explains when blocked-relationship enforcement is unavailable on the GitHub instance", async () => {
+  it("explains when GitHub issue dependency reads are unsupported", async () => {
     const server = new MockGitHubServer();
     await server.start();
     try {
@@ -534,7 +544,8 @@ describe("GitHubClient", () => {
         labels: ["symphony:ready"],
       });
       server.setIssueDependencyQueryFailure(
-        "Cannot query field 'issueDependenciesSummary' on type 'Issue'.",
+        "issue dependencies unavailable",
+        404,
       );
 
       const client = new GitHubClient(
@@ -552,10 +563,8 @@ describe("GitHubClient", () => {
         createLoggerSpy(),
       );
 
-      await expect(
-        client.getIssueBlockedStatusByIssueNumber([7]),
-      ).rejects.toThrow(
-        /disable tracker\.respect_blocked_relationships or use a GitHub instance that exposes issueDependenciesSummary/i,
+      await expect(client.getIssue(7)).rejects.toThrow(
+        /require issue dependency API support on the connected GitHub instance/i,
       );
     } finally {
       await server.stop();

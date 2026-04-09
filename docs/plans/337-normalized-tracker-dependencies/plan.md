@@ -288,15 +288,15 @@ One `RuntimeIssue` returned by a tracker.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| GitHub issue has no blockers | ready label present | `blockedBy = []` | keep existing ready/claim path |
-| GitHub issue has one or more blockers and enforcement is enabled | ready label present | `blockedBy.length > 0` | filter from ready reads and reject claim attempts |
-| GitHub issue has blockers and enforcement is disabled | ready label present | `blockedBy.length > 0` | return the issue normally; policy remains label-only |
-| GitHub ready read saw no blockers, but a later claim re-read sees blockers | stale ready read, fresh claim read | old `[]`, fresh non-empty `blockedBy` | `claimIssue()` returns `null` without mutating labels |
-| GitHub dependency transport is unavailable while reading an issue that must hydrate blockers | no safe fallback | no trustworthy `blockedBy` facts | fail the tracker read clearly rather than silently inventing an empty dependency set |
-| Linear issue has no inverse blocker relations | issue snapshot available | `blockedBy = []` | preserve current readiness behavior |
-| Linear issue has inverse blocker relations | issue snapshot available | normalized blocker refs from Linear relations | expose the same contract in `runtimeIssue` with no orchestrator changes |
+| Observed condition                                                                           | Local facts available              | Normalized tracker facts available            | Expected decision                                                                    |
+| -------------------------------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| GitHub issue has no blockers                                                                 | ready label present                | `blockedBy = []`                              | keep existing ready/claim path                                                       |
+| GitHub issue has one or more blockers and enforcement is enabled                             | ready label present                | `blockedBy.length > 0`                        | filter from ready reads and reject claim attempts                                    |
+| GitHub issue has blockers and enforcement is disabled                                        | ready label present                | `blockedBy.length > 0`                        | return the issue normally; policy remains label-only                                 |
+| GitHub ready read saw no blockers, but a later claim re-read sees blockers                   | stale ready read, fresh claim read | old `[]`, fresh non-empty `blockedBy`         | `claimIssue()` returns `null` without mutating labels                                |
+| GitHub dependency transport is unavailable while reading an issue that must hydrate blockers | no safe fallback                   | no trustworthy `blockedBy` facts              | fail the tracker read clearly rather than silently inventing an empty dependency set |
+| Linear issue has no inverse blocker relations                                                | issue snapshot available           | `blockedBy = []`                              | preserve current readiness behavior                                                  |
+| Linear issue has inverse blocker relations                                                   | issue snapshot available           | normalized blocker refs from Linear relations | expose the same contract in `runtimeIssue` with no orchestrator changes              |
 
 ## Observability Requirements
 

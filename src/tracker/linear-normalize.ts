@@ -1,4 +1,4 @@
-import type { RuntimeIssue } from "../domain/issue.js";
+import type { RuntimeIssue, RuntimeIssueBlocker } from "../domain/issue.js";
 import { TrackerError } from "../domain/errors.js";
 import type { QueuePriorityConfig } from "../domain/workflow.js";
 import {
@@ -36,12 +36,7 @@ export interface LinearIssueAssigneeSnapshot {
   readonly email: string | null;
 }
 
-export interface LinearIssueRelationSnapshot {
-  readonly id: string;
-  readonly identifier: string;
-  readonly title: string;
-  readonly state: string;
-}
+export type LinearIssueRelationSnapshot = RuntimeIssueBlocker;
 
 export interface LinearIssueNormalizationOptions {
   readonly configuredAssignee: string | null;
@@ -233,6 +228,7 @@ export function normalizeLinearIssueSnapshot(
       priority,
       options.queuePriority,
     ),
+    blockedBy,
   };
 
   return {

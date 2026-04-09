@@ -219,16 +219,36 @@ describe("GitHubTracker", () => {
   });
 
   it("preserves label-only ready reads when blocked-relationship enforcement is disabled", async () => {
-    server.setIssueBlockedByCount(7, 1);
+    server.seedIssue({
+      number: 8,
+      title: "Upstream blocker",
+      body: "",
+      labels: [],
+    });
+    server.setIssueBlockedBy(7, [8]);
     const tracker = createTracker(server);
 
     const ready = await tracker.fetchReadyIssues();
 
     expect(ready.map((issue) => issue.number)).toEqual([7]);
+    expect(ready[0]?.blockedBy).toEqual([
+      {
+        id: "8",
+        identifier: "sociotechnica-org/symphony-ts#8",
+        title: "Upstream blocker",
+        state: "open",
+      },
+    ]);
   });
 
   it("filters blocked ready issues when blocked-relationship enforcement is enabled", async () => {
-    server.setIssueBlockedByCount(7, 1);
+    server.seedIssue({
+      number: 8,
+      title: "Upstream blocker",
+      body: "",
+      labels: [],
+    });
+    server.setIssueBlockedBy(7, [8]);
     const tracker = createTracker(
       server,
       undefined,
@@ -244,7 +264,6 @@ describe("GitHubTracker", () => {
   });
 
   it("returns unblocked ready issues when blocked-relationship enforcement is enabled", async () => {
-    server.setIssueBlockedByCount(7, 0);
     const tracker = createTracker(
       server,
       undefined,
@@ -257,6 +276,7 @@ describe("GitHubTracker", () => {
     const ready = await tracker.fetchReadyIssues();
 
     expect(ready.map((issue) => issue.number)).toEqual([7]);
+    expect(ready[0]?.blockedBy).toEqual([]);
   });
 
   it("rejects a claim when the issue becomes blocked after the ready read", async () => {
@@ -272,7 +292,13 @@ describe("GitHubTracker", () => {
     const ready = await tracker.fetchReadyIssues();
     expect(ready.map((issue) => issue.number)).toEqual([7]);
 
-    server.setIssueBlockedByCount(7, 1);
+    server.seedIssue({
+      number: 8,
+      title: "Upstream blocker",
+      body: "",
+      labels: [],
+    });
+    server.setIssueBlockedBy(7, [8]);
 
     const claimed = await tracker.claimIssue(7);
 
@@ -295,6 +321,7 @@ describe("GitHubTracker", () => {
     const claimed = await tracker.claimIssue(7);
 
     expect(claimed?.labels).toContain("symphony:running");
+    expect(claimed?.blockedBy).toEqual([]);
   });
 
   it("fails closed when GitHub blocked-status data cannot be read", async () => {

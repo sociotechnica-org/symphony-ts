@@ -22,6 +22,7 @@ function createIssue(
     createdAt: timestamp,
     updatedAt: timestamp,
     queuePriority,
+    blockedBy: [],
   };
 }
 

@@ -22,6 +22,7 @@ function createRunSession(): RunSession {
       createdAt: "2026-03-19T00:00:00.000Z",
       updatedAt: "2026-03-19T00:00:00.000Z",
       queuePriority: null,
+      blockedBy: [],
     },
     workspace: {
       key: "sociotechnica-org_symphony-ts_186",

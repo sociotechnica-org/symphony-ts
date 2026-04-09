@@ -100,6 +100,7 @@ describe("normalizeLinearIssueSnapshot", () => {
         state: "In Progress",
       },
     ]);
+    expect(snapshot.runtimeIssue.blockedBy).toEqual(snapshot.blockedBy);
   });
 
   it("normalizes enabled Linear priority into queue priority metadata", () => {
@@ -155,6 +156,7 @@ describe("normalizeLinearIssueSnapshot", () => {
     expect(snapshot.assignedToWorker).toBe(true);
     expect(snapshot.labels).toEqual([]);
     expect(snapshot.blockedBy).toEqual([]);
+    expect(snapshot.runtimeIssue.blockedBy).toEqual([]);
   });
 
   it("normalizes Linear priority 0 to null for unset priority", () => {
