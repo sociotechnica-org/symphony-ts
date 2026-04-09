@@ -147,9 +147,9 @@ generally start with `factory status`, then use `factory watch` for continuous
 monitoring and `factory attach` when they need the full-screen TUI for a
 detached instance.
 For source-checkout factories, "launchable" means the runtime home contains
-both `bin/symphony.ts` and the installed local `tsx` binary under
-`node_modules/.bin/tsx`; a checkout without dependencies fails clearly instead
-of falling back silently.
+both `bin/symphony.ts` and the installed local `tsx` launcher under
+`node_modules/.bin`; a checkout without dependencies fails clearly instead of
+falling back silently.
 
 The supported detached control path now normalizes the launched runtime to an
 installed UTF-8 locale and starts GNU Screen with `-U`. If the host does not

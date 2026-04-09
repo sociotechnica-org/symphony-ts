@@ -139,6 +139,12 @@ function createControlDeps(
   });
   const runtimeEntrypointPath = path.join(runtimeRoot, "bin", "symphony.ts");
   const runtimeTsxPath = path.join(runtimeRoot, "node_modules", ".bin", "tsx");
+  const runtimeTsxCmdPath = path.join(
+    runtimeRoot,
+    "node_modules",
+    ".bin",
+    "tsx.cmd",
+  );
   const workflowPath = instancePaths.runtimeWorkflowPath;
   const statusFilePath = instancePaths.statusFilePath;
   const startupFilePath = instancePaths.startupFilePath;
@@ -160,6 +166,7 @@ function createControlDeps(
         runtimeRoot,
         runtimeEntrypointPath,
         runtimeTsxPath,
+        runtimeTsxCmdPath,
         workflowPath,
         path.dirname(statusFilePath),
         statusFilePath,
@@ -1144,6 +1151,30 @@ describe("resolveFactoryLaunchTarget", () => {
     });
   });
 
+  it("accepts the Windows tsx shim when it is the installed launcher", async () => {
+    await expect(
+      resolveFactoryLaunchTarget(
+        {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/startup.json",
+        },
+        {
+          pathExists: async (targetPath) =>
+            targetPath === "/repo/.tmp/factory-main/bin/symphony.ts" ||
+            targetPath === "/repo/.tmp/factory-main/node_modules/.bin/tsx.cmd",
+        },
+      ),
+    ).resolves.toEqual({
+      kind: "runtime-home",
+      launchCwd: "/repo/.tmp/factory-main",
+      entrypointPath: "/repo/.tmp/factory-main/bin/symphony.ts",
+      workflowPath: "/repo/WORKFLOW.md",
+    });
+  });
+
   it("uses the source checkout only as a bootstrap fallback when the runtime checkout is absent", async () => {
     const target = await resolveFactoryLaunchTarget(
       {
@@ -1203,7 +1234,7 @@ describe("resolveFactoryLaunchTarget", () => {
         },
       ),
     ).rejects.toThrow(
-      "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because /repo/.tmp/factory-main/node_modules/.bin/tsx is missing.",
+      "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because the local tsx launcher under node_modules/.bin is missing.",
     );
   });
 });

@@ -1241,17 +1241,14 @@ export async function resolveFactoryLaunchTarget(
     "bin",
     "symphony.ts",
   );
-  const runtimeTsxPath = path.join(
-    paths.runtimeRoot,
-    "node_modules",
-    ".bin",
-    "tsx",
-  );
-  const missingLaunchRequirement = await firstMissingPath(
-    [runtimeEntrypointPath, runtimeTsxPath],
-    pathExists,
-  );
-  if (missingLaunchRequirement === null) {
+  const runtimeTsxCandidatePaths = [
+    path.join(paths.runtimeRoot, "node_modules", ".bin", "tsx"),
+    path.join(paths.runtimeRoot, "node_modules", ".bin", "tsx.cmd"),
+  ] as const;
+  const entrypointExists = await pathExists(runtimeEntrypointPath);
+  const runtimeTsxPath =
+    (await firstExistingPath(runtimeTsxCandidatePaths, pathExists)) ?? null;
+  if (entrypointExists && runtimeTsxPath !== null) {
     return {
       kind: "runtime-home",
       launchCwd: paths.runtimeRoot,
@@ -1260,6 +1257,9 @@ export async function resolveFactoryLaunchTarget(
     };
   }
   if (await pathExists(paths.runtimeRoot)) {
+    const missingLaunchRequirement = entrypointExists
+      ? "the local tsx launcher under node_modules/.bin"
+      : runtimeEntrypointPath;
     throw new Error(
       `Detached runtime checkout at ${paths.runtimeRoot} is not launchable because ${missingLaunchRequirement} is missing. Refresh ${paths.runtimeRoot} from the selected instance main branch and install dependencies there before restarting the factory.`,
     );
@@ -1272,12 +1272,12 @@ export async function resolveFactoryLaunchTarget(
   };
 }
 
-async function firstMissingPath(
+async function firstExistingPath(
   paths: readonly string[],
   pathExists: (targetPath: string) => Promise<boolean>,
 ): Promise<string | null> {
   for (const candidatePath of paths) {
-    if (!(await pathExists(candidatePath))) {
+    if (await pathExists(candidatePath)) {
       return candidatePath;
     }
   }
