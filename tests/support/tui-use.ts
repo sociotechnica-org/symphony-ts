@@ -225,11 +225,7 @@ async function ensureTuiUseInstallReadyOnce(): Promise<void> {
     return;
   }
 
-  const nodePtyRoot = path.join(
-    resolveTuiUseRoot(),
-    "node_modules",
-    "node-pty",
-  );
+  const nodePtyRoot = resolveNodePtyRoot();
   const helperCandidates = [
     path.join(nodePtyRoot, "build", "Release", "spawn-helper"),
     path.join(nodePtyRoot, "build", "Debug", "spawn-helper"),
@@ -293,15 +289,25 @@ function resolveTuiUseRoot(): string {
   return path.dirname(require.resolve("tui-use/package.json"));
 }
 
+export function resolveNodePtyRoot(): string {
+  return path.dirname(
+    require.resolve("node-pty/package.json", {
+      paths: [resolveTuiUseRoot()],
+    }),
+  );
+}
+
+export function resolveTuiUseSessionModulePath(): string {
+  return require.resolve("tui-use/dist/session.js");
+}
+
 function resolveSessionConstructor(): TuiUseSessionConstructor {
   if (sessionConstructor !== null) {
     return sessionConstructor;
   }
 
   try {
-    const loaded = require(
-      path.join(resolveTuiUseRoot(), "dist", "session.js"),
-    ) as {
+    const loaded = require(resolveTuiUseSessionModulePath()) as {
       readonly Session: TuiUseSessionConstructor;
     };
     sessionConstructor = loaded.Session;

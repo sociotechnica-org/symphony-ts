@@ -1,8 +1,11 @@
 import os from "node:os";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   resetTuiUseStateForTests,
+  resolveNodePtyRoot,
+  resolveTuiUseSessionModulePath,
   sanitizeTuiUseEnv,
   setTuiUseSessionConstructorForTests,
   TuiUseHarness,
@@ -133,6 +136,24 @@ describe("sanitizeTuiUseEnv", () => {
     expect(sanitized["NODE_ENV"]).toBeUndefined();
     expect(sanitized["VITEST_POOL_ID"]).toBeUndefined();
     expect(sanitized["__VITEST_WORKER__"]).toBeUndefined();
+  });
+});
+
+describe("tui-use module resolution", () => {
+  it("resolves node-pty from the installed dependency graph", () => {
+    const nodePtyRoot = resolveNodePtyRoot();
+
+    expect(path.basename(nodePtyRoot)).toBe("node-pty");
+    expect(existsSync(path.join(nodePtyRoot, "package.json"))).toBe(true);
+  });
+
+  it("resolves the installed tui-use session module", () => {
+    const sessionModulePath = resolveTuiUseSessionModulePath();
+
+    expect(sessionModulePath.endsWith(path.join("tui-use", "dist", "session.js"))).toBe(
+      true,
+    );
+    expect(existsSync(sessionModulePath)).toBe(true);
   });
 });
 
