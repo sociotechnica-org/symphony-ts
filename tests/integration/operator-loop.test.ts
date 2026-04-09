@@ -325,6 +325,29 @@ async function waitForPathExists(
   throw new Error(`Timed out waiting for ${targetPath} to exist`);
 }
 
+async function waitForStatusJson<T>(
+  statusJsonPath: string,
+  predicate: (value: T) => boolean,
+  timeoutMs = 10000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const parsed = JSON.parse(await fs.readFile(statusJsonPath, "utf8")) as T;
+      if (predicate(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // Keep polling until the timeout expires.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(
+    `Timed out waiting for status predicate on ${statusJsonPath}`,
+  );
+}
+
 function buildAppendWakeUpLogCommand(entryTitle: string): string {
   const entry = `\n## ${entryTitle}\n- Appended by integration test.\n`;
   const program = `const fs = require("node:fs"); fs.appendFileSync(process.env.SYMPHONY_OPERATOR_WAKE_UP_LOG, ${JSON.stringify(entry)});`;
@@ -766,6 +789,271 @@ describe("operator loop workflow selection", () => {
       expect(statusJson.operatorControl.path).toBe(run.controlStatePath);
       expect(statusJson.operatorControl.posture).toBe("runtime-blocked");
       expect(statusJson.operatorControl.summary).toBe(controlState.summary);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes live progress milestones during a long wake-up cycle", async () => {
+    const tempDir = await createTempDir("symphony-operator-loop-progress-");
+    const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+    const markerPath = path.join(tempDir, "progress-mid-cycle.txt");
+    const commandPath = path.join(tempDir, "publish-progress.sh");
+    const childHolder: { current: ChildProcessWithoutNullStreams | null } = {
+      current: null,
+    };
+
+    try {
+      await fs.writeFile(
+        commandPath,
+        `#!/usr/bin/env bash
+set -euo pipefail
+pnpm tsx "$SYMPHONY_OPERATOR_PROGRESS_UPDATER" --milestone checkpoint-report-review --summary "Reviewing completed-run report follow-up for #344." --issue-number 344 --issue-identifier sociotechnica-org/symphony-ts#344 >/dev/null
+printf 'ready\\n' > ${JSON.stringify(markerPath)}
+sleep 2
+pnpm tsx "$SYMPHONY_OPERATOR_PROGRESS_UPDATER" --milestone post-merge-refresh --summary "Refreshing the selected instance after merge for #344." --issue-number 344 --issue-identifier sociotechnica-org/symphony-ts#344 --pull-request-number 512 >/dev/null
+sleep 1
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+
+      const child = spawn(
+        "bash",
+        [
+          path.join("skills", "symphony-operator", "operator-loop.sh"),
+          "--once",
+          "--workflow",
+          workflowPath,
+        ],
+        {
+          cwd: repoRoot,
+          env: buildTopLevelOperatorLoopEnv({
+            GH_TOKEN: "test-token",
+            SYMPHONY_OPERATOR_COMMAND: commandPath,
+          }),
+        },
+      );
+      childHolder.current = child;
+
+      await waitForPathExists(markerPath);
+      const midCycleStatus = await waitForStatusJson<{
+        readonly state: string;
+        readonly progress: {
+          readonly milestone: string;
+          readonly summary: string;
+          readonly sequence: number;
+          readonly relatedIssueNumber: number | null;
+          readonly previousMilestone: string | null;
+        } | null;
+      }>(
+        paths.statusJsonPath,
+        (value) => value.progress?.milestone === "checkpoint-report-review",
+      );
+      const midCycleStatusMd = await fs.readFile(paths.statusMdPath, "utf8");
+
+      expect(midCycleStatus.state).toBe("acting");
+      expect(midCycleStatus.progress?.milestone).toBe(
+        "checkpoint-report-review",
+      );
+      expect(midCycleStatus.progress?.summary).toContain(
+        "completed-run report follow-up",
+      );
+      expect(midCycleStatus.progress?.sequence).toBe(2);
+      expect(midCycleStatus.progress?.relatedIssueNumber).toBe(344);
+      expect(midCycleStatus.progress?.previousMilestone).toBe("cycle-start");
+      expect(midCycleStatusMd).toContain(
+        "- Progress milestone: checkpoint-report-review",
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", (code) => {
+          if (code === 0) {
+            resolve();
+            return;
+          }
+          reject(
+            new Error(
+              `Expected long-cycle operator loop to succeed, got ${code?.toString() ?? "unknown"}`,
+            ),
+          );
+        });
+      });
+      childHolder.current = null;
+
+      const finalStatus = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly progress: {
+          readonly milestone: string;
+          readonly sequence: number;
+          readonly previousMilestone: string | null;
+          readonly previousSummary: string | null;
+        } | null;
+      };
+      const finalStatusMd = await fs.readFile(paths.statusMdPath, "utf8");
+
+      expect(finalStatus.state).toBe("idle");
+      expect(finalStatus.progress?.milestone).toBe("cycle-finished");
+      expect(finalStatus.progress?.sequence).toBe(4);
+      expect(finalStatus.progress?.previousMilestone).toBe(
+        "post-merge-refresh",
+      );
+      expect(finalStatus.progress?.previousSummary).toContain(
+        "Refreshing the selected instance after merge",
+      );
+      expect(finalStatusMd).toContain("- Progress milestone: cycle-finished");
+      expect(finalStatusMd).toContain(
+        "- Previous progress milestone: post-merge-refresh",
+      );
+    } finally {
+      const childProcess = childHolder.current;
+      if (childProcess !== null) {
+        await terminateChildProcess(childProcess);
+      }
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces terminal cycle-failed progress without losing the prior checkpoint", async () => {
+    const tempDir = await createTempDir(
+      "symphony-operator-loop-progress-fail-",
+    );
+    const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+    const commandPath = path.join(tempDir, "publish-progress-fail.sh");
+
+    try {
+      await fs.writeFile(
+        commandPath,
+        `#!/usr/bin/env bash
+set -euo pipefail
+pnpm tsx "$SYMPHONY_OPERATOR_PROGRESS_UPDATER" --milestone checkpoint-actions --summary "Reviewing pending /land work for #344." --issue-number 344 --issue-identifier sociotechnica-org/symphony-ts#344 --pull-request-number 512 >/dev/null
+exit 7
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+
+      const failure = await runOperatorLoopExpectFailure(workflowPath, [], {
+        GH_TOKEN: "test-token",
+        SYMPHONY_OPERATOR_COMMAND: commandPath,
+      });
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly progress: {
+          readonly milestone: string;
+          readonly previousMilestone: string | null;
+          readonly previousSummary: string | null;
+        } | null;
+        readonly lastCycle: {
+          readonly exitCode: number | null;
+        };
+      };
+      const statusMd = await fs.readFile(paths.statusMdPath, "utf8");
+
+      expect(failure.exitCode).toBe(7);
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.lastCycle.exitCode).toBe(7);
+      expect(statusJson.progress?.milestone).toBe("cycle-failed");
+      expect(statusJson.progress?.previousMilestone).toBe("checkpoint-actions");
+      expect(statusJson.progress?.previousSummary).toContain(
+        "pending /land work",
+      );
+      expect(statusMd).toContain("- Progress milestone: cycle-failed");
+      expect(statusMd).toContain(
+        "- Previous progress milestone: checkpoint-actions",
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("records a failed terminal status when progress publication breaks", async () => {
+    const tempDir = await createTempDir(
+      "symphony-operator-loop-progress-publish-fail-",
+    );
+    const workflowPath = await writeWorkflow(tempDir);
+    const instanceKey = deriveSymphonyInstanceKey(path.dirname(workflowPath));
+    const paths = deriveOperatorInstanceStatePaths({
+      operatorRepoRoot: repoRoot,
+      instanceKey,
+    });
+    const commandPath = path.join(tempDir, "break-progress-publish.sh");
+    const failingUpdaterPath = path.join(
+      tempDir,
+      "failing-progress-updater.ts",
+    );
+
+    try {
+      await fs.writeFile(
+        failingUpdaterPath,
+        `const args = process.argv.slice(2);
+const milestoneIndex = args.indexOf("--milestone");
+const milestone = milestoneIndex === -1 ? null : args[milestoneIndex + 1] ?? null;
+if (milestone === "cycle-failed") {
+  process.stderr.write("synthetic terminal progress failure\\n");
+  process.exit(17);
+}
+process.exit(0);
+`,
+        { encoding: "utf8" },
+      );
+      await fs.writeFile(
+        commandPath,
+        `#!/usr/bin/env bash
+set -euo pipefail
+exit 7
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+
+      const failure = await runOperatorLoopExpectFailure(workflowPath, [], {
+        GH_TOKEN: "test-token",
+        SYMPHONY_OPERATOR_COMMAND: commandPath,
+        SYMPHONY_OPERATOR_PROGRESS_UPDATER_PATH: failingUpdaterPath,
+      });
+      createdPaths.add(tempDir);
+      createdPaths.add(paths.operatorStateRoot);
+
+      const statusJson = JSON.parse(
+        await fs.readFile(paths.statusJsonPath, "utf8"),
+      ) as {
+        readonly state: string;
+        readonly message: string;
+        readonly progress: unknown;
+        readonly lastCycle: {
+          readonly exitCode: number | null;
+          readonly logFile: string | null;
+        };
+      };
+      const cycleLog = await fs.readFile(
+        statusJson.lastCycle.logFile ?? "",
+        "utf8",
+      );
+
+      expect(failure.exitCode).toBe(7);
+      expect(statusJson.state).toBe("idle");
+      expect(statusJson.message).toContain("finished one cycle with a failure");
+      expect(statusJson.progress).toBeNull();
+      expect(statusJson.lastCycle.exitCode).toBe(7);
+      expect(cycleLog).toContain(
+        "progress_publish_failure_milestone=cycle-failed",
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
