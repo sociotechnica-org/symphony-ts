@@ -7,7 +7,7 @@ Required reads, in order:
 1. Read `skills/symphony-operator/SKILL.md`.
 2. Read `SYMPHONY_OPERATOR_STANDING_CONTEXT` and `SYMPHONY_OPERATOR_WAKE_UP_LOG` if they exist.
 3. Read the generated operator control-state artifact at `SYMPHONY_OPERATOR_CONTROL_STATE`.
-4. Read `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT/OPERATOR.md` if it exists and treat it as the primary repo-specific operator-policy document.
+4. Read `<selected-instance-root>/OPERATOR.md` if it exists, where `<selected-instance-root>` is the value of `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT`, and treat it as the primary repo-specific operator-policy document.
 
 Treat `SYMPHONY_OPERATOR_CONTROL_STATE` as the code-owned source of truth for
 this cycle's deterministic checkpoint ordering. It already summarizes:
@@ -26,7 +26,7 @@ manual checkpoint commands.
 Repository and policy rules:
 
 - `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT` is the repository that owns this wake-up's runtime contract, operator policy, and planning rubric.
-- If `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT/OPERATOR.md` exists, treat it as the primary source for repo-specific operator policy such as landing expectations, release gates, post-merge refresh rules, and escalation boundaries.
+- If `<selected-instance-root>/OPERATOR.md` exists, treat it as the primary source for repo-specific operator policy such as landing expectations, release gates, post-merge refresh rules, and escalation boundaries.
 - If `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT` differs from `SYMPHONY_OPERATOR_REPO_ROOT`, read that selected repository's `WORKFLOW.md`, `AGENTS.md`, `README.md`, `OPERATOR.md`, and relevant docs when they exist. Do not apply `symphony-ts` planning standards to an external repository unless its own checked-in instructions say to.
 - If `SYMPHONY_OPERATOR_WORKFLOW_PATH` is set, use it when calling Symphony factory-control commands for the selected instance.
 - Before posting a plan-review decision, inspect the selected workflow's `tracker.plan_review` config and use its configured decision markers.

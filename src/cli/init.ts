@@ -186,52 +186,33 @@ async function publishScaffoldFiles(args: {
     : null;
   const workflowTempPath = `${args.workflowPath}.tmp-${process.pid}-${Date.now()}`;
   const operatorPlaybookTempPath = `${args.operatorPlaybookPath}.tmp-${process.pid}-${Date.now()}`;
-
-  await fs.writeFile(workflowTempPath, args.workflowTemplate, "utf8");
+  let workflowPublished = false;
+  let operatorPlaybookPublished = false;
 
   try {
+    await fs.writeFile(workflowTempPath, args.workflowTemplate, "utf8");
     await fs.writeFile(
       operatorPlaybookTempPath,
       args.operatorPlaybookTemplate,
       "utf8",
     );
-    await publishScaffoldFileSet({
-      workflowPath: args.workflowPath,
-      workflowTempPath,
-      workflowBackup,
-      operatorPlaybookPath: args.operatorPlaybookPath,
-      operatorPlaybookTempPath,
-      operatorPlaybookBackup,
-    });
+    await fs.rename(workflowTempPath, args.workflowPath);
+    workflowPublished = true;
+    await fs.rename(operatorPlaybookTempPath, args.operatorPlaybookPath);
+    operatorPlaybookPublished = true;
   } catch (error) {
+    if (workflowPublished) {
+      await restoreScaffoldFile(args.workflowPath, workflowBackup);
+    }
+    if (operatorPlaybookPublished) {
+      await restoreScaffoldFile(
+        args.operatorPlaybookPath,
+        operatorPlaybookBackup,
+      );
+    }
     await cleanupScaffoldTempFiles([
       workflowTempPath,
       operatorPlaybookTempPath,
-    ]);
-    throw error;
-  }
-}
-
-async function publishScaffoldFileSet(args: {
-  readonly workflowPath: string;
-  readonly workflowTempPath: string;
-  readonly workflowBackup: string | null;
-  readonly operatorPlaybookPath: string;
-  readonly operatorPlaybookTempPath: string;
-  readonly operatorPlaybookBackup: string | null;
-}): Promise<void> {
-  try {
-    await fs.rename(args.workflowTempPath, args.workflowPath);
-    await fs.rename(args.operatorPlaybookTempPath, args.operatorPlaybookPath);
-  } catch (error) {
-    await restoreScaffoldFile(args.workflowPath, args.workflowBackup);
-    await restoreScaffoldFile(
-      args.operatorPlaybookPath,
-      args.operatorPlaybookBackup,
-    );
-    await cleanupScaffoldTempFiles([
-      args.workflowTempPath,
-      args.operatorPlaybookTempPath,
     ]);
     throw error;
   }

@@ -952,6 +952,45 @@ describe("runCli init", () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("cleans up temp files when the first scaffold temp write fails", async () => {
+    const tempDir = await createTempDir("symphony-cli-init-temp-write-");
+    const targetRepo = path.join(tempDir, "target-repo");
+    const workflowPath = path.join(targetRepo, "WORKFLOW.md");
+    const originalWriteFile: typeof fs.writeFile = fs.writeFile.bind(fs);
+    await fs.mkdir(targetRepo, { recursive: true });
+
+    vi.spyOn(fs, "writeFile").mockImplementation(async (...args) => {
+      const [filePath] = args;
+      if (
+        typeof filePath === "string" &&
+        filePath.startsWith(`${workflowPath}.tmp-`)
+      ) {
+        await originalWriteFile(...args);
+        throw new Error("workflow temp write failed");
+      }
+      return originalWriteFile(...args);
+    });
+
+    try {
+      await expect(
+        scaffoldWorkflow({
+          targetPath: targetRepo,
+          trackerRepo: "acme/widgets",
+          runnerKind: "codex",
+          force: false,
+        }),
+      ).rejects.toThrow("workflow temp write failed");
+      await expect(fs.access(workflowPath)).rejects.toThrow();
+      expect(
+        (await fs.readdir(targetRepo)).filter((entry) =>
+          entry.includes(".tmp-"),
+        ),
+      ).toEqual([]);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("runCli run", () => {

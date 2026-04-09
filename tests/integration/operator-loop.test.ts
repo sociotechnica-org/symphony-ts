@@ -682,9 +682,7 @@ describe("operator loop workflow selection", () => {
       expect(prompt).toContain("pending plan-review and `/land` actions");
       expect(prompt).toContain("docs/guides/operator-runbook.md");
       expect(prompt).toContain("SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT");
-      expect(prompt).toContain(
-        "SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT/OPERATOR.md",
-      );
+      expect(prompt).toContain("<selected-instance-root>/OPERATOR.md");
       expect(prompt).toContain(
         "treat it as the primary source for repo-specific operator policy",
       );
