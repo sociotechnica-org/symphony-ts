@@ -235,7 +235,6 @@ export async function refreshOperatorControlState(args: {
 
   const runtimeResult = await loadRuntimeCheckpoint({
     workflowPath,
-    operatorRepoRoot,
   });
   const instance = await loadWorkflowInstancePaths(workflowPath);
 
@@ -263,7 +262,6 @@ export async function refreshOperatorControlState(args: {
 
 async function loadRuntimeCheckpoint(args: {
   readonly workflowPath: string;
-  readonly operatorRepoRoot: string;
 }): Promise<{
   readonly checkpoint: OperatorControlRuntimeCheckpoint;
   readonly activeIssues: readonly FactoryActiveIssueSnapshot[];

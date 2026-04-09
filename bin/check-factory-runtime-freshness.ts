@@ -15,6 +15,8 @@ interface Args {
 
 function parseArgs(argv: readonly string[]): Args {
   const workflowPath = readOptionalOptionValue(argv, "--workflow");
+  // Accept the old flag for compatibility with older operator scripts even
+  // though runtime freshness now reads the selected instance runtime checkout.
   readOptionalOptionValue(argv, "--operator-repo-root");
   return {
     ...(workflowPath === null ? {} : { workflowPath }),
