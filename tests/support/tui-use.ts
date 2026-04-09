@@ -170,12 +170,10 @@ export class TuiUseHarness {
       }
       try {
         await this.waitForChange(Math.min(pollIntervalMs, remainingMs));
-      } catch (error) {
-        throw buildWaitForSnapshotError(
-          options?.description,
-          lastSnapshot,
-          error,
-        );
+      } catch {
+        // tui-use may reject when the session exits or when no change arrives
+        // before the wait timeout. Re-check via snapshot() so callers can
+        // observe the current terminal state before failing.
       }
     }
 
@@ -329,6 +327,17 @@ export function sanitizeTuiUseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return sanitizedEnv;
 }
 
+export function resetTuiUseStateForTests(): void {
+  installReady = null;
+  sessionConstructor = null;
+}
+
+export function setTuiUseSessionConstructorForTests(
+  constructor: TuiUseSessionConstructor | null,
+): void {
+  sessionConstructor = constructor;
+}
+
 function buildWaitForSnapshotTimeoutError(
   description: string | undefined,
   lastSnapshot: TuiUseSnapshot,
@@ -337,19 +346,6 @@ function buildWaitForSnapshotTimeoutError(
     `Timed out waiting for tui-use snapshot${
       description === undefined ? "" : `: ${description}`
     }\n\nLast screen:\n${lastSnapshot.screen}`,
-  );
-}
-
-function buildWaitForSnapshotError(
-  description: string | undefined,
-  lastSnapshot: TuiUseSnapshot,
-  cause: unknown,
-): Error {
-  return new Error(
-    `Failed while waiting for tui-use snapshot${
-      description === undefined ? "" : `: ${description}`
-    }\n\nLast screen:\n${lastSnapshot.screen}`,
-    { cause },
   );
 }
 
