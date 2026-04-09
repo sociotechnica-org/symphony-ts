@@ -13,6 +13,8 @@ RECORD_OPERATOR_CYCLE="$REPO_ROOT/bin/record-operator-loop-cycle.ts"
 CONTROL_STATE_REFRESHER="$REPO_ROOT/bin/refresh-operator-control-state.ts"
 RELEASE_STATE_CHECKER="$REPO_ROOT/bin/check-operator-release-state.ts"
 READY_PROMOTER="$REPO_ROOT/bin/promote-operator-ready-issues.ts"
+WRITE_OPERATOR_STATUS="$REPO_ROOT/bin/write-operator-status.ts"
+UPDATE_OPERATOR_PROGRESS="$REPO_ROOT/bin/update-operator-progress.ts"
 INSTANCE_KEY=""
 DETACHED_SESSION_NAME=""
 SELECTED_INSTANCE_ROOT=""
@@ -405,6 +407,7 @@ record_cycle_failure_before_command() {
   } >>"$log_file"
 
   record_operator_cycle
+  publish_progress "cycle-failed" "$cycle_message"
   write_status "failed" "$cycle_message"
 }
 
@@ -695,8 +698,9 @@ release_active_wake_up_lease() {
 write_status() {
   local state="$1"
   local message="$2"
-  local updated_at
+  local updated_at progress_json
   updated_at="$(now_utc)"
+  progress_json="$(read_current_progress_json)"
   load_release_state_snapshot
   if [ -f "$CONTROL_STATE" ]; then
     local control_state_exports
@@ -750,13 +754,13 @@ for (const [key, value] of Object.entries(defaults)) {
     RELEASE_BLOCKING_PREREQUISITE_NUMBER=""
     RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER=""
   fi
-
-  cat >"$STATUS_JSON" <<EOF
+  cat <<EOF | pnpm tsx "$WRITE_OPERATOR_STATUS" --status-json "$STATUS_JSON" --status-md "$STATUS_MD"
 {
   "version": 1,
   "state": "$(json_escape "$state")",
   "message": "$(json_escape "$message")",
   "updatedAt": "$(json_escape "$updated_at")",
+  "progress": $progress_json,
   "repoRoot": "$(json_escape "$REPO_ROOT")",
   "instanceKey": "$(json_escape "$INSTANCE_KEY")",
   "detachedSessionName": "$(json_escape "$DETACHED_SESSION_NAME")",
@@ -816,56 +820,36 @@ for (const [key, value] of Object.entries(defaults)) {
   "nextWakeAt": $(if [ -n "$NEXT_WAKE_AT" ]; then printf '"%s"' "$(json_escape "$NEXT_WAKE_AT")"; else printf 'null'; fi)
 }
 EOF
+}
 
-  cat >"$STATUS_MD" <<EOF
-# Symphony Operator Loop
+read_current_progress_json() {
+  if [ ! -f "$STATUS_JSON" ]; then
+    printf 'null'
+    return 0
+  fi
 
-- State: $state
-- Message: $message
-- Updated: $updated_at
-- Repo root: $REPO_ROOT
-- Instance key: $INSTANCE_KEY
-- Detached session: $DETACHED_SESSION_NAME
-- Selected instance root: $SELECTED_INSTANCE_ROOT
-- Operator state root: $INSTANCE_STATE_ROOT
-- Mode: $(if [ "$RUN_ONCE" -eq 1 ]; then printf 'once'; else printf 'continuous'; fi)
-- Interval seconds: $INTERVAL_SECONDS
-- Selected workflow: ${WORKFLOW_PATH:-n/a}
-- Provider: $OPERATOR_PROVIDER
-- Model: ${OPERATOR_MODEL:-default}
-- Command source: $OPERATOR_COMMAND_SOURCE
-- Base command: $BASE_OPERATOR_COMMAND
-- Effective command: $EFFECTIVE_OPERATOR_COMMAND
-- Resumable session enabled: $(if [ "$RESUME_SESSION" -eq 1 ]; then printf 'true'; else printf 'false'; fi)
-- Session state: $SESSION_STATE
-- Session mode: $OPERATOR_SESSION_MODE
-- Session summary: $OPERATOR_SESSION_SUMMARY
-- Session backend id: ${OPERATOR_SESSION_ID:-n/a}
-- Session reset reason: ${OPERATOR_SESSION_RESET_REASON:-n/a}
-- Standing context: $STANDING_CONTEXT
-- Wake-up log: $WAKE_UP_LOG
-- Release state: $RELEASE_STATE
-- Release advancement state: $RELEASE_ADVANCEMENT_STATE
-- Release summary: $RELEASE_STATE_SUMMARY
-- Release blocked by prerequisite: ${RELEASE_BLOCKING_PREREQUISITE_IDENTIFIER:-${RELEASE_BLOCKING_PREREQUISITE_NUMBER:-n/a}}
-- Ready promotion state: $READY_PROMOTION_STATE
-- Ready promotion summary: $READY_PROMOTION_SUMMARY
-- Ready promotion eligible issues: ${READY_PROMOTION_ELIGIBLE_ISSUES:-none}
-- Ready promotion added: ${READY_PROMOTION_ADDED:-none}
-- Ready promotion removed: ${READY_PROMOTION_REMOVED:-none}
-- Report review state: $REPORT_REVIEW_STATE
-- Prompt: $PROMPT_FILE
-- Operator control state: $CONTROL_STATE
-- Operator control posture: $OPERATOR_CONTROL_POSTURE
-- Operator control summary: $OPERATOR_CONTROL_SUMMARY
-- Operator control blocking checkpoint: ${OPERATOR_CONTROL_BLOCKING_CHECKPOINT:-none}
-- Operator control next action: ${OPERATOR_CONTROL_NEXT_ACTION_SUMMARY:-n/a}
-- Last cycle started: ${LAST_CYCLE_STARTED_AT:-n/a}
-- Last cycle finished: ${LAST_CYCLE_FINISHED_AT:-n/a}
-- Last cycle exit code: ${LAST_CYCLE_EXIT_CODE:-n/a}
-- Last cycle log: ${LAST_LOG_FILE:-n/a}
-- Next wake: ${NEXT_WAKE_AT:-n/a}
-EOF
+  STATUS_JSON="$STATUS_JSON" node -e '
+const fs = require("node:fs");
+try {
+  const raw = fs.readFileSync(process.env.STATUS_JSON, "utf8");
+  const parsed = JSON.parse(raw);
+  process.stdout.write(JSON.stringify(parsed.progress ?? null));
+} catch (error) {
+  process.stdout.write("null");
+}
+'
+}
+
+publish_progress() {
+  local milestone="$1"
+  local summary="$2"
+  shift 2
+  pnpm tsx "$UPDATE_OPERATOR_PROGRESS" \
+    --status-json "$STATUS_JSON" \
+    --status-md "$STATUS_MD" \
+    --milestone "$milestone" \
+    --summary "$summary" \
+    "$@" >/dev/null
 }
 
 ensure_runtime_paths() {
@@ -1007,6 +991,7 @@ run_cycle() {
   write_cycle_log_header "$log_file"
   emit_terminal_trace "waking up (${OPERATOR_PROVIDER}${OPERATOR_MODEL:+/$OPERATOR_MODEL}; $(describe_cycle_terminal_mode))"
   write_status "acting" "Running operator wake-up cycle"
+  publish_progress "cycle-start" "Wake-up cycle started."
   if ! acquire_active_wake_up_lease; then
     record_cycle_failure_before_command \
       "$log_file" \
@@ -1038,6 +1023,7 @@ run_cycle() {
     export SYMPHONY_OPERATOR_RELEASE_STATE="$RELEASE_STATE"
     export SYMPHONY_OPERATOR_STATUS_JSON="$STATUS_JSON"
     export SYMPHONY_OPERATOR_STATUS_MD="$STATUS_MD"
+    export SYMPHONY_OPERATOR_PROGRESS_UPDATER="$UPDATE_OPERATOR_PROGRESS"
     export SYMPHONY_OPERATOR_LOG_DIR="$LOG_DIR"
     export SYMPHONY_OPERATOR_PROMPT_FILE="$PROMPT_FILE"
     export SYMPHONY_OPERATOR_WORKFLOW_PATH="$WORKFLOW_PATH"
@@ -1072,12 +1058,14 @@ run_cycle() {
 
   if [ "$exit_code" -eq 0 ]; then
     cycle_message="Operator cycle completed successfully"
+    publish_progress "cycle-finished" "$cycle_message"
     write_status "recording" "$cycle_message"
     # Leave the post-cycle recording state visible briefly before callers
     # transition to the next wait state.
     sleep "$RECORDING_SETTLE_SECONDS"
   else
     cycle_message="Operator cycle failed with exit code $exit_code"
+    publish_progress "cycle-failed" "$cycle_message"
     write_status "failed" "$cycle_message"
   fi
 
@@ -1123,6 +1111,16 @@ fi
 
 if [ ! -f "$RELEASE_STATE_CHECKER" ]; then
   echo "operator-loop: release-state checker not found: $RELEASE_STATE_CHECKER" >&2
+  exit 1
+fi
+
+if [ ! -f "$WRITE_OPERATOR_STATUS" ]; then
+  echo "operator-loop: operator status writer not found: $WRITE_OPERATOR_STATUS" >&2
+  exit 1
+fi
+
+if [ ! -f "$UPDATE_OPERATOR_PROGRESS" ]; then
+  echo "operator-loop: operator progress updater not found: $UPDATE_OPERATOR_PROGRESS" >&2
   exit 1
 fi
 

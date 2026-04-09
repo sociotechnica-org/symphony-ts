@@ -63,6 +63,12 @@ checkpoint algorithm. When the checked-in prompt and `control-state.json`
 disagree, trust the generated artifact and fix the prompt or code through the
 normal PR flow.
 
+The same status surface now carries live in-cycle milestone progress through an
+additive `progress` block in `status.json` plus matching milestone lines in
+`status.md`. Treat that surface as the operator's live-progress contract during
+long wake-up work; `control-state.json` remains the pre-cycle checkpoint
+ordering contract.
+
 ## Wake-Up Expectations
 
 1. Read the selected instance's standing context first, then the wake-up log.
@@ -74,6 +80,7 @@ normal PR flow.
 7. After posting a plan-review decision or `/land`, verify the factory observes it and transitions correctly.
 8. After a merge, fast-forward the selected instance root to `origin/main`, rerun the freshness checkpoint, and restart only when the runtime engine or selected `WORKFLOW.md` is actually stale.
 9. Use bounded, one-shot probes during the wake-up cycle. Prefer short reads over long-running watchers in the critical path.
+10. During long cycles, publish milestone progress with `pnpm tsx "$SYMPHONY_OPERATOR_PROGRESS_UPDATER" --milestone <id> --summary "<update>"` instead of rewriting status artifacts by hand.
 
 ## Operational Rules
 
@@ -86,6 +93,7 @@ normal PR flow.
 - In a wake-up cycle, favor short, bounded inspection commands over long-running watchers. If a secondary GitHub or watch-surface probe is slow or non-terminal, stop and continue from the latest successful control-surface read instead of waiting indefinitely.
 - Do not start `pnpm operator`, `pnpm operator:once`, or `operator-loop.sh` from inside an active wake-up shell. Use the supported factory-control and status commands instead of nesting the operator loop.
 - Use `pnpm tsx bin/symphony.ts factory watch` for continuous detached monitoring and `pnpm tsx bin/symphony.ts factory attach` when you need the full-screen TUI; do not use raw `screen -r <instance-session-name>` as the normal watch path because `Ctrl-C` there can kill the worker.
+- Use the checked-in progress updater exported as `SYMPHONY_OPERATOR_PROGRESS_UPDATER` for long-cycle milestones such as report review, release gating, plan review, `/land`, post-landing follow-through, post-merge refresh, and wake-up-log publication.
 - Treat `symphony:running` with no live detached runtime or no live runner visibility as an orphaned run and repair it.
 - Prefer `pnpm tsx bin/symphony.ts factory start|stop|restart` over manual `screen` and process cleanup.
 - Treat detached startup locale handling as repo-owned behavior: the supported factory-control path selects an installed UTF-8 locale, launches `screen -U`, and should fail clearly rather than relying on shell-local locale folklore.
@@ -96,6 +104,7 @@ normal PR flow.
 - If a PR's required checks remain non-terminal for an unusually long time but the same behavior can be reproduced locally, do not stop at the first fixed assertion failure. Keep the PR in active operator treatment until the full locally reproducible hang is resolved or reduced to clearly external infrastructure.
 - Keep runner assumptions provider-neutral. The current runtime may use `codex`, `claude-code`, or `generic-command`; do not assume every healthy run appears as a direct `codex exec` child process.
 - Keep release dependency truth in the typed `release-state.json` artifact, not only in markdown notes. Standing context may explain release sequencing, but prerequisite failure gating must remain inspectable through the typed artifact.
+- Keep in-cycle progress truth in the typed operator status surface. `status.json` / `status.md` should show which milestone the wake-up most recently reached and when it last advanced; `control-state.json` should not be overloaded into that live-progress role.
 - Treat plan review as a required operator checkpoint:
   - read the selected workflow's `tracker.plan_review` config first,
   - read the selected instance repository's `OPERATOR.md`, `WORKFLOW.md`, `AGENTS.md`, `README.md`, and relevant docs when they exist,

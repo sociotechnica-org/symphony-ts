@@ -40,6 +40,13 @@ Operational constraints:
 - Keep runner assumptions provider-neutral; the factory may use `codex`, `claude-code`, or `generic-command`.
 - If durable repo changes are required, make them through the normal branch/PR flow instead of leaving the fix only in local notes.
 
+Status progress:
+
+- Use `SYMPHONY_OPERATOR_PROGRESS_UPDATER` to publish milestone updates during long wake-up work instead of editing `status.json` or `status.md` directly.
+- Run it as `pnpm tsx "$SYMPHONY_OPERATOR_PROGRESS_UPDATER" --milestone <milestone-id> --summary "<what changed>"` and include `--issue-number`, `--issue-identifier`, or `--pull-request-number` when they make the checkpoint clearer.
+- Publish a milestone when you enter completed-run report review work, release/prerequisite handling, plan-review or `/land` action work, immediately after posting `/land`, during post-landing follow-through, during post-merge refresh, and when writing the wake-up log after a long cycle.
+- Use only the checked-in milestone ids: `checkpoint-runtime`, `checkpoint-report-review`, `checkpoint-release`, `checkpoint-actions`, `landing-issued`, `post-landing-follow-through`, `post-merge-refresh`, and `wake-up-log`.
+
 Before finishing the cycle:
 
 1. Append a timestamped entry to `SYMPHONY_OPERATOR_WAKE_UP_LOG`.
