@@ -104,20 +104,22 @@ ${buildSharedWorkflowSections()}`,
 
     const workflow = await loadWorkflow(workflowPath);
     const promptBuilder = createPromptBuilder(workflow);
+    const issue = {
+      id: "1",
+      identifier: "SYM-1",
+      number: 1,
+      title: "Test issue",
+      description: "Prompt builder seam test",
+      labels: [],
+      state: "open",
+      url: "https://example.test/issues/1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      queuePriority: null,
+      blockedBy: [],
+    };
     const rendered = await promptBuilder.build({
-      issue: {
-        id: "1",
-        identifier: "SYM-1",
-        number: 1,
-        title: "Test issue",
-        description: "Prompt builder seam test",
-        labels: [],
-        state: "open",
-        url: "https://example.test/issues/1",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-        queuePriority: null,
-      },
+      issue,
       attempt: null,
       pullRequest: null,
     });
