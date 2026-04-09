@@ -209,6 +209,9 @@ local/generated-only for per-instance standing context, append-only wake-up
 history, loop status, logs, and lock files under
 `.ralph/instances/<instance-key>/`, including the
 machine-readable completed-run review ledger `report-review-state.json`.
+The checked-in shell wrapper now delegates immediately into the typed runtime
+entrypoint at `bin/operator-loop.ts`, so deterministic wake-up control no
+longer lives in shell branches.
 The same state root now also carries `control-state.json`, the generated
 checkpoint snapshot that the operator prompt reads instead of restating the
 entire wake-up algorithm.
