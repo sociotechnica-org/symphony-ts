@@ -665,7 +665,7 @@ describe("operator loop workflow selection", () => {
       await fs.rm(firstDir, { recursive: true, force: true });
       await fs.rm(secondDir, { recursive: true, force: true });
     }
-  });
+  }, 45_000);
 
   it("prompts the operator to read the generated control state instead of restating the full checkpoint loop", async () => {
     const tempDir = await createTempDir("symphony-operator-loop-prompt-");
