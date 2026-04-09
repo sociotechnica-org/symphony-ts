@@ -22,8 +22,12 @@ import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "./factory-attach-macos-helpe
 
 const LOCAL_DETACH_BYTES = new Set([0x03]);
 const FACTORY_ATTACH_DEFAULT_TERM = "xterm-256color";
+// Keep the passthrough cutoff at 20 to match the historical GNU Screen 4.0.3
+// "$TERM too long - sorry." boundary; newer builds may accept longer values, so
+// factory attach stays conservative and normalizes only terms above that limit.
 const FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH = 20;
 const FACTORY_ATTACH_TERM_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9+_.-]*$/u;
+// Alias keys must stay lowercase because lookups normalize inherited TERM first.
 const FACTORY_ATTACH_TERM_ALIASES = new Map<string, string>([
   ["rxvt-unicode-256color", "rxvt-256color"],
 ]);
