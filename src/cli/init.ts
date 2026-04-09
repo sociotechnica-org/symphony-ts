@@ -45,8 +45,14 @@ export async function scaffoldWorkflow(
     runnerKind: args.runnerKind,
   });
   const operatorPlaybookTemplate = renderThirdPartyOperatorPlaybookTemplate();
-  await fs.writeFile(workflowPath, workflowTemplate, "utf8");
-  await fs.writeFile(operatorPlaybookPath, operatorPlaybookTemplate, "utf8");
+  await publishScaffoldFiles({
+    workflowPath,
+    workflowTemplate,
+    workflowOverwritten,
+    operatorPlaybookPath,
+    operatorPlaybookTemplate,
+    operatorPlaybookOverwritten,
+  });
 
   return {
     workflowPath,
@@ -162,4 +168,92 @@ async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function publishScaffoldFiles(args: {
+  readonly workflowPath: string;
+  readonly workflowTemplate: string;
+  readonly workflowOverwritten: boolean;
+  readonly operatorPlaybookPath: string;
+  readonly operatorPlaybookTemplate: string;
+  readonly operatorPlaybookOverwritten: boolean;
+}): Promise<void> {
+  const workflowBackup = args.workflowOverwritten
+    ? await fs.readFile(args.workflowPath, "utf8")
+    : null;
+  const operatorPlaybookBackup = args.operatorPlaybookOverwritten
+    ? await fs.readFile(args.operatorPlaybookPath, "utf8")
+    : null;
+  const workflowTempPath = `${args.workflowPath}.tmp-${process.pid}-${Date.now()}`;
+  const operatorPlaybookTempPath = `${args.operatorPlaybookPath}.tmp-${process.pid}-${Date.now()}`;
+
+  await fs.writeFile(workflowTempPath, args.workflowTemplate, "utf8");
+
+  try {
+    await fs.writeFile(
+      operatorPlaybookTempPath,
+      args.operatorPlaybookTemplate,
+      "utf8",
+    );
+    await publishScaffoldFileSet({
+      workflowPath: args.workflowPath,
+      workflowTempPath,
+      workflowBackup,
+      operatorPlaybookPath: args.operatorPlaybookPath,
+      operatorPlaybookTempPath,
+      operatorPlaybookBackup,
+    });
+  } catch (error) {
+    await cleanupScaffoldTempFiles([
+      workflowTempPath,
+      operatorPlaybookTempPath,
+    ]);
+    throw error;
+  }
+}
+
+async function publishScaffoldFileSet(args: {
+  readonly workflowPath: string;
+  readonly workflowTempPath: string;
+  readonly workflowBackup: string | null;
+  readonly operatorPlaybookPath: string;
+  readonly operatorPlaybookTempPath: string;
+  readonly operatorPlaybookBackup: string | null;
+}): Promise<void> {
+  try {
+    await fs.rename(args.workflowTempPath, args.workflowPath);
+    await fs.rename(args.operatorPlaybookTempPath, args.operatorPlaybookPath);
+  } catch (error) {
+    await restoreScaffoldFile(args.workflowPath, args.workflowBackup);
+    await restoreScaffoldFile(
+      args.operatorPlaybookPath,
+      args.operatorPlaybookBackup,
+    );
+    await cleanupScaffoldTempFiles([
+      args.workflowTempPath,
+      args.operatorPlaybookTempPath,
+    ]);
+    throw error;
+  }
+}
+
+async function restoreScaffoldFile(
+  filePath: string,
+  content: string | null,
+): Promise<void> {
+  if (content === null) {
+    await fs.rm(filePath, { force: true });
+    return;
+  }
+  await fs.writeFile(filePath, content, "utf8");
+}
+
+async function cleanupScaffoldTempFiles(
+  tempPaths: readonly string[],
+): Promise<void> {
+  await Promise.all(
+    tempPaths.map(async (tempPath) => {
+      await fs.rm(tempPath, { force: true });
+    }),
+  );
 }

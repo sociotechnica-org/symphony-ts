@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { scaffoldWorkflow } from "../../src/cli/init.js";
 import { parseArgs, runCli } from "../../src/cli/index.js";
 import type { FactoryStatusSnapshot } from "../../src/observability/status.js";
 import { loadWorkflow } from "../../src/config/workflow.js";
@@ -916,6 +917,37 @@ describe("runCli init", () => {
         "This file is the repository-owned operator policy companion to `WORKFLOW.md` and `AGENTS.md`.",
       );
       expect(operatorPlaybookBody).not.toContain("# Old operator playbook");
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("restores the target repository when publishing the operator playbook fails", async () => {
+    const tempDir = await createTempDir("symphony-cli-init-restore-");
+    const targetRepo = path.join(tempDir, "target-repo");
+    const workflowPath = path.join(targetRepo, "WORKFLOW.md");
+    const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
+    await fs.mkdir(targetRepo, { recursive: true });
+
+    const originalRename = fs.rename.bind(fs);
+    vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (String(to) === operatorPlaybookPath) {
+        throw new Error("operator rename failed");
+      }
+      await originalRename(from, to);
+    });
+
+    try {
+      await expect(
+        scaffoldWorkflow({
+          targetPath: targetRepo,
+          trackerRepo: "acme/widgets",
+          runnerKind: "codex",
+          force: false,
+        }),
+      ).rejects.toThrow("operator rename failed");
+      await expect(fs.access(workflowPath)).rejects.toThrow();
+      await expect(fs.access(operatorPlaybookPath)).rejects.toThrow();
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
