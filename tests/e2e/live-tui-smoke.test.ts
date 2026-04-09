@@ -13,7 +13,11 @@ import {
 import { createSeedRemote, createTempDir } from "../support/git.js";
 import { removeTempRoot } from "../support/fs.js";
 import { MockGitHubServer } from "../support/mock-github-server.js";
-import { createTuiUseHarness, type TuiUseHarness } from "../support/tui-use.js";
+import {
+  createTuiUseHarness,
+  sanitizeTuiUseEnv,
+  type TuiUseHarness,
+} from "../support/tui-use.js";
 
 const execFile = promisify(execFileCallback);
 const repoRoot = path.resolve(
@@ -205,14 +209,19 @@ describe("live TUI smoke tests", () => {
         labels: ["symphony:ready"],
       });
 
-      const factoryEnv: NodeJS.ProcessEnv = {
+      const factoryEnv = sanitizeTuiUseEnv({
         ...process.env,
         GH_TOKEN: "test-token",
         MOCK_GITHUB_API_URL: server.baseUrl,
         PATH: `${fixturePath}:${process.env.PATH ?? ""}`,
-      };
+      });
       delete factoryEnv["SYMPHONY_REPO"];
-      delete factoryEnv["NODE_ENV"];
+      expect(factoryEnv["NODE_OPTIONS"]).toBeUndefined();
+      expect(
+        Object.keys(factoryEnv).some(
+          (key) => key.startsWith("VITEST") || key.startsWith("__VITEST"),
+        ),
+      ).toBe(false);
 
       workflowPath = await writeSmokeWorkflow({
         rootDir: instanceRoot,
