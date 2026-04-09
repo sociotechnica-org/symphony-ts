@@ -65,8 +65,53 @@ class FakeSession {
   }
 }
 
+class EnvCapturingSession {
+  static lastEnv: NodeJS.ProcessEnv | null = null;
+
+  status: "running" | "exited" = "running";
+  exitCode: number | null = null;
+  readonly cols = 140;
+  readonly rows = 40;
+
+  constructor(
+    _id: string,
+    _command: string,
+    _options: {
+      readonly cwd?: string;
+      readonly label?: string;
+      readonly cols?: number;
+      readonly rows?: number;
+    },
+  ) {
+    EnvCapturingSession.lastEnv = { ...process.env };
+  }
+
+  snapshot() {
+    return {
+      lines: [""],
+      cursor: { x: 0, y: 0 },
+      changed: false,
+      highlights: [] satisfies readonly TuiUseHighlight[],
+      title: "",
+      is_fullscreen: false,
+    };
+  }
+
+  async wait() {
+    return this.snapshot();
+  }
+
+  press() {}
+
+  kill() {
+    this.status = "exited";
+    this.exitCode = 0;
+  }
+}
+
 afterEach(() => {
   resetTuiUseStateForTests();
+  EnvCapturingSession.lastEnv = null;
 });
 
 describe("sanitizeTuiUseEnv", () => {
@@ -112,5 +157,36 @@ describe("TuiUseHarness.waitForSnapshot", () => {
       exit_code: 0,
       screen: "exited screen",
     });
+  });
+});
+
+describe("TuiUseHarness env", () => {
+  it("treats an explicit env as authoritative so deleted keys stay deleted", async () => {
+    setTuiUseSessionConstructorForTests(EnvCapturingSession);
+    const originalRepo = process.env["SYMPHONY_REPO"];
+    process.env["SYMPHONY_REPO"] = "should-not-leak";
+
+    try {
+      const harness = new TuiUseHarness({
+        cwd: os.tmpdir(),
+        homeDir: path.join(os.tmpdir(), "tui-use-test-home"),
+        env: {
+          PATH: "/usr/bin",
+          SYMPHONY_KEEP_ME: "present",
+        },
+      });
+
+      await harness.start("fake-command");
+
+      expect(EnvCapturingSession.lastEnv?.["PATH"]).toBe("/usr/bin");
+      expect(EnvCapturingSession.lastEnv?.["SYMPHONY_KEEP_ME"]).toBe("present");
+      expect(EnvCapturingSession.lastEnv?.["SYMPHONY_REPO"]).toBeUndefined();
+    } finally {
+      if (originalRepo === undefined) {
+        delete process.env["SYMPHONY_REPO"];
+      } else {
+        process.env["SYMPHONY_REPO"] = originalRepo;
+      }
+    }
   });
 });

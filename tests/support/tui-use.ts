@@ -98,8 +98,7 @@ export class TuiUseHarness {
   constructor(options: TuiUseHarnessOptions) {
     this.#cwd = options.cwd;
     this.#env = sanitizeTuiUseEnv({
-      ...process.env,
-      ...options.env,
+      ...(options.env ?? process.env),
       HOME: options.homeDir,
     });
   }
