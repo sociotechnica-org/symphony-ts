@@ -21,6 +21,12 @@ import {
 import { FACTORY_ATTACH_MACOS_HELPER_SOURCE } from "./factory-attach-macos-helper-source.js";
 
 const LOCAL_DETACH_BYTES = new Set([0x03]);
+const FACTORY_ATTACH_DEFAULT_TERM = "xterm-256color";
+const FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH = 20;
+const FACTORY_ATTACH_TERM_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9+_.-]*$/u;
+const FACTORY_ATTACH_TERM_ALIASES = new Map<string, string>([
+  ["rxvt-unicode-256color", "rxvt-256color"],
+]);
 
 export interface FactoryAttachTerminal {
   readonly stdin: {
@@ -81,6 +87,14 @@ export interface FactoryAttachDeps {
   readonly platform?: NodeJS.Platform;
   readonly spawnChildProcess?: typeof spawn;
   readonly buildMacOsAttachHelper?: () => Promise<string>;
+  readonly inheritedEnv?: NodeJS.ProcessEnv;
+}
+
+export interface FactoryAttachTermSelection {
+  readonly term: string;
+  readonly source: "passthrough" | "fallback";
+  readonly reason: "compatible" | "missing" | "invalid" | "too-long" | "alias";
+  readonly inheritedTerm: string | null;
 }
 
 export async function attachFactory(
@@ -101,15 +115,23 @@ export async function attachFactory(
   const signalProcess =
     deps.signalProcess ?? ((pid, signal) => process.kill(pid, signal));
   const platform = deps.platform ?? process.platform;
+  const inheritedEnv = deps.inheritedEnv ?? process.env;
+  const attachTermSelection = selectFactoryAttachTerm(inheritedEnv);
+  const attachChildEnv = createFactoryAttachLaunchEnvironment(
+    inheritedEnv,
+    attachTermSelection,
+  );
   const launchAttachChild =
     deps.launchAttachChild ??
     ((sessionId) => {
       const launchOptions: {
         readonly platform: NodeJS.Platform;
+        readonly env: NodeJS.ProcessEnv;
         readonly spawnChildProcess?: typeof spawn;
         readonly buildMacOsAttachHelper?: () => Promise<string>;
       } = {
         platform,
+        env: attachChildEnv,
         ...(deps.spawnChildProcess === undefined
           ? {}
           : { spawnChildProcess: deps.spawnChildProcess }),
@@ -237,7 +259,7 @@ export async function attachFactory(
       return;
     }
     throw new Error(
-      `Factory attach ended unexpectedly${renderExitDetail(code, signal)}.`,
+      `Factory attach ended unexpectedly${renderExitDetail(code, signal)}${renderAttachTermSelectionDetail(attachTermSelection)}.`,
     );
   } finally {
     restoreTerminal();
@@ -265,6 +287,65 @@ export interface FactoryAttachLaunchSpec {
   readonly command: string;
   readonly args: readonly string[];
   readonly stdio: StdioOptions;
+}
+
+export function selectFactoryAttachTerm(
+  inheritedEnv: NodeJS.ProcessEnv,
+): FactoryAttachTermSelection {
+  const inheritedTerm = normalizeFactoryAttachTerm(inheritedEnv["TERM"]);
+  if (inheritedTerm === null) {
+    return {
+      term: FACTORY_ATTACH_DEFAULT_TERM,
+      source: "fallback",
+      reason: "missing",
+      inheritedTerm: null,
+    };
+  }
+
+  const alias = FACTORY_ATTACH_TERM_ALIASES.get(inheritedTerm.toLowerCase());
+  if (alias !== undefined) {
+    return {
+      term: alias,
+      source: "fallback",
+      reason: "alias",
+      inheritedTerm,
+    };
+  }
+
+  if (!FACTORY_ATTACH_TERM_NAME_PATTERN.test(inheritedTerm)) {
+    return {
+      term: selectFactoryAttachFallbackTerm(inheritedTerm),
+      source: "fallback",
+      reason: "invalid",
+      inheritedTerm,
+    };
+  }
+
+  if (inheritedTerm.length > FACTORY_ATTACH_SCREEN_TERM_MAX_LENGTH) {
+    return {
+      term: selectFactoryAttachFallbackTerm(inheritedTerm),
+      source: "fallback",
+      reason: "too-long",
+      inheritedTerm,
+    };
+  }
+
+  return {
+    term: inheritedTerm,
+    source: "passthrough",
+    reason: "compatible",
+    inheritedTerm,
+  };
+}
+
+export function createFactoryAttachLaunchEnvironment(
+  inheritedEnv: NodeJS.ProcessEnv,
+  selection: FactoryAttachTermSelection = selectFactoryAttachTerm(inheritedEnv),
+): NodeJS.ProcessEnv {
+  return {
+    ...inheritedEnv,
+    TERM: selection.term,
+  };
 }
 
 export async function createFactoryAttachLaunchSpec(
@@ -339,6 +420,7 @@ async function defaultLaunchAttachChild(
   sessionId: string,
   options: {
     readonly platform: NodeJS.Platform;
+    readonly env: NodeJS.ProcessEnv;
     readonly spawnChildProcess?: typeof spawn;
     readonly buildMacOsAttachHelper?: () => Promise<string>;
   },
@@ -355,7 +437,7 @@ async function defaultLaunchAttachChild(
   try {
     child = spawnChildProcess(command, [...args], {
       stdio,
-      env: process.env,
+      env: options.env,
     });
   } catch (error) {
     throw wrapAttachLaunchError(error as Error, options.platform);
@@ -478,6 +560,26 @@ function containsLocalDetachByte(chunk: Buffer): boolean {
   return [...chunk].some((byte) => LOCAL_DETACH_BYTES.has(byte));
 }
 
+function normalizeFactoryAttachTerm(term: string | undefined): string | null {
+  const normalized = term?.trim() ?? "";
+  return normalized === "" ? null : normalized;
+}
+
+function selectFactoryAttachFallbackTerm(inheritedTerm: string): string {
+  const normalizedTerm = inheritedTerm.toLowerCase();
+  if (
+    normalizedTerm.includes("256color") ||
+    normalizedTerm.includes("88color") ||
+    normalizedTerm.includes("direct")
+  ) {
+    return FACTORY_ATTACH_DEFAULT_TERM;
+  }
+  if (normalizedTerm.includes("color")) {
+    return "xterm-color";
+  }
+  return "xterm";
+}
+
 function takeForwardChunkBeforeDetach(chunk: Buffer): Buffer | null {
   const detachOffset = chunk.findIndex((byte) => LOCAL_DETACH_BYTES.has(byte));
   if (detachOffset === -1) {
@@ -526,6 +628,19 @@ function wrapMacOsAttachHelperBuildError(error: Error): Error {
       cause: error,
     },
   );
+}
+
+function renderAttachTermSelectionDetail(
+  selection: FactoryAttachTermSelection,
+): string {
+  if (selection.source === "passthrough") {
+    return "";
+  }
+  const inheritedDetail =
+    selection.inheritedTerm === null
+      ? "fallback from an empty or missing TERM"
+      : `fallback from TERM=${selection.inheritedTerm}`;
+  return `. Attach TERM: ${selection.term} (${inheritedDetail}).`;
 }
 
 function renderExitDetail(

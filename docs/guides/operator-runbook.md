@@ -163,6 +163,10 @@ pnpm tsx bin/symphony.ts factory attach
 On macOS, the broker now builds a small local PTY helper on first use; if no
 local `cc` compiler is available, `factory attach` fails clearly instead of
 falling back to an unsafe direct `screen` attach.
+The attach client also rewrites the child `TERM` when the operator shell
+exports an empty or Screen-incompatible value, including known long names such
+as `rxvt-unicode-256color`, so the supported path does not require a manual
+`TERM=...` wrapper and does not change the detached runtime environment.
 
 Stop only through the supported command:
 
