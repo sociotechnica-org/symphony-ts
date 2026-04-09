@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control.js";
-import { watchFactory } from "../../src/cli/factory-watch.js";
+import {
+  renderWatchError as renderWatchErrorFromCli,
+  renderWatchFrame as renderWatchFrameFromCli,
+  watchFactory,
+} from "../../src/cli/factory-watch.js";
 import {
   renderWatchError,
   renderWatchFrame,
@@ -56,6 +60,10 @@ describe("renderWatchFrame", () => {
     expect(output).toContain("Ctrl-C stops this watch client only.");
     expect(output).toContain("Factory control: running");
   });
+
+  it("remains re-exported from the CLI module for compatibility", () => {
+    expect(renderWatchFrameFromCli).toBe(renderWatchFrame);
+  });
 });
 
 describe("renderWatchError", () => {
@@ -65,6 +73,10 @@ describe("renderWatchError", () => {
     expect(output).toContain("Factory control: degraded");
     expect(output).toContain("Watch error: runtime missing");
     expect(output).toContain("watch will retry on the next poll");
+  });
+
+  it("remains re-exported from the CLI module for compatibility", () => {
+    expect(renderWatchErrorFromCli).toBe(renderWatchError);
   });
 });
 

@@ -10,6 +10,8 @@ import {
 } from "../observability/factory-watch-render.js";
 import { isAbortError } from "../support/abort.js";
 
+export { defaultClearScreen, renderWatchError, renderWatchFrame };
+
 const DEFAULT_WATCH_INTERVAL_MS = 1_000;
 
 export interface FactoryWatchDeps {
