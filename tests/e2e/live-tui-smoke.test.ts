@@ -229,7 +229,7 @@ describe("live TUI smoke tests", () => {
       expect(startResult.status.controlState).toBe("running");
       traceLiveSmoke("factory started");
 
-      await waitForFactorySnapshot(
+      const activeIssueSnapshot = await waitForFactorySnapshot(
         workflowPath,
         (snapshot) =>
           snapshot.controlState === "running" &&
@@ -238,6 +238,9 @@ describe("live TUI smoke tests", () => {
           ) === true,
       );
       traceLiveSmoke("active issue visible");
+      expect(activeIssueSnapshot.sessions).toHaveLength(1);
+      const detachedSessionId = activeIssueSnapshot.sessions[0]?.id;
+      expect(detachedSessionId).toBeDefined();
 
       tui = await createTuiUseHarness({
         cwd: repoRoot,
@@ -310,17 +313,12 @@ describe("live TUI smoke tests", () => {
           snapshot.controlState === "running" &&
           snapshot.workerAlive &&
           snapshot.sessions.length === 1 &&
-          snapshot.statusSnapshot?.activeIssues.some(
-            (issue) => issue.issueNumber === 1,
-          ) === true,
+          snapshot.sessions[0]?.id === detachedSessionId,
       );
       expect(postDetach.controlState).toBe("running");
+      expect(postDetach.workerAlive).toBe(true);
       expect(postDetach.sessions).toHaveLength(1);
-      expect(
-        postDetach.statusSnapshot?.activeIssues.some(
-          (issue) => issue.issueNumber === 1,
-        ),
-      ).toBe(true);
+      expect(postDetach.sessions[0]?.id).toBe(detachedSessionId);
       traceLiveSmoke("post-detach runtime verified");
     },
     90_000,
