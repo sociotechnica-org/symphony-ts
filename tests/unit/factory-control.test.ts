@@ -1233,7 +1233,7 @@ describe("resolveFactoryLaunchTarget", () => {
         },
       ),
     ).rejects.toThrow(
-      "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because /repo/.tmp/factory-main/bin/symphony.ts is missing.",
+      "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because /repo/.tmp/factory-main/bin/symphony.ts and the local tsx launcher under node_modules/.bin are missing.",
     );
   });
 

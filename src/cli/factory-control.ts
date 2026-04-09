@@ -1260,11 +1260,14 @@ export async function resolveFactoryLaunchTarget(
     };
   }
   if (await pathExists(paths.runtimeRoot)) {
-    const missingLaunchRequirement = entrypointExists
-      ? "the local tsx launcher under node_modules/.bin"
-      : runtimeEntrypointPath;
+    const missingLaunchRequirements = [
+      entrypointExists ? null : runtimeEntrypointPath,
+      runtimeTsxPath === null
+        ? "the local tsx launcher under node_modules/.bin"
+        : null,
+    ].filter((value): value is string => value !== null);
     throw new Error(
-      `Detached runtime checkout at ${paths.runtimeRoot} is not launchable because ${missingLaunchRequirement} is missing. Refresh ${paths.runtimeRoot} from the selected instance main branch and install dependencies there before restarting the factory.`,
+      `Detached runtime checkout at ${paths.runtimeRoot} is not launchable because ${missingLaunchRequirements.join(" and ")} ${missingLaunchRequirements.length === 1 ? "is" : "are"} missing. Refresh ${paths.runtimeRoot} from the selected instance main branch and install dependencies there before restarting the factory.`,
     );
   }
   return {
