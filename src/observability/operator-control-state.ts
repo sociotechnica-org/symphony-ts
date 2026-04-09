@@ -284,7 +284,7 @@ async function loadRuntimeCheckpoint(args: {
       currentWorkflowIdentity,
     });
     return {
-      checkpoint: checkpointFromFreshness(freshness),
+      checkpoint: runtimeCheckpointFromFreshness(freshness),
       activeIssues: status.statusSnapshot?.activeIssues ?? [],
     };
   } catch (error) {
@@ -305,12 +305,12 @@ async function loadRuntimeCheckpoint(args: {
   }
 }
 
-function checkpointFromFreshness(
+export function runtimeCheckpointFromFreshness(
   freshness: OperatorRuntimeFreshnessSnapshot,
 ): OperatorControlRuntimeCheckpoint {
   return {
     kind: "runtime",
-    state: freshness.kind === "fresh" ? "clear" : "blocked",
+    state: runtimeCheckpointState(freshness),
     summary: summarizeRuntimeCheckpoint(freshness),
     controlState: freshness.controlState,
     freshnessKind: freshness.kind,
@@ -318,6 +318,18 @@ function checkpointFromFreshness(
     factoryState: freshness.factoryState,
     activeIssueCount: freshness.activeIssueCount,
   };
+}
+
+function runtimeCheckpointState(
+  freshness: OperatorRuntimeFreshnessSnapshot,
+): OperatorControlRuntimeCheckpoint["state"] {
+  if (freshness.kind === "fresh") {
+    return "clear";
+  }
+  if (freshness.kind === "stopped" || freshness.kind === "unavailable") {
+    return "blocked";
+  }
+  return freshness.shouldRestart ? "blocked" : "clear";
 }
 
 function summarizeRuntimeCheckpoint(
@@ -332,7 +344,10 @@ function summarizeRuntimeCheckpoint(
   if (freshness.kind === "stopped") {
     return `Runtime checkpoint is blocked: ${freshness.summary}`;
   }
-  return `Runtime checkpoint is blocked: ${freshness.summary}`;
+  if (freshness.shouldRestart) {
+    return `Runtime checkpoint is blocked: ${freshness.summary}`;
+  }
+  return freshness.summary;
 }
 
 async function loadReportReviewCheckpoint(args: {

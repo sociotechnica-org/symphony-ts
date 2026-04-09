@@ -2,6 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   evaluateOperatorControlState,
+  runtimeCheckpointFromFreshness,
   type OperatorControlActionCandidate,
   type OperatorControlPaths,
   type OperatorControlReleaseCheckpoint,
@@ -96,6 +97,56 @@ function actionCandidate(
 }
 
 describe("evaluateOperatorControlState", () => {
+  it("keeps stale busy runtime drift actionable until the next safe restart checkpoint", () => {
+    const checkpoint = runtimeCheckpointFromFreshness({
+      kind: "stale-runtime-busy",
+      shouldRestart: false,
+      runningRuntimeIdentity: null,
+      currentRuntimeIdentity: null,
+      runtimeHeadSha: "runtime-sha",
+      engineHeadSha: "engine-sha",
+      runningWorkflowIdentity: null,
+      currentWorkflowIdentity: null,
+      runtimeChanged: true,
+      workflowChanged: false,
+      unavailableReasons: [],
+      controlState: "running",
+      factoryState: "running",
+      activeIssueCount: 1,
+      summary:
+        "Factory runtime drift is present, but the factory is busy so restart should wait for a safe checkpoint.",
+    });
+
+    expect(checkpoint.state).toBe("clear");
+    expect(checkpoint.shouldRestart).toBe(false);
+    expect(checkpoint.summary).toContain("restart should wait");
+  });
+
+  it("blocks stale idle runtime drift until the operator restarts the factory", () => {
+    const checkpoint = runtimeCheckpointFromFreshness({
+      kind: "stale-runtime-idle",
+      shouldRestart: true,
+      runningRuntimeIdentity: null,
+      currentRuntimeIdentity: null,
+      runtimeHeadSha: "runtime-sha",
+      engineHeadSha: "engine-sha",
+      runningWorkflowIdentity: null,
+      currentWorkflowIdentity: null,
+      runtimeChanged: true,
+      workflowChanged: false,
+      unavailableReasons: [],
+      controlState: "running",
+      factoryState: "idle",
+      activeIssueCount: 0,
+      summary:
+        "Factory runtime drift is present and the factory is idle, so restart should happen before queue work.",
+    });
+
+    expect(checkpoint.state).toBe("blocked");
+    expect(checkpoint.shouldRestart).toBe(true);
+    expect(checkpoint.summary).toContain("Runtime checkpoint is blocked");
+  });
+
   it("prioritizes runtime blockers over later checkpoints", () => {
     const document = evaluateOperatorControlState({
       updatedAt: "2026-04-08T00:00:00Z",
