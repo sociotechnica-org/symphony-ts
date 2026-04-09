@@ -703,7 +703,7 @@ describe("attachFactory", () => {
     child.emit("exit", 1, null);
 
     await expect(attachPromise).rejects.toThrowError(
-      /Attach TERM: rxvt-256color \(fallback from TERM=rxvt-unicode-256color\)\./,
+      /^Factory attach ended unexpectedly \(exit 1\)\. Attach TERM: rxvt-256color \(fallback from TERM=rxvt-unicode-256color\)\.$/,
     );
   });
 });

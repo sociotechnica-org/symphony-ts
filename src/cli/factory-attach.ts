@@ -640,7 +640,7 @@ function renderAttachTermSelectionDetail(
     selection.inheritedTerm === null
       ? "fallback from an empty or missing TERM"
       : `fallback from TERM=${selection.inheritedTerm}`;
-  return `. Attach TERM: ${selection.term} (${inheritedDetail}).`;
+  return `. Attach TERM: ${selection.term} (${inheritedDetail})`;
 }
 
 function renderExitDetail(
