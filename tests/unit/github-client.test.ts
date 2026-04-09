@@ -574,7 +574,55 @@ describe("GitHubClient", () => {
     }
   });
 
-  it("throws when GitHub blocker reads are unavailable", async () => {
+  it("defaults to best-effort blocker hydration even when blocked enforcement is enabled", async () => {
+    const server = new MockGitHubServer();
+    await server.start();
+    try {
+      server.seedIssue({
+        number: 7,
+        title: "Blocked issue",
+        body: "",
+        labels: ["symphony:ready"],
+      });
+      server.setIssueDependencyQueryFailure(
+        "issue dependencies unavailable",
+        404,
+      );
+
+      const logger = createLoggerSpy();
+      const client = new GitHubClient(
+        {
+          kind: "github",
+          repo: "sociotechnica-org/symphony-ts",
+          apiUrl: server.baseUrl,
+          readyLabel: "symphony:ready",
+          runningLabel: "symphony:running",
+          failedLabel: "symphony:failed",
+          respectBlockedRelationships: true,
+          successComment: "done",
+          reviewBotLogins: [],
+        },
+        logger,
+      );
+
+      await expect(client.getIssue(7)).resolves.toEqual(
+        expect.objectContaining({
+          number: 7,
+          blockedBy: [],
+        }),
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Skipping GitHub dependency hydration",
+        expect.objectContaining({
+          repo: "sociotechnica-org/symphony-ts",
+        }),
+      );
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("throws when GitHub blocker reads are explicitly required", async () => {
     const server = new MockGitHubServer();
     await server.start();
     try {
@@ -603,15 +651,15 @@ describe("GitHubClient", () => {
         createLoggerSpy(),
       );
 
-      await expect(client.getIssue(7)).rejects.toThrow(
-        /Issue dependency summary unavailable/,
-      );
+      await expect(
+        client.getIssue(7, { blockedBy: "require" }),
+      ).rejects.toThrow(/Issue dependency summary unavailable/);
     } finally {
       await server.stop();
     }
   });
 
-  it("explains when GitHub issue dependency reads are unsupported", async () => {
+  it("explains when GitHub issue dependency reads are unsupported when explicitly required", async () => {
     const server = new MockGitHubServer();
     await server.start();
     try {
@@ -641,7 +689,9 @@ describe("GitHubClient", () => {
         createLoggerSpy(),
       );
 
-      await expect(client.getIssue(7)).rejects.toThrow(
+      await expect(
+        client.getIssue(7, { blockedBy: "require" }),
+      ).rejects.toThrow(
         /require issue dependency API support on the connected GitHub instance/i,
       );
     } finally {

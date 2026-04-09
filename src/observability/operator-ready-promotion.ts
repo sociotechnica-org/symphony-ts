@@ -235,7 +235,10 @@ async function getIssueOrNull(
   issueNumber: number,
 ): Promise<RuntimeIssue | null> {
   try {
-    return await client.getIssue(issueNumber);
+    return await client.getIssue(issueNumber, {
+      blockedBy: "skip",
+      includeQueuePriority: false,
+    });
   } catch (error) {
     if (
       error instanceof TrackerError &&

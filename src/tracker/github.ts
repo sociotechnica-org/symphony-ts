@@ -99,25 +99,19 @@ export class GitHubTracker implements Tracker {
 
   async fetchRunningIssues(): Promise<readonly RuntimeIssue[]> {
     return await this.#client.fetchIssuesByLabel(this.#config.runningLabel, {
-      blockedBy: this.#config.respectBlockedRelationships
-        ? "require"
-        : "best-effort",
+      blockedBy: "best-effort",
     });
   }
 
   async fetchFailedIssues(): Promise<readonly RuntimeIssue[]> {
     return await this.#client.fetchIssuesByLabel(this.#config.failedLabel, {
-      blockedBy: this.#config.respectBlockedRelationships
-        ? "require"
-        : "best-effort",
+      blockedBy: "best-effort",
     });
   }
 
   async getIssue(issueNumber: number): Promise<RuntimeIssue> {
     return await this.#client.getIssue(issueNumber, {
-      blockedBy: this.#config.respectBlockedRelationships
-        ? "require"
-        : "best-effort",
+      blockedBy: "best-effort",
     });
   }
 
@@ -396,7 +390,10 @@ export class GitHubTracker implements Tracker {
       return true;
     }
 
-    const issue = await this.getIssue(issueNumber);
+    const issue = await this.#client.getIssue(issueNumber, {
+      blockedBy: "skip",
+      includeQueuePriority: false,
+    });
     if (
       cachedObservation !== undefined &&
       cachedObservation.issueUpdatedAt === issue.updatedAt &&
@@ -440,7 +437,10 @@ export class GitHubTracker implements Tracker {
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {
-    const issue = await this.getIssue(issueNumber);
+    const issue = await this.#client.getIssue(issueNumber, {
+      blockedBy: "skip",
+      includeQueuePriority: false,
+    });
     const nextLabels = issue.labels.filter(
       (label) =>
         label !== this.#config.readyLabel && label !== this.#config.failedLabel,

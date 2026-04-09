@@ -675,9 +675,7 @@ export class GitHubClient {
     readonly includeQueuePriority: boolean;
   } {
     return {
-      blockedBy:
-        options?.blockedBy ??
-        (this.#config.respectBlockedRelationships ? "require" : "best-effort"),
+      blockedBy: options?.blockedBy ?? "best-effort",
       includeQueuePriority: options?.includeQueuePriority ?? true,
     };
   }

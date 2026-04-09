@@ -367,6 +367,106 @@ describe("GitHubTracker", () => {
     );
   });
 
+  it("preserves non-ready issue reads when blocked enforcement is enabled but dependency data is unsupported", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Running task",
+      body: "",
+      labels: ["symphony:running"],
+    });
+    server.seedIssue({
+      number: 9,
+      title: "Failed task",
+      body: "",
+      labels: ["symphony:failed"],
+    });
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    await expect(tracker.getIssue(8)).resolves.toEqual(
+      expect.objectContaining({
+        number: 8,
+        blockedBy: [],
+      }),
+    );
+    await expect(tracker.fetchRunningIssues()).resolves.toEqual([
+      expect.objectContaining({
+        number: 8,
+        blockedBy: [],
+      }),
+    ]);
+    await expect(tracker.fetchFailedIssues()).resolves.toEqual([
+      expect.objectContaining({
+        number: 9,
+        blockedBy: [],
+      }),
+    ]);
+  });
+
+  it("keeps retry scheduling on label-only reads when blocked enforcement is enabled", async () => {
+    server.setIssueLabels(7, ["symphony:running"]);
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    await expect(
+      tracker.recordRetry(7, "retry later"),
+    ).resolves.toBeUndefined();
+    expect(server.getIssue(7).labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+    expect(server.getIssue(7).comments).toContain(
+      "Retry scheduled by Symphony: retry later",
+    );
+  });
+
+  it("inspects merged handoff without dependency hydration when blocked enforcement is enabled", async () => {
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.mergePullRequest("symphony/7");
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("handoff-ready");
+    expect(lifecycle.summary).toMatch(/has merged/i);
+  });
+
   it("reports awaiting-human-handoff when the latest issue handoff is plan-ready", async () => {
     const tracker = createTracker(server);
 
