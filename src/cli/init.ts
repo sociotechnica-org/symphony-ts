@@ -4,6 +4,7 @@ import {
   renderThirdPartyWorkflowTemplate,
   type StarterRunnerKind,
 } from "../templates/third-party-workflow.js";
+import { renderThirdPartyOperatorPlaybookTemplate } from "../templates/third-party-operator-playbook.js";
 
 export interface ScaffoldWorkflowArgs {
   readonly targetPath: string;
@@ -14,37 +15,51 @@ export interface ScaffoldWorkflowArgs {
 
 export interface ScaffoldWorkflowResult {
   readonly workflowPath: string;
+  readonly operatorPlaybookPath: string;
   readonly trackerRepo: string;
   readonly runnerKind: StarterRunnerKind;
-  readonly overwritten: boolean;
+  readonly workflowOverwritten: boolean;
+  readonly operatorPlaybookOverwritten: boolean;
 }
 
 export async function scaffoldWorkflow(
   args: ScaffoldWorkflowArgs,
 ): Promise<ScaffoldWorkflowResult> {
   const trackerRepo = normalizeTrackerRepo(args.trackerRepo);
-  const workflowPath = resolveWorkflowPath(args.targetPath);
-  const targetDirectory = path.dirname(workflowPath);
+  const { workflowPath, operatorPlaybookPath, targetDirectory } =
+    resolveScaffoldPaths(args.targetPath);
   await ensureWritableTargetDirectory(args.targetPath, targetDirectory);
 
-  const overwritten = await pathExists(workflowPath);
-  if (overwritten && !args.force) {
-    throw new Error(
-      `Refusing to overwrite existing workflow at ${workflowPath}. Re-run with --force to replace it.`,
-    );
+  const workflowOverwritten = await pathExists(workflowPath);
+  const operatorPlaybookOverwritten = await pathExists(operatorPlaybookPath);
+  const existingPaths = [
+    workflowOverwritten ? workflowPath : null,
+    operatorPlaybookOverwritten ? operatorPlaybookPath : null,
+  ].filter((value): value is string => value !== null);
+  if (existingPaths.length > 0 && !args.force) {
+    throw new Error(renderExistingScaffoldConflict(existingPaths));
   }
 
-  const template = renderThirdPartyWorkflowTemplate({
+  const workflowTemplate = renderThirdPartyWorkflowTemplate({
     trackerRepo,
     runnerKind: args.runnerKind,
   });
-  await fs.writeFile(workflowPath, template, "utf8");
+  const operatorPlaybookTemplate = renderThirdPartyOperatorPlaybookTemplate();
+  await publishScaffoldFiles({
+    workflowPath,
+    workflowTemplate,
+    workflowOverwritten,
+    operatorPlaybookPath,
+    operatorPlaybookTemplate,
+  });
 
   return {
     workflowPath,
+    operatorPlaybookPath,
     trackerRepo,
     runnerKind: args.runnerKind,
-    overwritten,
+    workflowOverwritten,
+    operatorPlaybookOverwritten,
   };
 }
 
@@ -52,12 +67,13 @@ export function renderScaffoldWorkflowResult(
   result: ScaffoldWorkflowResult,
 ): string {
   const quotedWorkflowPath = JSON.stringify(result.workflowPath);
-  const action = result.overwritten ? "Updated" : "Created";
   return [
-    `${action} ${result.workflowPath}`,
+    `${result.workflowOverwritten ? "Updated" : "Created"} ${result.workflowPath}`,
+    `${result.operatorPlaybookOverwritten ? "Updated" : "Created"} ${result.operatorPlaybookPath}`,
     "",
     "Next steps from the Symphony engine checkout:",
-    `- Review and customize ${result.workflowPath} for this repository's policies and prompt contract.`,
+    `- Review and customize ${result.workflowPath} for this repository's runtime contract, policies, and prompt contract.`,
+    `- Review and customize ${result.operatorPlaybookPath} for this repository's operator policy.`,
     `- Run one cycle: pnpm tsx bin/symphony.ts run --once --workflow ${quotedWorkflowPath} --i-understand-that-this-will-be-running-without-the-usual-guardrails`,
     `- Start the detached runtime: pnpm tsx bin/symphony.ts factory start --workflow ${quotedWorkflowPath}`,
     `- Inspect the detached runtime: pnpm tsx bin/symphony.ts factory status --workflow ${quotedWorkflowPath}`,
@@ -80,6 +96,29 @@ function resolveWorkflowPath(targetPath: string): string {
   return path.basename(resolvedTargetPath) === "WORKFLOW.md"
     ? resolvedTargetPath
     : path.join(resolvedTargetPath, "WORKFLOW.md");
+}
+
+function resolveScaffoldPaths(targetPath: string): {
+  readonly workflowPath: string;
+  readonly operatorPlaybookPath: string;
+  readonly targetDirectory: string;
+} {
+  const workflowPath = resolveWorkflowPath(targetPath);
+  const targetDirectory = path.dirname(workflowPath);
+  return {
+    workflowPath,
+    operatorPlaybookPath: path.join(targetDirectory, "OPERATOR.md"),
+    targetDirectory,
+  };
+}
+
+function renderExistingScaffoldConflict(
+  existingPaths: readonly string[],
+): string {
+  if (existingPaths.length === 1) {
+    return `Refusing to overwrite existing scaffold file at ${existingPaths[0]}. Re-run with --force to replace both WORKFLOW.md and OPERATOR.md.`;
+  }
+  return `Refusing to overwrite existing scaffold files at ${existingPaths.join(", ")}. Re-run with --force to replace both WORKFLOW.md and OPERATOR.md.`;
 }
 
 async function ensureWritableTargetDirectory(
@@ -128,4 +167,123 @@ async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function publishScaffoldFiles(args: {
+  readonly workflowPath: string;
+  readonly workflowTemplate: string;
+  readonly workflowOverwritten: boolean;
+  readonly operatorPlaybookPath: string;
+  readonly operatorPlaybookTemplate: string;
+}): Promise<void> {
+  const workflowBackup = args.workflowOverwritten
+    ? await fs.readFile(args.workflowPath, "utf8")
+    : null;
+  const workflowTempPath = `${args.workflowPath}.tmp-${process.pid}-${Date.now()}`;
+  const operatorPlaybookTempPath = `${args.operatorPlaybookPath}.tmp-${process.pid}-${Date.now()}`;
+  let workflowPublished = false;
+
+  try {
+    await fs.writeFile(workflowTempPath, args.workflowTemplate, "utf8");
+    await fs.writeFile(
+      operatorPlaybookTempPath,
+      args.operatorPlaybookTemplate,
+      "utf8",
+    );
+    await fs.rename(workflowTempPath, args.workflowPath);
+    workflowPublished = true;
+    await fs.rename(operatorPlaybookTempPath, args.operatorPlaybookPath);
+  } catch (error) {
+    const recoveryErrors = await runScaffoldRecoverySteps([
+      workflowPublished
+        ? {
+            action: `restore ${args.workflowPath}`,
+            run: async () =>
+              restoreScaffoldFile(args.workflowPath, workflowBackup),
+          }
+        : null,
+      {
+        action: "clean up scaffold temp files",
+        run: async () =>
+          cleanupScaffoldTempFiles([
+            workflowTempPath,
+            operatorPlaybookTempPath,
+          ]),
+      },
+    ]);
+    rethrowScaffoldPublishError(error, recoveryErrors);
+  }
+}
+
+async function restoreScaffoldFile(
+  filePath: string,
+  content: string | null,
+): Promise<void> {
+  if (content === null) {
+    await fs.rm(filePath, { force: true });
+    return;
+  }
+  await fs.writeFile(filePath, content, "utf8");
+}
+
+async function cleanupScaffoldTempFiles(
+  tempPaths: readonly string[],
+): Promise<void> {
+  const cleanupResults = await Promise.allSettled(
+    tempPaths.map(async (tempPath) => {
+      await fs.rm(tempPath, { force: true });
+    }),
+  );
+  const cleanupErrors = cleanupResults.flatMap((result) =>
+    result.status === "rejected" ? [normalizeScaffoldError(result.reason)] : [],
+  );
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, cleanupErrors[0]!.message);
+  }
+}
+
+async function runScaffoldRecoverySteps(
+  steps: readonly ({
+    readonly action: string;
+    readonly run: () => Promise<void>;
+  } | null)[],
+): Promise<readonly Error[]> {
+  const recoveryErrors: Error[] = [];
+  for (const step of steps) {
+    if (step === null) {
+      continue;
+    }
+    try {
+      await step.run();
+    } catch (error) {
+      const normalizedError = normalizeScaffoldError(error);
+      recoveryErrors.push(
+        new Error(`Failed to ${step.action}: ${normalizedError.message}`, {
+          cause: normalizedError,
+        }),
+      );
+    }
+  }
+  return recoveryErrors;
+}
+
+function rethrowScaffoldPublishError(
+  publishError: unknown,
+  recoveryErrors: readonly Error[],
+): never {
+  if (recoveryErrors.length === 0) {
+    throw publishError;
+  }
+  const normalizedPublishError = normalizeScaffoldError(publishError);
+  throw new AggregateError(
+    [normalizedPublishError, ...recoveryErrors],
+    normalizedPublishError.message,
+  );
+}
+
+function normalizeScaffoldError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  return new Error(String(error));
 }

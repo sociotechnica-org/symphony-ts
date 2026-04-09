@@ -52,6 +52,11 @@ describe("init CLI integration", () => {
         loadWorkflow(workflowPath),
       );
       const workflowBody = await fs.readFile(workflowPath, "utf8");
+      const operatorPlaybookPath = path.join(targetRepo, "OPERATOR.md");
+      const operatorPlaybookBody = await fs.readFile(
+        operatorPlaybookPath,
+        "utf8",
+      );
 
       expect(workflow.config.workflowPath).toBe(workflowPath);
       expect(workflow.config.instance.instanceRoot).toBe(targetRepo);
@@ -69,6 +74,11 @@ describe("init CLI integration", () => {
       expect(workflowBody).toContain(
         "Only use draft mode when repository instructions or explicit issue/prompt policy require it",
       );
+      expect(operatorPlaybookPath).toBe(path.join(targetRepo, "OPERATOR.md"));
+      expect(operatorPlaybookBody).toContain(
+        "This file is the repository-owned operator policy companion to `WORKFLOW.md` and `AGENTS.md`.",
+      );
+      expect(operatorPlaybookBody).toContain("## Post-Merge Refresh Policy");
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

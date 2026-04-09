@@ -32,26 +32,28 @@ behavior:
 - the Markdown body becomes the initial worker prompt
 - the combination defines one repeatable factory loop
 
-If a behavior is required on every worker run for this repository, it should be
-visible in `WORKFLOW.md`, `AGENTS.md`, code, or tests, not only in operator
-memory.
+If a behavior is required on every worker run or operator wake-up for this
+repository, it should be visible in `WORKFLOW.md`, `AGENTS.md`,
+`OPERATOR.md`, code, or tests, not only in operator memory.
 
 ## 2. Boundaries
 
 `WORKFLOW.md` is important, but it is not the whole system. The cleanest
 Symphony setups keep the following boundaries explicit.
 
-| Surface           | Primary role                              | Put here                                                                                           | Keep out                                                                                 |
-| ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `WORKFLOW.md`     | Runtime contract for one factory instance | tracker selection, workspace and runner settings, prompt contract, repo-specific completion bar    | deep engineering policy, hidden operator habits, invariants that only code can guarantee |
-| `AGENTS.md`       | Enduring engineering policy               | design rules, testing bar, review expectations, architecture seams, implementation standards       | transport details, per-instance paths, tracker credentials, temporary operator notes     |
-| repo-local skills | Specialized reusable method               | recurring task guides such as planning, operations, or recurring maintenance                       | rules that must apply to every run, correctness guarantees that should live in code      |
-| code and tests    | Hard correctness guarantees               | parsing, state machines, retries, leases, guarded landing, failure handling, tracker normalization | repo policy that should stay repository-owned and editable without code changes          |
+| Surface           | Primary role                              | Put here                                                                                           | Keep out                                                                                  |
+| ----------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `WORKFLOW.md`     | Runtime contract for one factory instance | tracker selection, workspace and runner settings, prompt contract, repo-specific completion bar    | deep engineering policy, hidden operator habits, invariants that only code can guarantee  |
+| `AGENTS.md`       | Enduring engineering policy               | design rules, testing bar, review expectations, architecture seams, implementation standards       | transport details, per-instance paths, tracker credentials, temporary operator notes      |
+| `OPERATOR.md`     | Repo-owned operator policy                | landing expectations, release gates, post-merge refresh rules, escalation boundaries               | runtime invariants that code must enforce, tracker transport details, local scratch notes |
+| repo-local skills | Specialized reusable method               | recurring task guides such as planning, operations, or recurring maintenance                       | rules that must apply to every run, correctness guarantees that should live in code       |
+| code and tests    | Hard correctness guarantees               | parsing, state machines, retries, leases, guarded landing, failure handling, tracker normalization | repo policy that should stay repository-owned and editable without code changes           |
 
 A useful rule of thumb:
 
 - `WORKFLOW.md` says how this repository wants Symphony to run
 - `AGENTS.md` says how this repository expects engineering work to be done
+- `OPERATOR.md` says how this repository expects operators to land, refresh, and escalate
 - skills say how to perform a recurring specialized task
 - code and tests decide what the runtime actually guarantees
 
@@ -941,7 +943,7 @@ pnpm tsx bin/symphony.ts factory status --workflow /path/to/repo-b/WORKFLOW.md
 ```
 
 For new third-party instances, use the scaffolder instead of copying the
-self-hosting workflow blindly:
+self-hosting workflow or operator playbook blindly:
 
 ```bash
 pnpm tsx bin/symphony.ts init ../target-repo --tracker-repo your-org/your-repo
@@ -957,6 +959,7 @@ workflow per repository and one explicit operator loop per instance.
 The best live examples in the current repository are:
 
 - the self-hosting workflow at [../../WORKFLOW.md](../../WORKFLOW.md)
+- the self-hosting operator playbook at [../../OPERATOR.md](../../OPERATOR.md)
 - the minimal GitHub example in
   [workflow-frontmatter-reference.md#minimal-github-example](./workflow-frontmatter-reference.md#minimal-github-example)
 - the GitHub review-bot and queue-priority example in

@@ -67,15 +67,18 @@ src/workspace/  workspace lifecycle and hooks
 
 ## Skills Policy
 
-`WORKFLOW.md`, `AGENTS.md`, and in-repo skills serve different roles.
+`WORKFLOW.md`, `AGENTS.md`, `OPERATOR.md`, and in-repo skills serve different
+roles.
 
 - `WORKFLOW.md` is the repository runtime contract. It should define the required worker process and completion behavior.
 - `AGENTS.md` is the repository engineering policy. It should define enduring design, testing, review, and architecture expectations.
+- `OPERATOR.md` is the repository-owned operator policy. It should define repo-specific landing, release, refresh, and escalation expectations for the operator loop.
 - skills are specialized guides for recurring kinds of work. They may add detailed method, but they should not be the only place where required correctness rules live.
 
 Use this rule of thumb:
 
 - if behavior is required for every worker run, put it in `WORKFLOW.md` or `AGENTS.md`
+- if behavior is required for every operator wake-up and is repository-specific, put it in `OPERATOR.md`
 - if guidance is specialized to a type of task, put it in a skill
 - if behavior is part of runtime correctness, put it in code and tests, not only in prompts
 

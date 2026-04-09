@@ -38,18 +38,21 @@ this engine checkout, run:
 pnpm tsx bin/symphony.ts init ../target-repo --tracker-repo your-org/your-repo
 ```
 
+`symphony init` scaffolds both `WORKFLOW.md` and `OPERATOR.md`.
 Use `--runner claude-code` or `--runner generic-command` to change the starter
-runner, and use `--force` to replace an existing target workflow. You can also
+runner, and use `--force` to replace existing scaffolded files. You can also
 target an explicit workflow path instead of a repository directory:
 
 ```bash
 pnpm tsx bin/symphony.ts init ../target-repo/WORKFLOW.md --tracker-repo your-org/your-repo
 ```
 
-The checked-in root [`WORKFLOW.md`](WORKFLOW.md) is the self-hosting contract
-for `symphony-ts`; do not copy it blindly into unrelated repositories. Review
-and customize the scaffolded target-repo workflow for that repository's prompt,
-checks, and policy before running agents.
+The checked-in root [`WORKFLOW.md`](WORKFLOW.md) and
+[`OPERATOR.md`](OPERATOR.md) are the self-hosting contracts for
+`symphony-ts`; do not copy them blindly into unrelated repositories. Review
+and customize the scaffolded target-repo `WORKFLOW.md` and `OPERATOR.md` for
+that repository's prompt, checks, runtime policy, and operator policy before
+running agents.
 That checked-in self-hosting workflow already sets
 `tracker.repo: sociotechnica-org/symphony-ts`, so the repo-owned operator path
 does not require a shell-level `SYMPHONY_REPO` export.
@@ -59,6 +62,8 @@ Your target repo needs three labels: `symphony:ready`, `symphony:running`, `symp
 If you are writing `WORKFLOW.md` manually instead of using `symphony init`,
 set `tracker.repo` to the GitHub repository you want Symphony to work against
 (for example `your-org/your-repo`). Symphony will refuse to start without it.
+Consider checking in `OPERATOR.md` alongside that workflow so repo-specific
+operator policy lives in the repository instead of only in global tooling.
 You can also set the `SYMPHONY_REPO` environment variable instead:
 
 ```bash
@@ -220,9 +225,10 @@ effective command, and session mode/reset reason.
 When the operator loop targets an external repository with `--workflow`, treat
 that selected instance repository as the owner of plan-review standards and
 repo policy. The `symphony-ts` checkout supplies operator tooling and local
-state, but plan review should read the selected repository's `WORKFLOW.md`,
-`AGENTS.md`, `README.md`, and relevant docs when they exist instead of
-implicitly importing `symphony-ts` architecture rules.
+state, but plan review and operator policy should read the selected
+repository's `OPERATOR.md`, `WORKFLOW.md`, `AGENTS.md`, `README.md`, and
+relevant docs when they exist instead of implicitly importing `symphony-ts`
+architecture rules.
 
 Generate a per-issue report from local artifacts:
 
