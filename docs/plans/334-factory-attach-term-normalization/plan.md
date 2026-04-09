@@ -251,14 +251,14 @@ attach client flow.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Attach-normalization facts available | Expected decision |
-| --- | --- | --- | --- |
-| Inherited `TERM` is already compatible | interactive TTY, supported platform, healthy detached session | helper classifies `TERM` as passthrough-safe | launch attach with the original `TERM`; preserve current rendering contract |
-| Inherited `TERM` is too long or otherwise known-incompatible for Screen | same as above plus inherited `TERM` value | helper selects an explicit shorter compatibility terminal | launch attach with the normalized `TERM`; no manual shell override required |
-| Inherited `TERM` is missing or empty | same as above | helper selects the default short-form compatibility terminal | launch attach with the explicit fallback instead of inheriting an empty terminal contract |
-| Attach child still exits unexpectedly after normalization | child exit status / stderr | normalization result is known | surface attach failure clearly; do not stop the detached worker |
-| Operator presses `Ctrl-C` while attached | local detach byte/signal observed | normalized env already applied to child | detach the foreground client, restore the terminal, and leave the detached runtime alive |
-| Detached control is stopped or degraded | selected workflow path, local terminal | no valid target session | keep the current explicit preflight failure; do not attempt attach or terminal fallback guesses |
+| Observed condition                                                      | Local facts available                                         | Attach-normalization facts available                         | Expected decision                                                                               |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| Inherited `TERM` is already compatible                                  | interactive TTY, supported platform, healthy detached session | helper classifies `TERM` as passthrough-safe                 | launch attach with the original `TERM`; preserve current rendering contract                     |
+| Inherited `TERM` is too long or otherwise known-incompatible for Screen | same as above plus inherited `TERM` value                     | helper selects an explicit shorter compatibility terminal    | launch attach with the normalized `TERM`; no manual shell override required                     |
+| Inherited `TERM` is missing or empty                                    | same as above                                                 | helper selects the default short-form compatibility terminal | launch attach with the explicit fallback instead of inheriting an empty terminal contract       |
+| Attach child still exits unexpectedly after normalization               | child exit status / stderr                                    | normalization result is known                                | surface attach failure clearly; do not stop the detached worker                                 |
+| Operator presses `Ctrl-C` while attached                                | local detach byte/signal observed                             | normalized env already applied to child                      | detach the foreground client, restore the terminal, and leave the detached runtime alive        |
+| Detached control is stopped or degraded                                 | selected workflow path, local terminal                        | no valid target session                                      | keep the current explicit preflight failure; do not attempt attach or terminal fallback guesses |
 
 ## Storage / Persistence Contract
 
