@@ -96,6 +96,9 @@ pnpm tsx bin/symphony.ts factory watch
 In continuous mode, Symphony will keep polling for additional ready issues. The
 factory-control commands are the normal operator surface for the detached
 runtime under `<instance-root>/.tmp/factory-main`.
+When that checkout is launchable, detached start and restart execute its code;
+when it has not been prepared yet, detached control uses the invoking source
+checkout only as an explicit bootstrap fallback.
 For the full daily-use procedure, recovery interpretation, and restart rules,
 use the checked-in operator runbook instead of treating this guide as the only
 operations reference.

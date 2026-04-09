@@ -22,7 +22,7 @@ export interface OperatorRuntimeFreshnessSnapshot {
   readonly runningRuntimeIdentity: FactoryRuntimeIdentity | null;
   readonly currentRuntimeIdentity: FactoryRuntimeIdentity | null;
   readonly runtimeHeadSha: string | null;
-  readonly engineHeadSha: string | null;
+  readonly currentRuntimeHeadSha: string | null;
   readonly runningWorkflowIdentity: FactoryWorkflowIdentity | null;
   readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
   readonly runtimeChanged: boolean;
@@ -36,11 +36,11 @@ export interface OperatorRuntimeFreshnessSnapshot {
 
 export function assessOperatorRuntimeFreshness(args: {
   readonly status: FactoryControlStatusSnapshot;
-  readonly engineRuntimeIdentity: FactoryRuntimeIdentity | null;
+  readonly currentRuntimeIdentity: FactoryRuntimeIdentity | null;
   readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
 }): OperatorRuntimeFreshnessSnapshot {
   const runtimeHeadSha = args.status.startup?.runtimeIdentity?.headSha ?? null;
-  const engineHeadSha = args.engineRuntimeIdentity?.headSha ?? null;
+  const currentRuntimeHeadSha = args.currentRuntimeIdentity?.headSha ?? null;
   const runningWorkflowIdentity = args.status.startup?.workflowIdentity ?? null;
   const currentWorkflowIdentity = args.currentWorkflowIdentity;
   const controlState = args.status.controlState;
@@ -52,9 +52,9 @@ export function assessOperatorRuntimeFreshness(args: {
       kind: "stopped",
       shouldRestart: false,
       runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
-      currentRuntimeIdentity: args.engineRuntimeIdentity,
+      currentRuntimeIdentity: args.currentRuntimeIdentity,
       runtimeHeadSha,
-      engineHeadSha,
+      currentRuntimeHeadSha,
       runningWorkflowIdentity,
       currentWorkflowIdentity,
       runtimeChanged: false,
@@ -69,7 +69,7 @@ export function assessOperatorRuntimeFreshness(args: {
   }
 
   const unavailableReasons = collectUnavailableReasons({
-    engineHeadSha,
+    currentRuntimeHeadSha,
     runtimeHeadSha,
     runningWorkflowIdentity,
     currentWorkflowIdentity,
@@ -79,9 +79,9 @@ export function assessOperatorRuntimeFreshness(args: {
       kind: "unavailable",
       shouldRestart: false,
       runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
-      currentRuntimeIdentity: args.engineRuntimeIdentity,
+      currentRuntimeIdentity: args.currentRuntimeIdentity,
       runtimeHeadSha,
-      engineHeadSha,
+      currentRuntimeHeadSha,
       runningWorkflowIdentity,
       currentWorkflowIdentity,
       runtimeChanged: false,
@@ -94,7 +94,7 @@ export function assessOperatorRuntimeFreshness(args: {
     };
   }
 
-  const runtimeChanged = runtimeHeadSha !== engineHeadSha;
+  const runtimeChanged = runtimeHeadSha !== currentRuntimeHeadSha;
   const workflowChanged = workflowIdentityChanged(
     runningWorkflowIdentity,
     currentWorkflowIdentity,
@@ -105,9 +105,9 @@ export function assessOperatorRuntimeFreshness(args: {
       kind: "fresh",
       shouldRestart: false,
       runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
-      currentRuntimeIdentity: args.engineRuntimeIdentity,
+      currentRuntimeIdentity: args.currentRuntimeIdentity,
       runtimeHeadSha,
-      engineHeadSha,
+      currentRuntimeHeadSha,
       runningWorkflowIdentity,
       currentWorkflowIdentity,
       runtimeChanged,
@@ -117,7 +117,7 @@ export function assessOperatorRuntimeFreshness(args: {
       factoryState,
       activeIssueCount,
       summary:
-        "Factory runtime and selected workflow already match the current engine and repository-owned workflow contract.",
+        "Factory runtime and selected workflow already match the current detached runtime checkout and repository-owned workflow contract.",
     };
   }
 
@@ -125,9 +125,9 @@ export function assessOperatorRuntimeFreshness(args: {
     kind: deriveStaleKind({ runtimeChanged, workflowChanged, factoryState }),
     shouldRestart: factoryState === "idle",
     runningRuntimeIdentity: args.status.startup?.runtimeIdentity ?? null,
-    currentRuntimeIdentity: args.engineRuntimeIdentity,
+    currentRuntimeIdentity: args.currentRuntimeIdentity,
     runtimeHeadSha,
-    engineHeadSha,
+    currentRuntimeHeadSha,
     runningWorkflowIdentity,
     currentWorkflowIdentity,
     runtimeChanged,
@@ -145,15 +145,15 @@ export function assessOperatorRuntimeFreshness(args: {
 }
 
 function collectUnavailableReasons(args: {
-  readonly engineHeadSha: string | null;
+  readonly currentRuntimeHeadSha: string | null;
   readonly runtimeHeadSha: string | null;
   readonly runningWorkflowIdentity: FactoryWorkflowIdentity | null;
   readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
 }): string[] {
   const reasons: string[] = [];
-  if (args.engineHeadSha === null) {
+  if (args.currentRuntimeHeadSha === null) {
     reasons.push(
-      "current engine checkout head is unavailable; inspect the operator repo checkout",
+      "current runtime checkout head is unavailable; inspect the selected instance runtime checkout",
     );
   }
   if (args.runtimeHeadSha === null) {
@@ -246,9 +246,9 @@ function summarizeStaleness(args: {
 }): string {
   const cause =
     args.runtimeChanged && args.workflowChanged
-      ? "the engine checkout and selected workflow contract changed"
+      ? "the detached runtime checkout and selected workflow contract changed"
       : args.runtimeChanged
-        ? "the engine checkout changed"
+        ? "the detached runtime checkout changed"
         : "the selected workflow contract changed";
   if (args.factoryState === "idle") {
     return `Factory restart is required because ${cause} and the instance is idle; restart before ordinary queue work.`;

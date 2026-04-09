@@ -136,12 +136,16 @@ For the canonical detached-runtime operating procedure and failure rehearsals,
 see [Operator Runbook](docs/guides/operator-runbook.md) and
 [Failure Drills](docs/guides/failure-drills.md).
 
-These commands target the checked-out runtime under `<instance-root>/.tmp/factory-main`. Use
-`status` when you want the raw runtime snapshot for a specific workflow path,
-and use `factory status` when you want the detached runtime control state plus
-the embedded status snapshot. Operators should generally start with
-`factory status`, then use `factory watch` for continuous monitoring and
-`factory attach` when they need the full-screen TUI for a detached instance.
+These commands target the checked-out runtime under
+`<instance-root>/.tmp/factory-main` whenever that checkout is launchable.
+When it is absent during bootstrap, detached control falls back to the
+invoking source checkout instead of silently pretending the runtime checkout
+was current. Use `status` when you want the raw runtime snapshot for a
+specific workflow path, and use `factory status` when you want the detached
+runtime control state plus the embedded status snapshot. Operators should
+generally start with `factory status`, then use `factory watch` for continuous
+monitoring and `factory attach` when they need the full-screen TUI for a
+detached instance.
 
 The supported detached control path now normalizes the launched runtime to an
 installed UTF-8 locale and starts GNU Screen with `-U`. If the host does not

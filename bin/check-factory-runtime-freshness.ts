@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import path from "node:path";
 import { inspectFactoryControl } from "../src/cli/factory-control.js";
 import { collectFactoryRuntimeIdentity } from "../src/observability/runtime-identity.js";
 import { assessOperatorRuntimeFreshness } from "../src/observability/operator-runtime-freshness.js";
@@ -11,17 +10,14 @@ import { renderFactoryRuntimeIdentity } from "../src/observability/runtime-ident
 
 interface Args {
   readonly workflowPath?: string;
-  readonly operatorRepoRoot: string;
   readonly json: boolean;
 }
 
 function parseArgs(argv: readonly string[]): Args {
   const workflowPath = readOptionalOptionValue(argv, "--workflow");
+  readOptionalOptionValue(argv, "--operator-repo-root");
   return {
     ...(workflowPath === null ? {} : { workflowPath }),
-    operatorRepoRoot: path.resolve(
-      readOptionalOptionValue(argv, "--operator-repo-root") ?? process.cwd(),
-    ),
     json: argv.includes("--json"),
   };
 }
@@ -65,15 +61,15 @@ async function main(): Promise<void> {
       ? {}
       : { workflowPath: args.workflowPath }),
   });
-  const engineRuntimeIdentity = await collectFactoryRuntimeIdentity(
-    args.operatorRepoRoot,
+  const currentRuntimeIdentity = await collectFactoryRuntimeIdentity(
+    status.paths.runtimeRoot,
   );
   const currentWorkflowIdentity = await collectFactoryWorkflowIdentity(
     status.paths.workflowPath,
   );
   const result = assessOperatorRuntimeFreshness({
     status,
-    engineRuntimeIdentity,
+    currentRuntimeIdentity,
     currentWorkflowIdentity,
   });
 
