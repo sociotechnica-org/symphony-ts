@@ -1,8 +1,9 @@
 # Observability — TUI Dashboard
 
-The Status TUI (`tui.ts`) renders a live terminal dashboard during factory runs.
-It is pull-based (polls `orchestrator.snapshot()` on a tick) and push-aware
-(accepts `refresh()` calls on state changes).
+The Status TUI is split between a pure render module (`tui-render.ts`) and the
+dashboard loop (`tui.ts`). The dashboard is pull-based (polls
+`orchestrator.snapshot()` on a tick) and push-aware (accepts `refresh()` calls
+on state changes).
 
 ## Testing the TUI
 
@@ -155,11 +156,16 @@ When QA'ing the TUI (either via the dump script or live):
 
 ## Architecture
 
-- `formatSnapshotContent()` — pure function, takes a snapshot + TPS + width,
-  returns a string. All rendering tests use this directly.
-- `StatusDashboard` class — manages tick loop, fingerprint dedup, TPS
-  sampling, sparkline buckets, and render throttling.
-- `humanizeEvent()` — maps raw Codex event types to human-readable labels.
+- `tui-render.ts` — owns pure frame rendering helpers such as
+  `formatSnapshotContent()`, `humanizeEvent()`, and the offline frame. It
+  consumes an explicit terminal-width override when callers want width-aware
+  layout and otherwise uses the fixed default frame width.
+- `tui.ts` — owns the `StatusDashboard` loop, terminal-width detection,
+  snapshot fingerprint dedup, TPS sampling, sparkline buckets, and render
+  throttling.
+- `factory-status-snapshot.ts`, `factory-status-semantics.ts`, and
+  `factory-status-render.ts` split the persisted factory-status contract,
+  defaulting/freshness semantics, and human-readable status rendering.
 - Event flow: agent stdout → `tryParseStdoutEvent` (local-execution.ts) →
   `integrateCodexUpdate` (running-entry.ts) → `snapshot()` → TUI render.
 

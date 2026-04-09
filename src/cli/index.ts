@@ -8,12 +8,14 @@ import {
 import { getCodexRemoteWorkerHosts } from "../domain/workflow.js";
 import { JsonLogger } from "../observability/logger.js";
 import {
-  assessFactoryStatusSnapshot,
   deriveStatusFilePath,
-  isProcessAlive,
   parseFactoryStatusSnapshotContent,
-  renderFactoryStatusSnapshot,
-} from "../observability/status.js";
+} from "../observability/factory-status-snapshot.js";
+import {
+  assessFactoryStatusSnapshot,
+  isProcessAlive,
+} from "../observability/factory-status-semantics.js";
+import { renderFactoryStatusSnapshot } from "../observability/factory-status-render.js";
 import { BootstrapOrchestrator } from "../orchestrator/service.js";
 import { FsLivenessProbe } from "../orchestrator/liveness-probe.js";
 import { StatusDashboard } from "../observability/tui.js";

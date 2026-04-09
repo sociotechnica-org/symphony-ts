@@ -3,14 +3,16 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { deriveRuntimeInstancePaths } from "../../src/domain/workflow.js";
 import {
-  assessFactoryStatusSnapshot,
   deriveStatusFilePath,
-  isProcessAlive,
   readFactoryStatusSnapshot,
-  renderFactoryStatusSnapshot,
   writeFactoryStatusSnapshot,
   type FactoryStatusSnapshot,
-} from "../../src/observability/status.js";
+} from "../../src/observability/factory-status-snapshot.js";
+import {
+  assessFactoryStatusSnapshot,
+  isProcessAlive,
+} from "../../src/observability/factory-status-semantics.js";
+import { renderFactoryStatusSnapshot } from "../../src/observability/factory-status-render.js";
 import { createRunnerTransportMetadata } from "../../src/runner/service.js";
 import { createTempDir } from "../support/git.js";
 
