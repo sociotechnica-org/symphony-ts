@@ -136,6 +136,7 @@ describe("assessOperatorRuntimeFreshness", () => {
 
     expect(result.kind).toBe("fresh");
     expect(result.shouldRestart).toBe(false);
+    expect(result.engineHeadSha).toBe("runtime-sha");
   });
 
   it("requests restart when runtime is stale and idle", () => {

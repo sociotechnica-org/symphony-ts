@@ -34,14 +34,18 @@ Use it with `WORKFLOW.md`, `AGENTS.md`, `README.md`,
 ## Post-Merge Refresh Policy
 
 - After a merge, fast-forward the selected instance root checkout to the latest
-  `origin/main`, rerun `bin/check-factory-runtime-freshness.ts`, and restart
-  the detached factory only when that assessment says the runtime engine or
-  selected `WORKFLOW.md` is stale.
+  `origin/main`, refresh the detached runtime checkout under
+  `.tmp/factory-main`, rerun `bin/check-factory-runtime-freshness.ts`, and
+  restart the detached factory only when that assessment says the runtime
+  checkout or selected `WORKFLOW.md` is stale.
 - Because `symphony-ts` self-hosts, merges that change runtime code or the
   self-hosting `WORKFLOW.md` usually produce drift and therefore usually
   require a restart before the next issue should dispatch.
 - If a merge changed unrelated files only and the freshness assessment is
   clear, keep the detached runtime up.
+- During bootstrap, when `.tmp/factory-main` has not been prepared yet,
+  freshness should report `unavailable` rather than pretending the selected
+  runtime checkout is already current.
 
 ## Intervention And Escalation Policy
 

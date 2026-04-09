@@ -138,6 +138,7 @@ function createControlDeps(
     workspaceRoot: path.join(runtimeRoot, ".tmp", "workspaces"),
   });
   const runtimeEntrypointPath = path.join(runtimeRoot, "bin", "symphony.ts");
+  const runtimeTsxPath = path.join(runtimeRoot, "node_modules", ".bin", "tsx");
   const workflowPath = instancePaths.runtimeWorkflowPath;
   const statusFilePath = instancePaths.statusFilePath;
   const startupFilePath = instancePaths.startupFilePath;
@@ -158,6 +159,7 @@ function createControlDeps(
         instancePaths.tempRoot,
         runtimeRoot,
         runtimeEntrypointPath,
+        runtimeTsxPath,
         workflowPath,
         path.dirname(statusFilePath),
         statusFilePath,
@@ -1130,7 +1132,8 @@ describe("resolveFactoryLaunchTarget", () => {
         },
         {
           pathExists: async (targetPath) =>
-            targetPath === "/repo/.tmp/factory-main/bin/symphony.ts",
+            targetPath === "/repo/.tmp/factory-main/bin/symphony.ts" ||
+            targetPath === "/repo/.tmp/factory-main/node_modules/.bin/tsx",
         },
       ),
     ).resolves.toEqual({
@@ -1180,6 +1183,27 @@ describe("resolveFactoryLaunchTarget", () => {
       ),
     ).rejects.toThrow(
       "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because /repo/.tmp/factory-main/bin/symphony.ts is missing.",
+    );
+  });
+
+  it("fails clearly when the runtime checkout is missing the local tsx binary", async () => {
+    await expect(
+      resolveFactoryLaunchTarget(
+        {
+          repoRoot: "/repo",
+          runtimeRoot: "/repo/.tmp/factory-main",
+          workflowPath: "/repo/WORKFLOW.md",
+          statusFilePath: "/repo/.tmp/status.json",
+          startupFilePath: "/repo/.tmp/startup.json",
+        },
+        {
+          pathExists: async (targetPath) =>
+            targetPath === "/repo/.tmp/factory-main" ||
+            targetPath === "/repo/.tmp/factory-main/bin/symphony.ts",
+        },
+      ),
+    ).rejects.toThrow(
+      "Detached runtime checkout at /repo/.tmp/factory-main is not launchable because /repo/.tmp/factory-main/node_modules/.bin/tsx is missing.",
     );
   });
 });

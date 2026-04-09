@@ -1241,7 +1241,17 @@ export async function resolveFactoryLaunchTarget(
     "bin",
     "symphony.ts",
   );
-  if (await pathExists(runtimeEntrypointPath)) {
+  const runtimeTsxPath = path.join(
+    paths.runtimeRoot,
+    "node_modules",
+    ".bin",
+    "tsx",
+  );
+  const missingLaunchRequirement = await firstMissingPath(
+    [runtimeEntrypointPath, runtimeTsxPath],
+    pathExists,
+  );
+  if (missingLaunchRequirement === null) {
     return {
       kind: "runtime-home",
       launchCwd: paths.runtimeRoot,
@@ -1251,7 +1261,7 @@ export async function resolveFactoryLaunchTarget(
   }
   if (await pathExists(paths.runtimeRoot)) {
     throw new Error(
-      `Detached runtime checkout at ${paths.runtimeRoot} is not launchable because ${runtimeEntrypointPath} is missing. Refresh ${paths.runtimeRoot} from the selected instance main branch before restarting the factory.`,
+      `Detached runtime checkout at ${paths.runtimeRoot} is not launchable because ${missingLaunchRequirement} is missing. Refresh ${paths.runtimeRoot} from the selected instance main branch and install dependencies there before restarting the factory.`,
     );
   }
   return {
@@ -1260,6 +1270,18 @@ export async function resolveFactoryLaunchTarget(
     entrypointPath: path.join(ENGINE_ROOT, "bin", "symphony.ts"),
     workflowPath: paths.workflowPath,
   };
+}
+
+async function firstMissingPath(
+  paths: readonly string[],
+  pathExists: (targetPath: string) => Promise<boolean>,
+): Promise<string | null> {
+  for (const candidatePath of paths) {
+    if (!(await pathExists(candidatePath))) {
+      return candidatePath;
+    }
+  }
+  return null;
 }
 
 function isUtf8Locale(locale: string): boolean {

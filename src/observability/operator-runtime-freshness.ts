@@ -23,6 +23,7 @@ export interface OperatorRuntimeFreshnessSnapshot {
   readonly currentRuntimeIdentity: FactoryRuntimeIdentity | null;
   readonly runtimeHeadSha: string | null;
   readonly currentRuntimeHeadSha: string | null;
+  readonly engineHeadSha: string | null;
   readonly runningWorkflowIdentity: FactoryWorkflowIdentity | null;
   readonly currentWorkflowIdentity: FactoryWorkflowIdentity | null;
   readonly runtimeChanged: boolean;
@@ -55,6 +56,7 @@ export function assessOperatorRuntimeFreshness(args: {
       currentRuntimeIdentity: args.currentRuntimeIdentity,
       runtimeHeadSha,
       currentRuntimeHeadSha,
+      engineHeadSha: currentRuntimeHeadSha,
       runningWorkflowIdentity,
       currentWorkflowIdentity,
       runtimeChanged: false,
@@ -82,6 +84,7 @@ export function assessOperatorRuntimeFreshness(args: {
       currentRuntimeIdentity: args.currentRuntimeIdentity,
       runtimeHeadSha,
       currentRuntimeHeadSha,
+      engineHeadSha: currentRuntimeHeadSha,
       runningWorkflowIdentity,
       currentWorkflowIdentity,
       runtimeChanged: false,
@@ -108,6 +111,7 @@ export function assessOperatorRuntimeFreshness(args: {
       currentRuntimeIdentity: args.currentRuntimeIdentity,
       runtimeHeadSha,
       currentRuntimeHeadSha,
+      engineHeadSha: currentRuntimeHeadSha,
       runningWorkflowIdentity,
       currentWorkflowIdentity,
       runtimeChanged,
@@ -128,6 +132,7 @@ export function assessOperatorRuntimeFreshness(args: {
     currentRuntimeIdentity: args.currentRuntimeIdentity,
     runtimeHeadSha,
     currentRuntimeHeadSha,
+    engineHeadSha: currentRuntimeHeadSha,
     runningWorkflowIdentity,
     currentWorkflowIdentity,
     runtimeChanged,

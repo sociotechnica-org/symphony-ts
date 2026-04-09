@@ -155,6 +155,13 @@ When `.tmp/factory-main` is a launchable checkout, `factory start` and
 `factory restart` execute the code from that checkout. If the runtime checkout
 has not been prepared yet, detached control falls back to the invoking source
 checkout only for bootstrap.
+For source-checkout factories, "launchable" means `.tmp/factory-main`
+contains both `bin/symphony.ts` and the installed local `tsx` binary under
+`node_modules/.bin/tsx`; a checkout without dependencies fails clearly instead
+of silently falling back.
+While that bootstrap fallback is still active, `bin/check-factory-runtime-freshness.ts`
+reports `unavailable` instead of `fresh` because the selected instance runtime
+checkout does not exist yet.
 
 Healthy detached operation should show:
 
