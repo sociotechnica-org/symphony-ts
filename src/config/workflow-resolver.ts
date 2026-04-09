@@ -20,6 +20,10 @@ import {
   resolveTrackerConfig,
 } from "./workflow-tracker-config.js";
 
+/**
+ * Internal config-layer seam used by the public workflow loader.
+ * Callers outside `src/config/` should prefer `src/config/workflow.ts`.
+ */
 export function resolveConfig(
   raw: RawWorkflow,
   workflowPath: string,

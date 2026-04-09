@@ -7,6 +7,7 @@ import {
   loadWorkflowInstancePaths,
 } from "../../src/config/workflow.js";
 import { createTempDir } from "../support/git.js";
+import { createIssue } from "../support/pull-request.js";
 
 function buildWorkflow(
   frontMatter: string,
@@ -104,22 +105,8 @@ ${buildSharedWorkflowSections()}`,
 
     const workflow = await loadWorkflow(workflowPath);
     const promptBuilder = createPromptBuilder(workflow);
-    const issue = {
-      id: "1",
-      identifier: "SYM-1",
-      number: 1,
-      title: "Test issue",
-      description: "Prompt builder seam test",
-      labels: [],
-      state: "open",
-      url: "https://example.test/issues/1",
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      queuePriority: null,
-      blockedBy: [],
-    };
     const rendered = await promptBuilder.build({
-      issue,
+      issue: createIssue(1, "symphony:ready"),
       attempt: null,
       pullRequest: null,
     });

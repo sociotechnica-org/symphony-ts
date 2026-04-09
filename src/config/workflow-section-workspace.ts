@@ -19,10 +19,14 @@ const DEFAULT_WORKSPACE_RETENTION = {
   onFailure: "retain",
 } as const satisfies Record<string, WorkspaceRetentionMode>;
 
-export interface ResolvedWorkspaceConfig extends WorkspaceConfig {
+interface ResolvedWorkspaceConfig extends WorkspaceConfig {
   readonly workerHosts: Readonly<Record<string, SshWorkerHostConfig>>;
 }
 
+/**
+ * Internal workspace-section resolver used while assembling `ResolvedConfig`.
+ * Callers outside `src/config/` should prefer the workflow facade.
+ */
 export function resolveWorkspaceConfig(args: {
   readonly workspace: Readonly<Record<string, unknown>>;
   readonly instanceRoot: string;
@@ -86,6 +90,10 @@ function resolveRepoUrl(
   );
 }
 
+/**
+ * Internal helper used by the workspace section resolver.
+ * External callers should stay on the public workflow facade.
+ */
 export function resolveWorkspaceRepoUrl(
   repoUrl: string,
   workflowRoot: string,
@@ -103,6 +111,10 @@ function isRemoteRepoUrl(repoUrl: string): boolean {
   return isScpStyleRepoUrl(repoUrl);
 }
 
+/**
+ * Internal helper used by workflow resolution to normalize repo URLs before
+ * remote-execution policy decides whether a checkout target is local or remote.
+ */
 export function isRemoteExecutionRepoUrl(repoUrl: string): boolean {
   if (isScpStyleRepoUrl(repoUrl)) {
     return true;

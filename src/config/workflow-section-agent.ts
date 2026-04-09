@@ -54,14 +54,22 @@ export function resolveAgentConfig(args: {
     },
   };
 
+  validateAgentConfig(resolved);
+  return resolved;
+}
+
+function validateAgentConfig(resolved: {
+  readonly promptTransport: string;
+  readonly maxTurns: number;
+}): void {
+  // Keep section-local validation inside the agent resolver so malformed
+  // agent config fails before the top-level config object is assembled.
   if (!["stdin", "file"].includes(resolved.promptTransport)) {
     throw new ConfigError("agent.prompt_transport must be 'stdin' or 'file'");
   }
   if (!Number.isInteger(resolved.maxTurns) || resolved.maxTurns < 1) {
     throw new ConfigError("agent.max_turns must be an integer >= 1");
   }
-
-  return resolved;
 }
 
 function isSupportedAgentRunnerKind(

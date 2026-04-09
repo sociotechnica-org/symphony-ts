@@ -1,5 +1,8 @@
 import { ConfigError } from "../domain/errors.js";
 
+// Internal validation helpers for the workflow/config subsystem.
+// External callers should stay on the public `src/config/workflow.ts` entrypoint.
+
 export function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") {
     throw new ConfigError(`Expected non-empty string for ${field}`);
