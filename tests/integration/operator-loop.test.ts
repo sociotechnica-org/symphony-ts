@@ -621,8 +621,10 @@ describe("operator loop workflow selection", () => {
     const secondWorkflow = await writeWorkflow(secondDir);
 
     try {
-      const firstRun = await runOperatorLoop(firstWorkflow);
-      const secondRun = await runOperatorLoop(secondWorkflow);
+      const [firstRun, secondRun] = await Promise.all([
+        runOperatorLoop(firstWorkflow),
+        runOperatorLoop(secondWorkflow),
+      ]);
       createdPaths.add(firstDir);
       createdPaths.add(secondDir);
       createdPaths.add(firstRun.stateRoot);
