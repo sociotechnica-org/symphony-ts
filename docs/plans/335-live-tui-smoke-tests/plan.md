@@ -282,15 +282,15 @@ and teardown stay legible.
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Test-harness facts available | Expected decision |
-| --- | --- | --- | --- |
-| `tui-use` is unavailable or fails to install/build | test process, package/bin lookup, install/build stderr | no PTY session yet | fail clearly with a local/CI prerequisite error; do not silently skip the covered smoke path |
-| PTY daemon/session state leaks between tests | temp HOME/session root, list of current sessions | harness sees existing daemon/socket state before start | use test-owned HOME/root and explicit cleanup so each smoke test starts clean |
-| Detached runtime starts but no active TUI content appears | status snapshot, mock issue seeded, worker process facts | PTY snapshot remains idle/no expected text | fail the smoke test with the captured screen/status evidence instead of weakening assertions to a purely idle frame |
-| `factory watch` renders but does not show expected framing/live state | PTY snapshot lines | watch command is running, detached runtime healthy | fail with captured watch screen; keep watch assertions focused on supported operator contract |
-| `factory attach` launches but never reaches fullscreen/alternate screen | PTY snapshot metadata and lines | attach command running, detached runtime healthy | fail with attach snapshot evidence; this is the regression class the smoke suite is meant to catch |
-| `Ctrl-C` exits attach and also stops the detached runtime | attach client exits, post-detach `factory status` shows stopped/degraded | local detach input recorded | fail; the supported attach contract regressed |
-| Smoke-test teardown hits leaked child processes | child pid/process-group facts | PTY session/runtime cleanup step failed | terminate aggressively in shared test helpers and fail clearly if cleanup still cannot complete |
+| Observed condition                                                      | Local facts available                                                    | Test-harness facts available                           | Expected decision                                                                                                   |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `tui-use` is unavailable or fails to install/build                      | test process, package/bin lookup, install/build stderr                   | no PTY session yet                                     | fail clearly with a local/CI prerequisite error; do not silently skip the covered smoke path                        |
+| PTY daemon/session state leaks between tests                            | temp HOME/session root, list of current sessions                         | harness sees existing daemon/socket state before start | use test-owned HOME/root and explicit cleanup so each smoke test starts clean                                       |
+| Detached runtime starts but no active TUI content appears               | status snapshot, mock issue seeded, worker process facts                 | PTY snapshot remains idle/no expected text             | fail the smoke test with the captured screen/status evidence instead of weakening assertions to a purely idle frame |
+| `factory watch` renders but does not show expected framing/live state   | PTY snapshot lines                                                       | watch command is running, detached runtime healthy     | fail with captured watch screen; keep watch assertions focused on supported operator contract                       |
+| `factory attach` launches but never reaches fullscreen/alternate screen | PTY snapshot metadata and lines                                          | attach command running, detached runtime healthy       | fail with attach snapshot evidence; this is the regression class the smoke suite is meant to catch                  |
+| `Ctrl-C` exits attach and also stops the detached runtime               | attach client exits, post-detach `factory status` shows stopped/degraded | local detach input recorded                            | fail; the supported attach contract regressed                                                                       |
+| Smoke-test teardown hits leaked child processes                         | child pid/process-group facts                                            | PTY session/runtime cleanup step failed                | terminate aggressively in shared test helpers and fail clearly if cleanup still cannot complete                     |
 
 ## Storage / Persistence Contract
 

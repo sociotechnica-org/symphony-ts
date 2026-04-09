@@ -31,4 +31,5 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm rebuild node-pty tui-use
       - run: pnpm test

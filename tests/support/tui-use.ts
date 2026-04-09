@@ -39,12 +39,6 @@ type TuiUseSessionConstructor = new (
   },
 ) => TuiUseSessionInstance;
 
-const { Session } = require(
-  path.join(resolveTuiUseRoot(), "dist", "session.js"),
-) as {
-  readonly Session: TuiUseSessionConstructor;
-};
-
 export interface TuiUseHighlight {
   readonly line: number;
   readonly col_start: number;
@@ -83,6 +77,7 @@ export interface TuiUseStartOptions {
 }
 
 let installReady: Promise<void> | null = null;
+let sessionConstructor: TuiUseSessionConstructor | null = null;
 
 export async function createTuiUseHarness(
   options: TuiUseHarnessOptions,
@@ -102,19 +97,11 @@ export class TuiUseHarness {
 
   constructor(options: TuiUseHarnessOptions) {
     this.#cwd = options.cwd;
-    const inheritedEnv = { ...process.env };
-    delete inheritedEnv["NODE_OPTIONS"];
-    delete inheritedEnv["NODE_ENV"];
-    for (const key of Object.keys(inheritedEnv)) {
-      if (key.startsWith("VITEST") || key.startsWith("__VITEST")) {
-        delete inheritedEnv[key];
-      }
-    }
-    this.#env = {
-      ...inheritedEnv,
+    this.#env = sanitizeTuiUseEnv({
+      ...process.env,
       ...options.env,
       HOME: options.homeDir,
-    };
+    });
   }
 
   async start(
@@ -129,6 +116,7 @@ export class TuiUseHarness {
       rows: options.rows ?? 40,
       ...(options.label === undefined ? {} : { label: options.label }),
     };
+    const Session = resolveSessionConstructor();
     const session = withOverriddenEnv(this.#env, () => {
       return new Session(sessionId, command, sessionOptions);
     });
@@ -180,14 +168,18 @@ export class TuiUseHarness {
       if (remainingMs <= 0) {
         break;
       }
-      await this.waitForChange(Math.min(pollIntervalMs, remainingMs));
+      try {
+        await this.waitForChange(Math.min(pollIntervalMs, remainingMs));
+      } catch (error) {
+        throw buildWaitForSnapshotError(
+          options?.description,
+          lastSnapshot,
+          error,
+        );
+      }
     }
 
-    throw new Error(
-      `Timed out waiting for tui-use snapshot${
-        options?.description === undefined ? "" : `: ${options.description}`
-      }\n\nLast screen:\n${lastSnapshot.screen}`,
-    );
+    throw buildWaitForSnapshotTimeoutError(options?.description, lastSnapshot);
   }
 
   async press(key: string): Promise<void> {
@@ -224,7 +216,10 @@ export class TuiUseHarness {
 }
 
 async function ensureTuiUseInstallReady(): Promise<void> {
-  installReady ??= ensureTuiUseInstallReadyOnce();
+  installReady ??= ensureTuiUseInstallReadyOnce().catch((error) => {
+    installReady = null;
+    throw error;
+  });
   await installReady;
 }
 
@@ -260,6 +255,8 @@ async function ensureTuiUseInstallReadyOnce(): Promise<void> {
       }),
     ),
   );
+
+  resolveSessionConstructor();
 }
 
 async function waitForSessionExit(
@@ -297,6 +294,63 @@ function mapSnapshot(
 
 function resolveTuiUseRoot(): string {
   return path.dirname(require.resolve("tui-use/package.json"));
+}
+
+function resolveSessionConstructor(): TuiUseSessionConstructor {
+  if (sessionConstructor !== null) {
+    return sessionConstructor;
+  }
+
+  try {
+    const loaded = require(
+      path.join(resolveTuiUseRoot(), "dist", "session.js"),
+    ) as {
+      readonly Session: TuiUseSessionConstructor;
+    };
+    sessionConstructor = loaded.Session;
+    return sessionConstructor;
+  } catch (error) {
+    throw new Error(
+      "Failed to load tui-use session support. If native build scripts were skipped, run `pnpm rebuild tui-use node-pty` and retry.",
+      { cause: error },
+    );
+  }
+}
+
+export function sanitizeTuiUseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const sanitizedEnv = { ...env };
+  delete sanitizedEnv["NODE_OPTIONS"];
+  delete sanitizedEnv["NODE_ENV"];
+  for (const key of Object.keys(sanitizedEnv)) {
+    if (key.startsWith("VITEST") || key.startsWith("__VITEST")) {
+      delete sanitizedEnv[key];
+    }
+  }
+  return sanitizedEnv;
+}
+
+function buildWaitForSnapshotTimeoutError(
+  description: string | undefined,
+  lastSnapshot: TuiUseSnapshot,
+): Error {
+  return new Error(
+    `Timed out waiting for tui-use snapshot${
+      description === undefined ? "" : `: ${description}`
+    }\n\nLast screen:\n${lastSnapshot.screen}`,
+  );
+}
+
+function buildWaitForSnapshotError(
+  description: string | undefined,
+  lastSnapshot: TuiUseSnapshot,
+  cause: unknown,
+): Error {
+  return new Error(
+    `Failed while waiting for tui-use snapshot${
+      description === undefined ? "" : `: ${description}`
+    }\n\nLast screen:\n${lastSnapshot.screen}`,
+    { cause },
+  );
 }
 
 function withOverriddenEnv<T>(env: NodeJS.ProcessEnv, fn: () => T): T {
