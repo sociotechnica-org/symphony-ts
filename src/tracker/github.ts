@@ -73,6 +73,11 @@ export class GitHubTracker implements Tracker {
   async fetchReadyIssues(): Promise<readonly RuntimeIssue[]> {
     const readyIssues = await this.#client.fetchIssuesByLabel(
       this.#config.readyLabel,
+      {
+        blockedBy: this.#config.respectBlockedRelationships
+          ? "require"
+          : "best-effort",
+      },
     );
     if (!this.#config.respectBlockedRelationships || readyIssues.length === 0) {
       return readyIssues;
@@ -93,19 +98,34 @@ export class GitHubTracker implements Tracker {
   }
 
   async fetchRunningIssues(): Promise<readonly RuntimeIssue[]> {
-    return await this.#client.fetchIssuesByLabel(this.#config.runningLabel);
+    return await this.#client.fetchIssuesByLabel(this.#config.runningLabel, {
+      blockedBy: this.#config.respectBlockedRelationships
+        ? "require"
+        : "best-effort",
+    });
   }
 
   async fetchFailedIssues(): Promise<readonly RuntimeIssue[]> {
-    return await this.#client.fetchIssuesByLabel(this.#config.failedLabel);
+    return await this.#client.fetchIssuesByLabel(this.#config.failedLabel, {
+      blockedBy: this.#config.respectBlockedRelationships
+        ? "require"
+        : "best-effort",
+    });
   }
 
   async getIssue(issueNumber: number): Promise<RuntimeIssue> {
-    return await this.#client.getIssue(issueNumber);
+    return await this.#client.getIssue(issueNumber, {
+      blockedBy: this.#config.respectBlockedRelationships
+        ? "require"
+        : "best-effort",
+    });
   }
 
   async claimIssue(issueNumber: number): Promise<RuntimeIssue | null> {
-    const issue = await this.getIssue(issueNumber);
+    const issue = await this.#client.getIssue(issueNumber, {
+      blockedBy: this.#config.respectBlockedRelationships ? "require" : "skip",
+      includeQueuePriority: false,
+    });
     if (
       !issue.labels.includes(this.#config.readyLabel) ||
       issue.labels.includes(this.#config.runningLabel)
@@ -129,9 +149,17 @@ export class GitHubTracker implements Tracker {
         label !== this.#config.readyLabel && label !== this.#config.failedLabel,
     );
     nextLabels.push(this.#config.runningLabel);
-    const updated = await this.#client.updateIssue(issueNumber, {
-      labels: nextLabels,
-    });
+    const updated = await this.#client.updateIssue(
+      issueNumber,
+      {
+        labels: nextLabels,
+      },
+      {
+        blockedBy: this.#config.respectBlockedRelationships
+          ? "require"
+          : "skip",
+      },
+    );
     this.#logger.info("Claimed GitHub issue", { issueNumber });
     return updated;
   }
@@ -293,7 +321,10 @@ export class GitHubTracker implements Tracker {
       return null;
     }
 
-    const issue = await this.getIssue(issueNumber);
+    const issue = await this.#client.getIssue(issueNumber, {
+      blockedBy: "skip",
+      includeQueuePriority: false,
+    });
     const observation = this.#planReviewObservations.get(branchName);
     if (
       observation !== undefined &&
@@ -417,7 +448,14 @@ export class GitHubTracker implements Tracker {
     if (!nextLabels.includes(this.#config.runningLabel)) {
       nextLabels.push(this.#config.runningLabel);
     }
-    await this.#client.updateIssue(issueNumber, { labels: nextLabels });
+    await this.#client.updateIssue(
+      issueNumber,
+      { labels: nextLabels },
+      {
+        blockedBy: "skip",
+        includeQueuePriority: false,
+      },
+    );
     await this.#client.createComment(
       issueNumber,
       `Retry scheduled by Symphony: ${reason}`,
@@ -425,11 +463,19 @@ export class GitHubTracker implements Tracker {
   }
 
   async completeIssue(issueNumber: number): Promise<void> {
-    await this.#completeIssue(await this.getIssue(issueNumber));
+    await this.#completeIssue(
+      await this.#client.getIssue(issueNumber, {
+        blockedBy: "skip",
+        includeQueuePriority: false,
+      }),
+    );
   }
 
   async markIssueFailed(issueNumber: number, reason: string): Promise<void> {
-    const issue = await this.getIssue(issueNumber);
+    const issue = await this.#client.getIssue(issueNumber, {
+      blockedBy: "skip",
+      includeQueuePriority: false,
+    });
     const nextLabels = issue.labels.filter(
       (label) =>
         label !== this.#config.runningLabel &&
@@ -438,7 +484,14 @@ export class GitHubTracker implements Tracker {
     if (!nextLabels.includes(this.#config.failedLabel)) {
       nextLabels.push(this.#config.failedLabel);
     }
-    await this.#client.updateIssue(issueNumber, { labels: nextLabels });
+    await this.#client.updateIssue(
+      issueNumber,
+      { labels: nextLabels },
+      {
+        blockedBy: "skip",
+        includeQueuePriority: false,
+      },
+    );
     await this.#client.createComment(
       issueNumber,
       `Symphony failed this run: ${reason}`,
@@ -471,9 +524,16 @@ export class GitHubTracker implements Tracker {
         label !== this.#config.failedLabel,
     );
     await this.#client.createComment(issue.number, this.#config.successComment);
-    await this.#client.updateIssue(issue.number, {
-      state: "closed",
-      labels: nextLabels,
-    });
+    await this.#client.updateIssue(
+      issue.number,
+      {
+        state: "closed",
+        labels: nextLabels,
+      },
+      {
+        blockedBy: "skip",
+        includeQueuePriority: false,
+      },
+    );
   }
 }

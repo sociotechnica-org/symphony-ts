@@ -345,6 +345,28 @@ describe("GitHubTracker", () => {
     );
   });
 
+  it("preserves label-only reads when GitHub dependency data is unsupported and blocked enforcement is disabled", async () => {
+    server.setIssueDependencyQueryFailure(
+      "issue dependencies unavailable",
+      404,
+    );
+    const tracker = createTracker(server);
+
+    await expect(tracker.fetchReadyIssues()).resolves.toEqual([
+      expect.objectContaining({
+        number: 7,
+        blockedBy: [],
+      }),
+    ]);
+
+    const claimed = await tracker.claimIssue(7);
+
+    expect(claimed?.labels).toContain("symphony:running");
+    expect(server.getIssue(7).labels.map((label) => label.name)).toContain(
+      "symphony:running",
+    );
+  });
+
   it("reports awaiting-human-handoff when the latest issue handoff is plan-ready", async () => {
     const tracker = createTracker(server);
 

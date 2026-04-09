@@ -496,6 +496,84 @@ describe("GitHubClient", () => {
     }
   });
 
+  it("hydrates ready-issue blockers without per-issue dependency REST calls", async () => {
+    const server = new MockGitHubServer();
+    await server.start();
+    try {
+      server.seedIssue({
+        number: 7,
+        title: "Blocked issue",
+        body: "",
+        labels: ["symphony:ready"],
+      });
+      server.seedIssue({
+        number: 8,
+        title: "Dependency one",
+        body: "",
+        labels: [],
+      });
+      server.seedIssue({
+        number: 9,
+        title: "Another ready issue",
+        body: "",
+        labels: ["symphony:ready"],
+      });
+      server.seedIssue({
+        number: 10,
+        title: "Dependency two",
+        body: "",
+        labels: [],
+      });
+      server.setIssueBlockedBy(7, [8]);
+      server.setIssueBlockedBy(9, [10]);
+
+      const client = new GitHubClient(
+        {
+          kind: "github",
+          repo: "sociotechnica-org/symphony-ts",
+          apiUrl: server.baseUrl,
+          readyLabel: "symphony:ready",
+          runningLabel: "symphony:running",
+          failedLabel: "symphony:failed",
+          respectBlockedRelationships: false,
+          successComment: "done",
+          reviewBotLogins: [],
+        },
+        createLoggerSpy(),
+      );
+
+      const readyIssues = await client.fetchIssuesByLabel("symphony:ready");
+
+      expect(readyIssues.map((issue) => issue.blockedBy)).toEqual([
+        [
+          {
+            id: "8",
+            identifier: "sociotechnica-org/symphony-ts#8",
+            title: "Dependency one",
+            state: "open",
+          },
+        ],
+        [
+          {
+            id: "10",
+            identifier: "sociotechnica-org/symphony-ts#10",
+            title: "Dependency two",
+            state: "open",
+          },
+        ],
+      ]);
+      expect(server.countRequests("GET issues/7/dependencies/blocked_by")).toBe(
+        0,
+      );
+      expect(server.countRequests("GET issues/9/dependencies/blocked_by")).toBe(
+        0,
+      );
+      expect(server.countRequests("POST /graphql")).toBeGreaterThan(0);
+    } finally {
+      await server.stop();
+    }
+  });
+
   it("throws when GitHub blocker reads are unavailable", async () => {
     const server = new MockGitHubServer();
     await server.start();
@@ -565,6 +643,56 @@ describe("GitHubClient", () => {
 
       await expect(client.getIssue(7)).rejects.toThrow(
         /require issue dependency API support on the connected GitHub instance/i,
+      );
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("falls back to empty blockers when dependency reads are unsupported and blocked enforcement is disabled", async () => {
+    const server = new MockGitHubServer();
+    await server.start();
+    try {
+      server.seedIssue({
+        number: 7,
+        title: "Blocked issue",
+        body: "",
+        labels: ["symphony:ready"],
+      });
+      server.setIssueDependencyQueryFailure(
+        "issue dependencies unavailable",
+        404,
+      );
+
+      const logger = createLoggerSpy();
+      const client = new GitHubClient(
+        {
+          kind: "github",
+          repo: "sociotechnica-org/symphony-ts",
+          apiUrl: server.baseUrl,
+          readyLabel: "symphony:ready",
+          runningLabel: "symphony:running",
+          failedLabel: "symphony:failed",
+          respectBlockedRelationships: false,
+          successComment: "done",
+          reviewBotLogins: [],
+        },
+        logger,
+      );
+
+      await expect(
+        client.fetchIssuesByLabel("symphony:ready"),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          number: 7,
+          blockedBy: [],
+        }),
+      ]);
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Skipping GitHub dependency hydration",
+        expect.objectContaining({
+          repo: "sociotechnica-org/symphony-ts",
+        }),
       );
     } finally {
       await server.stop();

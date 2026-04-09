@@ -103,8 +103,64 @@ interface GraphQlResponse<T> {
   readonly errors?: ReadonlyArray<{ readonly message: string }>;
 }
 
+interface IssueBlockersGraphQlBlockerResponse {
+  readonly number: number;
+  readonly title: string;
+  readonly state: string;
+}
+
+interface IssueBlockersGraphQlIssueResponse {
+  readonly number: number;
+  readonly blockedBy: {
+    readonly nodes: ReadonlyArray<IssueBlockersGraphQlBlockerResponse | null>;
+    readonly pageInfo: {
+      readonly hasNextPage: boolean;
+    };
+  } | null;
+}
+
+interface IssueBlockersGraphQlResponse {
+  readonly repository: Readonly<
+    Record<string, IssueBlockersGraphQlIssueResponse | null>
+  > | null;
+}
+
 function blockedRelationshipSupportMessage(repo: string): string {
   return `GitHub issue dependency reads for ${repo} require issue dependency API support on the connected GitHub instance.`;
+}
+
+function isBlockedByFieldError(error: unknown): error is TrackerError {
+  return error instanceof TrackerError && error.message.includes("blockedBy");
+}
+
+function buildIssueBlockersQuery(issueNumbers: readonly number[]): string {
+  const selections = issueNumbers
+    .map(
+      (
+        issueNumber,
+      ) => `      issue_${issueNumber.toString()}: issue(number: ${issueNumber.toString()}) {
+        number
+        blockedBy(first: 100) {
+          nodes {
+            number
+            title
+            state
+          }
+          pageInfo {
+            hasNextPage
+          }
+        }
+      }`,
+    )
+    .join("\n");
+
+  return `
+    query IssueBlockers($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) {
+${selections}
+      }
+    }
+  `;
 }
 
 interface ProjectQueuePriorityFieldPageResponse {
@@ -611,6 +667,28 @@ export class GitHubClient {
     return this.#repoName;
   }
 
+  #resolveIssueHydrationOptions(options?: {
+    readonly blockedBy?: "require" | "best-effort" | "skip";
+    readonly includeQueuePriority?: boolean;
+  }): {
+    readonly blockedBy: "require" | "best-effort" | "skip";
+    readonly includeQueuePriority: boolean;
+  } {
+    return {
+      blockedBy:
+        options?.blockedBy ??
+        (this.#config.respectBlockedRelationships ? "require" : "best-effort"),
+      includeQueuePriority: options?.includeQueuePriority ?? true,
+    };
+  }
+
+  #logSkippedBlockedByHydration(error: TrackerError): void {
+    this.#logger.warn("Skipping GitHub dependency hydration", {
+      repo: this.#config.repo,
+      reason: error.message,
+    });
+  }
+
   async ensureLabel(
     name: string,
     color: string,
@@ -636,32 +714,57 @@ export class GitHubClient {
     }
   }
 
-  async fetchIssuesByLabel(label: string): Promise<readonly RuntimeIssue[]> {
+  async fetchIssuesByLabel(
+    label: string,
+    options?: {
+      readonly blockedBy?: "require" | "best-effort" | "skip";
+      readonly includeQueuePriority?: boolean;
+    },
+  ): Promise<readonly RuntimeIssue[]> {
     const issues = await this.#request<GitHubIssueResponse[]>(
       "GET",
       this.#issuePath(`issues?state=open&labels=${encodeURIComponent(label)}`),
     );
-    return this.#toRuntimeIssues(issues);
+    return this.#toRuntimeIssues(
+      issues,
+      this.#resolveIssueHydrationOptions(options),
+    );
   }
 
-  async getIssue(issueNumber: number): Promise<RuntimeIssue> {
+  async getIssue(
+    issueNumber: number,
+    options?: {
+      readonly blockedBy?: "require" | "best-effort" | "skip";
+      readonly includeQueuePriority?: boolean;
+    },
+  ): Promise<RuntimeIssue> {
     const issue = await this.#request<GitHubIssueResponse>(
       "GET",
       this.#issuePath(`issues/${issueNumber}`),
     );
-    return await this.#toRuntimeIssue(issue);
+    return await this.#toRuntimeIssue(
+      issue,
+      this.#resolveIssueHydrationOptions(options),
+    );
   }
 
   async updateIssue(
     issueNumber: number,
     body: Record<string, unknown>,
+    options?: {
+      readonly blockedBy?: "require" | "best-effort" | "skip";
+      readonly includeQueuePriority?: boolean;
+    },
   ): Promise<RuntimeIssue> {
     const issue = await this.#request<GitHubIssueResponse>(
       "PATCH",
       this.#issuePath(`issues/${issueNumber}`),
       body,
     );
-    return await this.#toRuntimeIssue(issue);
+    return await this.#toRuntimeIssue(
+      issue,
+      this.#resolveIssueHydrationOptions(options),
+    );
   }
 
   async createComment(issueNumber: number, body: string): Promise<void> {
@@ -946,11 +1049,20 @@ export class GitHubClient {
 
   async #toRuntimeIssues(
     issues: readonly GitHubIssueResponse[],
+    options: {
+      readonly blockedBy: "require" | "best-effort" | "skip";
+      readonly includeQueuePriority: boolean;
+    },
   ): Promise<readonly RuntimeIssue[]> {
     const [queuePriorityByIssueNumber, blockersByIssueNumber] =
       await Promise.all([
-        this.#getQueuePriorityByIssueNumber(),
-        this.#getBlockedByByIssueNumber(issues.map((issue) => issue.number)),
+        options.includeQueuePriority
+          ? this.#getQueuePriorityByIssueNumber()
+          : Promise.resolve(new Map<number, QueuePriority>()),
+        this.#getBlockedByByIssueNumber(
+          issues.map((issue) => issue.number),
+          options.blockedBy,
+        ),
       ]);
     return issues.map((issue) =>
       toRuntimeIssue(issue, this.#config.repo, {
@@ -960,31 +1072,137 @@ export class GitHubClient {
     );
   }
 
-  async #toRuntimeIssue(issue: GitHubIssueResponse): Promise<RuntimeIssue> {
-    const [queuePriorityByIssueNumber, blockersByIssueNumber] =
-      await Promise.all([
-        this.#getQueuePriorityByIssueNumber(),
-        this.#getBlockedByByIssueNumber([issue.number]),
-      ]);
+  async #toRuntimeIssue(
+    issue: GitHubIssueResponse,
+    options: {
+      readonly blockedBy: "require" | "best-effort" | "skip";
+      readonly includeQueuePriority: boolean;
+    },
+  ): Promise<RuntimeIssue> {
+    const [queuePriorityByIssueNumber, blockedBy] = await Promise.all([
+      options.includeQueuePriority
+        ? this.#getQueuePriorityByIssueNumber()
+        : Promise.resolve(new Map<number, QueuePriority>()),
+      this.#getIssueBlockers(issue.number, options.blockedBy),
+    ]);
     return toRuntimeIssue(issue, this.#config.repo, {
       queuePriority: queuePriorityByIssueNumber.get(issue.number) ?? null,
-      blockedBy: blockersByIssueNumber.get(issue.number) ?? [],
+      blockedBy,
     });
   }
 
   async #getBlockedByByIssueNumber(
     issueNumbers: readonly number[],
+    mode: "require" | "best-effort" | "skip",
   ): Promise<ReadonlyMap<number, readonly RuntimeIssueBlocker[]>> {
+    if (mode === "skip") {
+      return new Map<number, readonly RuntimeIssueBlocker[]>();
+    }
     const normalizedIssueNumbers = [...new Set(issueNumbers)].sort(
       (left, right) => left - right,
     );
-    const blockerEntries = await Promise.all(
-      normalizedIssueNumbers.map(
-        async (issueNumber) =>
-          [issueNumber, await this.#listIssueBlockers(issueNumber)] as const,
-      ),
-    );
-    return new Map<number, readonly RuntimeIssueBlocker[]>(blockerEntries);
+    if (normalizedIssueNumbers.length === 0) {
+      return new Map<number, readonly RuntimeIssueBlocker[]>();
+    }
+
+    let response: IssueBlockersGraphQlResponse;
+    try {
+      response = await this.#graphqlRequest<IssueBlockersGraphQlResponse>(
+        buildIssueBlockersQuery(normalizedIssueNumbers),
+        {
+          owner: this.#repoOwner,
+          repo: this.#repoName,
+        },
+      );
+    } catch (error) {
+      if (mode === "best-effort" && isBlockedByFieldError(error)) {
+        this.#logSkippedBlockedByHydration(error);
+        return new Map<number, readonly RuntimeIssueBlocker[]>();
+      }
+      if (mode === "require" && isBlockedByFieldError(error)) {
+        throw new TrackerError(
+          blockedRelationshipSupportMessage(this.#config.repo),
+          {
+            cause: error,
+          },
+        );
+      }
+      throw error;
+    }
+
+    const repository = response.repository;
+    if (repository === null) {
+      throw new TrackerError(
+        `GitHub repository ${this.#config.repo} was not found in GraphQL`,
+      );
+    }
+
+    const blockedByByIssueNumber = new Map<
+      number,
+      readonly RuntimeIssueBlocker[]
+    >();
+    for (const issueNumber of normalizedIssueNumbers) {
+      const issue = repository[`issue_${issueNumber.toString()}`];
+      if (issue === null || issue === undefined) {
+        throw new TrackerError(
+          `GitHub issue ${this.#config.repo}#${issueNumber.toString()} was not found in GraphQL`,
+        );
+      }
+      if (issue.blockedBy === null) {
+        throw new TrackerError(
+          `${blockedRelationshipSupportMessage(this.#config.repo)} GitHub issue ${this.#config.repo}#${issueNumber.toString()} returned no blocker data.`,
+        );
+      }
+
+      if (issue.blockedBy.pageInfo.hasNextPage) {
+        blockedByByIssueNumber.set(
+          issueNumber,
+          await this.#listIssueBlockers(issueNumber),
+        );
+        continue;
+      }
+
+      blockedByByIssueNumber.set(
+        issueNumber,
+        issue.blockedBy.nodes.flatMap((blocker) =>
+          blocker === null
+            ? []
+            : [
+                {
+                  id: String(blocker.number),
+                  identifier: `${this.#config.repo}#${blocker.number.toString()}`,
+                  title: blocker.title,
+                  state: blocker.state,
+                } satisfies RuntimeIssueBlocker,
+              ],
+        ),
+      );
+    }
+
+    return blockedByByIssueNumber;
+  }
+
+  async #getIssueBlockers(
+    issueNumber: number,
+    mode: "require" | "best-effort" | "skip",
+  ): Promise<readonly RuntimeIssueBlocker[]> {
+    if (mode === "skip") {
+      return [];
+    }
+
+    try {
+      return await this.#listIssueBlockers(issueNumber);
+    } catch (error) {
+      if (
+        mode === "best-effort" &&
+        error instanceof TrackerError &&
+        error.message.includes("require issue dependency API support")
+      ) {
+        this.#logSkippedBlockedByHydration(error);
+        return [];
+      }
+      throw error;
+    }
   }
 
   async #listIssueBlockers(

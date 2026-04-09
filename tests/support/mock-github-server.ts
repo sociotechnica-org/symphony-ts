@@ -679,6 +679,10 @@ export class MockGitHubServer {
     }
 
     if (method === "POST" && url.pathname === "/graphql") {
+      this.#requestCounts.set(
+        "POST /graphql",
+        (this.#requestCounts.get("POST /graphql") ?? 0) + 1,
+      );
       const body = (await readJson(request)) as {
         query: string;
         variables: Record<string, unknown>;
@@ -1046,6 +1050,70 @@ export class MockGitHubServer {
     body: { query: string; variables: Record<string, unknown> },
     response: ServerResponse,
   ): Promise<void> {
+    if (body.query.includes("IssueBlockers")) {
+      if (this.#issueDependencyFailure !== null) {
+        if (
+          this.#issueDependencyFailure.statusCode === 404 ||
+          this.#issueDependencyFailure.statusCode === 410
+        ) {
+          json(response, 200, {
+            errors: [
+              {
+                message: `Cannot query field "blockedBy" on type "Issue". ${this.#issueDependencyFailure.message}`,
+              },
+            ],
+          });
+          return;
+        }
+
+        json(response, this.#issueDependencyFailure.statusCode, {
+          errors: [{ message: this.#issueDependencyFailure.message }],
+        });
+        return;
+      }
+
+      const repository: Record<string, unknown> = {};
+      for (const match of body.query.matchAll(
+        /issue_(\d+): issue\(number: \1\)/g,
+      )) {
+        const issueNumber = Number(match[1]);
+        const issue = this.#issues.get(issueNumber);
+        repository[`issue_${issueNumber.toString()}`] =
+          issue === undefined
+            ? null
+            : {
+                number: issue.number,
+                blockedBy: {
+                  nodes: issue.blockedByIssueNumbers.map(
+                    (blockerIssueNumber) => {
+                      const blockerIssue = this.#issues.get(blockerIssueNumber);
+                      if (!blockerIssue) {
+                        throw new Error(
+                          `Issue ${blockerIssueNumber} not found`,
+                        );
+                      }
+                      return {
+                        number: blockerIssue.number,
+                        title: blockerIssue.title,
+                        state: blockerIssue.state,
+                      };
+                    },
+                  ),
+                  pageInfo: {
+                    hasNextPage: false,
+                  },
+                },
+              };
+      }
+
+      json(response, 200, {
+        data: {
+          repository,
+        },
+      });
+      return;
+    }
+
     if (body.query.includes("ProjectQueuePriorityFieldValues")) {
       const projectNumber = Number(body.variables["projectNumber"]);
       const fieldName = String(body.variables["fieldName"]);
