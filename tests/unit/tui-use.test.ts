@@ -150,9 +150,9 @@ describe("tui-use module resolution", () => {
   it("resolves the installed tui-use session module", () => {
     const sessionModulePath = resolveTuiUseSessionModulePath();
 
-    expect(sessionModulePath.endsWith(path.join("tui-use", "dist", "session.js"))).toBe(
-      true,
-    );
+    expect(
+      sessionModulePath.endsWith(path.join("tui-use", "dist", "session.js")),
+    ).toBe(true);
     expect(existsSync(sessionModulePath)).toBe(true);
   });
 });
