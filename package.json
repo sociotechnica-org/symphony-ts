@@ -38,5 +38,12 @@
   "engines": {
     "node": ">=20"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "node-pty",
+      "tui-use"
+    ]
+  },
   "packageManager": "pnpm@10.20.0"
 }
