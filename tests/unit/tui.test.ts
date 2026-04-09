@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  formatSnapshotContent,
-  humanizeEvent,
-  legacyRunningEntryToTicket,
   rollingTps,
   StatusDashboard,
   throttledTps,
   tpsSparkline,
 } from "../../src/observability/tui.js";
+import {
+  formatSnapshotContent,
+  humanizeEvent,
+  legacyRunningEntryToTicket,
+} from "../../src/observability/tui-render.js";
 import type {
   TuiSnapshot,
   TuiTicketEntry,

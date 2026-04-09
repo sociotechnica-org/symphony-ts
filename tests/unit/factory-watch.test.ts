@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FactoryControlStatusSnapshot } from "../../src/cli/factory-control.js";
+import { watchFactory } from "../../src/cli/factory-watch.js";
 import {
   renderWatchError,
   renderWatchFrame,
-  watchFactory,
-} from "../../src/cli/factory-watch.js";
+} from "../../src/observability/factory-watch-render.js";
 
 function createSnapshot(): FactoryControlStatusSnapshot {
   return {

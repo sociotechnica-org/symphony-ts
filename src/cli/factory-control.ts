@@ -16,14 +16,16 @@ import {
   type RuntimeInstancePaths,
 } from "../domain/workflow.js";
 import {
-  assessFactoryStatusSnapshot,
   deriveStatusFilePath,
-  isProcessAlive,
   parseFactoryStatusSnapshotContent,
-  renderFactoryStatusSnapshot,
-  type FactoryStatusFreshnessAssessment,
   type FactoryStatusSnapshot,
-} from "../observability/status.js";
+} from "../observability/factory-status-snapshot.js";
+import {
+  assessFactoryStatusSnapshot,
+  isProcessAlive,
+  type FactoryStatusFreshnessAssessment,
+} from "../observability/factory-status-semantics.js";
+import { renderFactoryStatusSnapshot } from "../observability/factory-status-render.js";
 import {
   renderFactoryRuntimeIdentity,
   type FactoryRuntimeIdentity,
