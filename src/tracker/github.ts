@@ -1,5 +1,5 @@
 import type { HandoffLifecycle, PullRequestHandle } from "../domain/handoff.js";
-import type { RuntimeIssue } from "../domain/issue.js";
+import type { RuntimeIssue, RuntimeIssueBlocker } from "../domain/issue.js";
 import { DEFAULT_PLAN_REVIEW_PROTOCOL } from "../domain/plan-review.js";
 import type { GitHubCompatibleTrackerConfig } from "../domain/workflow.js";
 import type { Logger } from "../observability/logger.js";
@@ -84,14 +84,15 @@ export class GitHubTracker implements Tracker {
     }
 
     return readyIssues.filter((issue) => {
-      if (issue.blockedBy.length === 0) {
+      const blockingBlockers = this.#dispatchBlockingBlockers(issue.blockedBy);
+      if (blockingBlockers.length === 0) {
         return true;
       }
 
       this.#logger.info("Filtered blocked GitHub ready issue", {
         issueNumber: issue.number,
         repo: this.#config.repo,
-        openBlockerCount: issue.blockedBy.length,
+        blockingBlockerCount: blockingBlockers.length,
       });
       return false;
     });
@@ -126,14 +127,15 @@ export class GitHubTracker implements Tracker {
     ) {
       return null;
     }
+    const blockingBlockers = this.#dispatchBlockingBlockers(issue.blockedBy);
     if (
       this.#config.respectBlockedRelationships &&
-      issue.blockedBy.length > 0
+      blockingBlockers.length > 0
     ) {
       this.#logger.info("Rejected blocked GitHub issue claim", {
         issueNumber,
         repo: this.#config.repo,
-        openBlockerCount: issue.blockedBy.length,
+        blockingBlockerCount: blockingBlockers.length,
       });
       return null;
     }
@@ -436,6 +438,14 @@ export class GitHubTracker implements Tracker {
       return null;
     }
     return Number(match[1]);
+  }
+
+  #dispatchBlockingBlockers(
+    blockers: readonly RuntimeIssueBlocker[],
+  ): readonly RuntimeIssueBlocker[] {
+    return blockers.filter(
+      (blocker) => blocker.state?.toLowerCase() !== "closed",
+    );
   }
 
   async recordRetry(issueNumber: number, reason: string): Promise<void> {

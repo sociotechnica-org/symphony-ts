@@ -234,13 +234,13 @@ One GitHub issue carrying the ready label under one workflow where `respectBlock
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Ready issue has only closed blockers | ready label present | `blockedBy.length > 0`, every blocker `state` is `closed` | keep issue eligible for `fetchReadyIssues()` and `claimIssue()` |
-| Ready issue has mixed closed and open blockers | ready label present | at least one blocker `state` is open | filter from ready reads and reject claim attempts |
-| Ready issue has a blocker with `null` or unknown state | ready label present | blocker list present, state not known closed | fail closed; treat as blocking |
-| Ready read saw only closed blockers, later claim sees an open blocker | stale ready read, fresh claim read | fresh `blockedBy` contains an open blocker | `claimIssue()` returns `null` and leaves labels unchanged |
-| Dependency hydration is required but unavailable | no safe transport fallback | no trustworthy blocker state facts | throw the existing dependency-support error; do not silently allow dispatch |
+| Observed condition                                                    | Local facts available              | Normalized tracker facts available                        | Expected decision                                                           |
+| --------------------------------------------------------------------- | ---------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Ready issue has only closed blockers                                  | ready label present                | `blockedBy.length > 0`, every blocker `state` is `closed` | keep issue eligible for `fetchReadyIssues()` and `claimIssue()`             |
+| Ready issue has mixed closed and open blockers                        | ready label present                | at least one blocker `state` is open                      | filter from ready reads and reject claim attempts                           |
+| Ready issue has a blocker with `null` or unknown state                | ready label present                | blocker list present, state not known closed              | fail closed; treat as blocking                                              |
+| Ready read saw only closed blockers, later claim sees an open blocker | stale ready read, fresh claim read | fresh `blockedBy` contains an open blocker                | `claimIssue()` returns `null` and leaves labels unchanged                   |
+| Dependency hydration is required but unavailable                      | no safe transport fallback         | no trustworthy blocker state facts                        | throw the existing dependency-support error; do not silently allow dispatch |
 
 ## Implementation Steps
 
