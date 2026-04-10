@@ -263,6 +263,130 @@ describe("GitHubTracker", () => {
     expect(ready).toEqual([]);
   });
 
+  it("keeps closed-only blockers non-blocking when blocked-relationship enforcement is enabled", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Closed blocker",
+      body: "",
+      labels: [],
+      state: "closed",
+    });
+    server.setIssueBlockedBy(7, [8]);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+
+    expect(ready.map((issue) => issue.number)).toEqual([7]);
+    expect(ready[0]?.blockedBy).toEqual([
+      {
+        id: "8",
+        identifier: "sociotechnica-org/symphony-ts#8",
+        title: "Closed blocker",
+        state: "closed",
+      },
+    ]);
+
+    const claimed = await tracker.claimIssue(7);
+
+    expect(claimed?.labels).toContain("symphony:running");
+    expect(claimed?.blockedBy).toEqual([
+      {
+        id: "8",
+        identifier: "sociotechnica-org/symphony-ts#8",
+        title: "Closed blocker",
+        state: "closed",
+      },
+    ]);
+  });
+
+  it("continues blocking mixed open and closed blockers when blocked-relationship enforcement is enabled", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Closed blocker",
+      body: "",
+      labels: [],
+      state: "closed",
+    });
+    server.seedIssue({
+      number: 9,
+      title: "Open blocker",
+      body: "",
+      labels: [],
+    });
+    server.setIssueBlockedBy(7, [8, 9]);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+    const claimed = await tracker.claimIssue(7);
+
+    expect(ready).toEqual([]);
+    expect(claimed).toBeNull();
+  });
+
+  it("fails closed for unexpected blocker states when blocked-relationship enforcement is enabled", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Unexpected blocker state",
+      body: "",
+      labels: [],
+      state: "mystery-state",
+    });
+    server.setIssueBlockedBy(7, [8]);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+    const claimed = await tracker.claimIssue(7);
+
+    expect(ready).toEqual([]);
+    expect(claimed).toBeNull();
+  });
+
+  it("fails closed for null blocker states when blocked-relationship enforcement is enabled", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Null blocker state",
+      body: "",
+      labels: [],
+      state: null,
+    });
+    server.setIssueBlockedBy(7, [8]);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+    const claimed = await tracker.claimIssue(7);
+
+    expect(ready).toEqual([]);
+    expect(claimed).toBeNull();
+  });
+
   it("returns unblocked ready issues when blocked-relationship enforcement is enabled", async () => {
     const tracker = createTracker(
       server,
@@ -279,7 +403,15 @@ describe("GitHubTracker", () => {
     expect(ready[0]?.blockedBy).toEqual([]);
   });
 
-  it("rejects a claim when the issue becomes blocked after the ready read", async () => {
+  it("rejects a claim when a closed blocker reopens after the ready read", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Reopened blocker",
+      body: "",
+      labels: [],
+      state: "closed",
+    });
+    server.setIssueBlockedBy(7, [8]);
     const tracker = createTracker(
       server,
       undefined,
@@ -291,14 +423,16 @@ describe("GitHubTracker", () => {
 
     const ready = await tracker.fetchReadyIssues();
     expect(ready.map((issue) => issue.number)).toEqual([7]);
+    expect(ready[0]?.blockedBy).toEqual([
+      {
+        id: "8",
+        identifier: "sociotechnica-org/symphony-ts#8",
+        title: "Reopened blocker",
+        state: "closed",
+      },
+    ]);
 
-    server.seedIssue({
-      number: 8,
-      title: "Upstream blocker",
-      body: "",
-      labels: [],
-    });
-    server.setIssueBlockedBy(7, [8]);
+    server.setIssueState(8, "open");
 
     const claimed = await tracker.claimIssue(7);
 

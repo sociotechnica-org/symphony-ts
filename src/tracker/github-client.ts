@@ -106,7 +106,7 @@ interface GraphQlResponse<T> {
 interface IssueBlockersGraphQlBlockerResponse {
   readonly number: number;
   readonly title: string;
-  readonly state: string;
+  readonly state: string | null;
 }
 
 interface IssueBlockersGraphQlIssueResponse {

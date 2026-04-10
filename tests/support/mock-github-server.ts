@@ -92,7 +92,7 @@ interface MockIssue {
   number: number;
   title: string;
   body: string;
-  state: string;
+  state: string | null;
   html_url: string;
   created_at: string;
   updated_at: string;
@@ -213,7 +213,7 @@ export class MockGitHubServer {
     title: string;
     body: string;
     labels: readonly string[];
-    state?: string;
+    state?: string | null;
   }): void {
     const now = new Date().toISOString();
     this.#issues.set(input.number, {
@@ -249,7 +249,7 @@ export class MockGitHubServer {
     readonly number: number;
     readonly title: string;
     readonly body: string;
-    readonly state: string;
+    readonly state: string | null;
   }> {
     return [...this.#issues.values()]
       .sort((left, right) => left.number - right.number)
@@ -270,7 +270,7 @@ export class MockGitHubServer {
     issue.updated_at = new Date().toISOString();
   }
 
-  setIssueState(number: number, state: string): void {
+  setIssueState(number: number, state: string | null): void {
     const issue = this.#issues.get(number);
     if (!issue) {
       throw new Error(`Issue ${number} not found`);
