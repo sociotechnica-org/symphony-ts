@@ -362,6 +362,31 @@ describe("GitHubTracker", () => {
     expect(claimed).toBeNull();
   });
 
+  it("fails closed for null blocker states when blocked-relationship enforcement is enabled", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Null blocker state",
+      body: "",
+      labels: [],
+      state: null,
+    });
+    server.setIssueBlockedBy(7, [8]);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+    const claimed = await tracker.claimIssue(7);
+
+    expect(ready).toEqual([]);
+    expect(claimed).toBeNull();
+  });
+
   it("returns unblocked ready issues when blocked-relationship enforcement is enabled", async () => {
     const tracker = createTracker(
       server,
