@@ -337,6 +337,31 @@ describe("GitHubTracker", () => {
     expect(claimed).toBeNull();
   });
 
+  it("fails closed for unexpected blocker states when blocked-relationship enforcement is enabled", async () => {
+    server.seedIssue({
+      number: 8,
+      title: "Unexpected blocker state",
+      body: "",
+      labels: [],
+      state: "mystery-state",
+    });
+    server.setIssueBlockedBy(7, [8]);
+    const tracker = createTracker(
+      server,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+
+    const ready = await tracker.fetchReadyIssues();
+    const claimed = await tracker.claimIssue(7);
+
+    expect(ready).toEqual([]);
+    expect(claimed).toBeNull();
+  });
+
   it("returns unblocked ready issues when blocked-relationship enforcement is enabled", async () => {
     const tracker = createTracker(
       server,

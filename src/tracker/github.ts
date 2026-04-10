@@ -127,17 +127,16 @@ export class GitHubTracker implements Tracker {
     ) {
       return null;
     }
-    const blockingBlockers = this.#dispatchBlockingBlockers(issue.blockedBy);
-    if (
-      this.#config.respectBlockedRelationships &&
-      blockingBlockers.length > 0
-    ) {
-      this.#logger.info("Rejected blocked GitHub issue claim", {
-        issueNumber,
-        repo: this.#config.repo,
-        blockingBlockerCount: blockingBlockers.length,
-      });
-      return null;
+    if (this.#config.respectBlockedRelationships) {
+      const blockingBlockers = this.#dispatchBlockingBlockers(issue.blockedBy);
+      if (blockingBlockers.length > 0) {
+        this.#logger.info("Rejected blocked GitHub issue claim", {
+          issueNumber,
+          repo: this.#config.repo,
+          blockingBlockerCount: blockingBlockers.length,
+        });
+        return null;
+      }
     }
 
     const nextLabels = issue.labels.filter(
