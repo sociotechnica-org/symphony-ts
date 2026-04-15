@@ -119,13 +119,13 @@ Allowed state transitions for the narrow regression:
 
 ## Failure-Class Matrix
 
-| Observed condition | Local facts available | Normalized tracker facts available | Expected decision |
-| --- | --- | --- | --- |
-| Factory restarts with stale lease and draft PR on issue branch | stale or missing local owner facts | PR is open, `draft: true`, other review/check facts may be green | restart recovery suppresses rerun against refreshed lifecycle, but active issue/status surface as non-landing lifecycle rather than `awaiting-landing-command` |
-| Operator wake-up inspects active issue whose PR is draft | active issue status snapshot from factory | control-state refresh sees no `awaiting-landing-command` issue for that PR | no pending `/land` action candidate; operator control posture reflects the actual checkpoint instead of landing work |
-| PR becomes draft after previously being landable | no special local facts required | refreshed handoff snapshot flips from non-draft to draft | tracker lifecycle leaves `awaiting-landing-command` immediately on next refresh |
-| PR is non-draft but mergeability still unknown | no special local facts required | `mergeable: null` | keep `awaiting-system-checks`; do not advertise `/land` |
-| PR is non-draft but blocked by failing review/check policy | no special local facts required | failing checks, actionable feedback, or missing required reviewer state | preserve existing non-landing lifecycle (`rework-required`, `awaiting-human-review`, `degraded-review-infrastructure`, or `awaiting-system-checks`) |
+| Observed condition                                             | Local facts available                     | Normalized tracker facts available                                         | Expected decision                                                                                                                                              |
+| -------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Factory restarts with stale lease and draft PR on issue branch | stale or missing local owner facts        | PR is open, `draft: true`, other review/check facts may be green           | restart recovery suppresses rerun against refreshed lifecycle, but active issue/status surface as non-landing lifecycle rather than `awaiting-landing-command` |
+| Operator wake-up inspects active issue whose PR is draft       | active issue status snapshot from factory | control-state refresh sees no `awaiting-landing-command` issue for that PR | no pending `/land` action candidate; operator control posture reflects the actual checkpoint instead of landing work                                           |
+| PR becomes draft after previously being landable               | no special local facts required           | refreshed handoff snapshot flips from non-draft to draft                   | tracker lifecycle leaves `awaiting-landing-command` immediately on next refresh                                                                                |
+| PR is non-draft but mergeability still unknown                 | no special local facts required           | `mergeable: null`                                                          | keep `awaiting-system-checks`; do not advertise `/land`                                                                                                        |
+| PR is non-draft but blocked by failing review/check policy     | no special local facts required           | failing checks, actionable feedback, or missing required reviewer state    | preserve existing non-landing lifecycle (`rework-required`, `awaiting-human-review`, `degraded-review-infrastructure`, or `awaiting-system-checks`)            |
 
 ## Storage / Persistence Contract
 
