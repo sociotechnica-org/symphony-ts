@@ -473,6 +473,34 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
   });
 
+  it("ignores informational Devin review threads for legacy approved bot review", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: createReviewState([
+        {
+          id: "comment-1",
+          authorLogin: "devin-ai-integration",
+          body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Draft check placement is after reviewer-state checks but still prevents awaiting-landing-command**`,
+          createdAt: "2026-03-06T01:00:00.000Z",
+          url: "https://example.test/thread/1#comment-1",
+        },
+      ]),
+      reviewBotLogins: [],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.reviewerVerdict).toBe("no-blocking-verdict");
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.unresolvedThreadIds).toEqual([]);
+    expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
+  });
+
   it("treats legacy approved review bot findings as accepted actionable feedback", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

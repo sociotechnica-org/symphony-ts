@@ -200,7 +200,15 @@ export function createPullRequestSnapshot(input: {
   );
   const actionableReviewFeedback = [
     ...unresolvedThreads.filter(
-      (feedback) => !botActionableFeedbackIds.has(feedback.id),
+      (feedback) => {
+        if (botActionableFeedbackIds.has(feedback.id)) {
+          return false;
+        }
+        const authorLogin = feedback.authorLogin;
+        return (
+          authorLogin === null || !reviewerAppLogins.has(authorLogin.toLowerCase())
+        );
+      },
     ),
     ...botActionableReviewFeedback,
   ];

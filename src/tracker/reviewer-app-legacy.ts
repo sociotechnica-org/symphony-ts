@@ -8,6 +8,7 @@ const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
   cursorAgentLinks:
     /cursor\.com\/(agents\/|background-agent\?|assets\/images\/open-in-(web|cursor))/i,
   greptileSummaryHeading: /<h3\b[^>]*>\s*Greptile Summary\s*<\/h3>/i,
+  devinInformationalHeading: /^(?:[^A-Za-z0-9]+\s*)?\*\*Info\b/i,
 } as const;
 
 const APPROVED_REVIEW_BOT_STATUS_CONTEXTS: Readonly<
@@ -28,16 +29,60 @@ function summarizeBody(body: string): string {
     : `${normalized.slice(0, 117)}...`;
 }
 
-function isQualifyingApprovedReviewBody(body: string): boolean {
-  const normalized = body.trim();
+function normalizeBotCommentBody(body: string): string {
+  return body.replace(/<!--[\s\S]*?-->/gu, "").trim();
+}
+
+function isNonActionableBotBody(
+  authorLogin: string | null,
+  body: string,
+): boolean {
+  const raw = body.trim();
+  const normalized = normalizeBotCommentBody(body);
+  if (
+    authorLogin?.toLowerCase() === "devin-ai-integration" &&
+    NON_ACTIONABLE_BOT_COMMENT_MARKERS.devinInformationalHeading.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    raw.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) ||
+    (NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)) ||
+    NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(normalized)
+  );
+}
+
+function isQualifyingApprovedReviewBody(
+  authorLogin: string | null,
+  body: string,
+): boolean {
+  const normalized = normalizeBotCommentBody(body);
   return (
     normalized.length > 0 &&
     !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
     !(
       NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
       NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)
+    ) &&
+    !(
+      authorLogin?.toLowerCase() === "devin-ai-integration" &&
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.devinInformationalHeading.test(
+        normalized,
+      )
     )
   );
+}
+
+function isActionableAcceptedBotBody(
+  authorLogin: string | null,
+  body: string,
+): boolean {
+  const normalized = normalizeBotCommentBody(body);
+  return normalized.length > 0 && !isNonActionableBotBody(authorLogin, body);
 }
 
 function observedApprovedReviewBotLoginsFromChecks(
@@ -121,7 +166,8 @@ export function createLegacyReviewerAppSnapshot(input: {
       const authorLogin = feedback.authorLogin;
       return (
         typeof authorLogin === "string" &&
-        acceptedBotLogins.has(authorLogin.toLowerCase())
+        acceptedBotLogins.has(authorLogin.toLowerCase()) &&
+        !isNonActionableBotBody(authorLogin, feedback.body)
       );
     }),
     ...input.currentHeadIssueComments
@@ -130,10 +176,7 @@ export function createLegacyReviewerAppSnapshot(input: {
         return (
           typeof authorLogin === "string" &&
           acceptedBotLogins.has(authorLogin.toLowerCase()) &&
-          isQualifyingApprovedReviewBody(comment.body) &&
-          !NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(
-            comment.body.trim(),
-          )
+          isActionableAcceptedBotBody(authorLogin, comment.body)
         );
       })
       .map<ReviewFeedback>((comment) => ({
@@ -156,7 +199,7 @@ export function createLegacyReviewerAppSnapshot(input: {
           return (
             typeof authorLogin === "string" &&
             approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
-            isQualifyingApprovedReviewBody(comment.body)
+            isQualifyingApprovedReviewBody(authorLogin, comment.body)
           );
         })
         .map((comment) => comment.authorLogin!.toLowerCase()),
@@ -166,7 +209,7 @@ export function createLegacyReviewerAppSnapshot(input: {
           return (
             typeof authorLogin === "string" &&
             approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
-            isQualifyingApprovedReviewBody(review.body)
+            isQualifyingApprovedReviewBody(authorLogin, review.body)
           );
         })
         .map((review) => review.authorLogin!.toLowerCase()),
