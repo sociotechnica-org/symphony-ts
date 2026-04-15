@@ -1533,11 +1533,7 @@ describe("GitHubTracker", () => {
   });
 
   it("ignores informational Devin review threads for legacy approved bot review", async () => {
-    const tracker = createTracker(
-      server,
-      undefined,
-      ["devin-ai-integration"],
-    );
+    const tracker = createTracker(server, undefined, ["devin-ai-integration"]);
 
     await server.recordPullRequest({
       title: "PR for issue 7",

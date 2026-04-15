@@ -199,17 +199,16 @@ export function createPullRequestSnapshot(input: {
     botActionableReviewFeedback.map((feedback) => feedback.id),
   );
   const actionableReviewFeedback = [
-    ...unresolvedThreads.filter(
-      (feedback) => {
-        if (botActionableFeedbackIds.has(feedback.id)) {
-          return false;
-        }
-        const authorLogin = feedback.authorLogin;
-        return (
-          authorLogin === null || !reviewerAppLogins.has(authorLogin.toLowerCase())
-        );
-      },
-    ),
+    ...unresolvedThreads.filter((feedback) => {
+      if (botActionableFeedbackIds.has(feedback.id)) {
+        return false;
+      }
+      const authorLogin = feedback.authorLogin;
+      return (
+        authorLogin === null ||
+        !reviewerAppLogins.has(authorLogin.toLowerCase())
+      );
+    }),
     ...botActionableReviewFeedback,
   ];
 
