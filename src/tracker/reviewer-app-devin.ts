@@ -4,6 +4,7 @@ import type {
   ReviewFeedback,
 } from "../domain/pull-request.js";
 import type { ReviewerAppSnapshot } from "./reviewer-app-types.js";
+import { normalizeGitHubLogin } from "./github-login.js";
 import type {
   CurrentHeadIssueComment,
   CurrentHeadPullRequestReview,
@@ -13,12 +14,21 @@ import type {
 
 const DEVIN_LOGIN = "devin-ai-integration";
 const DEVIN_CHECK_NAME = "Devin Review";
+const DEVIN_INFORMATIONAL_HEADING = /^(?:[^A-Za-z0-9]+\s*)?\*\*Info\b/i;
 
 function summarizeBody(body: string): string {
   const normalized = body.trim().replace(/\s+/gu, " ");
   return normalized.length <= 120
     ? normalized
     : `${normalized.slice(0, 117)}...`;
+}
+
+function normalizeDevinBody(body: string): string {
+  return body.replace(/<!--[\s\S]*?-->/gu, "").trim();
+}
+
+function isInformationalDevinBody(body: string): boolean {
+  return DEVIN_INFORMATIONAL_HEADING.test(normalizeDevinBody(body));
 }
 
 function parseDevinVerdict(body: string): "pass" | "issues-found" | "unknown" {
@@ -67,7 +77,10 @@ function createPullRequestReviewFeedback(
 }
 
 function isDevinAuthoredFeedback(feedback: ReviewFeedback): boolean {
-  return feedback.authorLogin?.toLowerCase() === DEVIN_LOGIN;
+  return (
+    feedback.authorLogin !== null &&
+    normalizeGitHubLogin(feedback.authorLogin) === DEVIN_LOGIN
+  );
 }
 
 function latestRecognizedArtifact(
@@ -133,13 +146,19 @@ export const devinReviewerAppAdapter: GitHubReviewerAppAdapter = {
     input: ReviewerAppAdapterInput,
   ): ReviewerAppSnapshot {
     const unresolvedThreads = input.unresolvedReviewThreads.filter(
-      isDevinAuthoredFeedback,
+      (feedback) =>
+        isDevinAuthoredFeedback(feedback) &&
+        !isInformationalDevinBody(feedback.body),
     );
     const comments = input.currentHeadIssueComments.filter(
-      (comment) => comment.authorLogin?.toLowerCase() === DEVIN_LOGIN,
+      (comment) =>
+        comment.authorLogin !== null &&
+        normalizeGitHubLogin(comment.authorLogin) === DEVIN_LOGIN,
     );
     const reviews = input.currentHeadPullRequestReviews.filter(
-      (review) => review.authorLogin?.toLowerCase() === DEVIN_LOGIN,
+      (review) =>
+        review.authorLogin !== null &&
+        normalizeGitHubLogin(review.authorLogin) === DEVIN_LOGIN,
     );
     const latestArtifact = latestRecognizedArtifact(comments, reviews);
     const hasRunningCheck = hasMatchingCheck(input.checks, "pending");

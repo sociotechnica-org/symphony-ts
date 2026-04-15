@@ -15,6 +15,7 @@ import type {
   GitHubPullRequestResponse,
   PullRequestReviewState,
 } from "./github-client.js";
+import { normalizeGitHubLogin } from "./github-login.js";
 import { parseLandingCommandSignal } from "./landing-command-signal.js";
 import {
   createReviewerAppSnapshots,
@@ -30,6 +31,7 @@ export interface PullRequestSnapshot {
   readonly branchName: string;
   readonly pullRequest: PullRequestHandle;
   readonly landingState: "open" | "merged";
+  readonly draft: boolean;
   readonly mergeable: boolean | null;
   readonly mergeStateStatus: string | null;
   readonly hasLandingCommand: boolean;
@@ -77,7 +79,7 @@ function isQualifyingLandingCommandAuthor(
     return false;
   }
   const normalized = authorLogin.toLowerCase();
-  if (reviewerAppLogins.has(normalized)) {
+  if (reviewerAppLogins.has(normalizeGitHubLogin(authorLogin))) {
     return false;
   }
 
@@ -198,9 +200,16 @@ export function createPullRequestSnapshot(input: {
     botActionableReviewFeedback.map((feedback) => feedback.id),
   );
   const actionableReviewFeedback = [
-    ...unresolvedThreads.filter(
-      (feedback) => !botActionableFeedbackIds.has(feedback.id),
-    ),
+    ...unresolvedThreads.filter((feedback) => {
+      if (botActionableFeedbackIds.has(feedback.id)) {
+        return false;
+      }
+      const authorLogin = feedback.authorLogin;
+      return (
+        authorLogin === null ||
+        !reviewerAppLogins.has(normalizeGitHubLogin(authorLogin))
+      );
+    }),
     ...botActionableReviewFeedback,
   ];
 
@@ -230,6 +239,9 @@ export function createPullRequestSnapshot(input: {
       latestCommitAt,
     },
     landingState: input.pullRequest.landingState,
+    draft: hasMergeabilityFields(input.pullRequest)
+      ? input.pullRequest.draft
+      : false,
     mergeable: hasMergeabilityFields(input.pullRequest)
       ? input.pullRequest.mergeable
       : null,

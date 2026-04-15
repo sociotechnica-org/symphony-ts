@@ -102,6 +102,42 @@ const devinReviewerApps: readonly GitHubReviewerAppConfig[] = [
 ];
 
 describe("createPullRequestSnapshot", () => {
+  it("preserves draft status from GitHub pull request details", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest: {
+        ...pullRequest,
+        mergeable: true,
+        mergeable_state: "clean",
+        draft: true,
+      },
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: [],
+    });
+
+    expect(snapshot.draft).toBe(true);
+  });
+
   it("keeps a bot-owned thread actionable when a human replies", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
@@ -313,6 +349,94 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual(["devin"]);
   });
 
+  it("ignores informational devin review threads after migrating to reviewer_apps", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [
+            {
+              id: "review-1",
+              author: { login: "devin-ai-integration[bot]" },
+              body: "## ✅ Devin Review: No Issues Found",
+              submittedAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#review-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [
+            {
+              id: "thread-1",
+              isResolved: false,
+              isOutdated: false,
+              originComments: {
+                nodes: [
+                  {
+                    id: "comment-1",
+                    body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Default draft: false when mergeability details are unavailable**`,
+                    createdAt: "2026-03-06T01:02:00.000Z",
+                    url: "https://example.test/thread/1#comment-1",
+                    path: "src/index.ts",
+                    line: 10,
+                    author: { login: "devin-ai-integration[bot]" },
+                  },
+                ],
+              },
+              latestComments: {
+                nodes: [
+                  {
+                    id: "comment-1",
+                    body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Default draft: false when mergeability details are unavailable**`,
+                    createdAt: "2026-03-06T01:02:00.000Z",
+                    url: "https://example.test/thread/1#comment-1",
+                    path: "src/index.ts",
+                    line: 10,
+                    author: { login: "devin-ai-integration[bot]" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
+    });
+
+    const devinSnapshot = snapshot.reviewerApps.find(
+      (reviewer) => reviewer.reviewerKey === "devin",
+    );
+
+    expect(devinSnapshot).toMatchObject({
+      reviewerKey: "devin",
+      verdict: "pass",
+    });
+    expect(devinSnapshot?.actionableFeedback).toHaveLength(0);
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.unresolvedThreadIds).toEqual([]);
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+  });
+
   it("does not surface a passing devin review as actionable feedback when unresolved threads already require rework", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
@@ -434,6 +558,62 @@ describe("createPullRequestSnapshot", () => {
     });
 
     expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
+  });
+
+  it("ignores informational Devin review threads for legacy approved bot review", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: createReviewState([
+        {
+          id: "comment-1",
+          authorLogin: "devin-ai-integration",
+          body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Draft check placement is after reviewer-state checks but still prevents awaiting-landing-command**`,
+          createdAt: "2026-03-06T01:00:00.000Z",
+          url: "https://example.test/thread/1#comment-1",
+        },
+      ]),
+      reviewBotLogins: [],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.reviewerVerdict).toBe("no-blocking-verdict");
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.unresolvedThreadIds).toEqual([]);
+    expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
+  });
+
+  it("ignores informational Devin bot review threads when GitHub appends [bot] to the login", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: createReviewState([
+        {
+          id: "comment-1",
+          authorLogin: "devin-ai-integration[bot]",
+          body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Draft check placement is after reviewer-state checks but still prevents awaiting-landing-command**`,
+          createdAt: "2026-03-06T01:00:00.000Z",
+          url: "https://example.test/thread/1#comment-1",
+        },
+      ]),
+      reviewBotLogins: [],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.reviewerVerdict).toBe("no-blocking-verdict");
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.unresolvedThreadIds).toEqual([]);
     expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
   });
 
@@ -866,6 +1046,44 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.landingCommand).toBeNull();
   });
 
+  it("ignores /land comments from reviewer bots when GitHub appends [bot] to the configured login", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "devin-ai-integration[bot]" },
+              body: "/land",
+              createdAt: "2026-03-06T02:01:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.hasLandingCommand).toBe(false);
+    expect(snapshot.landingCommand).toBeNull();
+  });
+
   it("ignores /land comments from non-member humans", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
@@ -973,6 +1191,45 @@ describe("createPullRequestSnapshot", () => {
 
     expect(snapshot.actionableReviewFeedback).toHaveLength(0);
     expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+  });
+
+  it("does not treat a Cursor PR summary comment as approved review coverage", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "cursor" },
+              body: "## PR Summary\n\n<!-- CURSOR_SUMMARY -->\nAutomated summary only.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["cursor"],
+      approvedReviewBotLogins: ["cursor"],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("missing");
+    expect(snapshot.observedReviewerKeys).toEqual([]);
   });
 
   it("ignores Cursor taking-a-look acknowledgement comments", () => {

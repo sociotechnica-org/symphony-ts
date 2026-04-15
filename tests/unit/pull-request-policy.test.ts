@@ -15,6 +15,7 @@ function createSnapshot(
       latestCommitAt: "2026-03-06T00:00:00.000Z",
     },
     landingState: "open",
+    draft: false,
     mergeable: true,
     mergeStateStatus: "clean",
     hasLandingCommand: false,
@@ -237,6 +238,26 @@ describe("pull-request-policy", () => {
     expect(lifecycle.summary).toMatch(
       /not consider the pull request mergeable/i,
     );
+  });
+
+  it("requires rework instead of /land when the pull request is still a draft", () => {
+    const lifecycle = evaluatePullRequestLifecycle(
+      createSnapshot({
+        draft: true,
+        checks: [
+          {
+            name: "CI",
+            status: "success",
+            conclusion: "success",
+            detailsUrl: null,
+          },
+        ],
+      }),
+      undefined,
+    ).lifecycle;
+
+    expect(lifecycle.kind).toBe("rework-required");
+    expect(lifecycle.summary).toMatch(/still a draft/i);
   });
 
   it("requires rework for failing checks or bot feedback", () => {

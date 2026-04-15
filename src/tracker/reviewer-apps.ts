@@ -11,6 +11,7 @@ import type {
   GitHubReviewerAppConfig,
 } from "../domain/workflow.js";
 import { devinReviewerAppAdapter } from "./reviewer-app-devin.js";
+import { normalizeGitHubLogin } from "./github-login.js";
 import { createLegacyReviewerAppSnapshot } from "./reviewer-app-legacy.js";
 import type { ReviewerAppSnapshot } from "./reviewer-app-types.js";
 
@@ -59,15 +60,15 @@ export function getConfiguredReviewerAppLogins(
 ): ReadonlySet<string> {
   const logins = new Set<string>();
   for (const login of config.reviewBotLogins) {
-    logins.add(login.toLowerCase());
+    logins.add(normalizeGitHubLogin(login));
   }
   for (const login of config.approvedReviewBotLogins ?? []) {
-    logins.add(login.toLowerCase());
+    logins.add(normalizeGitHubLogin(login));
   }
   for (const reviewerApp of config.reviewerApps ?? []) {
     const adapter = REVIEWER_APP_ADAPTERS.get(reviewerApp.key);
     for (const login of adapter?.handledLogins ?? []) {
-      logins.add(login.toLowerCase());
+      logins.add(normalizeGitHubLogin(login));
     }
   }
   return logins;
@@ -137,7 +138,7 @@ export function createReviewerAppSnapshots(input: {
       continue;
     }
     for (const login of adapter.handledLogins) {
-      handledLogins.add(login.toLowerCase());
+      handledLogins.add(normalizeGitHubLogin(login));
     }
     snapshots.push(
       adapter.evaluate(reviewerApp, {
@@ -151,11 +152,11 @@ export function createReviewerAppSnapshots(input: {
 
   const legacySnapshot = createLegacyReviewerAppSnapshot({
     reviewBotLogins: input.config.reviewBotLogins.filter(
-      (login) => !handledLogins.has(login.toLowerCase()),
+      (login) => !handledLogins.has(normalizeGitHubLogin(login)),
     ),
     approvedReviewBotLogins: (
       input.config.approvedReviewBotLogins ?? []
-    ).filter((login) => !handledLogins.has(login.toLowerCase())),
+    ).filter((login) => !handledLogins.has(normalizeGitHubLogin(login))),
     checks: input.checks,
     currentHeadIssueComments: input.currentHeadIssueComments,
     currentHeadPullRequestReviews: input.currentHeadPullRequestReviews,

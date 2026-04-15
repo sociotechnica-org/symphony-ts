@@ -298,6 +298,27 @@ export function evaluatePullRequestLifecycle(
     };
   }
 
+  if (snapshot.draft) {
+    return {
+      lifecycle: {
+        kind: "rework-required",
+        branchName: snapshot.branchName,
+        pullRequest: snapshot.pullRequest,
+        landingCommand: snapshot.landingCommand,
+        checks: snapshot.checks,
+        pendingCheckNames: snapshot.pendingCheckNames,
+        failingCheckNames: snapshot.failingCheckNames,
+        actionableReviewFeedback: [],
+        unresolvedThreadIds: [],
+        reviewerVerdict: snapshot.reviewerVerdict,
+        blockingReviewerKeys: snapshot.blockingReviewerKeys,
+        requiredReviewerState: snapshot.requiredReviewerState,
+        summary: `Pull request ${snapshot.pullRequest.url} is still a draft and cannot await /land.`,
+      },
+      nextNoCheckObservation: previousNoCheckObservation ?? null,
+    };
+  }
+
   if (snapshot.mergeable === null) {
     return {
       lifecycle: {

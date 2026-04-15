@@ -1,6 +1,7 @@
 import type { ReviewFeedback } from "../domain/pull-request.js";
 import type { ReviewerAppSnapshot } from "./reviewer-app-types.js";
 import type { PullRequestCheck } from "../domain/pull-request.js";
+import { createGitHubLoginSet, normalizeGitHubLogin } from "./github-login.js";
 
 const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
   cursorSummary: "<!-- CURSOR_SUMMARY -->",
@@ -8,6 +9,7 @@ const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
   cursorAgentLinks:
     /cursor\.com\/(agents\/|background-agent\?|assets\/images\/open-in-(web|cursor))/i,
   greptileSummaryHeading: /<h3\b[^>]*>\s*Greptile Summary\s*<\/h3>/i,
+  devinInformationalHeading: /^(?:[^A-Za-z0-9]+\s*)?\*\*Info\b/i,
 } as const;
 
 const APPROVED_REVIEW_BOT_STATUS_CONTEXTS: Readonly<
@@ -15,10 +17,9 @@ const APPROVED_REVIEW_BOT_STATUS_CONTEXTS: Readonly<
 > = {
   "devin-ai-integration": ["Devin Review"],
   "greptile-apps": ["Greptile Review"],
-  "greptile[bot]": ["Greptile Review"],
+  greptile: ["Greptile Review"],
   cursor: ["Cursor Bugbot"],
-  "cursor[bot]": ["Cursor Bugbot"],
-  "bugbot[bot]": ["Cursor Bugbot"],
+  bugbot: ["Cursor Bugbot"],
 } as const;
 
 function summarizeBody(body: string): string {
@@ -28,16 +29,63 @@ function summarizeBody(body: string): string {
     : `${normalized.slice(0, 117)}...`;
 }
 
-function isQualifyingApprovedReviewBody(body: string): boolean {
-  const normalized = body.trim();
+function normalizeBotCommentBody(body: string): string {
+  return body.replace(/<!--[\s\S]*?-->/gu, "").trim();
+}
+
+function isNonActionableBotBody(
+  authorLogin: string | null,
+  body: string,
+): boolean {
+  const raw = body.trim();
+  const normalized = normalizeBotCommentBody(body);
+  if (
+    authorLogin !== null &&
+    normalizeGitHubLogin(authorLogin) === "devin-ai-integration" &&
+    NON_ACTIONABLE_BOT_COMMENT_MARKERS.devinInformationalHeading.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    raw.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) ||
+    (NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)) ||
+    NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(normalized)
+  );
+}
+
+function isQualifyingApprovedReviewBody(
+  authorLogin: string | null,
+  body: string,
+): boolean {
+  const raw = body.trim();
+  const normalized = normalizeBotCommentBody(body);
   return (
     normalized.length > 0 &&
-    !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
+    !raw.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
     !(
       NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
       NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)
+    ) &&
+    !(
+      authorLogin !== null &&
+      normalizeGitHubLogin(authorLogin) === "devin-ai-integration" &&
+      NON_ACTIONABLE_BOT_COMMENT_MARKERS.devinInformationalHeading.test(
+        normalized,
+      )
     )
   );
+}
+
+function isActionableAcceptedBotBody(
+  authorLogin: string | null,
+  body: string,
+): boolean {
+  const normalized = normalizeBotCommentBody(body);
+  return normalized.length > 0 && !isNonActionableBotBody(authorLogin, body);
 }
 
 function observedApprovedReviewBotLoginsFromChecks(
@@ -105,11 +153,9 @@ export function createLegacyReviewerAppSnapshot(input: {
     return null;
   }
 
-  const reviewBotLogins = new Set(
-    input.reviewBotLogins.map((login) => login.toLowerCase()),
-  );
-  const approvedReviewBotLogins = new Set(
-    input.approvedReviewBotLogins.map((login) => login.toLowerCase()),
+  const reviewBotLogins = createGitHubLoginSet(input.reviewBotLogins);
+  const approvedReviewBotLogins = createGitHubLoginSet(
+    input.approvedReviewBotLogins,
   );
   const acceptedBotLogins = new Set([
     ...reviewBotLogins,
@@ -121,7 +167,8 @@ export function createLegacyReviewerAppSnapshot(input: {
       const authorLogin = feedback.authorLogin;
       return (
         typeof authorLogin === "string" &&
-        acceptedBotLogins.has(authorLogin.toLowerCase())
+        acceptedBotLogins.has(normalizeGitHubLogin(authorLogin)) &&
+        !isNonActionableBotBody(authorLogin, feedback.body)
       );
     }),
     ...input.currentHeadIssueComments
@@ -129,11 +176,8 @@ export function createLegacyReviewerAppSnapshot(input: {
         const authorLogin = comment.authorLogin;
         return (
           typeof authorLogin === "string" &&
-          acceptedBotLogins.has(authorLogin.toLowerCase()) &&
-          isQualifyingApprovedReviewBody(comment.body) &&
-          !NON_ACTIONABLE_BOT_COMMENT_MARKERS.greptileSummaryHeading.test(
-            comment.body.trim(),
-          )
+          acceptedBotLogins.has(normalizeGitHubLogin(authorLogin)) &&
+          isActionableAcceptedBotBody(authorLogin, comment.body)
         );
       })
       .map<ReviewFeedback>((comment) => ({
@@ -155,21 +199,21 @@ export function createLegacyReviewerAppSnapshot(input: {
           const authorLogin = comment.authorLogin;
           return (
             typeof authorLogin === "string" &&
-            approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
-            isQualifyingApprovedReviewBody(comment.body)
+            approvedReviewBotLogins.has(normalizeGitHubLogin(authorLogin)) &&
+            isQualifyingApprovedReviewBody(authorLogin, comment.body)
           );
         })
-        .map((comment) => comment.authorLogin!.toLowerCase()),
+        .map((comment) => normalizeGitHubLogin(comment.authorLogin!)),
       ...input.currentHeadPullRequestReviews
         .filter((review) => {
           const authorLogin = review.authorLogin;
           return (
             typeof authorLogin === "string" &&
-            approvedReviewBotLogins.has(authorLogin.toLowerCase()) &&
-            isQualifyingApprovedReviewBody(review.body)
+            approvedReviewBotLogins.has(normalizeGitHubLogin(authorLogin)) &&
+            isQualifyingApprovedReviewBody(authorLogin, review.body)
           );
         })
-        .map((review) => review.authorLogin!.toLowerCase()),
+        .map((review) => normalizeGitHubLogin(review.authorLogin!)),
       ...observedApprovedReviewBotLoginsFromChecks(
         input.checks,
         approvedReviewBotLogins,
@@ -232,8 +276,8 @@ export function createLegacyReviewerAppSnapshot(input: {
           const authorLogin = comment.authorLogin;
           return (
             typeof authorLogin === "string" &&
-            (reviewBotLogins.has(authorLogin.toLowerCase()) ||
-              approvedReviewBotLogins.has(authorLogin.toLowerCase()))
+            (reviewBotLogins.has(normalizeGitHubLogin(authorLogin)) ||
+              approvedReviewBotLogins.has(normalizeGitHubLogin(authorLogin)))
           );
         })
         .map((comment) => ({
@@ -248,7 +292,7 @@ export function createLegacyReviewerAppSnapshot(input: {
           const authorLogin = review.authorLogin;
           return (
             typeof authorLogin === "string" &&
-            approvedReviewBotLogins.has(authorLogin.toLowerCase())
+            approvedReviewBotLogins.has(normalizeGitHubLogin(authorLogin))
           );
         })
         .map((review) => ({
