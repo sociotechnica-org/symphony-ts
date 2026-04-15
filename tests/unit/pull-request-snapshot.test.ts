@@ -1039,6 +1039,45 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
   });
 
+  it("does not treat a Cursor PR summary comment as approved review coverage", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "cursor" },
+              body: "## PR Summary\n\n<!-- CURSOR_SUMMARY -->\nAutomated summary only.",
+              createdAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["cursor"],
+      approvedReviewBotLogins: ["cursor"],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("missing");
+    expect(snapshot.observedReviewerKeys).toEqual([]);
+  });
+
   it("ignores Cursor taking-a-look acknowledgement comments", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

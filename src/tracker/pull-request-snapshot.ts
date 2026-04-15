@@ -109,6 +109,11 @@ export function createPullRequestSnapshot(input: {
     approvedReviewBotLogins: input.approvedReviewBotLogins ?? [],
     reviewerApps: input.reviewerApps ?? [],
   });
+  const legacyReviewBotLogins = new Set(
+    [...input.reviewBotLogins, ...(input.approvedReviewBotLogins ?? [])].map(
+      (login) => login.toLowerCase(),
+    ),
+  );
 
   const unresolvedThreads = input.reviewState.reviewThreads.nodes
     .filter((thread) => !thread.isResolved && !thread.isOutdated)
@@ -206,7 +211,7 @@ export function createPullRequestSnapshot(input: {
       const authorLogin = feedback.authorLogin;
       return (
         authorLogin === null ||
-        !reviewerAppLogins.has(authorLogin.toLowerCase())
+        !legacyReviewBotLogins.has(authorLogin.toLowerCase())
       );
     }),
     ...botActionableReviewFeedback,

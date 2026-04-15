@@ -60,10 +60,11 @@ function isQualifyingApprovedReviewBody(
   authorLogin: string | null,
   body: string,
 ): boolean {
+  const raw = body.trim();
   const normalized = normalizeBotCommentBody(body);
   return (
     normalized.length > 0 &&
-    !normalized.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
+    !raw.includes(NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorSummary) &&
     !(
       NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorTakingALook.test(normalized) &&
       NON_ACTIONABLE_BOT_COMMENT_MARKERS.cursorAgentLinks.test(normalized)
