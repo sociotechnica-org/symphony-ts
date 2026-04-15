@@ -8,6 +8,7 @@ import {
   type GuardedLandingSnapshot,
 } from "./guarded-landing.js";
 import { GitHubClient } from "./github-client.js";
+import { normalizeGitHubLogin } from "./github-login.js";
 import { evaluatePlanReviewProtocol } from "./plan-review-policy.js";
 import {
   evaluatePullRequestLifecycle,
@@ -57,7 +58,7 @@ export class GitHubTracker implements Tracker {
     if (authorLogin === null) {
       return false;
     }
-    return !this.#reviewerAppLogins.has(authorLogin.toLowerCase());
+    return !this.#reviewerAppLogins.has(normalizeGitHubLogin(authorLogin));
   }
 
   async ensureLabels(): Promise<void> {
@@ -362,7 +363,7 @@ export class GitHubTracker implements Tracker {
     if (authorLogin === null) {
       return false;
     }
-    return this.#reviewerAppLogins.has(authorLogin.toLowerCase());
+    return this.#reviewerAppLogins.has(normalizeGitHubLogin(authorLogin));
   }
 
   async #isStaleMergedPullRequest(

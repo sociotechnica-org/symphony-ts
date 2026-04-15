@@ -15,6 +15,10 @@ import type {
   GitHubPullRequestResponse,
   PullRequestReviewState,
 } from "./github-client.js";
+import {
+  createGitHubLoginSet,
+  normalizeGitHubLogin,
+} from "./github-login.js";
 import { parseLandingCommandSignal } from "./landing-command-signal.js";
 import {
   createReviewerAppSnapshots,
@@ -78,7 +82,7 @@ function isQualifyingLandingCommandAuthor(
     return false;
   }
   const normalized = authorLogin.toLowerCase();
-  if (reviewerAppLogins.has(normalized)) {
+  if (reviewerAppLogins.has(normalizeGitHubLogin(authorLogin))) {
     return false;
   }
 
@@ -109,11 +113,10 @@ export function createPullRequestSnapshot(input: {
     approvedReviewBotLogins: input.approvedReviewBotLogins ?? [],
     reviewerApps: input.reviewerApps ?? [],
   });
-  const legacyReviewBotLogins = new Set(
-    [...input.reviewBotLogins, ...(input.approvedReviewBotLogins ?? [])].map(
-      (login) => login.toLowerCase(),
-    ),
-  );
+  const legacyReviewBotLogins = createGitHubLoginSet([
+    ...input.reviewBotLogins,
+    ...(input.approvedReviewBotLogins ?? []),
+  ]);
 
   const unresolvedThreads = input.reviewState.reviewThreads.nodes
     .filter((thread) => !thread.isResolved && !thread.isOutdated)
@@ -211,7 +214,7 @@ export function createPullRequestSnapshot(input: {
       const authorLogin = feedback.authorLogin;
       return (
         authorLogin === null ||
-        !legacyReviewBotLogins.has(authorLogin.toLowerCase())
+        !legacyReviewBotLogins.has(normalizeGitHubLogin(authorLogin))
       );
     }),
     ...botActionableReviewFeedback,

@@ -501,6 +501,34 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
   });
 
+  it("ignores informational Devin bot review threads when GitHub appends [bot] to the login", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: createReviewState([
+        {
+          id: "comment-1",
+          authorLogin: "devin-ai-integration[bot]",
+          body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Draft check placement is after reviewer-state checks but still prevents awaiting-landing-command**`,
+          createdAt: "2026-03-06T01:00:00.000Z",
+          url: "https://example.test/thread/1#comment-1",
+        },
+      ]),
+      reviewBotLogins: [],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+    expect(snapshot.reviewerVerdict).toBe("no-blocking-verdict");
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.unresolvedThreadIds).toEqual([]);
+    expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
+  });
+
   it("treats legacy approved review bot findings as accepted actionable feedback", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
@@ -924,6 +952,44 @@ describe("createPullRequestSnapshot", () => {
         },
       },
       reviewBotLogins: ["greptile-apps", "cursor"],
+    });
+
+    expect(snapshot.hasLandingCommand).toBe(false);
+    expect(snapshot.landingCommand).toBeNull();
+  });
+
+  it("ignores /land comments from reviewer bots when GitHub appends [bot] to the configured login", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T02:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [
+            {
+              id: "comment-1",
+              authorAssociation: "NONE",
+              author: { login: "devin-ai-integration[bot]" },
+              body: "/land",
+              createdAt: "2026-03-06T02:01:00.000Z",
+              url: "https://example.test/pr/24#comment-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["devin-ai-integration"],
     });
 
     expect(snapshot.hasLandingCommand).toBe(false);
