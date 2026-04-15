@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  collectOperatorControlActionCandidates,
   evaluateOperatorControlState,
   runtimeCheckpointFromFreshness,
   type OperatorControlActionCandidate,
@@ -9,6 +10,7 @@ import {
   type OperatorControlReportReviewCheckpoint,
   type OperatorControlRuntimeCheckpoint,
 } from "../../src/observability/operator-control-state.js";
+import type { FactoryActiveIssueSnapshot } from "../../src/observability/factory-status-snapshot.js";
 
 const paths: OperatorControlPaths = {
   operatorRepoRoot: "/operator",
@@ -96,7 +98,87 @@ function actionCandidate(
   };
 }
 
+function activeIssue(
+  overrides: Partial<FactoryActiveIssueSnapshot> = {},
+): FactoryActiveIssueSnapshot {
+  return {
+    issueNumber: 300,
+    issueIdentifier: "sociotechnica-org/symphony-ts#300",
+    title: "Issue 300",
+    source: "running",
+    runSequence: 1,
+    status: "running",
+    summary: "Issue 300 is running.",
+    workspacePath: "/tmp/workspaces/300",
+    branchName: "symphony/300",
+    runSessionId: "session-300",
+    executionOwner: null,
+    ownerPid: null,
+    runnerPid: null,
+    startedAt: "2026-04-08T00:00:00Z",
+    updatedAt: "2026-04-08T00:00:00Z",
+    pullRequest: null,
+    checks: {
+      pendingNames: [],
+      failingNames: [],
+    },
+    review: {
+      actionableCount: 0,
+      unresolvedThreadCount: 0,
+    },
+    blockedReason: null,
+    runnerVisibility: null,
+    ...overrides,
+  };
+}
+
 describe("evaluateOperatorControlState", () => {
+  it("does not generate landing actions for non-landable active issues", () => {
+    const candidates = collectOperatorControlActionCandidates([
+      activeIssue({
+        status: "awaiting-human-handoff",
+        summary: "Plan review is ready.",
+      }),
+      activeIssue({
+        issueNumber: 301,
+        issueIdentifier: "sociotechnica-org/symphony-ts#301",
+        title: "Issue 301",
+        branchName: "symphony/301",
+        status: "awaiting-landing-command",
+        summary: "Awaiting /land.",
+        pullRequest: {
+          number: 301,
+          url: "https://example.test/pulls/301",
+          headSha: "head-sha-301",
+          latestCommitAt: "2026-04-08T00:00:00Z",
+        },
+      }),
+      activeIssue({
+        issueNumber: 302,
+        issueIdentifier: "sociotechnica-org/symphony-ts#302",
+        title: "Issue 302",
+        branchName: "symphony/302",
+        status: "rework-required",
+        summary: "Pull request is still a draft.",
+        pullRequest: {
+          number: 302,
+          url: "https://example.test/pulls/302",
+          headSha: "head-sha-302",
+          latestCommitAt: "2026-04-08T00:00:00Z",
+        },
+      }),
+    ]);
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((candidate) => candidate.issueNumber)).toEqual([
+      300, 301,
+    ]);
+    expect(candidates.map((candidate) => candidate.kind)).toEqual([
+      "review-plan",
+      "post-land-command",
+    ]);
+  });
+
   it("keeps stale busy runtime drift actionable until the next safe restart checkpoint", () => {
     const checkpoint = runtimeCheckpointFromFreshness({
       kind: "stale-runtime-busy",

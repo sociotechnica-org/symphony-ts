@@ -2634,6 +2634,85 @@ describe("Phase 1.2 PR lifecycle factory", () => {
       status: "awaiting-human-review",
     });
   });
+
+  it("suppresses duplicate reruns on startup when inherited running work has a draft PR", async () => {
+    server.seedIssue({
+      number: 50,
+      title: "Preserve draft PR blockers across restart",
+      body: "Do not surface draft pull requests as pending /land work.",
+      labels: ["symphony:running"],
+    });
+    await server.recordPullRequest({
+      title: "PR for issue 50",
+      body: "",
+      head: "symphony/50",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/50", [
+      { name: "CI", status: "completed", conclusion: "success" },
+    ]);
+    server.setPullRequestMergeGate("symphony/50", {
+      draft: true,
+    });
+
+    const workflowPath = await writeWorkflow({
+      rootDir: tempDir,
+      remotePath,
+      apiUrl: server.baseUrl,
+      agentCommand: path.resolve("tests/fixtures/fake-agent-success-unique.sh"),
+    });
+    const workspaceRoot = path.join(tempDir, ".tmp", "workspaces");
+    const lockDir = path.join(workspaceRoot, ".symphony-locks", "50");
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(path.join(lockDir, "pid"), "999999\n", "utf8");
+    await fs.writeFile(
+      path.join(lockDir, "run.json"),
+      JSON.stringify(
+        {
+          issueNumber: 50,
+          issueIdentifier: "sociotechnica-org/symphony-ts#50",
+          branchName: "symphony/50",
+          runSessionId: "sociotechnica-org/symphony-ts#50/attempt-1/orphaned",
+          attempt: 1,
+          ownerPid: 999999,
+          runnerPid: null,
+          runRecordedAt: new Date().toISOString(),
+          runnerStartedAt: null,
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const orchestrator = await createOrchestrator(workflowPath);
+    await orchestrator.runOnce();
+
+    expect(await fs.stat(lockDir).catch(() => null)).toBeNull();
+    expect(server.getPullRequests()).toHaveLength(1);
+
+    const status = await readFactoryStatusSnapshot(
+      path.join(tempDir, ".tmp", "status.json"),
+    );
+    expect(status.restartRecovery?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issueNumber: 50,
+          decision: "suppressed-terminal",
+          lifecycleKind: "rework-required",
+        }),
+      ]),
+    );
+    const activeIssue = status.activeIssues.find(
+      (entry) => entry.issueNumber === 50,
+    );
+    expect(activeIssue).toMatchObject({
+      issueNumber: 50,
+    });
+    expect(activeIssue?.status).not.toBe("awaiting-landing-command");
+    expect(activeIssue?.summary).not.toMatch(/awaiting an explicit \/land/i);
+  });
 });
 
 describe("TUI dashboard integration", () => {

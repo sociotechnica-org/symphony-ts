@@ -102,6 +102,42 @@ const devinReviewerApps: readonly GitHubReviewerAppConfig[] = [
 ];
 
 describe("createPullRequestSnapshot", () => {
+  it("preserves draft status from GitHub pull request details", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest: {
+        ...pullRequest,
+        mergeable: true,
+        mergeable_state: "clean",
+        draft: true,
+      },
+      checks: [],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: [],
+    });
+
+    expect(snapshot.draft).toBe(true);
+  });
+
   it("keeps a bot-owned thread actionable when a human replies", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

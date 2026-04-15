@@ -30,6 +30,7 @@ export interface PullRequestSnapshot {
   readonly branchName: string;
   readonly pullRequest: PullRequestHandle;
   readonly landingState: "open" | "merged";
+  readonly draft: boolean;
   readonly mergeable: boolean | null;
   readonly mergeStateStatus: string | null;
   readonly hasLandingCommand: boolean;
@@ -230,6 +231,9 @@ export function createPullRequestSnapshot(input: {
       latestCommitAt,
     },
     landingState: input.pullRequest.landingState,
+    draft: hasMergeabilityFields(input.pullRequest)
+      ? input.pullRequest.draft
+      : false,
     mergeable: hasMergeabilityFields(input.pullRequest)
       ? input.pullRequest.mergeable
       : null,
