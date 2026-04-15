@@ -349,6 +349,94 @@ describe("createPullRequestSnapshot", () => {
     expect(snapshot.observedReviewerKeys).toEqual(["devin"]);
   });
 
+  it("ignores informational devin review threads after migrating to reviewer_apps", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [
+            {
+              id: "review-1",
+              author: { login: "devin-ai-integration[bot]" },
+              body: "## ✅ Devin Review: No Issues Found",
+              submittedAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#review-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [
+            {
+              id: "thread-1",
+              isResolved: false,
+              isOutdated: false,
+              originComments: {
+                nodes: [
+                  {
+                    id: "comment-1",
+                    body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Default draft: false when mergeability details are unavailable**`,
+                    createdAt: "2026-03-06T01:02:00.000Z",
+                    url: "https://example.test/thread/1#comment-1",
+                    path: "src/index.ts",
+                    line: 10,
+                    author: { login: "devin-ai-integration[bot]" },
+                  },
+                ],
+              },
+              latestComments: {
+                nodes: [
+                  {
+                    id: "comment-1",
+                    body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Default draft: false when mergeability details are unavailable**`,
+                    createdAt: "2026-03-06T01:02:00.000Z",
+                    url: "https://example.test/thread/1#comment-1",
+                    path: "src/index.ts",
+                    line: 10,
+                    author: { login: "devin-ai-integration[bot]" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
+    });
+
+    const devinSnapshot = snapshot.reviewerApps.find(
+      (reviewer) => reviewer.reviewerKey === "devin",
+    );
+
+    expect(devinSnapshot).toMatchObject({
+      reviewerKey: "devin",
+      verdict: "pass",
+    });
+    expect(devinSnapshot?.actionableFeedback).toHaveLength(0);
+    expect(snapshot.actionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(0);
+    expect(snapshot.unresolvedThreadIds).toEqual([]);
+    expect(snapshot.requiredReviewerState).toBe("satisfied");
+  });
+
   it("does not surface a passing devin review as actionable feedback when unresolved threads already require rework", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",

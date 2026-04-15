@@ -1592,6 +1592,47 @@ describe("GitHubTracker", () => {
     expect(lifecycle.summary).toMatch(/awaiting an explicit \/land command/i);
   });
 
+  it("ignores informational Devin review threads for the explicit reviewer-app adapter", async () => {
+    const tracker = createTracker(
+      server,
+      undefined,
+      [],
+      [{ key: "devin", accepted: true, required: true }],
+    );
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+      { name: "Devin Review", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReview({
+      head: "symphony/7",
+      authorLogin: "devin-ai-integration[bot]",
+      body: "## ✅ Devin Review: No Issues Found",
+      submittedAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+    server.addPullRequestReviewThread({
+      head: "symphony/7",
+      authorLogin: "devin-ai-integration[bot]",
+      body: `<!-- devin-review-comment {"id":"thread-1"} -->
+
+📝 **Info: Default draft: false when mergeability details are unavailable**`,
+      path: "src/tracker/pull-request-snapshot.ts",
+      line: 236,
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("awaiting-landing-command");
+    expect(lifecycle.actionableReviewFeedback).toHaveLength(0);
+    expect(lifecycle.summary).toMatch(/awaiting an explicit \/land command/i);
+  });
+
   it("waits for required approved bot review before allowing landing", async () => {
     const tracker = createTracker(server, undefined, ["greptile[bot]"]);
 
