@@ -15,10 +15,7 @@ import type {
   GitHubPullRequestResponse,
   PullRequestReviewState,
 } from "./github-client.js";
-import {
-  createGitHubLoginSet,
-  normalizeGitHubLogin,
-} from "./github-login.js";
+import { createGitHubLoginSet, normalizeGitHubLogin } from "./github-login.js";
 import { parseLandingCommandSignal } from "./landing-command-signal.js";
 import {
   createReviewerAppSnapshots,

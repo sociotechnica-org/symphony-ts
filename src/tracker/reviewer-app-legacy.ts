@@ -1,10 +1,7 @@
 import type { ReviewFeedback } from "../domain/pull-request.js";
 import type { ReviewerAppSnapshot } from "./reviewer-app-types.js";
 import type { PullRequestCheck } from "../domain/pull-request.js";
-import {
-  createGitHubLoginSet,
-  normalizeGitHubLogin,
-} from "./github-login.js";
+import { createGitHubLoginSet, normalizeGitHubLogin } from "./github-login.js";
 
 const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
   cursorSummary: "<!-- CURSOR_SUMMARY -->",
@@ -199,13 +196,13 @@ export function createLegacyReviewerAppSnapshot(input: {
     ...new Set([
       ...input.currentHeadIssueComments
         .filter((comment) => {
-        const authorLogin = comment.authorLogin;
-        return (
-          typeof authorLogin === "string" &&
-          approvedReviewBotLogins.has(normalizeGitHubLogin(authorLogin)) &&
-          isQualifyingApprovedReviewBody(authorLogin, comment.body)
-        );
-      })
+          const authorLogin = comment.authorLogin;
+          return (
+            typeof authorLogin === "string" &&
+            approvedReviewBotLogins.has(normalizeGitHubLogin(authorLogin)) &&
+            isQualifyingApprovedReviewBody(authorLogin, comment.body)
+          );
+        })
         .map((comment) => normalizeGitHubLogin(comment.authorLogin!)),
       ...input.currentHeadPullRequestReviews
         .filter((review) => {
