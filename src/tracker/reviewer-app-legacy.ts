@@ -2,6 +2,7 @@ import type { ReviewFeedback } from "../domain/pull-request.js";
 import type { ReviewerAppSnapshot } from "./reviewer-app-types.js";
 import type { PullRequestCheck } from "../domain/pull-request.js";
 import { createGitHubLoginSet, normalizeGitHubLogin } from "./github-login.js";
+import { parseDevinVerdict } from "./reviewer-app-devin.js";
 
 const NON_ACTIONABLE_BOT_COMMENT_MARKERS = {
   cursorSummary: "<!-- CURSOR_SUMMARY -->",
@@ -86,6 +87,38 @@ function isActionableAcceptedBotBody(
 ): boolean {
   const normalized = normalizeBotCommentBody(body);
   return normalized.length > 0 && !isNonActionableBotBody(authorLogin, body);
+}
+
+function parseKnownBotVerdict(
+  authorLogin: string,
+  body: string,
+): "pass" | "issues-found" | "unknown" {
+  switch (normalizeGitHubLogin(authorLogin)) {
+    case "devin-ai-integration":
+      return parseDevinVerdict(body);
+    default:
+      return "unknown";
+  }
+}
+
+function createPullRequestReviewFeedback(review: {
+  readonly id: string;
+  readonly authorLogin: string | null;
+  readonly body: string;
+  readonly submittedAt: string;
+  readonly url: string;
+}): ReviewFeedback {
+  return {
+    id: review.id,
+    kind: "pull-request-review",
+    threadId: null,
+    authorLogin: review.authorLogin,
+    body: review.body,
+    createdAt: review.submittedAt,
+    url: review.url,
+    path: null,
+    line: null,
+  };
 }
 
 function observedApprovedReviewBotLoginsFromChecks(
@@ -191,6 +224,16 @@ export function createLegacyReviewerAppSnapshot(input: {
         path: null,
         line: null,
       })),
+    ...input.currentHeadPullRequestReviews
+      .filter((review) => {
+        const authorLogin = review.authorLogin;
+        return (
+          typeof authorLogin === "string" &&
+          acceptedBotLogins.has(normalizeGitHubLogin(authorLogin)) &&
+          parseKnownBotVerdict(authorLogin, review.body) === "issues-found"
+        );
+      })
+      .map(createPullRequestReviewFeedback),
   ];
   const observedApprovedReviewBotLogins = [
     ...new Set([

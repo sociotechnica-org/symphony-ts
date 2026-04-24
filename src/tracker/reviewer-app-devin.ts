@@ -31,13 +31,17 @@ function isInformationalDevinBody(body: string): boolean {
   return DEVIN_INFORMATIONAL_HEADING.test(normalizeDevinBody(body));
 }
 
-function parseDevinVerdict(body: string): "pass" | "issues-found" | "unknown" {
-  if (/devin review:?\s*no issues found/i.test(body)) {
+export function parseDevinVerdict(
+  body: string,
+): "pass" | "issues-found" | "unknown" {
+  if (/\bdevin review\b[\s\S]*?\bno issues found\b/i.test(body)) {
     return "pass";
   }
   if (
-    /devin review:?.*found\s+\d+\s+potential issues/i.test(body) ||
-    /devin review:?.*issues found/i.test(body)
+    /\bdevin review\b[\s\S]*?\bfound\s+\d+\s+(?:new\s+)?potential\s+issues?\b/i.test(
+      body,
+    ) ||
+    /\bdevin review\b[\s\S]*?\bissues found\b/i.test(body)
   ) {
     return "issues-found";
   }

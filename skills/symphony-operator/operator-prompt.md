@@ -30,7 +30,7 @@ Repository and policy rules:
 - If `SYMPHONY_OPERATOR_SELECTED_INSTANCE_ROOT` differs from `SYMPHONY_OPERATOR_REPO_ROOT`, read that selected repository's `WORKFLOW.md`, `AGENTS.md`, `README.md`, `OPERATOR.md`, and relevant docs when they exist. Do not apply `symphony-ts` planning standards to an external repository unless its own checked-in instructions say to.
 - If `SYMPHONY_OPERATOR_WORKFLOW_PATH` is set, use it when calling Symphony factory-control commands for the selected instance.
 - Before posting a plan-review decision, inspect the selected workflow's `tracker.plan_review` config and use its configured decision markers.
-- Before posting `/land`, respect the release checkpoint and only land work when CI is green, review is clean, and the usual landing guard conditions are satisfied.
+- Before posting `/land`, respect the release checkpoint and only land work when CI is green, review is clean, the usual landing guard conditions are satisfied, and a bounded GitHub PR check finds no current-head top-level reviewer-app review or comment summary that says issues, findings, or potential issues were found.
 
 Operational constraints:
 

@@ -273,6 +273,60 @@ describe("createPullRequestSnapshot", () => {
     });
   });
 
+  it("recognizes current-head Devin PR review findings with singular new-issue wording", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [
+            {
+              id: "review-1",
+              author: { login: "devin-ai-integration" },
+              body: "**Devin Review** found 1 new potential issue.\n\nView 6 additional findings in Devin Review.",
+              submittedAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#review-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewerApps: devinReviewerApps,
+      reviewBotLogins: [],
+    });
+
+    expect(snapshot.reviewerVerdict).toBe("blocking-issues-found");
+    expect(snapshot.reviewerApps[0]).toMatchObject({
+      reviewerKey: "devin",
+      accepted: true,
+      required: true,
+      coverage: "observed",
+      status: "completed",
+      verdict: "issues-found",
+    });
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.botActionableReviewFeedback[0]).toMatchObject({
+      id: "review-1",
+      kind: "pull-request-review",
+      authorLogin: "devin-ai-integration",
+    });
+  });
+
   it("records required approved bot review presence from a clean summary comment", () => {
     const snapshot = createPullRequestSnapshot({
       branchName: "symphony/19",
@@ -559,6 +613,64 @@ describe("createPullRequestSnapshot", () => {
 
     expect(snapshot.requiredReviewerState).toBe("satisfied");
     expect(snapshot.observedReviewerKeys).toEqual(["legacy-bot-review"]);
+  });
+
+  it("treats legacy approved Devin PR review findings as actionable feedback", () => {
+    const snapshot = createPullRequestSnapshot({
+      branchName: "symphony/19",
+      pullRequest,
+      checks: [successfulDevinCheck],
+      reviewState: {
+        commits: {
+          nodes: [
+            {
+              commit: {
+                committedDate: "2026-03-06T00:00:00.000Z",
+              },
+            },
+          ],
+        },
+        comments: {
+          nodes: [],
+        },
+        reviews: {
+          nodes: [
+            {
+              id: "review-1",
+              author: { login: "devin-ai-integration" },
+              body: "**Devin Review** found 1 new potential issue.\n\nView 6 additional findings in Devin Review.",
+              submittedAt: "2026-03-06T01:00:00.000Z",
+              url: "https://example.test/pr/24#review-1",
+            },
+          ],
+        },
+        reviewThreads: {
+          nodes: [],
+        },
+      },
+      reviewBotLogins: ["devin-ai-integration"],
+      approvedReviewBotLogins: ["devin-ai-integration"],
+    });
+
+    const legacySnapshot = snapshot.reviewerApps.find(
+      (reviewer) => reviewer.reviewerKey === "legacy-bot-review",
+    );
+
+    expect(snapshot.reviewerVerdict).toBe("blocking-issues-found");
+    expect(legacySnapshot).toMatchObject({
+      reviewerKey: "legacy-bot-review",
+      accepted: true,
+      required: true,
+      coverage: "observed",
+      status: "completed",
+      verdict: "issues-found",
+    });
+    expect(snapshot.botActionableReviewFeedback).toHaveLength(1);
+    expect(snapshot.botActionableReviewFeedback[0]).toMatchObject({
+      id: "review-1",
+      kind: "pull-request-review",
+      authorLogin: "devin-ai-integration",
+    });
   });
 
   it("ignores informational Devin review threads for legacy approved bot review", () => {

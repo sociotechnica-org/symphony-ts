@@ -1748,6 +1748,44 @@ describe("GitHubTracker", () => {
     });
   });
 
+  it("treats legacy Devin approved-review findings as rework-required", async () => {
+    const tracker = createTracker(server, undefined, ["devin-ai-integration"]);
+
+    await server.recordPullRequest({
+      title: "PR for issue 7",
+      body: "",
+      head: "symphony/7",
+      base: "main",
+    });
+    server.setPullRequestCheckRuns("symphony/7", [
+      { name: "CI", status: "completed", conclusion: "success" },
+      { name: "Devin Review", status: "completed", conclusion: "success" },
+    ]);
+    server.addPullRequestReview({
+      head: "symphony/7",
+      authorLogin: "devin-ai-integration",
+      body: "**Devin Review** found 1 new potential issue.\n\nView 6 additional findings in Devin Review.",
+      submittedAt: new Date(Date.now() + 1_000).toISOString(),
+    });
+
+    const lifecycle = await tracker.inspectIssueHandoff("symphony/7");
+
+    expect(lifecycle.kind).toBe("rework-required");
+    expect(lifecycle.actionableReviewFeedback).toHaveLength(1);
+    expect(lifecycle.actionableReviewFeedback[0]).toMatchObject({
+      kind: "pull-request-review",
+      authorLogin: "devin-ai-integration",
+    });
+
+    const landing = await tracker.executeLanding(lifecycle.pullRequest!);
+
+    expect(landing).toMatchObject({
+      kind: "blocked",
+      reason: "actionable-review-feedback",
+      lifecycleKind: "rework-required",
+    });
+  });
+
   it("blocks guarded landing when required approved bot review is missing", async () => {
     const tracker = createTracker(server, undefined, ["greptile[bot]"]);
 
