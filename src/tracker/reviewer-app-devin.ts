@@ -31,19 +31,29 @@ function isInformationalDevinBody(body: string): boolean {
   return DEVIN_INFORMATIONAL_HEADING.test(normalizeDevinBody(body));
 }
 
+function devinReviewSummaryLines(body: string): string[] {
+  return body.split(/\r?\n/u).filter((line) => /\bdevin review\b/i.test(line));
+}
+
 export function parseDevinVerdict(
   body: string,
 ): "pass" | "issues-found" | "unknown" {
-  if (/\bdevin review\b[\s\S]*?\bno issues found\b/i.test(body)) {
-    return "pass";
+  const summaryLines = devinReviewSummaryLines(body);
+  if (summaryLines.length === 0) {
+    return "unknown";
   }
   if (
-    /\bdevin review\b[\s\S]*?\bfound\s+\d+\s+(?:new\s+)?potential\s+issues?\b/i.test(
-      body,
-    ) ||
-    /\bdevin review\b[\s\S]*?\bissues found\b/i.test(body)
+    summaryLines.some(
+      (line) =>
+        /\bfound\s+\d+\s+(?:new\s+)?potential\s+issues?\b/i.test(line) ||
+        (/\bissues found\b/i.test(line) &&
+          !/\bno\s+issues found\b/i.test(line)),
+    )
   ) {
     return "issues-found";
+  }
+  if (summaryLines.some((line) => /\bno\s+issues found\b/i.test(line))) {
+    return "pass";
   }
   return "unknown";
 }
